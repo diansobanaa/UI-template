@@ -106,6 +106,20 @@ function hydrate(): MockDb {
 
 export const db: MockDb = hydrate();
 
+export function restorePersistedDb(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as MockDb;
+    if (!parsed.complexes || !parsed.greenhouses) return;
+    parsed.observations ??= [];
+    Object.assign(db, parsed);
+    syncSeqFrom(db);
+    notify(); // semua page via useDbVersion() langsung re-render
+  } catch { /* storage korup — pakai seed */ }
+}
+
 export function persist(): void {
   if (typeof window === "undefined") return;
   try {
