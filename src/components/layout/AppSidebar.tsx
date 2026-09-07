@@ -22,9 +22,11 @@ import {
   Settings,
   ShoppingBasket,
   Sprout,
+  RotateCcw,
   Wrench,
 } from "lucide-react";
 import { complexService, greenhouseService } from "@/lib/services";
+import { resetMockDb } from "@/lib/store";
 
 interface NavLeaf {
   id: string;
@@ -90,7 +92,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "equipment", label: "Equipment", icon: Wrench },
     { id: "settings", label: "Settings", icon: Settings },
-    { id: "events", label: "Events & Logs", icon: ScrollText },
+    { id: "events", label: "Events & Logs", icon: ScrollText, href: "/events" },
   ];
 
   const isActive = (n: NavNode) => n.href && (pathname === n.href.split("?")[0]);
@@ -200,6 +202,19 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
       </nav>
 
       <div className="border-t border-white/5 px-2.5 py-3">
+        {!collapsed && (
+          <button
+            onClick={() => {
+              resetMockDb();
+              window.location.reload();
+            }}
+            title="Restore the demo data to its initial state"
+            className="mb-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200 focus:outline-none"
+          >
+            <RotateCcw className="h-[17px] w-[17px] shrink-0" />
+            <span>Reset Demo Data</span>
+          </button>
+        )}
         <button
           onClick={onToggleCollapse}
           title={collapsed ? "Expand menu" : "Collapse menu"}

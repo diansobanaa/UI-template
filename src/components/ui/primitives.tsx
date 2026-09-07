@@ -225,6 +225,13 @@ export function InfoNote({ children, className = "" }: { children: React.ReactNo
   );
 }
 
+/* --------------------------- Field error -------------------------- */
+
+export function FieldError({ children }: { children?: React.ReactNode }) {
+  if (!children) return null;
+  return <p className="mt-1 text-xs font-medium text-red-500">{children}</p>;
+}
+
 /* --------------------------- Progress ---------------------------- */
 
 export function Progress({

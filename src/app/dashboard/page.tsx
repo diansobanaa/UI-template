@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -35,9 +35,12 @@ import { MetricCard, SectionCard, ViewAllButton } from "@/components/ui/cards";
 import { Badge, Button, StatusBadge } from "@/components/ui/primitives";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { Progress } from "@/components/ui/primitives";
-import { complexService, eventService, greenhouseService, scheduleService } from "@/lib/services";
+import { complexService, eventService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
 import { MOCK_NOW, delta, lux, n } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/overlay";
 
 export default function ComplexDashboardPage() {
   return (
@@ -48,9 +51,52 @@ export default function ComplexDashboardPage() {
 }
 
 function ComplexDashboardContent() {
+  useDbVersion(); // re-render on any mock-store mutation
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
+
+  const [syncing, setSyncing] = useState(false);
+  const [estopOpen, setEstopOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [pumpBusy, setPumpBusy] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await fertigationService.syncEsp32(complex.id);
+      toast("ESP32 synchronized successfully", "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleEmergencyStop = async () => {
+    setStopping(true);
+    try {
+      await fertigationService.emergencyStop(complex.id);
+      toast("EMERGENCY STOP executed — all actuators off", "warning");
+      setEstopOpen(false);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  const handleWellPump = async (on: boolean) => {
+    setPumpBusy(true);
+    try {
+      await fertigationService.setWellPump(complex.id, on);
+      toast(on ? "Well pump ON — radar reports Dalam Pengisian" : "Well pump OFF", on ? "success" : "info");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setPumpBusy(false);
+    }
+  };
 
   const complexes = complexService.list();
   const complexId = params.get("complex") ?? complexes[0].id;
@@ -124,10 +170,11 @@ function ComplexDashboardContent() {
           <Esp32StatusPill esp32={complex.esp32} />
           <ConfigVersionPill version={complex.esp32.configVersion} />
           <SystemStatusPill status={complex.systemStatus} />
-          <Button variant="secondary" size="md" onClick={() => toast("ESP32 configuration synchronized", "success")}>
-            <RefreshCw className="h-4 w-4" /> Sync Config
+          <Button variant="secondary" size="md" onClick={handleSync} disabled={syncing}>
+            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Synchronizing…" : "Sync Config"}
           </Button>
-          <Button variant="secondary" size="md" onClick={() => toast("Emergency stop sent to ESP32", "warning")}>
+          <Button variant="secondary" size="md" onClick={() => setEstopOpen(true)}>
             <Zap className="h-4 w-4" /> Emergency Stop
           </Button>
         </div>
@@ -259,8 +306,13 @@ function ComplexDashboardContent() {
           iconTone="violet"
           action={<ViewAllButton onClick={() => router.push(`/schedule?complex=${complex.id}`)}>View All</ViewAllButton>}
         >
-          <div className="space-y-3">
-            {upcoming.slice(0, 5).map((u, i) => (
+          {upcoming.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+              No upcoming schedules for this complex.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {upcoming.slice(0, 5).map((u, i) => (
               <div key={i} className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
                   <Clock className="h-4.5 w-4.5" />
@@ -276,8 +328,9 @@ function ComplexDashboardContent() {
                 </div>
                 <StatusBadge status={u.time === "Running" ? "running" : "scheduled"} />
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
 
         {/* Recent events */}
@@ -285,7 +338,7 @@ function ComplexDashboardContent() {
           title="Recent Events"
           icon={ScrollText}
           iconTone="slate"
-          action={<ViewAllButton>View All</ViewAllButton>}
+          action={<ViewAllButton onClick={() => router.push("/events")}>View All</ViewAllButton>}
         >
           <div className="space-y-3">
             {events.length === 0 && <p className="text-sm text-slate-400">No recent events for this complex.</p>}
@@ -319,7 +372,7 @@ function ComplexDashboardContent() {
             <div className="rounded-xl border border-[--color-line] bg-slate-50/60 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-800">Raw Water Tank</span>
-                <Badge tone="gray">Radar: {complex.water.rawTankPct >= 70 ? "Penuh" : "Dalam Pengisian"}</Badge>
+                <Badge tone="gray">Radar: {scheduleService.wellPumpForComplex(complex.id)[0]?.radar === "full" ? "Penuh" : "Dalam Pengisian"}</Badge>
               </div>
               <div className="flex items-end gap-2">
                 <span className="text-3xl font-bold text-slate-900">{complex.water.rawTankPct}%</span>
@@ -383,7 +436,7 @@ function ComplexDashboardContent() {
               <Button
                 variant="secondary"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => toast("Manual fertigation started", "success")}
+                onClick={() => router.push(`/fertigation?complex=${complex.id}`)}
               >
                 <Droplets className="h-5 w-5 text-blue-500" />
                 <span className="text-xs">Manual Fertigation</span>
@@ -391,23 +444,25 @@ function ComplexDashboardContent() {
               <Button
                 variant="secondary"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => toast("Well pump turned ON", "info")}
+                disabled={pumpBusy}
+                onClick={() => handleWellPump(!complex.water.wellPumpOn)}
               >
                 <Waves className="h-5 w-5 text-sky-500" />
-                <span className="text-xs">Well Pump ON</span>
+                <span className="text-xs">{pumpBusy ? "Sending…" : complex.water.wellPumpOn ? "Well Pump OFF" : "Well Pump ON"}</span>
               </Button>
               <Button
                 variant="secondary"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => toast("Sync hardware requested", "info")}
+                disabled={syncing}
+                onClick={handleSync}
               >
-                <RefreshCw className="h-5 w-5 text-emerald-500" />
-                <span className="text-xs">Sync Hardware</span>
+                <RefreshCw className={`h-5 w-5 text-emerald-500 ${syncing ? "animate-spin" : ""}`} />
+                <span className="text-xs">{syncing ? "Syncing…" : "Sync Hardware"}</span>
               </Button>
               <Button
                 variant="secondary"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => toast("Emergency stop sent", "warning")}
+                onClick={() => setEstopOpen(true)}
               >
                 <Zap className="h-5 w-5 text-red-500" />
                 <span className="text-xs">Emergency Stop</span>
@@ -428,6 +483,16 @@ function ComplexDashboardContent() {
         <Leaf className="h-3.5 w-3.5" />
         AgroTech Greenhouse Monitoring System • © 2026
       </div>
+
+      <ConfirmDialog
+        open={estopOpen}
+        onClose={() => { if (!stopping) setEstopOpen(false); }}
+        onConfirm={handleEmergencyStop}
+        title="Emergency Stop"
+        message={`Stop all pumps and close all valves in ${complex.code} immediately? This affects physical equipment. The system will stay in a safe state until manually resumed.`}
+        confirmLabel={stopping ? "Stopping…" : "Stop Everything"}
+        danger
+      />
     </AppShell>
   );
 }

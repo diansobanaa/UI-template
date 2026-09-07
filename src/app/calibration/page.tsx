@@ -25,6 +25,8 @@ import { Badge, Button, InfoNote, Input, Label, Progress, StatusBadge } from "@/
 import { ConfirmDialog } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
 import { calibrationService, complexService, greenhouseService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
 import type { CalibrationDevice } from "@/lib/types";
 
 const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -69,6 +71,8 @@ function CalibrationContent() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [readValue, setReadValue] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  useDbVersion();
 
   const categories = calibrationService.categories();
   const devices = calibrationService.devicesForCategory(category).filter((d) => !d.ghId || d.ghId === gh.id || d.ghId === null || category === "all" || true);
@@ -282,12 +286,17 @@ function CalibrationContent() {
 
       <ConfirmDialog
         open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={() => {
-          if (device) {
-            calibrationService.startCalibration(device, device.reading, readValue || device.reading);
+        onClose={() => { if (!calibrating) setConfirmOpen(false); }}
+        onConfirm={async () => {
+          if (!device) return;
+          setCalibrating(true);
+          try {
+            await calibrationService.startCalibration(device, device.reading, readValue || device.reading);
             toast(`Calibration for ${device.name.replace(/\s*\(.*\)$/, "")} saved`, "success");
-            router.refresh();
+          } catch (e) {
+            toast(errorMessage(e), "error");
+          } finally {
+            setCalibrating(false);
           }
         }}
         title="Start calibration"
@@ -296,7 +305,7 @@ function CalibrationContent() {
             ? `Run a calibration cycle on ${device.name}? This is a physical operation — the device will be actuated during sampling.`
             : ""
         }
-        confirmLabel="Start Calibration"
+        confirmLabel={calibrating ? "Calibrating…" : "Start Calibration"}
       />
     </AppShell>
   );

@@ -18,6 +18,7 @@ import {
   Sprout,
   Sun,
   Thermometer,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Waves,
@@ -26,12 +27,15 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionCard, ViewAllButton } from "@/components/ui/cards";
-import { Badge, Button, Input, Label, Progress, StatusBadge, Textarea } from "@/components/ui/primitives";
+import { Badge, Button, FieldError, Input, Label, Progress, StatusBadge, Textarea } from "@/components/ui/primitives";
 import { AreaChart, DualLineChart, Donut } from "@/components/ui/charts";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
+import { number, required } from "@/lib/validation";
 import { environmentMetrics, fruitDevFor } from "@/lib/data/environment";
 import { delta, lux, n } from "@/lib/format";
 import type { RangeId } from "./range-types";
@@ -59,9 +63,26 @@ export default function GreenhousePage() {
 }
 
 function GreenhouseContent() {
+  useDbVersion(); // re-render on any mock-store mutation
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
+
+  const [estopOpen, setEstopOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+
+  const handleEmergencyStop = async () => {
+    setStopping(true);
+    try {
+      await fertigationService.emergencyStop(complex.id);
+      toast(`Emergency stop executed for ${gh.code}`, "warning");
+      setEstopOpen(false);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setStopping(false);
+    }
+  };
 
   const complexes = complexService.list();
   const complexId = params.get("complex") ?? complexes[0].id;
@@ -80,6 +101,8 @@ function GreenhouseContent() {
   const [range, setRange] = useState<RangeId>("24H");
   const [metric, setMetric] = useState<(typeof METRIC_TABS)[number]["id"]>("temperature");
   const [obsOpen, setObsOpen] = useState(false);
+  const [obsDeleteTarget, setObsDeleteTarget] = useState<{ id: string; plantId: string } | null>(null);
+  const [obsDeleting, setObsDeleting] = useState(false);
 
   const metrics = useMemo(() => environmentMetrics(gh), [gh]);
   const active = metrics.find((m) => m.id === metric)!;
@@ -87,6 +110,21 @@ function GreenhouseContent() {
 
   const nextSchedule = gh.fertigationSchedules.find((s) => s.status === "scheduled");
   const fruitSeries = fruitDevFor(gh);
+  const observations = fertigationService.observationsForGh(gh.id);
+
+  const handleDeleteObservation = async () => {
+    if (!obsDeleteTarget) return;
+    setObsDeleting(true);
+    try {
+      await fertigationService.deleteObservation(obsDeleteTarget.id);
+      toast(`Observation for ${obsDeleteTarget.plantId} deleted`, "info");
+      setObsDeleteTarget(null);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setObsDeleting(false);
+    }
+  };
 
   const tempDeltaClass = (gh.telemetry.tempDeltaC ?? 0) >= 0 ? "text-red-500" : "text-blue-500";
   const TempTrendIcon = (gh.telemetry.tempDeltaC ?? 0) >= 0 ? TrendingUp : TrendingDown;
@@ -124,7 +162,7 @@ function GreenhouseContent() {
             <Button variant="secondary" onClick={() => router.push(`/fertigation?complex=${complex.id}`)}>
               <Droplets className="h-4 w-4" /> Fertigation
             </Button>
-            <Button variant="danger" onClick={() => toast("Emergency stop sent to GH " + gh.code, "warning")}>
+            <Button variant="danger" onClick={() => setEstopOpen(true)}>
               Emergency Stop
             </Button>
             <div className="flex items-center gap-2">
@@ -324,6 +362,26 @@ function GreenhouseContent() {
             Last observation: <span className="font-semibold">{gh.plants.latestObservation}</span> — plant height avg{" "}
             {gh.plants.avgHeightCm} cm.
           </div>
+          {observations.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Recent Observations</div>
+              {observations.slice(0, 3).map((o) => (
+                <div key={o.id} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-2.5 py-2 text-xs">
+                  <span className="font-semibold text-slate-700">{o.plantId}</span>
+                  <span className="text-slate-500">{o.heightCm} cm • {o.leafCount} leaves • {o.fruitCount} fruits</span>
+                  <span className="ml-auto text-slate-400">{o.at}</span>
+                  <button
+                    aria-label="Delete observation"
+                    title="Delete observation"
+                    onClick={() => setObsDeleteTarget(o)}
+                    className="cursor-pointer text-slate-300 transition hover:text-red-500"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
       </div>
 
@@ -426,26 +484,32 @@ function GreenhouseContent() {
           iconTone="blue"
           action={<ViewAllButton onClick={() => router.push(`/schedule?complex=${complex.id}&gh=${gh.id}`)}>View All</ViewAllButton>}
         >
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="pb-2 font-medium">Time</th>
-                <th className="pb-2 font-medium">Recipe</th>
-                <th className="pb-2 font-medium">Duration</th>
-                <th className="pb-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gh.fertigationSchedules.map((s) => (
-                <tr key={s.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2.5 font-semibold text-slate-800">{s.time}</td>
-                  <td className="py-2.5 text-slate-600">{gh.recipes.find((r) => r.id === s.recipeId)?.name ?? "–"}</td>
-                  <td className="py-2.5 text-slate-600">~23 min</td>
-                  <td className="py-2.5"><StatusBadge status={s.status} /></td>
+          {gh.fertigationSchedules.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+              No fertigation schedules configured for this greenhouse.
+            </p>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                  <th className="pb-2 font-medium">Time</th>
+                  <th className="pb-2 font-medium">Recipe</th>
+                  <th className="pb-2 font-medium">Duration</th>
+                  <th className="pb-2 font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {gh.fertigationSchedules.map((s) => (
+                  <tr key={s.id} className="border-b border-slate-50 last:border-0">
+                    <td className="py-2.5 font-semibold text-slate-800">{s.time}</td>
+                    <td className="py-2.5 text-slate-600">{gh.recipes.find((r) => r.id === s.recipeId)?.name ?? "–"}</td>
+                    <td className="py-2.5 text-slate-600">~23 min</td>
+                    <td className="py-2.5"><StatusBadge status={s.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -454,28 +518,34 @@ function GreenhouseContent() {
           iconTone="slate"
           action={<ViewAllButton onClick={() => router.push(`/fertigation?complex=${complex.id}`)}>View All</ViewAllButton>}
         >
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="pb-2 font-medium">Date & Time</th>
-                <th className="pb-2 font-medium">Recipe</th>
-                <th className="pb-2 font-medium">Water</th>
-                <th className="pb-2 font-medium">Dosing</th>
-                <th className="pb-2 font-medium">Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gh.history.map((h) => (
-                <tr key={h.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2.5 font-medium text-slate-800">{h.date} {h.time}</td>
-                  <td className="py-2.5 text-slate-600">{h.recipeName}</td>
-                  <td className="py-2.5 text-slate-600">{h.waterL} L</td>
-                  <td className="py-2.5 text-slate-600">A {h.dosingAml} / B {h.dosingBml} ml</td>
-                  <td className="py-2.5"><StatusBadge status={h.result} /></td>
+          {gh.history.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+              No fertigation history recorded yet for this greenhouse.
+            </p>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                  <th className="pb-2 font-medium">Date & Time</th>
+                  <th className="pb-2 font-medium">Recipe</th>
+                  <th className="pb-2 font-medium">Water</th>
+                  <th className="pb-2 font-medium">Dosing</th>
+                  <th className="pb-2 font-medium">Result</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {gh.history.map((h) => (
+                  <tr key={h.id} className="border-b border-slate-50 last:border-0">
+                    <td className="py-2.5 font-medium text-slate-800">{h.date} {h.time}</td>
+                    <td className="py-2.5 text-slate-600">{h.recipeName}</td>
+                    <td className="py-2.5 text-slate-600">{h.waterL} L</td>
+                    <td className="py-2.5 text-slate-600">A {h.dosingAml} / B {h.dosingBml} ml</td>
+                    <td className="py-2.5"><StatusBadge status={h.result} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </SectionCard>
       </div>
 
@@ -548,10 +618,30 @@ function GreenhouseContent() {
         open={obsOpen}
         onClose={() => setObsOpen(false)}
         ghCode={gh.code}
-        onSubmit={(draft) => {
-          fertigationService.addObservation(gh.id, { ...draft, ghId: gh.id });
+        onSubmit={async (draft) => {
+          await fertigationService.addObservation(gh.id, { ...draft, ghId: gh.id });
           toast(`Observation for ${draft.plantId} saved`, "success");
         }}
+      />
+
+      <ConfirmDialog
+        open={estopOpen}
+        onClose={() => { if (!stopping) setEstopOpen(false); }}
+        onConfirm={handleEmergencyStop}
+        title="Emergency Stop"
+        message={`Stop all pumps and close all valves for ${gh.code} (${complex.code})? This affects physical equipment. The system will stay in a safe state until manually resumed.`}
+        confirmLabel={stopping ? "Stopping…" : "Stop Everything"}
+        danger
+      />
+
+      <ConfirmDialog
+        open={obsDeleteTarget !== null}
+        onClose={() => setObsDeleteTarget(null)}
+        onConfirm={handleDeleteObservation}
+        title="Delete observation"
+        message={`Are you sure you want to delete the observation for plant ${obsDeleteTarget?.plantId}? This cannot be undone.`}
+        confirmLabel={obsDeleting ? "Deleting…" : "Delete"}
+        danger
       />
     </AppShell>
   );
@@ -566,7 +656,7 @@ function ObservationModal({
   open: boolean;
   onClose: () => void;
   ghCode: string;
-  onSubmit: (draft: { plantId: string; heightCm: number; leafCount: number; fruitCount: number; notes: string }) => void;
+  onSubmit: (draft: { plantId: string; heightCm: number; leafCount: number; fruitCount: number; notes: string }) => Promise<void>;
 }) {
   const [plantId, setPlantId] = useState("B1N4.1");
   const [height, setHeight] = useState("85");
@@ -574,18 +664,38 @@ function ObservationModal({
   const [fruits, setFruits] = useState("4");
   const [notes, setNotes] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+
+  const validate = () => {
+    const errs: Record<string, string | null> = {
+      plantId: required(plantId, "Plant ID"),
+      height: number(height, { label: "Height", positive: true }),
+      leaves: number(leaves, { label: "Leaf count", min: 0 }),
+      fruits: number(fruits, { label: "Fruit count", min: 0 }),
+    };
+    setErrors(errs);
+    return !Object.values(errs).some(Boolean);
+  };
 
   return (
     <>
       <Modal
         open={open}
-        onClose={onClose}
+        onClose={() => { if (!saving) onClose(); }}
         title={`Add Observation — ${ghCode}`}
         width={520}
         footer={
           <>
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => setConfirmOpen(true)}>Save Observation</Button>
+            <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (validate()) setConfirmOpen(true);
+              }}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save Observation"}
+            </Button>
           </>
         }
       >
@@ -593,18 +703,22 @@ function ObservationModal({
           <div className="col-span-2">
             <Label required>Plant ID</Label>
             <Input value={plantId} onChange={(e) => setPlantId(e.target.value)} placeholder="B1N4.1" />
+            <FieldError>{errors.plantId}</FieldError>
           </div>
           <div>
             <Label required>Height (cm)</Label>
             <Input type="number" value={height} onChange={(e) => setHeight(e.target.value)} />
+            <FieldError>{errors.height}</FieldError>
           </div>
           <div>
             <Label required>Leaf Count</Label>
             <Input type="number" value={leaves} onChange={(e) => setLeaves(e.target.value)} />
+            <FieldError>{errors.leaves}</FieldError>
           </div>
           <div>
             <Label required>Fruit Count</Label>
             <Input type="number" value={fruits} onChange={(e) => setFruits(e.target.value)} />
+            <FieldError>{errors.fruits}</FieldError>
           </div>
           <div className="col-span-2">
             <Label>Notes</Label>
@@ -615,9 +729,14 @@ function ObservationModal({
       <ConfirmDialog
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        onConfirm={() => {
-          onSubmit({ plantId, heightCm: Number(height) || 0, leafCount: Number(leaves) || 0, fruitCount: Number(fruits) || 0, notes });
-          onClose();
+        onConfirm={async () => {
+          setSaving(true);
+          try {
+            await onSubmit({ plantId: plantId.trim(), heightCm: Number(height) || 0, leafCount: Number(leaves) || 0, fruitCount: Number(fruits) || 0, notes });
+            onClose();
+          } finally {
+            setSaving(false);
+          }
         }}
         title="Save observation"
         message={`Record a new observation for plant ${plantId}?`}

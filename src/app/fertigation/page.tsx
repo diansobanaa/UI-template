@@ -19,10 +19,13 @@ import {
 import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
 import { SectionCard } from "@/components/ui/cards";
-import { Badge, Button, Input, Label, Progress, RadioCard, Select, StatusBadge } from "@/components/ui/primitives";
+import { Badge, Button, FieldError, Input, Label, Progress, RadioCard, Select, StatusBadge } from "@/components/ui/primitives";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
+import { number } from "@/lib/validation";
 import { n } from "@/lib/format";
 
 const STEP_ICONS = { done: "✓", active: "●", pending: "○" } as const;
@@ -36,6 +39,7 @@ export default function FertigationPage() {
 }
 
 function FertigationContent() {
+  useDbVersion(); // live updates while a mock run advances through its lifecycle
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
@@ -51,6 +55,11 @@ function FertigationContent() {
   const [estopOpen, setEstopOpen] = useState(false);
   const [manualRecipe, setManualRecipe] = useState(gh.recipes[0]?.id ?? "");
   const [manualWater, setManualWater] = useState(String(gh.recipes[0]?.waterL ?? 80));
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [testingPump, setTestingPump] = useState<string | null>(null);
 
   const setGh = (id: string) => router.replace(`/fertigation?complex=${complex.id}&gh=${id}`, { scroll: false });
 
@@ -61,6 +70,64 @@ function FertigationContent() {
   const run = gh.currentRun;
 
   const currentOps = ghs.filter((g) => g.currentRun);
+  const complexHistory = history.filter((h) => ghs.some((g) => g.id === h.ghId));
+
+  /* ---------------------------- actions ---------------------------- */
+
+  const handleStartManual = async () => {
+    setManualError(null);
+    if (number(manualWater, { label: "Target water", positive: true })) {
+      setManualError("Target water must be greater than zero.");
+      return;
+    }
+    setStarting(true);
+    try {
+      await fertigationService.startManual(gh.id, manualRecipe, Number(manualWater));
+      setManualOpen(false);
+      toast("Manual fertigation started — command accepted by ESP32", "success");
+    } catch (e) {
+      setManualError(errorMessage(e));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleEmergencyStop = async () => {
+    setStopping(true);
+    try {
+      await fertigationService.emergencyStop(complex.id);
+      toast("EMERGENCY STOP executed — all actuators off", "warning");
+      setEstopOpen(false);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await fertigationService.syncEsp32(complex.id);
+      toast("ESP32 synchronized successfully", "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleTestPump = async (pumpId: string, pumpName: string) => {
+    setTestingPump(pumpId);
+    try {
+      await fertigationService.testPump(pumpId, pumpName);
+      toast(`${pumpName} test run (100 ml) completed`, "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setTestingPump(null);
+    }
+  };
 
   return (
     <AppShell complexId={complex.id}>
@@ -69,8 +136,9 @@ function FertigationContent() {
         <ComplexSwitcher complexId={complex.id} complexes={complexes} />
         <GreenhouseSwitcher complexId={complex.id} greenhouses={ghs} ghId={gh.id} onChange={setGh} />
         <div className="ml-auto flex items-center gap-2.5">
-          <Button variant="secondary" onClick={() => toast("Configuration synced to ESP32", "success")}>
-            <Settings2 className="h-4 w-4" /> Sync Configuration
+          <Button variant="secondary" onClick={handleSync} disabled={syncing}>
+            <Settings2 className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Synchronizing…" : "Sync Configuration"}
           </Button>
           <Button variant="danger" onClick={() => setEstopOpen(true)}>
             <ShieldAlert className="h-4 w-4" /> Emergency Stop
@@ -95,7 +163,12 @@ function FertigationContent() {
           action={<Badge tone="blue" pulse>{currentOps.length} running</Badge>}
         >
           {currentOps.length === 0 ? (
-            <p className="text-sm text-slate-400">No fertigation is currently running in this complex.</p>
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+              <p className="text-sm text-slate-400">No fertigation is currently running in this complex.</p>
+              <Button size="sm" variant="outline" className="mt-2.5" onClick={() => setManualOpen(true)}>
+                <PlayCircle className="h-3.5 w-3.5" /> Start Manual Fertigation
+              </Button>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {currentOps.map((g) => {
@@ -175,23 +248,29 @@ function FertigationContent() {
       {/* ---------------- Mixing queue + dosing pumps ---------------- */}
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard title="Mixing Queue" icon={ListOrdered} iconTone="violet" subtitle="Scheduled mixing batches">
-          <div className="space-y-2.5">
-            {queue.map((q, i) => {
-              const qGh = greenhouseService.get(q.ghId);
-              return (
-                <div key={i} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
-                    <Beaker className="h-4.5 w-4.5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-slate-800">{qGh?.code} — {q.recipeName}</div>
-                    <div className="text-xs text-slate-500">Scheduled {q.scheduledTime} • Target {q.targetWaterL} L</div>
+          {queue.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+              No mixing batches are queued.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {queue.map((q, i) => {
+                const qGh = greenhouseService.get(q.ghId);
+                return (
+                  <div key={i} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
+                      <Beaker className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-800">{qGh?.code} — {q.recipeName}</div>
+                      <div className="text-xs text-slate-500">Scheduled {q.scheduledTime} • Target {q.targetWaterL} L</div>
+                    </div>
+                    <StatusBadge status="pending" />
                   </div>
-                  <StatusBadge status="pending" />
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -201,23 +280,37 @@ function FertigationContent() {
           subtitle={`Last calibration: ${fertigationService.dosingLastCalibration()}`}
         >
           <div className="grid grid-cols-2 gap-3">
-            {pumps.map((p) => (
-              <div key={p.id} className="rounded-xl border border-[--color-line] bg-slate-50/60 p-3.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-800">{p.name}</span>
-                  <StatusBadge status={p.state === "Ready" ? "ready" : "off"} />
+            {pumps.map((p) => {
+              const testing = testingPump === p.id;
+              return (
+                <div key={p.id} className="rounded-xl border border-[--color-line] bg-slate-50/60 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-slate-800">{p.name}</span>
+                    <StatusBadge status={testing ? "running" : p.state === "Ready" ? "ready" : "off"} />
+                  </div>
+                  <div className="mt-1.5 text-xs text-slate-500">Flow rate: {p.rate}</div>
+                  <div className="mt-2.5 flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="flex-1"
+                      disabled={testing}
+                      onClick={() => handleTestPump(p.id, p.name)}
+                    >
+                      {testing ? "Running…" : "Test Run"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="flex-1"
+                      onClick={() => router.push(`/calibration?complex=${complex.id}`)}
+                    >
+                      Calibrate
+                    </Button>
+                  </div>
                 </div>
-                <div className="mt-1.5 text-xs text-slate-500">Flow rate: {p.rate}</div>
-                <div className="mt-2.5 flex gap-1">
-                  <Button size="sm" variant="secondary" className="flex-1" onClick={() => toast(`${p.name} test run (100 ml)`, "info")}>
-                    Test Run
-                  </Button>
-                  <Button size="sm" variant="secondary" className="flex-1" onClick={() => toast(`${p.name} calibration opened`, "info")}>
-                    Calibrate
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SectionCard>
       </div>
@@ -237,7 +330,7 @@ function FertigationContent() {
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
                 Run the active recipe for {gh.code} immediately. Use with care — this executes a physical fertigation.
               </p>
-              <Button className="mt-3" onClick={() => setManualOpen(true)}>
+              <Button className="mt-3" onClick={() => { setManualError(null); setManualOpen(true); }} disabled={Boolean(gh.currentRun)}>
                 <PlayCircle className="h-4 w-4" /> Start Manual Fertigation
               </Button>
             </div>
@@ -277,60 +370,65 @@ function FertigationContent() {
 
       {/* ---------------- History ---------------- */}
       <SectionCard title="Fertigation History" icon={History} iconTone="slate" subtitle="Recent runs in this complex">
-        <div className="scroll-thin overflow-x-auto">
-          <table className="w-full min-w-[760px] text-[13px]">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="pb-2.5 font-medium">GH</th>
-                <th className="pb-2.5 font-medium">Date & Time</th>
-                <th className="pb-2.5 font-medium">Recipe</th>
-                <th className="pb-2.5 font-medium">Water</th>
-                <th className="pb-2.5 font-medium">Dosing A</th>
-                <th className="pb-2.5 font-medium">Dosing B</th>
-                <th className="pb-2.5 font-medium">Duration</th>
-                <th className="pb-2.5 font-medium">Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((h) => (
-                <tr key={h.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-3 pr-3 font-semibold text-slate-800">{greenhouseService.get(h.ghId)?.code ?? "–"}</td>
-                  <td className="py-3 pr-3 text-slate-600">{h.date} {h.time}</td>
-                  <td className="py-3 pr-3 text-slate-600">{h.recipeName}</td>
-                  <td className="py-3 pr-3 text-slate-600">{n(h.waterL)} L</td>
-                  <td className="py-3 pr-3 text-slate-600">{n(h.dosingAml)} ml</td>
-                  <td className="py-3 pr-3 text-slate-600">{n(h.dosingBml)} ml</td>
-                  <td className="py-3 pr-3 text-slate-600">{h.durationMin ? `${h.durationMin} min` : "–"}</td>
-                  <td className="py-3"><StatusBadge status={h.result} /></td>
+        {complexHistory.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+            No fertigation runs recorded yet for this complex.
+          </p>
+        ) : (
+          <div className="scroll-thin overflow-x-auto">
+            <table className="w-full min-w-[760px] text-[13px]">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                  <th className="pb-2.5 font-medium">GH</th>
+                  <th className="pb-2.5 font-medium">Date & Time</th>
+                  <th className="pb-2.5 font-medium">Recipe</th>
+                  <th className="pb-2.5 font-medium">Water</th>
+                  <th className="pb-2.5 font-medium">Dosing A</th>
+                  <th className="pb-2.5 font-medium">Dosing B</th>
+                  <th className="pb-2.5 font-medium">Duration</th>
+                  <th className="pb-2.5 font-medium">Result</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {complexHistory.map((h) => (
+                  <tr key={h.id} className="border-b border-slate-50 last:border-0">
+                    <td className="py-3 pr-3 font-semibold text-slate-800">{greenhouseService.get(h.ghId)?.code ?? "–"}</td>
+                    <td className="py-3 pr-3 text-slate-600">{h.date} {h.time}</td>
+                    <td className="py-3 pr-3 text-slate-600">{h.recipeName}</td>
+                    <td className="py-3 pr-3 text-slate-600">{n(h.waterL)} L</td>
+                    <td className="py-3 pr-3 text-slate-600">{n(h.dosingAml)} ml</td>
+                    <td className="py-3 pr-3 text-slate-600">{n(h.dosingBml)} ml</td>
+                    <td className="py-3 pr-3 text-slate-600">{h.durationMin ? `${h.durationMin} min` : "–"}</td>
+                    <td className="py-3"><StatusBadge status={h.result} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </SectionCard>
 
       {/* ---------------- Manual modal ---------------- */}
       <Modal
         open={manualOpen}
-        onClose={() => setManualOpen(false)}
+        onClose={() => { if (!starting) setManualOpen(false); }}
         title={`Manual Fertigation — ${gh.code}`}
         width={520}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setManualOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => {
-                fertigationService.startManual(gh.id, manualRecipe, Number(manualWater) || 80);
-                setManualOpen(false);
-                toast("Manual fertigation started", "success");
-              }}
-            >
-              Start Fertigation
+            <Button variant="secondary" onClick={() => setManualOpen(false)} disabled={starting}>Cancel</Button>
+            <Button onClick={handleStartManual} disabled={starting}>
+              {starting ? "Starting…" : "Start Fertigation"}
             </Button>
           </>
         }
       >
         <div className="space-y-3.5">
+          {manualError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-600">
+              {manualError}
+            </div>
+          )}
           <div>
             <Label required>Recipe</Label>
             <Select
@@ -346,23 +444,22 @@ function FertigationContent() {
           <div>
             <Label required>Target Water</Label>
             <Input type="number" min={1} value={manualWater} onChange={(e) => setManualWater(e.target.value)} unit="L" />
+            <FieldError>{manualError?.includes("Target water") ? manualError : null}</FieldError>
           </div>
           <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
-            This command is executed by the ESP32 after local safety validation.
+            This command is executed by the ESP32 after local safety validation. Progress appears under Current
+            Operations once the command is accepted.
           </div>
         </div>
       </Modal>
 
       <ConfirmDialog
         open={estopOpen}
-        onClose={() => setEstopOpen(false)}
-        onConfirm={() => {
-          fertigationService.emergencyStop();
-          toast("EMERGENCY STOP sent — all actuators off", "error");
-        }}
+        onClose={() => { if (!stopping) setEstopOpen(false); }}
+        onConfirm={handleEmergencyStop}
         title="Emergency Stop"
-        message="Stop all pumps and close all valves immediately? The system will stay in a safe state until manually resumed."
-        confirmLabel="Stop Everything"
+        message="Stop all pumps and close all valves immediately? This affects physical equipment. The system will stay in a safe state until manually resumed."
+        confirmLabel={stopping ? "Stopping…" : "Stop Everything"}
         danger
       />
     </AppShell>

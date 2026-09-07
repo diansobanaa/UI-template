@@ -12,20 +12,24 @@ import {
   Pencil,
   Plus,
   Radar,
+  RefreshCw,
+  Search,
   Trash2,
   Waves,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
 import { SectionCard } from "@/components/ui/cards";
-import { Badge, Button, IconButton, StatusBadge, Toggle } from "@/components/ui/primitives";
+import { Badge, Button, IconButton, Input, Select, StatusBadge, Toggle } from "@/components/ui/primitives";
 import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
 import { ConfirmDialog } from "@/components/ui/overlay";
 import { AddFertigationDrawer } from "@/components/schedule/AddFertigationDrawer";
 import { AddWellPumpDrawer } from "@/components/schedule/AddWellPumpDrawer";
 import { AddFanScheduleDrawer } from "@/components/schedule/AddFanScheduleDrawer";
 import { useToast } from "@/components/ui/toast";
-import { complexService, greenhouseService, scheduleService } from "@/lib/services";
+import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
 import { MOCK_NOW } from "@/lib/format";
 import type { FanSchedule, FertigationSchedule, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
 
@@ -38,6 +42,7 @@ export default function SchedulePage() {
 }
 
 function ScheduleContent() {
+  useDbVersion(); // re-render on any mock-store mutation
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
@@ -52,14 +57,20 @@ function ScheduleContent() {
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
   const [fanOpen, setFanOpen] = useState(false);
+  const [editFert, setEditFert] = useState<FertigationSchedule | null>(null);
+  const [editPump, setEditPump] = useState<WellPumpSchedule | null>(null);
+  const [editFan, setEditFan] = useState<FanSchedule | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "fert" | "pump" | "fan"; id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const fertSchedules = scheduleService.fertigationForGh(gh.id);
   const wellPumps = scheduleService.wellPumpForComplex(complex.id);
   const fanSchedules = scheduleService.fanForGh(gh.id);
 
-  // Queue = pending mixing entries for this complex
-  const queue = scheduleService.fertigationForGh(gh.id).filter((s) => s.status === "scheduled");
+  // Queue = pending mixing entries for this GH
+  const queue = fertSchedules.filter((s) => s.status === "scheduled");
 
   const toTimelineStatus = (st: ScheduleStatus): TimelineEvent["status"] => {
     if (st === "completed") return "completed";
@@ -84,17 +95,84 @@ function ScheduleContent() {
 
   const setGh = (id: string) => router.replace(`/schedule?complex=${complex.id}&gh=${id}`, { scroll: false });
 
-  const handleCreateFert = (input: Omit<FertigationSchedule, "id">) => {
-    scheduleService.createFertigation(input);
-    toast(`Fertigation schedule "${input.name}" created`, "success");
+  /* ---------------------------- mutations ---------------------------- */
+
+  const handleFertSubmit = async (input: Omit<FertigationSchedule, "id">, initial: FertigationSchedule | null) => {
+    if (initial) {
+      await scheduleService.updateFertigation(initial.id, input);
+      toast(`Fertigation schedule "${input.name}" updated`, "success");
+    } else {
+      await scheduleService.createFertigation(input);
+      toast(`Fertigation schedule "${input.name}" created`, "success");
+    }
   };
-  const handleCreatePump = (input: Omit<WellPumpSchedule, "id">) => {
-    scheduleService.createWellPump(input);
-    toast(`Well pump schedule "${input.task}" created`, "success");
+
+  const handlePumpSubmit = async (input: Omit<WellPumpSchedule, "id">, initial: WellPumpSchedule | null) => {
+    if (initial) {
+      await scheduleService.updateWellPump(initial.id, input);
+      toast(`Well pump schedule "${input.task}" updated`, "success");
+    } else {
+      await scheduleService.createWellPump(input);
+      toast(`Well pump schedule "${input.task}" created`, "success");
+    }
   };
-  const handleCreateFan = (input: Omit<FanSchedule, "id">) => {
-    scheduleService.createFan(input);
-    toast("Fan schedule created", "success");
+
+  const handleFanSubmit = async (input: Omit<FanSchedule, "id">, initial: FanSchedule | null) => {
+    if (initial) {
+      await scheduleService.updateFan(initial.id, input);
+      toast("Fan schedule updated", "success");
+    } else {
+      await scheduleService.createFan(input);
+      toast("Fan schedule created", "success");
+    }
+  };
+
+  const handleToggle = async (
+    kind: "fert" | "pump" | "fan",
+    id: string,
+    v: boolean,
+    label: string
+  ) => {
+    setTogglingId(id);
+    try {
+      if (kind === "fert") await scheduleService.updateFertigation(id, { enabled: v, status: v ? "scheduled" : "disabled" });
+      if (kind === "pump") await scheduleService.updateWellPump(id, { enabled: v, status: v ? "scheduled" : "disabled" });
+      if (kind === "fan") await scheduleService.updateFan(id, { enabled: v, status: v ? "scheduled" : "disabled" });
+      toast(v ? `${label} enabled` : `${label} disabled`, v ? "success" : "info");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (deleteTarget.kind === "fert") await scheduleService.deleteFertigation(deleteTarget.id);
+      if (deleteTarget.kind === "pump") await scheduleService.deleteWellPump(deleteTarget.id);
+      if (deleteTarget.kind === "fan") await scheduleService.deleteFan(deleteTarget.id);
+      toast(`Schedule "${deleteTarget.name}" deleted`, "info");
+    } catch (e) {
+      // nothing was removed — the schedule stays in the table
+      toast(errorMessage(e), "error");
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await fertigationService.syncEsp32(complex.id);
+      toast("ESP32 synchronized successfully", "success");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const radarState: "filling" | "full" = wellPumps[0]?.radar ?? "filling";
@@ -155,7 +233,7 @@ function ScheduleContent() {
           iconTone="blue"
           subtitle="Greenhouse-level schedules"
           action={
-            <Button size="sm" onClick={() => setFertOpen(true)}>
+            <Button size="sm" onClick={() => { setEditFert(null); setFertOpen(true); }}>
               <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
             </Button>
           }
@@ -172,13 +250,12 @@ function ScheduleContent() {
               enabled: s.enabled,
               status: s.status,
             }))}
-            onToggle={(id, v) => {
-              scheduleService.updateFertigation(id, { enabled: v, status: v ? "scheduled" : "disabled" });
-              toast(v ? "Schedule enabled" : "Schedule disabled", v ? "success" : "info");
-              router.refresh();
-            }}
-            onEdit={(id) => toast("Edit schedule — full editor ships with the backend phase", "info")}
+            addLabel="Add Fertigation Schedule"
+            onAdd={() => { setEditFert(null); setFertOpen(true); }}
+            onToggle={(id, v) => handleToggle("fert", id, v, "Schedule")}
+            onEdit={(id) => { setEditFert(fertSchedules.find((s) => s.id === id) ?? null); setFertOpen(true); }}
             onDelete={(id, name) => setDeleteTarget({ kind: "fert", id, name })}
+            togglingId={togglingId}
           />
         </SectionCard>
       </div>
@@ -192,7 +269,7 @@ function ScheduleContent() {
             iconTone="sky"
             subtitle="Complex-level: fills the shared raw water tank"
             action={
-              <Button size="sm" variant="outline" onClick={() => setPumpOpen(true)}>
+              <Button size="sm" variant="outline" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
                 <Plus className="h-3.5 w-3.5" /> Add Well Pump Schedule
               </Button>
             }
@@ -210,13 +287,12 @@ function ScheduleContent() {
                 status: s.status,
               }))}
               accent="sky"
-              onToggle={(id, v) => {
-                scheduleService.updateWellPump(id, { enabled: v, status: v ? "scheduled" : "disabled" });
-                toast(v ? "Well pump schedule enabled" : "Well pump schedule disabled", v ? "success" : "info");
-                router.refresh();
-              }}
-              onEdit={(id) => toast("Edit schedule — full editor ships with the backend phase", "info")}
+              addLabel="Add Well Pump Schedule"
+              onAdd={() => { setEditPump(null); setPumpOpen(true); }}
+              onToggle={(id, v) => handleToggle("pump", id, v, "Well pump schedule")}
+              onEdit={(id) => { setEditPump(wellPumps.find((s) => s.id === id) ?? null); setPumpOpen(true); }}
               onDelete={(id, name) => setDeleteTarget({ kind: "pump", id, name })}
+              togglingId={togglingId}
             />
           </SectionCard>
         </div>
@@ -258,7 +334,7 @@ function ScheduleContent() {
           iconTone="green"
           subtitle="Greenhouse-level schedules"
           action={
-            <Button size="sm" variant="outline" onClick={() => setFanOpen(true)}>
+            <Button size="sm" variant="outline" onClick={() => { setEditFan(null); setFanOpen(true); }}>
               <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
             </Button>
           }
@@ -276,13 +352,12 @@ function ScheduleContent() {
               status: s.status,
             }))}
             accent="green"
-            onToggle={(id, v) => {
-              scheduleService.updateFan(id, { enabled: v, status: v ? "scheduled" : "disabled" });
-              toast(v ? "Fan schedule enabled" : "Fan schedule disabled", v ? "success" : "info");
-              router.refresh();
-            }}
-            onEdit={(id) => toast("Edit schedule — full editor ships with the backend phase", "info")}
+            addLabel="Add Fan Schedule"
+            onAdd={() => { setEditFan(null); setFanOpen(true); }}
+            onToggle={(id, v) => handleToggle("fan", id, v, "Fan schedule")}
+            onEdit={(id) => { setEditFan(fanSchedules.find((s) => s.id === id) ?? null); setFanOpen(true); }}
             onDelete={(id, name) => setDeleteTarget({ kind: "fan", id, name })}
+            togglingId={togglingId}
           />
         </SectionCard>
       </div>
@@ -291,7 +366,12 @@ function ScheduleContent() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
           {queue.length === 0 ? (
-            <p className="text-sm text-slate-400">No pending executions.</p>
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+              <p className="text-sm text-slate-400">No fertigation schedules configured.</p>
+              <Button size="sm" variant="outline" className="mt-2.5" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+                <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
+              </Button>
+            </div>
           ) : (
             <div className="space-y-2.5">
               {queue.map((s) => (
@@ -315,8 +395,9 @@ function ScheduleContent() {
           icon={MonitorCog}
           iconTone="slate"
           action={
-            <Button size="sm" variant="secondary" onClick={() => toast("Configuration synced to ESP32", "success")}>
-              Sync Now
+            <Button size="sm" variant="secondary" onClick={handleSync} disabled={syncing}>
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Synchronizing…" : "Sync Now"}
             </Button>
           }
         >
@@ -345,37 +426,33 @@ function ScheduleContent() {
         ghId={gh.id}
         ghCode={gh.code}
         recipes={gh.recipes}
-        onCreate={handleCreateFert}
+        initial={editFert}
+        onSubmit={handleFertSubmit}
       />
       <AddWellPumpDrawer
         open={pumpOpen}
         onClose={() => setPumpOpen(false)}
         complexId={complex.id}
         complexCode={complex.code}
-        onCreate={handleCreatePump}
+        initial={editPump}
+        onSubmit={handlePumpSubmit}
       />
       <AddFanScheduleDrawer
         open={fanOpen}
         onClose={() => setFanOpen(false)}
         ghId={gh.id}
         ghCode={gh.code}
-        onCreate={handleCreateFan}
+        initial={editFan}
+        onSubmit={handleFanSubmit}
       />
 
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (!deleteTarget) return;
-          if (deleteTarget.kind === "fert") scheduleService.deleteFertigation(deleteTarget.id);
-          if (deleteTarget.kind === "pump") scheduleService.deleteWellPump(deleteTarget.id);
-          if (deleteTarget.kind === "fan") scheduleService.deleteFan(deleteTarget.id);
-          toast(`Schedule "${deleteTarget.name}" deleted`, "info");
-          router.refresh();
-        }}
+        onConfirm={handleDelete}
         title="Delete schedule"
         message={`Are you sure you want to delete "${deleteTarget?.name}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
         danger
       />
     </AppShell>
@@ -399,66 +476,132 @@ interface Row {
 function ScheduleTable({
   rows,
   accent = "blue",
+  addLabel,
+  onAdd,
   onToggle,
   onEdit,
   onDelete,
+  togglingId,
 }: {
   rows: Row[];
   accent?: "blue" | "sky" | "green";
+  addLabel: string;
+  onAdd: () => void;
   onToggle: (id: string, v: boolean) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string, name: string) => void;
+  togglingId: string | null;
 }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+
+  const filtered = rows
+    .filter((r) => r.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter((r) => (statusFilter === "all" ? true : statusFilter === "enabled" ? r.enabled : !r.enabled))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
   return (
-    <div className="scroll-thin overflow-x-auto">
-      <table className="w-full min-w-[820px] text-[13px]">
-        <thead>
-          <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-            <th className="pb-2.5 font-medium">Task</th>
-            <th className="pb-2.5 font-medium">Time</th>
-            <th className="pb-2.5 font-medium">Repeat</th>
-            <th className="pb-2.5 font-medium">Last Run</th>
-            <th className="pb-2.5 font-medium">Next Run</th>
-            <th className="pb-2.5 font-medium">Status</th>
-            <th className="pb-2.5 font-medium">Enabled</th>
-            <th className="pb-2.5 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className={`border-b border-slate-50 last:border-0 ${r.enabled ? "" : "opacity-55"}`}>
-              <td className="py-3 pr-3">
-                <div className="font-semibold text-slate-800">{r.name}</div>
-                <div className="text-xs text-slate-500">{r.detail}</div>
-              </td>
-              <td className="py-3 pr-3">
-                <span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${
-                  accent === "sky" ? "bg-sky-50 text-sky-700" : accent === "green" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
-                }`}>
-                  <Clock className="h-3 w-3" /> {r.time}
-                </span>
-              </td>
-              <td className="py-3 pr-3 text-slate-600">{r.repeat}</td>
-              <td className="py-3 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
-              <td className="py-3 pr-3 text-slate-600">{r.nextRun ?? "–"}</td>
-              <td className="py-3 pr-3"><StatusBadge status={r.status} /></td>
-              <td className="py-3 pr-3">
-                <Toggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} />
-              </td>
-              <td className="py-3">
-                <div className="flex justify-end gap-0.5">
-                  <IconButton aria-label="Edit" title="Edit" onClick={() => onEdit(r.id)}>
-                    <Pencil className="h-4 w-4" />
-                  </IconButton>
-                  <IconButton aria-label="Delete" title="Delete" onClick={() => onDelete(r.id, r.name)}>
-                    <Trash2 className="h-4 w-4 text-red-400 hover:text-red-500" />
-                  </IconButton>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {/* search + status filter (spec #29) */}
+      {rows.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2.5">
+          <div className="relative w-56">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search schedules…"
+              className="pl-8.5"
+            />
+          </div>
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="w-40"
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "enabled", label: "Enabled" },
+              { value: "disabled", label: "Disabled" },
+            ]}
+          />
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+          <p className="text-sm text-slate-400">
+            {rows.length === 0 ? `No ${addLabel.toLowerCase().replace(/^add /, "").replace(/ schedule$/, "")} schedules configured.` : "No schedules match your search or filter."}
+          </p>
+          {rows.length === 0 ? (
+            <Button size="sm" variant="outline" className="mt-2.5" onClick={onAdd}>
+              <Plus className="h-3.5 w-3.5" /> {addLabel}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-2.5"
+              onClick={() => {
+                setQuery("");
+                setStatusFilter("all");
+              }}
+            >
+              Clear filters
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="scroll-thin overflow-x-auto">
+          <table className="w-full min-w-[820px] text-[13px]">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="pb-2.5 font-medium">Task</th>
+                <th className="pb-2.5 font-medium">Time</th>
+                <th className="pb-2.5 font-medium">Repeat</th>
+                <th className="pb-2.5 font-medium">Last Run</th>
+                <th className="pb-2.5 font-medium">Next Run</th>
+                <th className="pb-2.5 font-medium">Status</th>
+                <th className="pb-2.5 font-medium">Enabled</th>
+                <th className="pb-2.5 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.id} className={`border-b border-slate-50 last:border-0 ${r.enabled ? "" : "opacity-55"}`}>
+                  <td className="py-3 pr-3">
+                    <div className="font-semibold text-slate-800">{r.name}</div>
+                    <div className="text-xs text-slate-500">{r.detail}</div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${
+                      accent === "sky" ? "bg-sky-50 text-sky-700" : accent === "green" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
+                    }`}>
+                      <Clock className="h-3 w-3" /> {r.time}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-3 text-slate-600">{r.repeat}</td>
+                  <td className="py-3 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
+                  <td className="py-3 pr-3 text-slate-600">{r.nextRun ?? "–"}</td>
+                  <td className="py-3 pr-3"><StatusBadge status={r.status} /></td>
+                  <td className="py-3 pr-3">
+                    <Toggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} disabled={togglingId === r.id} />
+                  </td>
+                  <td className="py-3">
+                    <div className="flex justify-end gap-0.5">
+                      <IconButton aria-label="Edit" title="Edit" onClick={() => onEdit(r.id)}>
+                        <Pencil className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton aria-label="Delete" title="Delete" onClick={() => onDelete(r.id, r.name)}>
+                        <Trash2 className="h-4 w-4 text-red-400 hover:text-red-500" />
+                      </IconButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

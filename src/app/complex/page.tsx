@@ -16,10 +16,13 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { MetricCard, SectionCard } from "@/components/ui/cards";
-import { Badge, Button, Input, Label, StatusBadge } from "@/components/ui/primitives";
-import { Modal } from "@/components/ui/overlay";
+import { Badge, Button, FieldError, Input, Label, StatusBadge } from "@/components/ui/primitives";
+import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
 import { complexService, greenhouseService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { errorMessage } from "@/lib/errors";
+import { required } from "@/lib/validation";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 
 const CROP_OPTIONS = ["Tomato", "Cucumber", "Lettuce", "Spinach", "Strawberry", "Chili", "Bell Pepper", "Broccoli"];
@@ -33,6 +36,7 @@ export default function ComplexOverviewPage() {
 }
 
 function ComplexOverviewContent() {
+  useDbVersion();
   const params = useSearchParams();
   const router = useRouter();
   const toast = useToast();
@@ -47,9 +51,61 @@ function ComplexOverviewContent() {
 
   const [newLocation, setNewLocation] = useState("");
   const [newCrop, setNewCrop] = useState(CROP_OPTIONS[0]);
+  const [complexError, setComplexError] = useState<string | null>(null);
+  const [savingComplex, setSavingComplex] = useState(false);
+  const [ghError, setGhError] = useState<string | null>(null);
+  const [savingGh, setSavingGh] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState<"complex" | "gh" | null>(null);
 
   const totalGhs = complexes.reduce((a, c) => a + c.greenhouseIds.length, 0);
   const onlineEsp = complexes.filter((c) => c.esp32.online).length;
+
+  const closeAddComplex = () => {
+    if (savingComplex) return;
+    if (newLocation.trim()) setConfirmDiscard("complex");
+    else setAddComplexOpen(false);
+  };
+  const closeAddGh = () => {
+    if (savingGh) return;
+    setAddGhOpen(false);
+    setAddGhFor(null);
+    setGhError(null);
+  };
+
+  const handleCreateComplex = async () => {
+    setComplexError(null);
+    if (required(newLocation, "Location")) {
+      setComplexError("Location is required.");
+      return;
+    }
+    setSavingComplex(true);
+    try {
+      const created = await complexService.create(newLocation);
+      setAddComplexOpen(false);
+      setNewLocation("");
+      toast(`${created.code} created successfully`, "success");
+    } catch (e) {
+      setComplexError(errorMessage(e));
+    } finally {
+      setSavingComplex(false);
+    }
+  };
+
+  const handleCreateGh = async () => {
+    setGhError(null);
+    const target = addGhFor ?? complexes[0].id;
+    setSavingGh(true);
+    try {
+      const created = await greenhouseService.create(target, newCrop);
+      setAddGhOpen(false);
+      setAddGhFor(null);
+      toast(`${created.code} — ${created.crop} created successfully`, "success");
+    } catch (e) {
+      setGhError(errorMessage(e));
+    } finally {
+      setSavingGh(false);
+    }
+  };
 
   return (
     <AppShell complexId={complexes[0].id}>
@@ -59,7 +115,7 @@ function ComplexOverviewContent() {
           <p className="mt-0.5 text-[13px] text-slate-500">All greenhouse complexes in the ecosystem</p>
         </div>
         <div className="ml-auto">
-          <Button onClick={() => setAddComplexOpen(true)}>
+          <Button onClick={() => { setComplexError(null); setAddComplexOpen(true); }}>
             <Plus className="h-4 w-4" /> Add Complex
           </Button>
         </div>
@@ -89,7 +145,7 @@ function ComplexOverviewContent() {
               action={
                 <>
                   <StatusBadge status={c.systemStatus.toLowerCase()} />
-                  <Button size="sm" variant="outline" onClick={() => { setAddGhFor(c.id); setAddGhOpen(true); }}>
+                  <Button size="sm" variant="outline" onClick={() => { setAddGhFor(c.id); setGhError(null); setAddGhOpen(true); }}>
                     <Plus className="h-3.5 w-3.5" /> Add Greenhouse
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => router.push(`/dashboard?complex=${c.id}`)}>
@@ -150,10 +206,7 @@ function ComplexOverviewContent() {
 
                 {/* Add greenhouse tile */}
                 <button
-                  onClick={() => {
-                    setAddGhFor(c.id);
-                    setAddGhOpen(true);
-                  }}
+                  onClick={() => { setAddGhFor(c.id); setGhError(null); setAddGhOpen(true); }}
                   className="flex min-h-[190px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 text-slate-400 transition hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-500"
                 >
                   <Plus className="h-7 w-7" />
@@ -168,26 +221,23 @@ function ComplexOverviewContent() {
       {/* ---------------- Add Complex modal ---------------- */}
       <Modal
         open={addComplexOpen}
-        onClose={() => setAddComplexOpen(false)}
+        onClose={closeAddComplex}
         title="Add Complex"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setAddComplexOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => {
-                complexService.create(newLocation.trim() || "New Location");
-                setAddComplexOpen(false);
-                setNewLocation("");
-                toast("Complex created", "success");
-                router.refresh();
-              }}
-            >
-              Create Complex
+            <Button variant="secondary" onClick={closeAddComplex}>Cancel</Button>
+            <Button onClick={handleCreateComplex} disabled={savingComplex}>
+              {savingComplex ? "Creating…" : "Create Complex"}
             </Button>
           </>
         }
       >
         <div className="space-y-3.5">
+          {complexError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-600">
+              {complexError}
+            </div>
+          )}
           <div>
             <Label>Complex Name</Label>
             <Input value={`Complex ${String(complexes.length + 1).padStart(2, "0")}`} disabled />
@@ -195,6 +245,7 @@ function ComplexOverviewContent() {
           <div>
             <Label required>Location</Label>
             <Input value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="e.g. Lembang, Indonesia" />
+            <FieldError>{complexError?.includes("Location") ? complexError : null}</FieldError>
           </div>
           <div className="rounded-lg bg-blue-50/70 px-3 py-2.5 text-xs leading-relaxed text-blue-700">
             A complex is controlled by one ESP32. After creation, pair the controller and discover its hardware in the
@@ -206,38 +257,25 @@ function ComplexOverviewContent() {
       {/* ---------------- Add Greenhouse modal ---------------- */}
       <Modal
         open={addGhOpen}
-        onClose={() => {
-          setAddGhOpen(false);
-          setAddGhFor(null);
-        }}
+        onClose={closeAddGh}
         title="Add Greenhouse"
         footer={
           <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setAddGhOpen(false);
-                setAddGhFor(null);
-              }}
-            >
+            <Button variant="secondary" onClick={closeAddGh}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                const target = addGhFor ?? complexes[0].id;
-                greenhouseService.create(target, newCrop);
-                setAddGhOpen(false);
-                setAddGhFor(null);
-                toast(`${newCrop} greenhouse added`, "success");
-                router.refresh();
-              }}
-            >
-              Create Greenhouse
+            <Button onClick={handleCreateGh} disabled={savingGh}>
+              {savingGh ? "Creating…" : "Create Greenhouse"}
             </Button>
           </>
         }
       >
         <div className="space-y-3.5">
+          {ghError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-600">
+              {ghError}
+            </div>
+          )}
           <div>
             <Label>Complex</Label>
             <Input
@@ -265,6 +303,22 @@ function ComplexOverviewContent() {
           </div>
         </div>
       </Modal>
+
+      {/* unsaved changes guard for Add Complex */}
+      <ConfirmDialog
+        open={confirmDiscard === "complex"}
+        onClose={() => setConfirmDiscard(null)}
+        onConfirm={() => {
+          setConfirmDiscard(null);
+          setNewLocation("");
+          setComplexError(null);
+          setAddComplexOpen(false);
+        }}
+        title="Unsaved changes"
+        message="You have unsaved changes. Discard them and close?"
+        confirmLabel="Discard Changes"
+        danger
+      />
     </AppShell>
   );
 }

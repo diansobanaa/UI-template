@@ -231,6 +231,17 @@ export interface ObservationDraft {
   notes: string;
 }
 
+export interface Observation {
+  id: Id;
+  ghId: Id;
+  plantId: string;
+  heightCm: number;
+  leafCount: number;
+  fruitCount: number;
+  notes: string;
+  at: string; // "2 Sep 2026 13:14"
+}
+
 /* ------------------------------------------------------------------ */
 /* Calibration domain                                                  */
 /* ------------------------------------------------------------------ */
