@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, ListChecks, ScrollText, Search } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionCard } from "@/components/ui/cards";
@@ -18,7 +18,7 @@ export default function EventsPage() {
 }
 
 function EventsContent() {
-  const params = useSearchParams();
+  const [params] = useSearchParams();
   const complexes = complexService.list();
   const complexId = params.get("complex") ?? complexes[0].id;
   const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];

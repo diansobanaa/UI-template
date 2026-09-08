@@ -138,6 +138,7 @@ export function resetMockDb(): void {
 
 let version = 0;
 const listeners = new Set<() => void>();
+let realtimeTimer: number | null = null;
 
 export function notify(): void {
   version += 1;
@@ -151,6 +152,45 @@ export function subscribeDb(listener: () => void): () => void {
 
 export function getDbVersion(): number {
   return version;
+}
+
+/** Advance mock runtime state so the UI behaves like a live control surface before backend integration. */
+export function startRealtimeMock(): () => void {
+  if (realtimeTimer !== null || typeof window === "undefined") return () => undefined;
+  realtimeTimer = window.setInterval(() => {
+    let changed = false;
+    for (const greenhouse of db.greenhouses) {
+      const phase = Date.now() / 90000 + greenhouse.id.length;
+      const temperature = greenhouse.telemetry.temperatureC;
+      if (temperature !== null) {
+        greenhouse.telemetry.temperatureC = Number((temperature + Math.sin(phase) * 0.08).toFixed(1));
+        greenhouse.telemetry.tempDeltaC = Number((Math.sin(phase) * 0.4).toFixed(1));
+      }
+      if (greenhouse.telemetry.humidityPct !== null) {
+        greenhouse.telemetry.humidityPct = Math.max(0, Math.min(100, Math.round(greenhouse.telemetry.humidityPct + Math.cos(phase) * 0.3)));
+        greenhouse.telemetry.humidityDeltaPct = Number((Math.cos(phase) * 0.8).toFixed(1));
+      }
+      if (greenhouse.currentRun) {
+        const run = greenhouse.currentRun;
+        run.progressPct = Math.min(100, run.progressPct + 5);
+        run.waterDoneL = Math.round((run.targetWaterL * run.progressPct) / 100);
+        run.dosingADoneMl = Math.round((run.dosingAml * run.progressPct) / 100);
+        run.dosingBDoneMl = Math.round((run.dosingBml * run.progressPct) / 100);
+        run.elapsedLabel = `${Math.max(1, Math.round(run.progressPct / 5))} min`;
+        greenhouse.fertigationState = run.progressPct >= 70 ? "DISTRIBUTING" : "MIXING";
+        if (run.progressPct >= 100) {
+          greenhouse.currentRun = null;
+          greenhouse.fertigationState = "IDLE";
+        }
+      }
+      changed = true;
+    }
+    if (changed) notify();
+  }, 10000);
+  return () => {
+    if (realtimeTimer !== null) window.clearInterval(realtimeTimer);
+    realtimeTimer = null;
+  };
 }
 
 /** Commit helper used by every mutation: persist + notify subscribers. */
@@ -301,6 +341,15 @@ export function addCalibrationRecord(record: Omit<CalibrationRecord, "id">): voi
   commit();
 }
 
+/** After a successful calibration the device's live reading becomes the new calibrated value. */
+export function setCalibrationDeviceReading(id: string, reading: string): void {
+  const device = db.calibrationDevices.find((d) => d.id === id);
+  if (device) {
+    device.reading = reading;
+    commit();
+  }
+}
+
 export function addGreenhouse(complexId: string, crop: string): Greenhouse {
   const complex = db.complexes.find((c) => c.id === complexId);
   if (!complex) throw new Error("complex not found");
@@ -342,6 +391,22 @@ export function addGreenhouse(complexId: string, crop: string): Greenhouse {
   return gh;
 }
 
+export function updateComplex(id: string, patch: Partial<Pick<Complex, "code" | "name" | "location" | "status">>): Complex | undefined {
+  const complex = db.complexes.find((item) => item.id === id);
+  if (!complex) return undefined;
+  Object.assign(complex, patch);
+  commit();
+  return complex;
+}
+
+export function updateGreenhouse(id: string, patch: Partial<Pick<Greenhouse, "code" | "crop" | "greenhouseTag">>): Greenhouse | undefined {
+  const greenhouse = db.greenhouses.find((item) => item.id === id);
+  if (!greenhouse) return undefined;
+  Object.assign(greenhouse, patch);
+  commit();
+  return greenhouse;
+}
+
 export function addComplex(location: string): Complex {
   const num = db.complexes.length + 1;
   const complex: Complex = {
@@ -350,6 +415,7 @@ export function addComplex(location: string): Complex {
     name: "Greenhouse Complex",
     location,
     status: "Active",
+    emergencyStopped: false,
     esp32: { online: false, lastSync: "-", configVersion: 1, esp32ConfigVersion: 0, synchronized: false },
     systemStatus: "CRITICAL",
     greenhouseIds: [],
@@ -488,7 +554,18 @@ export function emergencyStopComplex(complexId: string): void {
     }
   }
   const complex = db.complexes.find((c) => c.id === complexId);
-  if (complex) complex.water = { ...complex.water, wellPumpOn: false };
+  if (complex) {
+    complex.water = { ...complex.water, wellPumpOn: false };
+    // Latched: stays on until resumeComplex is called manually.
+    complex.emergencyStopped = true;
+  }
+  commit();
+}
+
+/** Manual resume after an emergency stop — re-enables actuators and runs. */
+export function resumeComplex(complexId: string): void {
+  const complex = db.complexes.find((c) => c.id === complexId);
+  if (complex) complex.emergencyStopped = false;
   commit();
 }
 

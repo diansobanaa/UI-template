@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
   Beaker,
@@ -17,7 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
-import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
+import { ComplexSwitcher } from "@/components/layout/bits";
 import { SectionCard } from "@/components/ui/cards";
 import { Badge, Button, FieldError, Input, Label, Progress, RadioCard, Select, StatusBadge } from "@/components/ui/primitives";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
@@ -27,6 +27,8 @@ import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { number } from "@/lib/validation";
 import { n } from "@/lib/format";
+import { complexRealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
 
 const STEP_ICONS = { done: "✓", active: "●", pending: "○" } as const;
 
@@ -40,19 +42,22 @@ export default function FertigationPage() {
 
 function FertigationContent() {
   useDbVersion(); // live updates while a mock run advances through its lifecycle
-  const params = useSearchParams();
-  const router = useRouter();
+  const [params] = useSearchParams();
+  const router = useNavigate();
   const toast = useToast();
 
   const complexes = complexService.list();
   const complexId = params.get("complex") ?? complexes[0].id;
   const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
   const ghs = greenhouseService.byComplex(complex.id);
-  const ghId = params.get("gh") ?? ghs.find((g) => g.currentRun)?.id ?? ghs[0]?.id ?? "";
-  const gh = greenhouseService.get(ghId) ?? ghs[0];
+  const gh = ghs.find((g) => g.currentRun) ?? ghs[0];
+  const realtimeState = complexRealtimeState(complex, ghs);
 
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualGhId, setManualGhId] = useState(gh.id);
   const [estopOpen, setEstopOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [manualRecipe, setManualRecipe] = useState(gh.recipes[0]?.id ?? "");
   const [manualWater, setManualWater] = useState(String(gh.recipes[0]?.waterL ?? 80));
   const [manualError, setManualError] = useState<string | null>(null);
@@ -60,8 +65,7 @@ function FertigationContent() {
   const [stopping, setStopping] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testingPump, setTestingPump] = useState<string | null>(null);
-
-  const setGh = (id: string) => router.replace(`/fertigation?complex=${complex.id}&gh=${id}`, { scroll: false });
+  const manualGh = greenhouseService.get(manualGhId) ?? gh;
 
   const queue = fertigationService.mixingQueue();
   const pumps = fertigationService.dosingPumps();
@@ -82,7 +86,7 @@ function FertigationContent() {
     }
     setStarting(true);
     try {
-      await fertigationService.startManual(gh.id, manualRecipe, Number(manualWater));
+      await fertigationService.startManual(manualGh.id, manualRecipe, Number(manualWater));
       setManualOpen(false);
       toast("Manual fertigation started — command accepted by ESP32", "success");
     } catch (e) {
@@ -96,12 +100,25 @@ function FertigationContent() {
     setStopping(true);
     try {
       await fertigationService.emergencyStop(complex.id);
-      toast("EMERGENCY STOP executed — all actuators off", "warning");
+      toast("EMERGENCY STOP executed — all actuators off until manually resumed", "warning");
       setEstopOpen(false);
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
       setStopping(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      await fertigationService.resume(complex.id);
+      toast("System resumed — actuators and schedules can run again", "success");
+      setResumeOpen(false);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setResuming(false);
     }
   };
 
@@ -134,15 +151,25 @@ function FertigationContent() {
       {/* Context */}
       <div className="mb-5 flex flex-wrap items-end gap-4">
         <ComplexSwitcher complexId={complex.id} complexes={complexes} />
-        <GreenhouseSwitcher complexId={complex.id} greenhouses={ghs} ghId={gh.id} onChange={setGh} />
         <div className="ml-auto flex items-center gap-2.5">
           <Button variant="secondary" onClick={handleSync} disabled={syncing}>
             <Settings2 className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Synchronizing…" : "Sync Configuration"}
           </Button>
-          <Button variant="danger" onClick={() => setEstopOpen(true)}>
-            <ShieldAlert className="h-4 w-4" /> Emergency Stop
-          </Button>
+          {complex.emergencyStopped ? (
+            <>
+              <span className="flex h-9 animate-pulse items-center rounded-lg bg-red-100 px-2.5 text-[11px] font-bold text-red-600">
+                E-STOP AKTIF
+              </span>
+              <Button className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => setResumeOpen(true)}>
+                <PlayCircle className="h-4 w-4" /> Resume System
+              </Button>
+            </>
+          ) : (
+            <Button variant="danger" onClick={() => setEstopOpen(true)}>
+              <ShieldAlert className="h-4 w-4" /> Emergency Stop
+            </Button>
+          )}
         </div>
       </div>
 
@@ -151,6 +178,7 @@ function FertigationContent() {
         <p className="mt-0.5 text-[13px] text-slate-500">
           {complex.code} — mixing, dosing and distribution monitoring
         </p>
+        <div className="mt-2"><LiveStatus state={realtimeState} label={`${complex.code} fertigation data`} /></div>
       </div>
 
       {/* ---------------- Current operations ---------------- */}
@@ -303,7 +331,7 @@ function FertigationContent() {
                       size="sm"
                       variant="secondary"
                       className="flex-1"
-                      onClick={() => router.push(`/calibration?complex=${complex.id}`)}
+                      onClick={() => router(`/calibration?complex=${complex.id}`)}
                     >
                       Calibrate
                     </Button>
@@ -328,9 +356,20 @@ function FertigationContent() {
             <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
               <div className="text-sm font-bold text-slate-800">Quick Start</div>
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                Run the active recipe for {gh.code} immediately. Use with care — this executes a physical fertigation.
+                Run the active recipe for the selected greenhouse immediately. Use with care — this executes a physical fertigation.
               </p>
-              <Button className="mt-3" onClick={() => { setManualError(null); setManualOpen(true); }} disabled={Boolean(gh.currentRun)}>
+              <Label>Target Greenhouse</Label>
+              <Select
+                value={manualGh.id}
+                onChange={(e) => {
+                  const nextGh = greenhouseService.get(e.target.value) ?? gh;
+                  setManualGhId(nextGh.id);
+                  setManualRecipe(nextGh.recipes[0]?.id ?? "");
+                  setManualWater(String(nextGh.recipes[0]?.waterL ?? 80));
+                }}
+                options={ghs.map((greenhouse) => ({ value: greenhouse.id, label: greenhouse.code }))}
+              />
+              <Button className="mt-3" onClick={() => { setManualError(null); setManualOpen(true); }} disabled={Boolean(manualGh.currentRun)}>
                 <PlayCircle className="h-4 w-4" /> Start Manual Fertigation
               </Button>
             </div>
@@ -339,9 +378,15 @@ function FertigationContent() {
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
                 Immediately stop all pumps, close valves and put the system into a safe state.
               </p>
-              <Button variant="danger" className="mt-3" onClick={() => setEstopOpen(true)}>
-                <Zap className="h-4 w-4" /> Emergency Stop All
-              </Button>
+              {complex.emergencyStopped ? (
+                <Button className="mt-3 bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => setResumeOpen(true)}>
+                  <PlayCircle className="h-4 w-4" /> Resume System
+                </Button>
+              ) : (
+                <Button variant="danger" className="mt-3" onClick={() => setEstopOpen(true)}>
+                  <Zap className="h-4 w-4" /> Emergency Stop All
+                </Button>
+              )}
             </div>
           </div>
         </SectionCard>
@@ -412,7 +457,7 @@ function FertigationContent() {
       <Modal
         open={manualOpen}
         onClose={() => { if (!starting) setManualOpen(false); }}
-        title={`Manual Fertigation — ${gh.code}`}
+        title={`Manual Fertigation — ${manualGh.code}`}
         width={520}
         footer={
           <>
@@ -435,10 +480,10 @@ function FertigationContent() {
               value={manualRecipe}
               onChange={(e) => {
                 setManualRecipe(e.target.value);
-                const r = gh.recipes.find((x) => x.id === e.target.value);
+                const r = manualGh.recipes.find((x) => x.id === e.target.value);
                 if (r) setManualWater(String(r.waterL));
               }}
-              options={gh.recipes.map((r) => ({ value: r.id, label: r.name }))}
+              options={manualGh.recipes.map((r) => ({ value: r.id, label: r.name }))}
             />
           </div>
           <div>
@@ -458,9 +503,17 @@ function FertigationContent() {
         onClose={() => { if (!stopping) setEstopOpen(false); }}
         onConfirm={handleEmergencyStop}
         title="Emergency Stop"
-        message="Stop all pumps and close all valves immediately? This affects physical equipment. The system will stay in a safe state until manually resumed."
+        message={`Stop all pumps and close all valves in ${complex.code} immediately? This affects physical equipment. The system stays in a safe state until you press Resume System.`}
         confirmLabel={stopping ? "Stopping…" : "Stop Everything"}
         danger
+      />
+      <ConfirmDialog
+        open={resumeOpen}
+        onClose={() => { if (!resuming) setResumeOpen(false); }}
+        onConfirm={handleResume}
+        title="Resume System"
+        message={`Lift the latched emergency stop on ${complex.code}? Pumps and valves become available again; schedules resume their normal behaviour.`}
+        confirmLabel={resuming ? "Resuming…" : "Resume System"}
       />
     </AppShell>
   );

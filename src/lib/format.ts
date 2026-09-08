@@ -1,15 +1,26 @@
-/**
- * Deterministic "now" for the prototype — the whole UI is frozen at the
- * moment captured by the approved reference screenshots so every screen and
- * mock computation stays internally consistent.
- */
+const SIMULATION_START = new Date(2026, 8, 2, 13, 14, 32).getTime();
+const REAL_START = Date.now();
+
+function currentSimulationDate(): Date {
+  return new Date(SIMULATION_START + (Date.now() - REAL_START));
+}
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-GB", { hour12: false });
+}
+
+/** Live deterministic clock: mock data starts at the approved reference time and advances with the browser. */
 export const MOCK_NOW = {
-  date: new Date(2026, 8, 2, 13, 14, 32), // Tue, 2 Sep 2026 13:14:32
-  label: "Tue, 2 Sep 2026",
-  time: "13:14:32",
-  dateTime: "2 Sep 2026 13:14:32",
-  longDateTime: "2 Sep 2026 13:14:32",
-  dayPct: ((13 * 60 + 14) / (24 * 60)) * 100, // position of "Now" on the timeline
+  get date() { return currentSimulationDate(); },
+  get label() { return formatDate(currentSimulationDate()); },
+  get time() { return formatTime(currentSimulationDate()); },
+  get dateTime() { const date = currentSimulationDate(); return `${date.getDate()} ${date.toLocaleDateString("en-US", { month: "short", year: "numeric" })} ${formatTime(date)}`; },
+  get longDateTime() { return this.dateTime; },
+  get dayPct() { const date = currentSimulationDate(); return ((date.getHours() * 60 + date.getMinutes()) / 1440) * 100; },
 };
 
 export function n(value: number | null | undefined): string {

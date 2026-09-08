@@ -6,6 +6,7 @@ import type {
   Greenhouse,
   QueueEntry,
   Recipe,
+  GreenhouseCamera,
 } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
@@ -534,7 +535,17 @@ const gh10 = makeSimpleGh({
   recipeId: "recipe-broccoli-a", times: ["06:00", "17:00"],
 });
 
-export const greenhouses: Greenhouse[] = [gh01, gh02, gh03, gh04, gh05, gh06, gh07, gh08, gh09, gh10];
+const cameraInventory: Record<string, GreenhouseCamera[]> = {
+  "gh-01": [1, 2, 3].map((number) => ({ componentId: `CAM-GH01-0${number}`, name: `Camera ${number}`, status: "AVAILABLE", capturedAt: "now" })),
+  "gh-02": [{ componentId: "CAM-GH02-01", name: "Camera 1", status: "AVAILABLE", capturedAt: "now" }],
+  "gh-03": [{ componentId: "CAM-GH03-01", name: "Camera 1", status: "OFFLINE", capturedAt: "2 hr ago" }],
+  "gh-05": [1, 2].map((number) => ({ componentId: `CAM-GH05-0${number}`, name: `Camera ${number}`, status: "AVAILABLE", capturedAt: "now" })),
+};
+
+export const greenhouses: Greenhouse[] = [gh01, gh02, gh03, gh04, gh05, gh06, gh07, gh08, gh09, gh10].map((greenhouse) => ({
+  ...greenhouse,
+  cameras: cameraInventory[greenhouse.id] ?? [],
+}));
 
 /* ------------------------------------------------------------------ */
 /* Mixing queue (complex level, shown on Fertigation page)             */

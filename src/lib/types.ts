@@ -28,6 +28,8 @@ export interface Complex {
   name: string; // "Greenhouse Complex"
   location: string; // "Lembang, Indonesia"
   status: "Active" | "Inactive";
+  /** Latched emergency stop — every actuator stays off until explicitly resumed. */
+  emergencyStopped: boolean;
   esp32: Esp32State;
   systemStatus: SystemStatus;
   greenhouseIds: Id[];
@@ -74,6 +76,15 @@ export interface EquipmentItem {
   status: "OK" | "WARNING" | "FAULT" | "OFFLINE";
 }
 
+export interface GreenhouseCamera {
+  componentId: string;
+  name: string;
+  status: "AVAILABLE" | "OFFLINE" | "FAULT" | "DISABLED" | "UNKNOWN";
+  snapshotUrl?: string;
+  streamUrl?: string;
+  capturedAt?: string;
+}
+
 export interface Greenhouse {
   id: Id; // "gh-01"
   code: string; // "GH 01"
@@ -86,6 +97,7 @@ export interface Greenhouse {
   telemetry: Telemetry;
   plants: PlantStats;
   equipment: EquipmentItem[];
+  cameras?: GreenhouseCamera[];
   recipes: Recipe[];
   fertigationSchedules: FertigationSchedule[];
   fanSchedules: FanSchedule[];
@@ -267,6 +279,8 @@ export interface CalibrationDevice {
   id: Id;
   category: CalibrationCategory;
   name: string; // "pH Sensor 01 (GH 01)"
+  /** Dosing-pump channel reported by the ESP32 ("A", "B", "C", …). Pumps are dynamic — new channels arrive via the device JSON. */
+  channel?: string;
   ghId: Id | null;
   location: string; // "GH 01 – Mixing Tank"
   reading: string; // "6.87"

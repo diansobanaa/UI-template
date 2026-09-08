@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, ChevronDown, ChevronLeft, ChevronRight, Cpu, Leaf, MonitorCog, Activity } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCallback } from "react";
 import { MOCK_NOW } from "@/lib/format";
 import type { Complex, Greenhouse } from "@/lib/types";
@@ -74,13 +74,13 @@ export function SystemStatusPill({ status }: { status: Complex["systemStatus"] }
 /* ----------------------------- Switchers -------------------------- */
 
 function useSetParam() {
-  const router = useRouter();
+  const router = useNavigate();
   const params = useSearchParams();
   return useCallback(
     (key: string, value: string) => {
       const next = new URLSearchParams(params.toString());
       next.set(key, value);
-      router.replace(`?${next.toString()}`, { scroll: false });
+      router(`?${next.toString()}`, { replace: true });
     },
     [params, router]
   );

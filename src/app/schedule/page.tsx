@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   CalendarClock,
   Clock,
@@ -18,7 +18,7 @@ import {
   Waves,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
-import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
+import { ComplexSwitcher } from "@/components/layout/bits";
 import { SectionCard } from "@/components/ui/cards";
 import { Badge, Button, IconButton, Input, Select, StatusBadge, Toggle } from "@/components/ui/primitives";
 import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
@@ -32,6 +32,8 @@ import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { MOCK_NOW } from "@/lib/format";
 import type { FanSchedule, FertigationSchedule, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
+import { complexRealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
 
 export default function SchedulePage() {
   return (
@@ -41,18 +43,28 @@ export default function SchedulePage() {
   );
 }
 
-function ScheduleContent() {
+export function ScheduleContent({
+  embedded = false,
+  selectedComplexId,
+  selectedGreenhouseId,
+}: {
+  embedded?: boolean;
+  selectedComplexId?: string;
+  selectedGreenhouseId?: string;
+}) {
   useDbVersion(); // re-render on any mock-store mutation
-  const params = useSearchParams();
-  const router = useRouter();
+  const [params] = useSearchParams();
+  const router = useNavigate();
   const toast = useToast();
 
   const complexes = complexService.list();
-  const complexId = params.get("complex") ?? complexes[0].id;
+  const complexId = selectedComplexId ?? params.get("complex") ?? complexes[0].id;
   const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
   const ghs = greenhouseService.byComplex(complex.id);
-  const ghId = params.get("gh") ?? ghs[0]?.id ?? "";
-  const gh = greenhouseService.get(ghId) ?? ghs[0];
+  const selectedGhId = selectedGreenhouseId ?? params.get("gh") ?? ghs[0]?.id ?? "";
+  const gh = greenhouseService.get(selectedGhId) ?? ghs[0];
+  const scheduleGreenhouses = selectedGreenhouseId ? [gh] : ghs;
+  const realtimeState = complexRealtimeState(complex, ghs);
 
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
@@ -65,9 +77,9 @@ function ScheduleContent() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  const fertSchedules = scheduleService.fertigationForGh(gh.id);
+  const fertSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fertigationForGh(greenhouse.id));
   const wellPumps = scheduleService.wellPumpForComplex(complex.id);
-  const fanSchedules = scheduleService.fanForGh(gh.id);
+  const fanSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fanForGh(greenhouse.id));
 
   // Queue = pending mixing entries for this GH
   const queue = fertSchedules.filter((s) => s.status === "scheduled");
@@ -82,18 +94,16 @@ function ScheduleContent() {
   const timelineEvents: TimelineEvent[] = [
     ...fertSchedules
       .filter((s) => s.enabled)
-      .map((s): TimelineEvent => ({ time: s.time, title: "Fertigation", sub: `${s.targetWaterL} L`, status: toTimelineStatus(s.status) })),
+      .map((s): TimelineEvent => ({ time: s.time, title: `Fertigation · ${greenhouseService.get(s.ghId)?.code ?? "GH"}`, sub: `${s.targetWaterL} L`, status: toTimelineStatus(s.status) })),
     ...fanSchedules
       .filter((s) => s.enabled)
-      .map((s): TimelineEvent => ({ time: s.time, title: "Fan", sub: `${s.durationMin} min`, status: toTimelineStatus(s.status) })),
+      .map((s): TimelineEvent => ({ time: s.time, title: `Fan · ${greenhouseService.get(s.ghId)?.code ?? "GH"}`, sub: `${s.durationMin} min`, status: toTimelineStatus(s.status) })),
     ...wellPumps
       .filter((s) => s.enabled)
       .map((s): TimelineEvent => ({ time: s.time, title: "Well Pump", sub: `${s.durationMin} min`, status: toTimelineStatus(s.status) })),
   ]
     .filter((e) => e.time && e.time !== "--:--")
     .sort((a, b) => a.time.localeCompare(b.time));
-
-  const setGh = (id: string) => router.replace(`/schedule?complex=${complex.id}&gh=${id}`, { scroll: false });
 
   /* ---------------------------- mutations ---------------------------- */
 
@@ -178,11 +188,10 @@ function ScheduleContent() {
   const radarState: "filling" | "full" = wellPumps[0]?.radar ?? "filling";
 
   return (
-    <AppShell complexId={complex.id}>
+    <ScheduleFrame embedded={embedded} complexId={complex.id}>
       {/* Context switchers */}
       <div className="mb-5 flex flex-wrap items-end gap-4">
-        <ComplexSwitcher complexId={complex.id} complexes={complexes} />
-        <GreenhouseSwitcher complexId={complex.id} greenhouses={ghs} ghId={gh.id} onChange={setGh} />
+        {!embedded && <ComplexSwitcher complexId={complex.id} complexes={complexes} />}
         <div className="ml-auto flex items-center gap-2.5">
           <span className="text-xs text-slate-400">{MOCK_NOW.label} • {MOCK_NOW.time}</span>
         </div>
@@ -193,9 +202,10 @@ function ScheduleContent() {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Schedule &amp; Timer</h1>
           <p className="mt-0.5 text-[13px] text-slate-500">
-            {complex.code} • {gh.code} — operational schedules for this greenhouse
+            {complex.code} — operational schedules across {ghs.length} greenhouses
           </p>
         </div>
+        <LiveStatus state={realtimeState} label={`${complex.code} schedule data`} />
       </div>
 
       {/* Summary */}
@@ -206,7 +216,7 @@ function ScheduleContent() {
           { label: "Fan Schedules", value: fanSchedules.filter((s) => s.enabled).length, total: fanSchedules.length, icon: Fan, tone: "bg-emerald-50 text-emerald-600" },
           { label: "Queue (pending today)", value: queue.length, total: queue.length, icon: ListOrdered, tone: "bg-violet-50 text-violet-600" },
         ].map((s) => (
-          <div key={s.label} className="flex items-center gap-3 rounded-xl border border-[--color-line] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+          <div key={s.label} className="flex items-center gap-3 rounded-xl border-[--color-line] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
             <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${s.tone}`}>
               <s.icon className="h-5 w-5" />
             </span>
@@ -220,7 +230,7 @@ function ScheduleContent() {
 
       {/* Today's timeline */}
       <div className="mb-5">
-        <SectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${gh.code} • ${MOCK_NOW.label}`}>
+        <SectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${MOCK_NOW.label}`}>
           <Timeline events={timelineEvents} nowPct={MOCK_NOW.dayPct} />
         </SectionCard>
       </div>
@@ -228,7 +238,7 @@ function ScheduleContent() {
       {/* Fertigation schedules (GH-level) */}
       <div className="mb-5">
         <SectionCard
-          title={`Fertigation Schedule — ${gh.code}`}
+          title={`Fertigation Schedules — ${complex.code}`}
           icon={Droplets}
           iconTone="blue"
           subtitle="Greenhouse-level schedules"
@@ -242,6 +252,7 @@ function ScheduleContent() {
             rows={fertSchedules.map((s) => ({
               id: s.id,
               name: s.name,
+              greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
               time: s.time,
               repeat: s.repeat,
               detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
@@ -278,6 +289,7 @@ function ScheduleContent() {
               rows={wellPumps.map((s) => ({
                 id: s.id,
                 name: s.task,
+                greenhouse: "Complex",
                 time: s.time,
                 repeat: s.repeat,
                 detail: `${s.durationMin} min run`,
@@ -299,7 +311,7 @@ function ScheduleContent() {
 
         <SectionCard title="Well Pump" icon={Radar} iconTone="slate" subtitle="AUTO MODE">
           <div className="space-y-3">
-            <div className={`rounded-xl border p-4 ${radarState === "filling" ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-xl p-4 ${radarState === "filling" ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50"}`}>
               <div className="text-xs font-medium text-slate-500">Radar Tank Status</div>
               <div className="mt-2 space-y-2">
                 <div className="flex items-center justify-between">
@@ -329,7 +341,7 @@ function ScheduleContent() {
       {/* Fan schedules (GH-level) */}
       <div className="mb-5">
         <SectionCard
-          title={`Fan Schedule — ${gh.code}`}
+          title={`Fan Schedules — ${complex.code}`}
           icon={Fan}
           iconTone="green"
           subtitle="Greenhouse-level schedules"
@@ -343,6 +355,7 @@ function ScheduleContent() {
             rows={fanSchedules.map((s) => ({
               id: s.id,
               name: s.mode === "time" ? `Fan — ${s.time}` : "Fan — Temperature",
+              greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
               time: s.mode === "time" ? s.time : "Auto",
               repeat: s.mode === "time" ? s.repeat : `ON > ${s.onAboveC}°C / OFF < ${s.offBelowC}°C`,
               detail: s.mode === "time" ? `${s.durationMin} min run` : "Hysteresis control",
@@ -366,7 +379,7 @@ function ScheduleContent() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
           {queue.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+            <div className="rounded-xl border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
               <p className="text-sm text-slate-400">No fertigation schedules configured.</p>
               <Button size="sm" variant="outline" className="mt-2.5" onClick={() => { setEditFert(null); setFertOpen(true); }}>
                 <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
@@ -375,12 +388,12 @@ function ScheduleContent() {
           ) : (
             <div className="space-y-2.5">
               {queue.map((s) => (
-                <div key={s.id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
+                <div key={s.id} className="flex items-center gap-3 rounded-xl border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
                     <ListOrdered className="h-4.5 w-4.5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-slate-800">{s.name} • {gh.code}</div>
+                    <div className="text-sm font-semibold text-slate-800">{s.name} • {greenhouseService.get(s.ghId)?.code ?? "GH"}</div>
                     <div className="text-xs text-slate-500">{s.nextRun} • {s.targetWaterL} L</div>
                   </div>
                   <StatusBadge status="scheduled" />
@@ -410,7 +423,7 @@ function ScheduleContent() {
               ["ESP32 Config Version", `v${complex.esp32.esp32ConfigVersion}`],
               ["Synchronization", complex.esp32.synchronized ? "SYNCHRONIZED" : "PENDING"],
             ].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between rounded-lg border border-slate-100 px-3.5 py-2.5">
+              <div key={k} className="flex items-center justify-between rounded-lg border-slate-100 px-3.5 py-2.5">
                 <span className="text-slate-500">{k}</span>
                 <span className="font-semibold text-slate-800">{v}</span>
               </div>
@@ -455,8 +468,12 @@ function ScheduleContent() {
         confirmLabel={deleting ? "Deleting…" : "Delete"}
         danger
       />
-    </AppShell>
+    </ScheduleFrame>
   );
+}
+
+function ScheduleFrame({ embedded, complexId, children }: { embedded: boolean; complexId: string; children: React.ReactNode }) {
+  return embedded ? <>{children}</> : <AppShell complexId={complexId}>{children}</AppShell>;
 }
 
 /* ------------------------- schedule table ------------------------- */
@@ -464,6 +481,7 @@ function ScheduleContent() {
 interface Row {
   id: string;
   name: string;
+  greenhouse: string;
   time: string;
   repeat: string;
   detail: string;
@@ -528,7 +546,7 @@ function ScheduleTable({
       )}
 
       {filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+        <div className="rounded-xl border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
           <p className="text-sm text-slate-400">
             {rows.length === 0 ? `No ${addLabel.toLowerCase().replace(/^add /, "").replace(/ schedule$/, "")} schedules configured.` : "No schedules match your search or filter."}
           </p>
@@ -556,6 +574,7 @@ function ScheduleTable({
             <thead>
               <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
                 <th className="pb-2.5 font-medium">Task</th>
+                <th className="pb-2.5 font-medium">Greenhouse</th>
                 <th className="pb-2.5 font-medium">Time</th>
                 <th className="pb-2.5 font-medium">Repeat</th>
                 <th className="pb-2.5 font-medium">Last Run</th>
@@ -572,6 +591,7 @@ function ScheduleTable({
                     <div className="font-semibold text-slate-800">{r.name}</div>
                     <div className="text-xs text-slate-500">{r.detail}</div>
                   </td>
+                  <td className="py-3 pr-3 font-medium text-slate-600">{r.greenhouse}</td>
                   <td className="py-3 pr-3">
                     <span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${
                       accent === "sky" ? "bg-sky-50 text-sky-700" : accent === "green" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"

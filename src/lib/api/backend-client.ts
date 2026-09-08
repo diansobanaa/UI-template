@@ -1,73 +1,78 @@
-/**
- * Backend REST client — placeholder for the Python backend integration phase.
- *
- * The frontend service layer (src/lib/services.ts) currently reads from the
- * in-memory mock store. When the backend is available, re-implement the
- * services on top of the helpers below; the UI stays untouched.
- *
- * Expected API surface (aligned with API_SPEC.md):
- *
- *   GET    /api/complexes
- *   POST   /api/complexes                          { location }
- *   GET    /api/complexes/:id
- *   GET    /api/complexes/:id/greenhouses
- *   POST   /api/complexes/:id/greenhouses          { crop }
- *   GET    /api/greenhouses/:id
- *   GET    /api/greenhouses/:id/schedules          (fertigation)
- *   POST   /api/greenhouses/:id/schedules
- *   PATCH  /api/schedules/:id
- *   DELETE /api/schedules/:id
- *   GET    /api/complexes/:id/well-pump-schedules
- *   POST   /api/complexes/:id/well-pump-schedules
- *   GET    /api/greenhouses/:id/fan-schedules
- *   POST   /api/greenhouses/:id/fan-schedules
- *   GET    /api/complexes/:id/fertigation/queue
- *   GET    /api/complexes/:id/fertigation/history
- *   POST   /api/complexes/:id/fertigation/manual   { ghId, recipeId, targetWaterL }
- *   POST   /api/complexes/:id/esp32/sync
- *   POST   /api/complexes/:id/esp32/emergency-stop
- *   GET    /api/complexes/:id/calibration/devices
- *   POST   /api/calibration                        { deviceId, ... }
- *   GET    /api/calibration/history
- *   GET    /api/greenhouses/:id/telemetry?range=24H|7D|30D
- */
+import type { HardwarePortConfig } from "./contracts";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+export const PYTHON_API_BASE = import.meta.env.VITE_PYTHON_API_BASE ?? "/api";
+export const ESP32_API_BASE = import.meta.env.VITE_ESP32_API_BASE ?? "";
 
 export class BackendNotConnectedError extends Error {
-  constructor() {
-    super("Backend not connected — UI prototype is running on mock data.");
+  constructor(message = "Backend is not connected.") {
+    super(message);
     this.name = "BackendNotConnectedError";
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
+export class ApiRequestError extends Error {
+  constructor(public readonly status: number, public readonly path: string, message: string) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
+const defaultConfig: HardwarePortConfig = {
+  pythonBaseUrl: PYTHON_API_BASE,
+  esp32BaseUrl: ESP32_API_BASE || undefined,
+  requestTimeoutMs: Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 8000),
+  token: import.meta.env.VITE_API_TOKEN || undefined,
+  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 === "true",
+};
+
+function resolveUrl(path: string, config: HardwarePortConfig = defaultConfig): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${config.pythonBaseUrl.replace(/\/$/, "")}${path}`;
 }
 
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
+async function request<T>(path: string, init: RequestInit = {}, config = defaultConfig): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (config.token) headers.set("Authorization", `Bearer ${config.token}`);
+
+  try {
+    const response = await fetch(resolveUrl(path, config), { ...init, headers, signal: controller.signal });
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new ApiRequestError(response.status, path, message || `${init.method ?? "GET"} ${path} failed`);
+    }
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof ApiRequestError) throw error;
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new BackendNotConnectedError(`Request timed out: ${path}`);
+    }
+    throw new BackendNotConnectedError(`Request failed: ${path}`);
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
-export async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+export function apiGet<T>(path: string, config?: HardwarePortConfig): Promise<T> {
+  return request<T>(path, {}, config);
+}
+
+export function apiPost<T>(path: string, body: unknown, config?: HardwarePortConfig): Promise<T> {
+  return request<T>(path, { method: "POST", body: JSON.stringify(body) }, config);
+}
+
+export function apiPut<T>(path: string, body: unknown, config?: HardwarePortConfig): Promise<T> {
+  return request<T>(path, { method: "PUT", body: JSON.stringify(body) }, config);
+}
+
+export function apiPatch<T>(path: string, body: unknown, config?: HardwarePortConfig): Promise<T> {
+  return request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, config);
+}
+
+export function apiDelete(path: string, config?: HardwarePortConfig): Promise<void> {
+  return request<void>(path, { method: "DELETE" }, config);
 }

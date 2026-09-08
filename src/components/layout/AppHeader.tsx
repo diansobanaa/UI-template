@@ -1,11 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, ChevronDown, Search, UserRound } from "lucide-react";
-import { eventService } from "@/lib/services";
+import { AlertTriangle, Bell, ChevronDown, Search, UserRound } from "lucide-react";
+import { complexService, eventService, greenhouseService } from "@/lib/services";
+import { useDbVersion } from "@/lib/useDb";
+import { complexRealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
 
 export function AppHeader() {
+  useDbVersion();
   const alerts = eventService.alerts();
+  const complexes = complexService.list();
+  const problemComplexes = complexes.filter((complex) => complexRealtimeState(complex, greenhouseService.byComplex(complex.id)) !== "live");
+  const hasSystemAlert = alerts.length > 0 || problemComplexes.length > 0;
   const [notifOpen, setNotifOpen] = useState(false);
 
   return (
@@ -19,21 +26,29 @@ export function AppHeader() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <LiveStatus state={hasSystemAlert ? "problem" : "live"} label={hasSystemAlert ? `${problemComplexes.length} complex or greenhouse alerts` : "System realtime connection"} />
         <div className="relative">
           <button
             onClick={() => setNotifOpen((v) => !v)}
             aria-label="Notifications"
-            className="relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+            className={`relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border transition hover:bg-slate-50 ${hasSystemAlert ? "border-red-200 bg-red-50 text-red-600" : "border-slate-200 bg-white text-slate-500"}`}
           >
-            <Bell className="h-[17px] w-[17px]" />
-            {alerts.length > 0 && (
+            {hasSystemAlert ? <AlertTriangle className="h-[17px] w-[17px]" /> : <Bell className="h-[17px] w-[17px]" />}
+            {hasSystemAlert && (
               <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {alerts.length}
+                {alerts.length + problemComplexes.length}
               </span>
             )}
           </button>
           {notifOpen && (
             <div className="absolute right-0 top-11 z-50 w-80 rounded-xl border border-slate-200 bg-white p-2 shadow-xl fade-in">
+              {problemComplexes.map((complex) => (
+                <div key={complex.id} className="flex gap-2.5 rounded-lg bg-red-50 px-2.5 py-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                  <div className="min-w-0"><div className="text-[13px] font-semibold text-red-700">{complex.code} requires attention</div><div className="mt-0.5 text-xs leading-snug text-red-600">ESP32, GH, or hardware realtime state has a problem.</div></div>
+                </div>
+              ))}
               {alerts.map((a) => (
                 <div key={a.id} className="flex gap-2.5 rounded-lg px-2.5 py-2 hover:bg-slate-50">
                   <span
@@ -48,6 +63,7 @@ export function AppHeader() {
               ))}
             </div>
           )}
+        </div>
         </div>
 
         <button className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50">

@@ -11,6 +11,7 @@ export const complexes: Complex[] = [
     name: "Greenhouse Complex",
     location: "Lembang, Indonesia",
     status: "Active",
+    emergencyStopped: false,
     esp32: {
       online: true,
       lastSync: "2 Sep 2026 13:14:32",
@@ -33,6 +34,7 @@ export const complexes: Complex[] = [
     name: "Greenhouse Complex",
     location: "Ciapus, Indonesia",
     status: "Active",
+    emergencyStopped: false,
     esp32: {
       online: true,
       lastSync: "2 Sep 2026 13:12:05",
@@ -55,6 +57,7 @@ export const complexes: Complex[] = [
     name: "Greenhouse Complex",
     location: "Malino, Indonesia",
     status: "Active",
+    emergencyStopped: false,
     esp32: {
       online: false,
       lastSync: "1 Sep 2026 17:48:11",

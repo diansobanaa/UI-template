@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useState } from "react";
 import {
   Apple,
@@ -61,8 +60,8 @@ function isNavGroup(c: NavChild): c is NavGroup {
 }
 
 function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse?: () => void }) {
-  const pathname = usePathname();
-  const params = useSearchParams();
+  const { pathname } = useLocation();
+  const [params] = useSearchParams();
   const complexId = params.get("complex") ?? "complex-01";
   const [open, setOpen] = useState<Record<string, boolean>>({ Complex: true, Research: false });
 
@@ -211,7 +210,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
                                     </span>
                                   );
                                   return leaf.href ? (
-                                    <Link key={leaf.id} href={leaf.href} className="block">
+                                    <Link key={leaf.id} to={leaf.href} className="block">
                                       {inner}
                                     </Link>
                                   ) : (
@@ -239,7 +238,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
                         </span>
                       );
                       return c.href ? (
-                        <Link key={c.id} href={c.href} className="block">
+                        <Link key={c.id} to={c.href} className="block">
                           {inner}
                         </Link>
                       ) : (
@@ -267,7 +266,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
             </span>
           );
           return n.href ? (
-            <Link key={n.id} href={n.href} className="mt-0.5 block" title={collapsed ? n.label : undefined}>
+            <Link key={n.id} to={n.href} className="mt-0.5 block" title={collapsed ? n.label : undefined}>
               {inner}
             </Link>
           ) : (

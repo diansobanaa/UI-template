@@ -1,11 +1,17 @@
 "use client";
 
-import { Circle, HardDriveDownload, Wifi } from "lucide-react";
+import { Activity, Circle, HardDriveDownload, Wifi } from "lucide-react";
 import { MOCK_NOW } from "@/lib/format";
 import type { Complex } from "@/lib/types";
+import { useDbVersion } from "@/lib/useDb";
+import { greenhouseService } from "@/lib/services";
+import { complexRealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
 
 /** Status strip pinned at the bottom of the content area. */
 export function AppFooter({ complex }: { complex: Complex }) {
+  useDbVersion();
+  const realtimeState = complexRealtimeState(complex, greenhouseService.byComplex(complex.id));
   return (
     <footer className="sticky bottom-0 z-30 flex h-11 shrink-0 items-center gap-5 border-t border-[--color-line] bg-white px-6 text-xs text-slate-500">
       <span className="flex items-center gap-1.5">
@@ -14,18 +20,19 @@ export function AppFooter({ complex }: { complex: Complex }) {
           {complex.esp32.online ? "Online" : "Offline"}
         </span>
       </span>
+      <LiveStatus state={realtimeState} label={`${complex.code} realtime connection`} />
       <span className="flex items-center gap-1.5">
-        <Circle className="h-2.5 w-2.5 fill-emerald-500 text-emerald-500" />
-        Backend: <span className="font-semibold text-slate-600">Mock</span>
+        <Activity className="h-3.5 w-3.5 text-blue-500" />
+        Data: <span className="font-semibold text-blue-600">Live simulation</span>
       </span>
       <span className="flex items-center gap-1.5">
         <HardDriveDownload className="h-3.5 w-3.5 text-slate-400" />
         Last Sync: <span className="font-semibold text-slate-600">{complex.esp32.lastSync}</span>
       </span>
       <span className="ml-auto flex items-center gap-2 text-slate-400">
-        <span>UI Prototype</span>
+        <span className="flex items-center gap-1.5"><Circle className="h-2 w-2 fill-emerald-500 text-emerald-500" /> Fresh now</span>
         <span className="h-3 w-px bg-slate-200" />
-        <span>v0.1</span>
+        <span>{MOCK_NOW.time}</span>
         <span className="h-3 w-px bg-slate-200" />
         <span>© 2026 AgroTech</span>
       </span>

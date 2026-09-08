@@ -1,21 +1,24 @@
 import type {
-  CalibrationCategory,
   CalibrationDevice,
   CalibrationRecord,
   CalibrationReferenceRow,
-  DeviceCategory,
+  CalibrationCategory,
 } from "@/lib/types";
 
-export const calibrationCategories: DeviceCategory[] = [
-  { id: "ph", name: "pH Sensor", devices: 4, calibrated: 3, due: 1 },
-  { id: "ec", name: "EC Sensor", devices: 4, calibrated: 4, due: 0 },
-  { id: "dosing-pump", name: "Dosing Pump", devices: 8, calibrated: 6, due: 2 },
-  { id: "flow-meter", name: "Flow Meter", devices: 4, calibrated: 4, due: 0 },
-  { id: "water-level", name: "Water Level Sensor", devices: 4, calibrated: 3, due: 1 },
-  { id: "temp-humidity", name: "Temperature & Humidity", devices: 10, calibrated: 9, due: 1 },
-  { id: "fan", name: "Fan", devices: 5, calibrated: 5, due: 0 },
-];
-
+/**
+ * Calibration catalogue.
+ *
+ * Scope: only devices that actually need field calibration — pH meters,
+ * EC meters and dosing pumps. Flow meters, water-level, temp/humidity
+ * and fans are factory-calibrated and intentionally absent.
+ *
+ * NOTE: this list mirrors the device JSON reported by the ESP32
+ * (`/devices`). Dosing pumps are dynamic — when the controller adds a
+ * pump (channel C, D, …) it simply arrives here as another `dosing-pump`
+ * entry with its own `channel`. Nothing downstream is hardcoded to A/B.
+ * `reading` on a dosing pump is the last calibrated flow rate (ml/min)
+ * and doubles as the "before" value / nominal reference for deviation.
+ */
 export const calibrationDevices: CalibrationDevice[] = [
   {
     id: "dev-ph-01",
@@ -69,9 +72,10 @@ export const calibrationDevices: CalibrationDevice[] = [
     id: "dev-dp-a",
     category: "dosing-pump",
     name: "Dosing Pump A (Complex 01)",
+    channel: "A",
     ghId: null,
     location: "Complex 01 – Central Dosing",
-    reading: "0",
+    reading: "240",
     unit: "ml/min",
     online: true,
     lastCalibration: "1 Sep 2026 10:20",
@@ -85,9 +89,10 @@ export const calibrationDevices: CalibrationDevice[] = [
     id: "dev-dp-b",
     category: "dosing-pump",
     name: "Dosing Pump B (Complex 01)",
+    channel: "B",
     ghId: null,
     location: "Complex 01 – Central Dosing",
-    reading: "0",
+    reading: "248",
     unit: "ml/min",
     online: true,
     lastCalibration: "1 Sep 2026 10:35",
@@ -97,99 +102,25 @@ export const calibrationDevices: CalibrationDevice[] = [
     standardUnit: "s run",
     measuredUnit: "ml",
   },
-  {
-    id: "dev-fm-01",
-    category: "flow-meter",
-    name: "Flow Meter 01 (GH 01)",
-    ghId: "gh-01",
-    location: "GH 01 – Distribution Line",
-    reading: "12.4",
-    unit: "L/min",
-    online: true,
-    lastCalibration: "28 Jul 2026 11:00",
-    due: "28 Oct 2026 (in 55 days)",
-    method: "single",
-    standardOptions: ["10", "12", "15"],
-    standardUnit: "L/min",
-    measuredUnit: "L/min",
-  },
-  {
-    id: "dev-wl-01",
-    category: "water-level",
-    name: "Water Level Sensor 01 (Raw Tank)",
-    ghId: null,
-    location: "Complex 01 – Raw Water Tank",
-    reading: "76",
-    unit: "%",
-    online: true,
-    lastCalibration: "5 Jul 2026 08:40",
-    due: "5 Jan 2027 (in 124 days)",
-    method: "three",
-    standardOptions: ["Empty", "50%", "Full"],
-    standardUnit: "level",
-    measuredUnit: "%",
-  },
-  {
-    id: "dev-th-01",
-    category: "temp-humidity",
-    name: "Temp & Humidity 01 (GH 01)",
-    ghId: "gh-01",
-    location: "GH 01 – Center",
-    reading: "28.4",
-    unit: "°C",
-    online: true,
-    lastCalibration: "20 Jul 2026 16:45",
-    due: "20 Jan 2027 (in 139 days)",
-    method: "two",
-    standardOptions: ["0", "50"],
-    standardUnit: "°C",
-    measuredUnit: "°C",
-  },
-  {
-    id: "dev-fan-01",
-    category: "fan",
-    name: "Fan 01 (GH 01)",
-    ghId: "gh-01",
-    location: "GH 01 – Roof",
-    reading: "ON",
-    unit: "",
-    online: true,
-    lastCalibration: "2 Sep 2026 07:00",
-    due: "2 Mar 2027 (in 181 days)",
-    method: "single",
-    standardOptions: ["ON", "OFF"],
-    standardUnit: "state",
-    measuredUnit: "",
-  },
 ];
 
 export const calibrationHistory: CalibrationRecord[] = [
   { id: "ch-1", dateTime: "15 Aug 2026 10:30", device: "pH Sensor 01", type: "pH (1 point)", before: "6.92", after: "6.87", result: "Success", user: "Admin" },
   { id: "ch-2", dateTime: "10 Aug 2026 14:20", device: "EC Sensor 01", type: "EC (2 point)", before: "2.15", after: "2.12", result: "Success", user: "Admin" },
-  { id: "ch-3", dateTime: "5 Aug 2026 09:15", device: "Dosing Pump A1", type: "Volume", before: "118 ml", after: "120 ml", result: "Success", user: "Technician" },
-  { id: "ch-4", dateTime: "28 Jul 2026 11:00", device: "Flow Meter 01", type: "Flow", before: "98 L/min", after: "100 L/min", result: "Success", user: "Admin" },
-  { id: "ch-5", dateTime: "20 Jul 2026 16:45", device: "Temp Sensor 01", type: "Temperature", before: "25.4 °C", after: "25.0 °C", result: "Success", user: "Admin" },
+  { id: "ch-3", dateTime: "1 Sep 2026 10:35", device: "Dosing Pump B", type: "Volume Test (30s)", before: "252 ml/min", after: "248 ml/min", result: "Success", user: "Admin" },
+  { id: "ch-4", dateTime: "1 Sep 2026 10:20", device: "Dosing Pump A", type: "Volume Test (30s)", before: "236 ml/min", after: "240 ml/min", result: "Success", user: "Admin" },
+  { id: "ch-5", dateTime: "5 Aug 2026 09:15", device: "Dosing Pump A", type: "Volume Test (30s)", before: "244 ml/min", after: "236 ml/min", result: "Success", user: "Technician" },
   { id: "ch-6", dateTime: "12 Jul 2026 09:05", device: "pH Sensor 02", type: "pH (2 point)", before: "7.14", after: "7.00", result: "Failed", user: "Technician" },
 ];
 
 export const calibrationReference: CalibrationReferenceRow[] = [
-  { deviceType: "pH Sensor", method: "Two Point", standard: "pH 4.00, 7.00", frequency: "Every 3 months" },
+  { deviceType: "pH Sensor", method: "Single/Two Point", standard: "pH 4.00, 6.86, 7.00, 9.18", frequency: "Every 3 months" },
   { deviceType: "EC Sensor", method: "Two Point", standard: "1.41 mS/cm, 12.88 mS/cm", frequency: "Every 3 months" },
-  { deviceType: "Dosing Pump", method: "Volume Test", standard: "Measure actual volume", frequency: "Every 1 month" },
-  { deviceType: "Flow Meter", method: "Flow Test", standard: "Compare with reference flow", frequency: "Every 3 months" },
-  { deviceType: "Water Level Sensor", method: "Multi Point", standard: "Empty, 50%, Full", frequency: "Every 6 months" },
-  { deviceType: "Temperature Sensor", method: "Single/Two Point", standard: "0 °C, 50 °C", frequency: "Every 6 months" },
-  { deviceType: "Humidity Sensor", method: "Two Point", standard: "33%, 75% RH", frequency: "Every 6 months" },
-  { deviceType: "Fan", method: "Functional Test", standard: "ON/OFF", frequency: "Every 6 months" },
+  { deviceType: "Dosing Pump", method: "Volume Test", standard: "Measure actual volume per 30s run", frequency: "Every 1 month" },
 ];
 
 export const categoryFilterMap: Record<string, CalibrationCategory[]> = {
-  "all": [...calibrationCategories.map((c) => c.id)],
-  "sensors": ["ph", "ec", "temp-humidity"],
+  "all": ["ph", "ec", "dosing-pump"],
+  "sensors": ["ph", "ec"],
   "dosing-pumps": ["dosing-pump"],
-  "ph-ec": ["ph", "ec"],
-  "flow-meters": ["flow-meter"],
-  "actuators": ["fan", "dosing-pump"],
-  "environment": ["temp-humidity"],
-  "water-level": ["water-level"],
 };

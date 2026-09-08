@@ -23,16 +23,19 @@ import {
   deleteObservation,
   emergencyStopComplex,
   markComplexSyncAttempt,
+  resumeComplex,
+  setCalibrationDeviceReading,
   setComplexEsp32Synced,
   setWellPumpOn,
   startManualRun,
   updateFanSchedule,
+  updateComplex,
   updateFertigationSchedule,
+  updateGreenhouse,
   updateWellPumpSchedule,
 } from "./store";
 import { alerts as recentAlerts, recentEvents } from "./data/events";
 import {
-  calibrationCategories,
   calibrationReference,
   categoryFilterMap,
 } from "./data/calibration";
@@ -80,6 +83,17 @@ export const complexService = {
     await delay();
     return addComplex(location.trim());
   },
+  async update(id: string, patch: Partial<Pick<Complex, "code" | "name" | "location" | "status">>): Promise<Complex> {
+    if (patch.code !== undefined && !patch.code.trim()) throw new ServiceError("VALIDATION_FAILED", "Complex code is required.", "code");
+    if (patch.name !== undefined && !patch.name.trim()) throw new ServiceError("VALIDATION_FAILED", "Complex name is required.", "name");
+    if (patch.location !== undefined && !patch.location.trim()) throw new ServiceError("VALIDATION_FAILED", "Location is required.", "location");
+    await delay();
+    const cleanPatch: Partial<Pick<Complex, "code" | "name" | "location" | "status">> = { ...patch };
+    if (patch.code !== undefined) cleanPatch.code = patch.code.trim();
+    if (patch.name !== undefined) cleanPatch.name = patch.name.trim();
+    if (patch.location !== undefined) cleanPatch.location = patch.location.trim();
+    return assertFound(updateComplex(id, cleanPatch), "Complex");
+  },
 };
 
 export const greenhouseService = {
@@ -100,6 +114,16 @@ export const greenhouseService = {
     }
     await delay();
     return addGreenhouse(complexId, crop.trim());
+  },
+  async update(id: string, patch: Partial<Pick<Greenhouse, "code" | "crop" | "greenhouseTag">>): Promise<Greenhouse> {
+    if (patch.code !== undefined && !patch.code.trim()) throw new ServiceError("VALIDATION_FAILED", "Greenhouse code is required.", "code");
+    if (patch.crop !== undefined && !patch.crop.trim()) throw new ServiceError("VALIDATION_FAILED", "Crop is required.", "crop");
+    await delay();
+    const cleanPatch: Partial<Pick<Greenhouse, "code" | "crop" | "greenhouseTag">> = { ...patch };
+    if (patch.code !== undefined) cleanPatch.code = patch.code.trim();
+    if (patch.crop !== undefined) cleanPatch.crop = patch.crop.trim();
+    if (patch.greenhouseTag !== undefined) cleanPatch.greenhouseTag = patch.greenhouseTag.trim();
+    return assertFound(updateGreenhouse(id, cleanPatch), "Greenhouse");
   },
 };
 
@@ -144,8 +168,10 @@ export const scheduleService = {
   },
 
   async updateFertigation(id: string, patch: Partial<FertigationSchedule>): Promise<FertigationSchedule> {
-    const existing = db.greenhouses.flatMap((g) => g.fertigationSchedules).find((s) => s.id === id);
-    assertFound(existing, "Schedule");
+    const existing = assertFound(
+      db.greenhouses.flatMap((g) => g.fertigationSchedules).find((s) => s.id === id),
+      "Schedule",
+    );
     if (patch.name !== undefined) {
       if (!patch.name.trim()) {
         throw new ServiceError("VALIDATION_FAILED", "Schedule name is required.", "name");
@@ -243,9 +269,6 @@ export const scheduleService = {
 /* -------------------------- calibration -------------------------- */
 
 export const calibrationService = {
-  categories() {
-    return calibrationCategories;
-  },
   devices(): CalibrationDevice[] {
     return db.calibrationDevices;
   },
@@ -264,15 +287,23 @@ export const calibrationService = {
       throw new ServiceError("VALIDATION_FAILED", "Before and after readings are required.");
     }
     await delay();
+    const pointCount = device.method === "two" ? 2 : 1;
+    const type =
+      device.category === "ph"
+        ? `pH (${pointCount} point)`
+        : device.category === "ec"
+          ? `EC (${pointCount} point)`
+          : "Volume Test (30s)";
     addCalibrationRecord({
       dateTime: `${MOCK_NOW.dateTime.slice(0, 11)}${MOCK_NOW.time.slice(0, 5)}`,
       device: device.name.replace(/\s*\(.*\)$/, ""),
-      type: device.category === "ph" ? "pH (1 point)" : "Field calibration",
+      type,
       before,
       after,
       result: "Success",
       user,
     });
+    setCalibrationDeviceReading(device.id, String(parseFloat(after)));
   },
 };
 
@@ -312,6 +343,9 @@ export const fertigationService = {
   /** Manual fertigation: creates a real run and advances it in mock ticks. */
   async startManual(ghId: string, recipeId: string, targetWaterL: number): Promise<void> {
     const gh = assertFound(greenhouseService.get(ghId), "Greenhouse");
+    if (gh.complexId && this.isStopped(gh.complexId)) {
+      throw new ServiceError("CONFLICT", "System is in EMERGENCY STOP — resume the system before starting a run.");
+    }
     if (!gh.recipes.some((r) => r.id === recipeId)) {
       throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
     }
@@ -354,16 +388,31 @@ export const fertigationService = {
     }
   },
 
-  /** Emergency stop: stops every run in the complex and shuts the well pump. */
+  /** Emergency stop: stops every run in the complex, shuts the well pump, and latches the stop until manually resumed. */
   async emergencyStop(complexId: string): Promise<void> {
     assertFound(complexService.get(complexId), "Complex");
     await delay(500);
     emergencyStopComplex(complexId);
   },
 
+  /** Latched emergency-stop state — actuators and runs stay blocked until resume() is called. */
+  isStopped(complexId: string): boolean {
+    return complexService.get(complexId)?.emergencyStopped ?? false;
+  },
+
+  /** Manual resume: clears the latched emergency stop; the operator re-enables schedules/pumps normally. */
+  async resume(complexId: string): Promise<void> {
+    assertFound(complexService.get(complexId), "Complex");
+    await delay(400);
+    resumeComplex(complexId);
+  },
+
   /** Radar interlock: pump may only start when the tank is still filling (spec #16). */
   async setWellPump(complexId: string, on: boolean): Promise<void> {
     const complex = assertFound(complexService.get(complexId), "Complex");
+    if (on && complex.emergencyStopped) {
+      throw new ServiceError("CONFLICT", "System is in EMERGENCY STOP — resume the system before turning the well pump ON.");
+    }
     await delay();
     const radarFull = complex.water.rawTankPct >= 95;
     if (on && radarFull) {

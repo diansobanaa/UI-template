@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { restorePersistedDb } from "@/lib/store";
+import { restorePersistedDb, startRealtimeMock } from "@/lib/store";
 
 /**
  * Restores persisted mock-db state from localStorage AFTER hydration.
@@ -14,6 +14,7 @@ import { restorePersistedDb } from "@/lib/store";
 export function StoreHydrator() {
     useEffect(() => {
         restorePersistedDb();
+        return startRealtimeMock();
     }, []);
     return null;
 }

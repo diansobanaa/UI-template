@@ -1,6 +1,8 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
+import type { RealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
 
 export function SectionCard({
   title,
@@ -11,6 +13,7 @@ export function SectionCard({
   children,
   className = "",
   bodyClassName = "",
+  realtime,
 }: {
   title: React.ReactNode;
   icon?: LucideIcon;
@@ -20,6 +23,7 @@ export function SectionCard({
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
+  realtime?: RealtimeState;
 }) {
   const tones: Record<string, string> = {
     blue: "bg-blue-50 text-blue-600",
@@ -32,7 +36,7 @@ export function SectionCard({
   };
   return (
     <section
-      className={`rounded-xl border border-[--color-line] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${className}`}
+      className={`rounded-xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${realtime === "problem" || realtime === "offline" ? "border-red-200 bg-red-50/35" : "border-[--color-line] bg-white"} ${className}`}
     >
       <header className="flex items-center gap-2.5 px-5 pb-3 pt-4">
         {Icon && (
@@ -44,7 +48,7 @@ export function SectionCard({
           <h3 className="truncate text-[15px] font-bold text-slate-900">{title}</h3>
           {subtitle && <p className="truncate text-xs text-slate-500">{subtitle}</p>}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">{realtime && <LiveStatus state={realtime} />} {action}</div>
       </header>
       <div className={bodyClassName || "px-5 pb-5"}>{children}</div>
     </section>

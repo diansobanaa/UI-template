@@ -1,8 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -20,6 +19,9 @@ import {
   MapPin,
   MonitorCog,
   RefreshCw,
+  Radio,
+  ShieldCheck,
+  PlayCircle,
   ScrollText,
   Sprout,
   Thermometer,
@@ -41,24 +43,97 @@ import { errorMessage } from "@/lib/errors";
 import { MOCK_NOW, delta, lux, n } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/overlay";
+import { complexRealtimeState, greenhouseRealtimeState } from "@/lib/realtime";
+import { LiveStatus } from "@/components/ui/LiveStatus";
+import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
 
 export default function ComplexDashboardPage() {
   return (
     <Suspense fallback={null}>
-      <ComplexDashboardContent />
+      <DashboardRoute />
     </Suspense>
+  );
+}
+
+function DashboardRoute() {
+  const [params] = useSearchParams();
+  return params.get("complex") ? <ComplexDashboardContent /> : <GlobalDashboardContent />;
+}
+
+function GlobalDashboardContent() {
+  useDbVersion();
+  const complexes = complexService.list();
+  const allGreenhouses = complexes.flatMap((complex) => greenhouseService.byComplex(complex.id).map((greenhouse) => ({ greenhouse, complex })));
+  const activeRuns = allGreenhouses.filter(({ greenhouse }) => greenhouse.currentRun).length;
+  const offline = allGreenhouses.filter(({ greenhouse }) => !greenhouse.online).length;
+  const warnings = allGreenhouses.filter(({ greenhouse }) => greenhouse.health !== "NORMAL").length;
+  const onlineEsp = complexes.filter((complex) => complex.esp32.online).length;
+  const router = useNavigate();
+
+  return (
+    <AppShell complexId={complexes[0]?.id ?? ""}>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">AgroTech Operations</div>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">Greenhouse command center</h1>
+          <p className="mt-1 text-sm text-slate-500">All Complexes · {allGreenhouses.length} greenhouses reporting in one operational view</p>
+        </div>
+        <LiveStatus state={offline || warnings ? "problem" : "live"} label="All greenhouse realtime status" />
+      </div>
+
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          ["Complexes", complexes.length, `${onlineEsp} ESP32 online`, "bg-violet-50 text-violet-600"],
+          ["Greenhouses", allGreenhouses.length, `${allGreenhouses.length - offline} online`, "bg-emerald-50 text-emerald-600"],
+          ["Active operations", activeRuns, "fertigation running", "bg-blue-50 text-blue-600"],
+          ["Attention required", offline + warnings, offline ? "offline or degraded" : "all systems normal", offline + warnings ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-600"],
+        ].map(([label, value, detail, tone]) => (
+          <div key={String(label)} className="rounded-2xl border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+            <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Activity className="h-4 w-4" /></div>
+            <div className="text-2xl font-bold text-slate-950">{value}</div>
+            <div className="mt-0.5 text-sm font-medium text-slate-700">{label}</div>
+            <div className="mt-1 text-xs text-slate-400">{detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <SectionCard title="All Greenhouses" icon={Building2} iconTone="blue" subtitle="Live sensor and operation status across every Complex" realtime={offline || warnings ? "problem" : "live"}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {allGreenhouses.map(({ greenhouse, complex }) => <GreenhouseOverviewCard key={greenhouse.id} greenhouse={greenhouse} complex={complex} />)}
+        </div>
+      </SectionCard>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard title="Complex Network" icon={Building2} iconTone="violet" subtitle="ESP32 and GH availability">
+          <div className="space-y-2">
+            {complexes.map((complex) => {
+              const complexGreenhouses = greenhouseService.byComplex(complex.id);
+              const state = complexRealtimeState(complex, complexGreenhouses);
+              return <button key={complex.id} onClick={() => router(`/dashboard?complex=${complex.id}`)} className="flex w-full items-center justify-between rounded-xl border-slate-100 bg-slate-50/60 px-3.5 py-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40">
+                <span><span className="block text-sm font-bold text-slate-800">{complex.code}</span><span className="text-xs text-slate-500">{complexGreenhouses.length} GH · {complex.location}</span></span><LiveStatus state={state} label={`${complex.code} realtime status`} />
+              </button>;
+            })}
+          </div>
+        </SectionCard>
+        <SectionCard title="Attention Queue" icon={AlertTriangle} iconTone={offline || warnings ? "red" : "green"}>
+          {offline || warnings ? <div className="space-y-2">{allGreenhouses.filter(({ greenhouse }) => !greenhouse.online || greenhouse.health !== "NORMAL").map(({ greenhouse, complex }) => <button key={greenhouse.id} onClick={() => router(`/greenhouse/${greenhouse.id}?complex=${complex.id}`)} className="flex w-full items-center justify-between rounded-xl border-red-100 bg-red-50/50 px-3.5 py-3 text-left"><span><span className="block text-sm font-semibold text-red-800">{greenhouse.code} · {complex.code}</span><span className="text-xs text-red-600">{greenhouse.online ? "Health warning" : "Realtime disconnected"}</span></span><AlertTriangle className="h-4 w-4 text-red-500" /></button>)}</div> : <div className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-5 text-sm font-medium text-emerald-700"><ShieldCheck className="h-5 w-5" /> All Complexes and GH are operating normally.</div>}
+        </SectionCard>
+      </div>
+    </AppShell>
   );
 }
 
 function ComplexDashboardContent() {
   useDbVersion(); // re-render on any mock-store mutation
-  const params = useSearchParams();
-  const router = useRouter();
+  const [params] = useSearchParams();
+  const router = useNavigate();
   const toast = useToast();
 
   const [syncing, setSyncing] = useState(false);
   const [estopOpen, setEstopOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [pumpBusy, setPumpBusy] = useState(false);
 
   const handleSync = async () => {
@@ -77,12 +152,25 @@ function ComplexDashboardContent() {
     setStopping(true);
     try {
       await fertigationService.emergencyStop(complex.id);
-      toast("EMERGENCY STOP executed — all actuators off", "warning");
+      toast("EMERGENCY STOP executed — all actuators off until manually resumed", "warning");
       setEstopOpen(false);
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
       setStopping(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      await fertigationService.resume(complex.id);
+      toast("System resumed — actuators and schedules can run again", "success");
+      setResumeOpen(false);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setResuming(false);
     }
   };
 
@@ -107,10 +195,13 @@ function ComplexDashboardContent() {
   const idx = complexes.findIndex((c) => c.id === complex.id);
   const prev = complexes[(idx - 1 + complexes.length) % complexes.length];
   const next = complexes[(idx + 1) % complexes.length];
-  const go = (id: string) => router.replace(`/dashboard?complex=${id}`, { scroll: false });
+  const go = (id: string) => router(`/dashboard?complex=${id}`, { replace: true });
 
   const onlineCount = ghs.filter((g) => g.online).length;
   const activeFertigations = ghs.filter((g) => g.currentRun).length;
+  const offlineCount = ghs.filter((g) => !g.online).length;
+  const warningCount = ghs.filter((g) => g.health !== "NORMAL").length;
+  const complexState = complexRealtimeState(complex, ghs);
   const totalPlants = ghs.reduce((a, g) => a + g.plants.total, 0);
   const totalToday = ghs.reduce((a, g) => a + (g.telemetry.waterTodayL ?? 0), 0);
 
@@ -150,7 +241,7 @@ function ComplexDashboardContent() {
           <button
             onClick={() => go(prev.id)}
             aria-label="Previous complex"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -160,7 +251,7 @@ function ComplexDashboardContent() {
           <button
             onClick={() => go(next.id)}
             aria-label="Next complex"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -174,9 +265,46 @@ function ComplexDashboardContent() {
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Synchronizing…" : "Sync Config"}
           </Button>
-          <Button variant="secondary" size="md" onClick={() => setEstopOpen(true)}>
-            <Zap className="h-4 w-4" /> Emergency Stop
-          </Button>
+          {complex.emergencyStopped ? (
+            <>
+              <span className="flex h-9 animate-pulse items-center rounded-lg bg-red-100 px-2.5 text-[11px] font-bold text-red-600">
+                E-STOP AKTIF
+              </span>
+              <Button size="md" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => setResumeOpen(true)}>
+                <PlayCircle className="h-4 w-4" /> Resume System
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" size="md" onClick={() => setEstopOpen(true)}>
+              <Zap className="h-4 w-4" /> Emergency Stop
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* ---------------- Live command strip ---------------- */}
+      <div className="mb-5 grid grid-cols-1 gap-3 rounded-2xl border-slate-800 bg-[#101a2d] p-3 text-white shadow-[0_10px_30px_rgba(15,23,42,0.16)] md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        <div className="flex items-center gap-3 rounded-xl bg-white/[0.07] px-4 py-3">
+          <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/15 text-emerald-300">
+            <Radio className="h-5 w-5" />
+            <span className="pulse-dot absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-300" />
+          </span>
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Live command center</div>
+            <div className="mt-0.5 text-sm font-semibold">System is reporting normally</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <ShieldCheck className="h-5 w-5 text-emerald-300" />
+          <div><div className="text-[11px] text-slate-400">Safety state</div><div className="text-sm font-semibold text-emerald-300">All clear</div></div>
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <Activity className="h-5 w-5 text-blue-300" />
+          <div><div className="text-[11px] text-slate-400">Active operations</div><div className="text-sm font-semibold">{activeFertigations} of {ghs.length} GH</div></div>
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2">
+          <AlertTriangle className={`h-5 w-5 ${offlineCount + warningCount ? "text-amber-300" : "text-slate-400"}`} />
+          <div><div className="text-[11px] text-slate-400">Attention required</div><div className="text-sm font-semibold">{offlineCount + warningCount || "None"}</div></div>
         </div>
       </div>
 
@@ -210,10 +338,11 @@ function ComplexDashboardContent() {
           title="Greenhouse Summary"
           icon={Building2}
           iconTone="blue"
+          realtime={complexState}
           action={
             <>
-              <ViewAllButton onClick={() => router.push(`/complex?complex=${complex.id}`)}>View All</ViewAllButton>
-              <Button size="sm" variant="primary" onClick={() => router.push(`/complex?complex=${complex.id}&add=1`)}>
+              <ViewAllButton onClick={() => router(`/complex?complex=${complex.id}`)}>View All</ViewAllButton>
+              <Button size="sm" variant="primary" onClick={() => router(`/complex?complex=${complex.id}&add=1`)}>
                 + Add Greenhouse
               </Button>
             </>
@@ -223,11 +352,12 @@ function ComplexDashboardContent() {
             {ghs.map((gh) => (
               <Link
                 key={gh.id}
-                href={`/greenhouse/${gh.id}?complex=${complex.id}`}
-                className="group overflow-hidden rounded-xl border border-[--color-line] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:shadow-lg"
+                to={`/greenhouse/${gh.id}?complex=${complex.id}`}
+                className={`group overflow-hidden rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:shadow-lg ${greenhouseRealtimeState(gh) === "live" ? "border-[--color-line] bg-white" : "border-red-200 bg-red-50/40"}`}
               >
-                <div className="relative h-[100px] overflow-hidden">
+                <div className={`relative h-[100px] overflow-hidden ${!gh.online ? "grayscale opacity-75" : ""}`}>
                   <GreenhouseArt crop={gh.crop} className="h-full w-full" />
+                  <span className={`absolute inset-x-0 bottom-0 h-1 ${gh.currentRun ? "bg-blue-500" : gh.health !== "NORMAL" ? "bg-amber-400" : gh.online ? "bg-emerald-500" : "bg-slate-400"}`} />
                   <span className="absolute left-2.5 top-2.5">
                     <StatusBadge status={gh.online ? "online" : "offline"} />
                   </span>
@@ -251,8 +381,9 @@ function ComplexDashboardContent() {
                       {gh.telemetry.tankPct}%
                     </span>
                   </div>
-                  <div className="mt-2.5">
+                    <div className="mt-2.5 flex items-center justify-between">
                     <StatusBadge status={gh.fertigationState} />
+                    <LiveStatus state={greenhouseRealtimeState(gh)} compact />
                   </div>
                 </div>
               </Link>
@@ -268,7 +399,8 @@ function ComplexDashboardContent() {
           title="Fertigation Status"
           icon={Droplets}
           iconTone="blue"
-          action={<ViewAllButton onClick={() => router.push(`/fertigation?complex=${complex.id}`)}>View All</ViewAllButton>}
+          realtime={complexState}
+          action={<ViewAllButton onClick={() => router(`/fertigation?complex=${complex.id}`)}>View All</ViewAllButton>}
         >
           <div className="space-y-3.5">
             {ghs.map((gh) => (
@@ -304,10 +436,11 @@ function ComplexDashboardContent() {
           title="Upcoming Schedule"
           icon={CalendarClock}
           iconTone="violet"
-          action={<ViewAllButton onClick={() => router.push(`/schedule?complex=${complex.id}`)}>View All</ViewAllButton>}
+          realtime={complexState}
+          action={<ViewAllButton onClick={() => router(`/schedule?complex=${complex.id}`)}>View All</ViewAllButton>}
         >
           {upcoming.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
+            <p className="rounded-xl border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-400">
               No upcoming schedules for this complex.
             </p>
           ) : (
@@ -338,7 +471,8 @@ function ComplexDashboardContent() {
           title="Recent Events"
           icon={ScrollText}
           iconTone="slate"
-          action={<ViewAllButton onClick={() => router.push("/events")}>View All</ViewAllButton>}
+          realtime={complexState}
+          action={<ViewAllButton onClick={() => router("/events")}>View All</ViewAllButton>}
         >
           <div className="space-y-3">
             {events.length === 0 && <p className="text-sm text-slate-400">No recent events for this complex.</p>}
@@ -369,7 +503,7 @@ function ComplexDashboardContent() {
         {/* Water system */}
         <SectionCard title="Water System" icon={Waves} iconTone="sky" className="xl:col-span-2">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-[--color-line] bg-slate-50/60 p-4">
+            <div className="rounded-xl border-[--color-line] bg-slate-50/60 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-800">Raw Water Tank</span>
                 <Badge tone="gray">Radar: {scheduleService.wellPumpForComplex(complex.id)[0]?.radar === "full" ? "Penuh" : "Dalam Pengisian"}</Badge>
@@ -385,28 +519,28 @@ function ComplexDashboardContent() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col justify-between rounded-xl border border-[--color-line] bg-white p-3.5">
+              <div className="flex flex-col justify-between rounded-xl border-[--color-line] bg-white p-3.5">
                 <Gauge className="h-5 w-5 text-sky-500" />
                 <div>
                   <div className="text-xs text-slate-500">Flow Rate</div>
                   <div className="text-lg font-bold text-slate-900">12.4 L/min</div>
                 </div>
               </div>
-              <div className="flex flex-col justify-between rounded-xl border border-[--color-line] bg-white p-3.5">
+              <div className="flex flex-col justify-between rounded-xl border-[--color-line] bg-white p-3.5">
                 <ArrowLeftRight className="h-5 w-5 text-blue-500" />
                 <div>
                   <div className="text-xs text-slate-500">Water Today</div>
                   <div className="text-lg font-bold text-slate-900">{n(totalToday)} L</div>
                 </div>
               </div>
-              <div className="flex flex-col justify-between rounded-xl border border-[--color-line] bg-white p-3.5">
+              <div className="flex flex-col justify-between rounded-xl border-[--color-line] bg-white p-3.5">
                 <Activity className="h-5 w-5 text-emerald-500" />
                 <div>
                   <div className="text-xs text-slate-500">Δ vs Yesterday</div>
                   <div className="text-lg font-bold text-emerald-600">{delta(complex.water.flowDeltaPct)}</div>
                 </div>
               </div>
-              <div className="flex flex-col justify-between rounded-xl border border-[--color-line] bg-white p-3.5">
+              <div className="flex flex-col justify-between rounded-xl border-[--color-line] bg-white p-3.5">
                 <Waves className="h-5 w-5 text-violet-500" />
                 <div>
                   <div className="text-xs text-slate-500">Mixing Tanks Avg</div>
@@ -424,7 +558,7 @@ function ComplexDashboardContent() {
           <SectionCard title="Equipment Status" icon={Wrench} iconTone="slate">
             <div className="space-y-2">
               {equipment.map((eq) => (
-                <div key={eq.name} className="flex items-center justify-between rounded-lg border border-[--color-line] px-3 py-2">
+                <div key={eq.name} className="flex items-center justify-between rounded-lg border-[--color-line] px-3 py-2">
                   <span className="text-sm text-slate-700">{eq.name}</span>
                   <StatusBadge status={eq.status.toLowerCase()} />
                 </div>
@@ -436,7 +570,7 @@ function ComplexDashboardContent() {
               <Button
                 variant="secondary"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => router.push(`/fertigation?complex=${complex.id}`)}
+                onClick={() => router(`/fertigation?complex=${complex.id}`)}
               >
                 <Droplets className="h-5 w-5 text-blue-500" />
                 <span className="text-xs">Manual Fertigation</span>
@@ -459,14 +593,25 @@ function ComplexDashboardContent() {
                 <RefreshCw className={`h-5 w-5 text-emerald-500 ${syncing ? "animate-spin" : ""}`} />
                 <span className="text-xs">{syncing ? "Syncing…" : "Sync Hardware"}</span>
               </Button>
-              <Button
-                variant="secondary"
-                className="h-auto flex-col gap-1 py-3"
-                onClick={() => setEstopOpen(true)}
-              >
-                <Zap className="h-5 w-5 text-red-500" />
-                <span className="text-xs">Emergency Stop</span>
-              </Button>
+              {complex.emergencyStopped ? (
+                <Button
+                  variant="secondary"
+                  className="h-auto flex-col gap-1 py-3"
+                  onClick={() => setResumeOpen(true)}
+                >
+                  <PlayCircle className="h-5 w-5 text-emerald-500" />
+                  <span className="text-xs">Resume System</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  className="h-auto flex-col gap-1 py-3"
+                  onClick={() => setEstopOpen(true)}
+                >
+                  <Zap className="h-5 w-5 text-red-500" />
+                  <span className="text-xs">Emergency Stop</span>
+                </Button>
+              )}
             </div>
           </SectionCard>
         </div>
@@ -492,6 +637,15 @@ function ComplexDashboardContent() {
         message={`Stop all pumps and close all valves in ${complex.code} immediately? This affects physical equipment. The system will stay in a safe state until manually resumed.`}
         confirmLabel={stopping ? "Stopping…" : "Stop Everything"}
         danger
+      />
+
+      <ConfirmDialog
+        open={resumeOpen}
+        onClose={() => { if (!resuming) setResumeOpen(false); }}
+        onConfirm={handleResume}
+        title="Resume System"
+        message={`Lift the latched emergency stop on ${complex.code}? Pumps and valves become available again; schedules resume their normal behaviour.`}
+        confirmLabel={resuming ? "Resuming…" : "Resume System"}
       />
     </AppShell>
   );

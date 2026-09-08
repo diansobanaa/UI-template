@@ -1,8 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Building2,
   Cpu,
@@ -10,6 +9,7 @@ import {
   Eye,
   Leaf,
   MapPin,
+  Pencil,
   Plus,
   Sprout,
   Thermometer,
@@ -24,6 +24,8 @@ import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { required } from "@/lib/validation";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
+import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
+import type { Complex, Greenhouse } from "@/lib/types";
 
 const CROP_OPTIONS = ["Tomato", "Cucumber", "Lettuce", "Spinach", "Strawberry", "Chili", "Bell Pepper", "Broccoli"];
 
@@ -37,8 +39,8 @@ export default function ComplexOverviewPage() {
 
 function ComplexOverviewContent() {
   useDbVersion();
-  const params = useSearchParams();
-  const router = useRouter();
+  const [params] = useSearchParams();
+  const router = useNavigate();
   const toast = useToast();
 
   const complexes = complexService.list();
@@ -56,6 +58,15 @@ function ComplexOverviewContent() {
   const [ghError, setGhError] = useState<string | null>(null);
   const [savingGh, setSavingGh] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState<"complex" | "gh" | null>(null);
+  const [editingComplex, setEditingComplex] = useState<Complex | null>(null);
+  const [editingGh, setEditingGh] = useState<Greenhouse | null>(null);
+  const [editCode, setEditCode] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editCrop, setEditCrop] = useState("");
+  const [editTag, setEditTag] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const totalGhs = complexes.reduce((a, c) => a + c.greenhouseIds.length, 0);
   const onlineEsp = complexes.filter((c) => c.esp32.online).length;
@@ -70,6 +81,51 @@ function ComplexOverviewContent() {
     setAddGhOpen(false);
     setAddGhFor(null);
     setGhError(null);
+  };
+
+  const openComplexEditor = (complex: Complex) => {
+    setEditingComplex(complex);
+    setEditingGh(null);
+    setEditCode(complex.code);
+    setEditName(complex.name);
+    setEditLocation(complex.location);
+    setEditError(null);
+  };
+
+  const openGhEditor = (greenhouse: Greenhouse) => {
+    setEditingGh(greenhouse);
+    setEditingComplex(null);
+    setEditCode(greenhouse.code);
+    setEditCrop(greenhouse.crop);
+    setEditTag(greenhouse.greenhouseTag);
+    setEditError(null);
+  };
+
+  const closeEditor = () => {
+    if (!savingEdit) {
+      setEditingComplex(null);
+      setEditingGh(null);
+      setEditError(null);
+    }
+  };
+
+  const saveEditor = async () => {
+    setEditError(null);
+    setSavingEdit(true);
+    try {
+      if (editingComplex) {
+        await complexService.update(editingComplex.id, { code: editCode, name: editName, location: editLocation });
+        toast(`${editCode} updated successfully`, "success");
+      } else if (editingGh) {
+        await greenhouseService.update(editingGh.id, { code: editCode, crop: editCrop, greenhouseTag: editTag });
+        toast(`${editCode} updated successfully`, "success");
+      }
+      closeEditor();
+    } catch (e) {
+      setEditError(errorMessage(e));
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleCreateComplex = async () => {
@@ -145,10 +201,13 @@ function ComplexOverviewContent() {
               action={
                 <>
                   <StatusBadge status={c.systemStatus.toLowerCase()} />
+                  <Button size="sm" variant="secondary" onClick={() => openComplexEditor(c)}>
+                    <Pencil className="h-3.5 w-3.5" /> Edit Complex
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => { setAddGhFor(c.id); setGhError(null); setAddGhOpen(true); }}>
                     <Plus className="h-3.5 w-3.5" /> Add Greenhouse
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => router.push(`/dashboard?complex=${c.id}`)}>
+                  <Button size="sm" variant="secondary" onClick={() => router(`/dashboard?complex=${c.id}`)}>
                     <Eye className="h-3.5 w-3.5" /> View Details
                   </Button>
                 </>
@@ -169,40 +228,8 @@ function ComplexOverviewContent() {
                 <span>Water today: {c.water.flowTodayL} L</span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {ghs.map((g) => (
-                  <Link
-                    key={g.id}
-                    href={`/greenhouse/${g.id}?complex=${c.id}`}
-                    className="group overflow-hidden rounded-xl border border-[--color-line] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:shadow-lg"
-                  >
-                    <div className="relative h-[90px] overflow-hidden">
-                      <GreenhouseArt crop={g.crop} className="h-full w-full" />
-                      <span className="absolute left-2.5 top-2.5">
-                        <StatusBadge status={g.online ? "online" : "offline"} />
-                      </span>
-                    </div>
-                    <div className="px-3.5 pb-3.5 pt-3">
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-slate-900">{g.code}</div>
-                        <span className="text-[13px] text-slate-500">{g.crop}</span>
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between text-xs text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <Thermometer className="h-3.5 w-3.5 text-slate-400" />
-                          {g.telemetry.temperatureC !== null ? `${g.telemetry.temperatureC.toFixed(1)}°C` : "–"}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Sprout className="h-3.5 w-3.5 text-slate-400" /> HST {g.telemetry.hstDays}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <StatusBadge status={g.fertigationState} />
-                        <span className="text-[11px] font-medium text-blue-600 group-hover:underline">View Details</span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4">
+                {ghs.map((g) => <GreenhouseOverviewCard key={g.id} greenhouse={g} complex={c} onEdit={() => openGhEditor(g)} />)}
 
                 {/* Add greenhouse tile */}
                 <button
@@ -217,6 +244,59 @@ function ComplexOverviewContent() {
           );
         })}
       </div>
+
+      {/* ---------------- Edit metadata modal ---------------- */}
+      <Modal
+        open={editingComplex !== null || editingGh !== null}
+        onClose={closeEditor}
+        title={editingComplex ? "Edit Complex Information" : `Edit ${editingGh?.code ?? "Greenhouse"}`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeEditor} disabled={savingEdit}>Cancel</Button>
+            <Button onClick={saveEditor} disabled={savingEdit}>
+              {savingEdit ? "Saving…" : "Save Changes"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3.5">
+          {editError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-600">
+              {editError}
+            </div>
+          )}
+          <div>
+            <Label required>{editingComplex ? "Complex Code" : "Greenhouse Code"}</Label>
+            <Input value={editCode} onChange={(event) => setEditCode(event.target.value)} placeholder={editingComplex ? "Complex 01" : "GH 01"} />
+          </div>
+          {editingComplex ? (
+            <>
+              <div>
+                <Label required>Complex Name</Label>
+                <Input value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Greenhouse Complex" />
+              </div>
+              <div>
+                <Label required>Location</Label>
+                <Input value={editLocation} onChange={(event) => setEditLocation(event.target.value)} placeholder="Lembang, Indonesia" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label required>Crop / Name</Label>
+                <Input value={editCrop} onChange={(event) => setEditCrop(event.target.value)} placeholder="Tomato" />
+              </div>
+              <div>
+                <Label>Greenhouse Tag</Label>
+                <Input value={editTag} onChange={(event) => setEditTag(event.target.value)} placeholder="GH-01" />
+              </div>
+            </>
+          )}
+          <div className="rounded-lg bg-blue-50/70 px-3 py-2.5 text-xs leading-relaxed text-blue-700">
+            Perubahan disimpan ke state aplikasi dan tetap tersedia setelah halaman dimuat ulang.
+          </div>
+        </div>
+      </Modal>
 
       {/* ---------------- Add Complex modal ---------------- */}
       <Modal
