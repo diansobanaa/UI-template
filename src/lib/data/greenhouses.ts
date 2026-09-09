@@ -64,8 +64,13 @@ const gh01: Greenhouse = {
     waterTodayL: 240,
     waterYesterdayL: 214,
     waterDeltaPct: 12,
-    hstDays: 56,
-    hspDays: 16,
+    hstDays: 228,
+    hspDays: 197,
+  },
+  cropCycle: {
+    status: "ACTIVE",
+    tanggalTanam: "2026-01-24",
+    tanggalPolinasi: "2026-02-24",
   },
   plants: {
     total: 120,
@@ -166,6 +171,11 @@ const gh02: Greenhouse = {
     hstDays: 41,
     hspDays: null,
   },
+  cropCycle: {
+    status: "ACTIVE",
+    tanggalTanam: "2026-07-30",
+    tanggalPolinasi: null,
+  },
   plants: { total: 96, tracked: 30, alive: 92, dead: 4, avgHeightCm: 62, avgFruitWeightG: 88, totalFruits: 61, latestObservation: "2 Sep 2026" },
   equipment: [
     { name: "Mixing Tank", status: "OK" },
@@ -244,8 +254,21 @@ const gh03: Greenhouse = {
     waterTodayL: 200,
     waterYesterdayL: 190,
     waterDeltaPct: 5,
-    hstDays: 22,
+    hstDays: 0,
     hspDays: null,
+  },
+  cropCycle: {
+    status: "HARVESTED",
+    tanggalTanam: null,
+    tanggalPolinasi: null,
+    lastHarvestSummary: {
+      harvestDate: "2026-09-02",
+      tanggalTanam: "2026-07-12",
+      tanggalPolinasi: "2026-08-01",
+      hstAtHarvest: 52,
+      hspAtHarvest: 32,
+      recordedAt: "2 Sep 2026 08:30",
+    },
   },
   plants: { total: 140, tracked: 40, alive: 135, dead: 5, avgHeightCm: 24, avgFruitWeightG: 0, totalFruits: 0, latestObservation: "2 Sep 2026" },
   equipment: [
@@ -301,8 +324,13 @@ const gh04: Greenhouse = {
     waterTodayL: null,
     waterYesterdayL: null,
     waterDeltaPct: null,
-    hstDays: 18,
+    hstDays: 0,
     hspDays: null,
+  },
+  cropCycle: {
+    status: "NO_CYCLE",
+    tanggalTanam: null,
+    tanggalPolinasi: null,
   },
   plants: { total: 88, tracked: 12, alive: 84, dead: 4, avgHeightCm: 34, avgFruitWeightG: 12, totalFruits: 9, latestObservation: "31 Aug 2026" },
   equipment: [
@@ -359,6 +387,11 @@ const gh05: Greenhouse = {
     waterDeltaPct: 7,
     hstDays: 63,
     hspDays: 12,
+  },
+  cropCycle: {
+    status: "ACTIVE",
+    tanggalTanam: "2026-07-08",
+    tanggalPolinasi: "2026-08-28",
   },
   plants: { total: 104, tracked: 28, alive: 100, dead: 4, avgHeightCm: 48, avgFruitWeightG: 76, totalFruits: 58, latestObservation: "2 Sep 2026" },
   equipment: [

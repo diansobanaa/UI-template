@@ -22,10 +22,20 @@ import {
   calibrationHistory as seedCalHistory,
 } from "./data/calibration";
 import { MOCK_NOW } from "./format";
+import {
+  calculateDaysBetween,
+  formatIndoDate,
+  getSystemDate,
+  toIsoDateString,
+  validateTanggalPolinasi,
+  validateTanggalTanam,
+} from "./cropCycle";
 import type {
   CalibrationDevice,
   CalibrationRecord,
   Complex,
+  CropCycle,
+  CycleHarvestSummary,
   FertigationRunRow,
   FertigationSchedule,
   FanSchedule,
@@ -87,6 +97,17 @@ function syncSeqFrom(db: MockDb): void {
   collect(db);
 }
 
+function ensureCropCycles(targetDb: MockDb, seed: MockDb): void {
+  for (const gh of targetDb.greenhouses) {
+    if (!gh.cropCycle) {
+      const seedGh = seed.greenhouses.find((s) => s.id === gh.id);
+      gh.cropCycle = seedGh?.cropCycle
+        ? structuredClone(seedGh.cropCycle)
+        : { status: "NO_CYCLE", tanggalTanam: null, tanggalPolinasi: null };
+    }
+  }
+}
+
 function hydrate(): MockDb {
   const seed = seedDb();
   if (typeof window === "undefined") return seed;
@@ -97,6 +118,7 @@ function hydrate(): MockDb {
     // Basic shape check — if the persisted shape is stale, fall back to seed.
     if (!parsed.complexes || !parsed.greenhouses) return seed;
     parsed.observations ??= [];
+    ensureCropCycles(parsed, seed);
     syncSeqFrom(parsed);
     return parsed;
   } catch {
@@ -114,6 +136,8 @@ export function restorePersistedDb(): void {
     const parsed = JSON.parse(raw) as MockDb;
     if (!parsed.complexes || !parsed.greenhouses) return;
     parsed.observations ??= [];
+    const seed = seedDb();
+    ensureCropCycles(parsed, seed);
     Object.assign(db, parsed);
     syncSeqFrom(db);
     notify(); // semua page via useDbVersion() langsung re-render
@@ -375,6 +399,11 @@ export function addGreenhouse(complexId: string, crop: string): Greenhouse {
       tankPct: 50, tankL: 50, tankCapacityL: 100, waterTodayL: 0, waterYesterdayL: 0, waterDeltaPct: 0,
       hstDays: 0, hspDays: null,
     },
+    cropCycle: {
+      status: "NO_CYCLE",
+      tanggalTanam: null,
+      tanggalPolinasi: null,
+    },
     plants: { total: 0, tracked: 0, alive: 0, dead: 0, avgHeightCm: 0, avgFruitWeightG: 0, totalFruits: 0, latestObservation: "-" },
     equipment: [],
     recipes: [],
@@ -575,3 +604,111 @@ export function setWellPumpOn(complexId: string, on: boolean): void {
   complex.water = { ...complex.water, wellPumpOn: on };
   commit();
 }
+
+/* ----------------------- crop cycle / masa tanam ----------------------- */
+
+export function startCropCycle(ghId: string, tanggalTanam: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  const val = validateTanggalTanam(tanggalTanam);
+  if (!val.valid) throw new Error(val.error || "Tanggal tanam tidak valid");
+
+  const hst = calculateDaysBetween(tanggalTanam);
+  gh.cropCycle = {
+    status: "ACTIVE",
+    tanggalTanam,
+    tanggalPolinasi: null,
+    lastHarvestSummary: gh.cropCycle?.lastHarvestSummary ?? null,
+  };
+  gh.telemetry.hstDays = hst;
+  gh.telemetry.hspDays = null;
+  commit();
+  return gh;
+}
+
+export function startOngoingCropCycle(ghId: string, tanggalTanam: string): Greenhouse {
+  return startCropCycle(ghId, tanggalTanam);
+}
+
+export function recordCropCyclePolinasi(ghId: string, tanggalPolinasi: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle || gh.cropCycle.status !== "ACTIVE" || !gh.cropCycle.tanggalTanam) {
+    throw new Error("Siklus tanam belum aktif pada greenhouse ini.");
+  }
+  const val = validateTanggalPolinasi(tanggalPolinasi, gh.cropCycle.tanggalTanam);
+  if (!val.valid) throw new Error(val.error || "Tanggal polinasi tidak valid");
+
+  const hsp = calculateDaysBetween(tanggalPolinasi);
+  gh.cropCycle.tanggalPolinasi = tanggalPolinasi;
+  gh.telemetry.hspDays = hsp;
+  commit();
+  return gh;
+}
+
+export function updateCropCycleTanggalTanam(ghId: string, newTanggalTanam: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle || gh.cropCycle.status !== "ACTIVE") {
+    throw new Error("Siklus tanam tidak sedang aktif.");
+  }
+  const val = validateTanggalTanam(newTanggalTanam);
+  if (!val.valid) throw new Error(val.error || "Tanggal tanam tidak valid");
+
+  if (gh.cropCycle.tanggalPolinasi) {
+    const polVal = validateTanggalPolinasi(gh.cropCycle.tanggalPolinasi, newTanggalTanam);
+    if (!polVal.valid) {
+      throw new Error("Tanggal tanam baru tidak boleh lebih lambat dari tanggal polinasi yang sudah tercatat.");
+    }
+  }
+
+  gh.cropCycle.tanggalTanam = newTanggalTanam;
+  gh.telemetry.hstDays = calculateDaysBetween(newTanggalTanam);
+  commit();
+  return gh;
+}
+
+export function updateCropCycleTanggalPolinasi(ghId: string, newTanggalPolinasi: string): Greenhouse {
+  return recordCropCyclePolinasi(ghId, newTanggalPolinasi);
+}
+
+export function deleteCropCycleTanggalPolinasi(ghId: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle) throw new Error("Siklus tidak ditemukan");
+
+  gh.cropCycle.tanggalPolinasi = null;
+  gh.telemetry.hspDays = null;
+  commit();
+  return gh;
+}
+
+export function harvestCropCycle(ghId: string, harvestDate?: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle || gh.cropCycle.status !== "ACTIVE") {
+    throw new Error("Tidak ada siklus tanam aktif untuk dipanen.");
+  }
+
+  const effectiveHarvestDate = harvestDate || toIsoDateString(getSystemDate());
+  const summary: CycleHarvestSummary = {
+    harvestDate: effectiveHarvestDate,
+    tanggalTanam: gh.cropCycle.tanggalTanam || "",
+    tanggalPolinasi: gh.cropCycle.tanggalPolinasi || null,
+    hstAtHarvest: gh.telemetry.hstDays,
+    hspAtHarvest: gh.telemetry.hspDays,
+    recordedAt: MOCK_NOW.dateTime,
+  };
+
+  gh.cropCycle = {
+    status: "HARVESTED",
+    tanggalTanam: null,
+    tanggalPolinasi: null,
+    lastHarvestSummary: summary,
+  };
+  gh.telemetry.hstDays = 0;
+  gh.telemetry.hspDays = null;
+  commit();
+  return gh;
+}
+

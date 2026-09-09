@@ -1,6 +1,6 @@
 import {
   Activity, Camera, Check, ChevronLeft, ChevronRight, Droplets, Edit3, Gauge,
-  Leaf, Lightbulb, MoreVertical, Sprout, Thermometer, Wind, Waves
+  Leaf, Lightbulb, MoreVertical, Sprout, Thermometer, Wind, Waves, Wheat
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
@@ -139,21 +139,41 @@ export function GreenhouseOverviewCard({
           </div>
         </header>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span
-            title="HST = Hari Setelah Tanam"
-            aria-label={`HST, Hari Setelah Tanam: ${(greenhouse.telemetry as Greenhouse["telemetry"] & { hstDays?: number | null }).hstDays ?? "--"} hari`}
-            className="inline-flex cursor-help items-center gap-1.5 rounded-full bg-[#f6f8fa] px-2.5 py-1.5 text-xs text-[#52627b]"
-            >
-            <Sprout className="h-3.5 w-3.5" />
-            HST {greenhouse.telemetry.hstDays}d
-            </span>
-            <span
-            title="HSP = Hari Setelah Polinasi"
-            aria-label="HSP = Hari Setelah Polinasi"
-            className="inline-flex shrink-0 cursor-help items-center gap-1 rounded-full bg-[#f6f8fa] px-2.5 py-1.5 text-xs font-medium text-[#52627b]"
-            >
-            HSP {(greenhouse.telemetry as Greenhouse["telemetry"] & { hspDays?: number | null }).hspDays ?? "--"}d
-            </span>
+            {greenhouse.cropCycle?.status === "NO_CYCLE" ? (
+              <span
+                title="Belum ada siklus tanam aktif"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#f1f3f5] px-2.5 py-1.5 text-xs font-medium text-[#52627b]"
+              >
+                <Sprout className="h-3.5 w-3.5 text-slate-400" />
+                Belum ada tanaman
+              </span>
+            ) : greenhouse.cropCycle?.status === "HARVESTED" ? (
+              <span
+                title="Siklus tanaman selesai dipanen"
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/70"
+              >
+                <Wheat className="h-3.5 w-3.5 text-amber-600" />
+                Selesai Panen
+              </span>
+            ) : (
+              <>
+                <span
+                  title="HST = Hari Setelah Tanam"
+                  aria-label={`HST, Hari Setelah Tanam: ${(greenhouse.telemetry as Greenhouse["telemetry"] & { hstDays?: number | null }).hstDays ?? "--"} hari`}
+                  className="inline-flex cursor-help items-center gap-1.5 rounded-full bg-[#f6f8fa] px-2.5 py-1.5 text-xs text-[#52627b]"
+                >
+                  <Sprout className="h-3.5 w-3.5 text-emerald-600" />
+                  HST {greenhouse.telemetry.hstDays}d
+                </span>
+                <span
+                  title="HSP = Hari Setelah Polinasi"
+                  aria-label="HSP = Hari Setelah Polinasi"
+                  className="inline-flex shrink-0 cursor-help items-center gap-1 rounded-full bg-[#f6f8fa] px-2.5 py-1.5 text-xs font-medium text-[#52627b]"
+                >
+                  HSP {(greenhouse.telemetry as Greenhouse["telemetry"] & { hspDays?: number | null }).hspDays ?? "--"}d
+                </span>
+              </>
+            )}
             
             {greenhouse.online && (
                 <div className="hidden items-center gap-1 sm:flex" aria-label="Active greenhouse events">

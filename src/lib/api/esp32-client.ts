@@ -62,4 +62,19 @@ export class Esp32Client {
   async cancelCommand(commandId: string): Promise<void> {
     return apiDelete(this.path(`/api/v1/commands/${encodeURIComponent(commandId)}`), this.config);
   }
+
+  async getCropCycle(greenhouseId: string): Promise<{ status: string; tanggal_tanam: string | null; tanggal_polinasi: string | null }> {
+    return apiGet(this.path(`/api/v1/greenhouses/${encodeURIComponent(greenhouseId)}/cycle`), this.config);
+  }
+
+  async saveCropCycle(
+    greenhouseId: string,
+    payload: { tanggal_tanam: string; tanggal_polinasi?: string | null }
+  ): Promise<CommandReceipt> {
+    return apiPut(this.path(`/api/v1/greenhouses/${encodeURIComponent(greenhouseId)}/cycle`), payload, this.config);
+  }
+
+  async harvestCropCycle(greenhouseId: string, payload?: { harvest_date?: string }): Promise<CommandReceipt> {
+    return apiPost(this.path(`/api/v1/greenhouses/${encodeURIComponent(greenhouseId)}/harvest`), payload ?? {}, this.config);
+  }
 }

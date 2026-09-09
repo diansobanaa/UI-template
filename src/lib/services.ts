@@ -21,13 +21,20 @@ import {
   deleteFertigationSchedule,
   deleteWellPumpSchedule,
   deleteObservation,
+  deleteCropCycleTanggalPolinasi,
   emergencyStopComplex,
+  harvestCropCycle,
   markComplexSyncAttempt,
+  recordCropCyclePolinasi,
   resumeComplex,
   setCalibrationDeviceReading,
   setComplexEsp32Synced,
   setWellPumpOn,
+  startCropCycle,
   startManualRun,
+  startOngoingCropCycle,
+  updateCropCycleTanggalPolinasi,
+  updateCropCycleTanggalTanam,
   updateFanSchedule,
   updateComplex,
   updateFertigationSchedule,
@@ -47,6 +54,7 @@ import type {
   CalibrationDevice,
   CalibrationRecord,
   Complex,
+  CropCycle,
   EventItem,
   FertigationSchedule,
   FanSchedule,
@@ -124,6 +132,40 @@ export const greenhouseService = {
     if (patch.crop !== undefined) cleanPatch.crop = patch.crop.trim();
     if (patch.greenhouseTag !== undefined) cleanPatch.greenhouseTag = patch.greenhouseTag.trim();
     return assertFound(updateGreenhouse(id, cleanPatch), "Greenhouse");
+  },
+};
+
+export const cropCycleService = {
+  getCycle(ghId: string): CropCycle | undefined {
+    return greenhouseService.get(ghId)?.cropCycle;
+  },
+  async startCycle(ghId: string, tanggalTanam: string): Promise<Greenhouse> {
+    await delay(300);
+    return startCropCycle(ghId, tanggalTanam);
+  },
+  async startOngoingCycle(ghId: string, tanggalTanam: string): Promise<Greenhouse> {
+    await delay(300);
+    return startOngoingCropCycle(ghId, tanggalTanam);
+  },
+  async recordPolinasi(ghId: string, tanggalPolinasi: string): Promise<Greenhouse> {
+    await delay(300);
+    return recordCropCyclePolinasi(ghId, tanggalPolinasi);
+  },
+  async updateTanggalTanam(ghId: string, newTanggalTanam: string): Promise<Greenhouse> {
+    await delay(300);
+    return updateCropCycleTanggalTanam(ghId, newTanggalTanam);
+  },
+  async updateTanggalPolinasi(ghId: string, newTanggalPolinasi: string): Promise<Greenhouse> {
+    await delay(300);
+    return updateCropCycleTanggalPolinasi(ghId, newTanggalPolinasi);
+  },
+  async deleteTanggalPolinasi(ghId: string): Promise<Greenhouse> {
+    await delay(300);
+    return deleteCropCycleTanggalPolinasi(ghId);
+  },
+  async harvest(ghId: string, harvestDate?: string): Promise<Greenhouse> {
+    await delay(400);
+    return harvestCropCycle(ghId, harvestDate);
   },
 };
 

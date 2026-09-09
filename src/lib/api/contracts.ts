@@ -93,6 +93,13 @@ export interface ClockSyncRequest {
   source: "PYTHON" | "UI";
 }
 
+export interface Esp32CropCycleSnapshot {
+  ghId: string;
+  status: "NO_CYCLE" | "ACTIVE" | "HARVESTED";
+  tanggal_tanam: string | null;
+  tanggal_polinasi: string | null;
+}
+
 export interface HardwarePortConfig {
   pythonBaseUrl: string;
   esp32BaseUrl?: string;

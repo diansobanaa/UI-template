@@ -51,9 +51,9 @@ export function IconButton({
 
 /* ----------------------------- Inputs ---------------------------- */
 
-export function Label({ required, children, className = "" }: { required?: boolean; children: React.ReactNode; className?: string }) {
+export function Label({ required, children, className = "", htmlFor }: { required?: boolean; children: React.ReactNode; className?: string; htmlFor?: string }) {
   return (
-    <label className={`mb-1.5 block text-[13px] font-medium text-slate-700 ${className}`}>
+    <label htmlFor={htmlFor} className={`mb-1.5 block text-[13px] font-medium text-slate-700 ${className}`}>
       {children}
       {required && <span className="ml-0.5 text-red-500">*</span>}
     </label>

@@ -98,6 +98,7 @@ export interface Greenhouse {
   plants: PlantStats;
   equipment: EquipmentItem[];
   cameras?: GreenhouseCamera[];
+  cropCycle?: CropCycle;
   recipes: Recipe[];
   fertigationSchedules: FertigationSchedule[];
   fanSchedules: FanSchedule[];
@@ -105,6 +106,28 @@ export interface Greenhouse {
   queue: QueueEntry[];
   history: FertigationRunRow[];
   fruitDevSeries: { label: string; count: number; weight: number }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Crop Cycle / Masa Tanam domain                                      */
+/* ------------------------------------------------------------------ */
+
+export type CycleStatus = "NO_CYCLE" | "ACTIVE" | "HARVESTED";
+
+export interface CycleHarvestSummary {
+  harvestDate: string; // "YYYY-MM-DD"
+  tanggalTanam: string; // "YYYY-MM-DD"
+  tanggalPolinasi: string | null; // "YYYY-MM-DD"
+  hstAtHarvest: number;
+  hspAtHarvest: number | null;
+  recordedAt: string;
+}
+
+export interface CropCycle {
+  status: CycleStatus;
+  tanggalTanam: string | null; // "YYYY-MM-DD"
+  tanggalPolinasi: string | null; // "YYYY-MM-DD"
+  lastHarvestSummary?: CycleHarvestSummary | null;
 }
 
 /* ------------------------------------------------------------------ */

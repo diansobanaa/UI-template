@@ -45,6 +45,7 @@ import { delta, lux, n } from "@/lib/format";
 import type { RangeId } from "./range-types";
 import { greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
+import { CropCycleTimeline } from "@/components/ui/CropCycleTimeline";
 
 const RANGE_OPTIONS: { id: RangeId; label: string }[] = [
   { id: "24H", label: "24 Hours" },
@@ -281,6 +282,9 @@ function GreenhouseContent() {
         </div>
       </div>
 
+      {/* ---------------- Crop Cycle (Masa Tanam) Lifecycle ---------------- */}
+      <CropCycleTimeline gh={gh} className="mb-5" />
+
       {/* ---------------- Sensor row ---------------- */}
       <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-xl bg-slate-50/80 p-4">
@@ -329,7 +333,15 @@ function GreenhouseContent() {
           </span>
           <div className="mt-2.5 text-xs text-slate-500">HST <span className="text-slate-400">(Hari Setelah Tanam)</span></div>
           <div className="text-2xl font-bold text-slate-900">
-            {gh.telemetry.hstDays}<span className="text-sm font-medium text-slate-400"> days</span>
+            {gh.cropCycle?.status === "ACTIVE" ? (
+              <>
+                {gh.telemetry.hstDays}<span className="text-sm font-medium text-slate-400"> days</span>
+              </>
+            ) : gh.cropCycle?.status === "HARVESTED" ? (
+              <span className="text-base font-bold text-amber-700">Panen</span>
+            ) : (
+              <span className="text-slate-400">–</span>
+            )}
           </div>
         </div>
         <div className="rounded-xl bg-slate-50/80 p-4">
@@ -338,7 +350,13 @@ function GreenhouseContent() {
           </span>
           <div className="mt-2.5 text-xs text-slate-500">HSP <span className="text-slate-400">(Hari Setelah Polinasi)</span></div>
           <div className="text-2xl font-bold text-slate-900">
-            {gh.telemetry.hspDays ?? "–"}<span className="text-sm font-medium text-slate-400">{gh.telemetry.hspDays !== null ? " days" : ""}</span>
+            {gh.cropCycle?.status === "ACTIVE" && gh.telemetry.hspDays !== null ? (
+              <>
+                {gh.telemetry.hspDays}<span className="text-sm font-medium text-slate-400"> days</span>
+              </>
+            ) : (
+              <span className="text-slate-400">–</span>
+            )}
           </div>
         </div>
         <div className="rounded-xl bg-slate-50/80 p-4">
@@ -431,8 +449,8 @@ function GreenhouseContent() {
             { label: "Temperature", value: gh.telemetry.temperatureC !== null ? `${gh.telemetry.temperatureC.toFixed(1)} °C` : "–" },
             { label: "Humidity", value: gh.telemetry.humidityPct !== null ? `${gh.telemetry.humidityPct}%` : "–" },
             { label: "Light", value: gh.telemetry.lightLux !== null ? `${(gh.telemetry.lightLux / 1000).toFixed(1)} klux` : "–" },
-            { label: "HST", value: `${gh.telemetry.hstDays} days`, hint: "Hari Setelah Tanam" },
-            { label: "HSP", value: gh.telemetry.hspDays !== null ? `${gh.telemetry.hspDays} days` : "–", hint: "Hari Setelah Polinasi" },
+            { label: "HST", value: gh.cropCycle?.status === "ACTIVE" ? `${gh.telemetry.hstDays} days` : gh.cropCycle?.status === "HARVESTED" ? "Panen" : "–", hint: "Hari Setelah Tanam" },
+            { label: "HSP", value: gh.cropCycle?.status === "ACTIVE" && gh.telemetry.hspDays !== null ? `${gh.telemetry.hspDays} days` : "–", hint: "Hari Setelah Polinasi" },
             { label: "Water Today", value: gh.telemetry.waterTodayL !== null ? `${n(gh.telemetry.waterTodayL)} L` : "–" },
           ].map((item) => (
             <div key={item.label} className="min-w-0 px-3 py-2.5">
