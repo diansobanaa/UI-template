@@ -16,6 +16,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/complex" element={<ComplexOverviewPage />} />
+        <Route path="/greenhouse" element={<DashboardPage />} />
         <Route path="/greenhouse/:ghId" element={<GreenhousePage />} />
         <Route path="/schedule" element={<SchedulePage />} />
         <Route path="/fertigation" element={<FertigationPage />} />

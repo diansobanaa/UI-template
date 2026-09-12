@@ -59,7 +59,17 @@ function isNavGroup(c: NavChild): c is NavGroup {
   return Array.isArray((c as NavGroup).children);
 }
 
-function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse?: () => void }) {
+function SidebarInner({
+  collapsed,
+  onToggleCollapse,
+  mobileOpen,
+  onCloseMobile,
+}: {
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
+  mobileOpen: boolean;
+  onCloseMobile?: () => void;
+}) {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const complexId = params.get("complex") ?? "complex-01";
@@ -67,18 +77,27 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
 
   const activeGhId = pathname.startsWith("/greenhouse/") ? pathname.split("/")[2] : null;
 
-  // NEW — one nested group per complex, each with its own GH leaves.
+  // NEW — one nested group per complex, each with its own Overview + GH leaves.
   const complexGroups: NavGroup[] = complexService.list().map((cx) => ({
     id: cx.id,
     label: cx.code,
     icon: Building2,
-    children: greenhouseService.byComplex(cx.id).map((g) => ({
-      id: g.id,
-      label: g.code,
-      href: `/greenhouse/${g.id}?complex=${cx.id}`,
-      icon: Sprout,
-      match: (p: string) => p === `/greenhouse/${g.id}`,
-    })),
+    children: [
+      {
+        id: `${cx.id}-overview`,
+        label: "Overview",
+        href: `/dashboard?complex=${cx.id}`,
+        icon: ClipboardList,
+        match: (p: string) => p === "/dashboard",
+      },
+      ...greenhouseService.byComplex(cx.id).map((g) => ({
+        id: g.id,
+        label: g.code,
+        href: `/greenhouse/${g.id}?complex=${cx.id}`,
+        icon: Sprout,
+        match: (p: string) => p === `/greenhouse/${g.id}`,
+      })),
+    ],
   }));
 
   const nodes: NavNode[] = [
@@ -128,12 +147,28 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
 
   return (
     <aside
-      className={`flex h-full flex-col bg-[#0b1220] text-slate-300 transition-all duration-200 ${collapsed ? "w-[68px]" : "w-[216px]"
-        }`}
+      id="app-sidebar"
+      className={`
+        fixed inset-y-0 left-0 z-50 flex h-screen w-[280px] flex-col
+        bg-[#06131c] text-slate-300 shadow-[14px_0_40px_rgba(0,0,0,.35)]
+        transition-transform duration-200 ease-out
+        md:sticky md:top-0 md:z-auto md:h-screen md:w-auto md:shrink-0
+        md:translate-x-0 md:shadow-[10px_0_35px_rgba(0,0,0,.16)]
+        ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+        ${collapsed ? "md:w-[68px]" : "md:w-[240px]"}
+      `}
     >
       {/* brand */}
       <div className="flex items-center gap-2.5 px-4 pb-4 pt-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-green-600 shadow-md">
+        <button
+          type="button"
+          onClick={onCloseMobile}
+          aria-label="Close navigation menu"
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-400 transition hover:bg-white/[0.08] hover:text-white md:hidden"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-green-600 shadow-[0_0_22px_rgba(16,185,129,.22)]">
           <Leaf className="h-5 w-5 text-white" />
         </span>
         {!collapsed && (
@@ -199,7 +234,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
                                   const inner = (
                                     <span
                                       className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] transition-colors ${leafActive
-                                          ? "bg-blue-600 font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.45)]"
+                                          ? "bg-gradient-to-r from-emerald-500/20 to-emerald-400/8 font-medium text-emerald-50 shadow-[0_4px_18px_rgba(16,185,129,0.14)] ring-1 ring-emerald-300/10"
                                           : leaf.href
                                             ? "text-slate-400 hover:bg-white/5 hover:text-slate-200"
                                             : "text-slate-500"
@@ -228,7 +263,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
                       const cActive = c.href ? Boolean(c.match?.(pathname)) : false;
                       const inner = (
                         <span className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] transition-colors ${cActive
-                            ? "bg-blue-600 font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.45)]"
+                            ? "bg-gradient-to-r from-emerald-500/20 to-emerald-400/8 font-medium text-emerald-50 shadow-[0_4px_18px_rgba(16,185,129,0.14)] ring-1 ring-emerald-300/10"
                             : c.href
                               ? "text-slate-400 hover:bg-white/5 hover:text-slate-200"
                               : "text-slate-500"
@@ -255,7 +290,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
           const inner = (
             <span
               className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${active
-                  ? "bg-blue-600 font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.45)]"
+                  ? "bg-gradient-to-r from-emerald-500/20 to-emerald-400/8 font-medium text-emerald-50 shadow-[0_4px_18px_rgba(16,185,129,0.14)] ring-1 ring-emerald-300/10"
                   : n.href
                     ? "text-slate-400 hover:bg-white/5 hover:text-slate-200"
                     : "text-slate-500"
@@ -277,7 +312,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
         })}
       </nav>
 
-      <div className="border-t border-white/5 px-2.5 py-3">
+      <div className="border-t border-white/6 bg-black/10 px-2.5 py-3">
         {!collapsed && (
           <button
             onClick={() => {
@@ -292,7 +327,7 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
           </button>
         )}
         <button
-          onClick={onToggleCollapse}
+          onClick={() => { onToggleCollapse?.(); onCloseMobile?.(); }}
           title={collapsed ? "Expand menu" : "Collapse menu"}
           className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200 focus:outline-none"
         >
@@ -304,10 +339,44 @@ function SidebarInner({ collapsed, onToggleCollapse }: { collapsed: boolean; onT
   );
 }
 
-export function AppSidebar({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse?: () => void }) {
+export function AppSidebar({
+  collapsed,
+  onToggleCollapse,
+  mobileOpen = false,
+  onCloseMobile,
+}: {
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}) {
   return (
-    <div className="sticky top-0 h-screen shrink-0">
-      <SidebarInner collapsed={collapsed} onToggleCollapse={onToggleCollapse} />
-    </div>
+    <>
+      {/* Mobile backdrop. Sidebar is intentionally OFF by default on phones. */}
+      <button
+        type="button"
+        aria-label="Close navigation menu"
+        onClick={onCloseMobile}
+        className={`fixed inset-0 z-40 bg-black/55 backdrop-blur-[1px] transition-opacity duration-200 md:hidden ${
+          mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
+      <div className="sticky top-0 hidden h-screen shrink-0 md:block">
+        <SidebarInner
+          collapsed={collapsed}
+          onToggleCollapse={onToggleCollapse}
+          mobileOpen={mobileOpen}
+          onCloseMobile={onCloseMobile}
+        />
+      </div>
+      <div className="md:hidden">
+        <SidebarInner
+          collapsed={false}
+          onToggleCollapse={onToggleCollapse}
+          mobileOpen={mobileOpen}
+          onCloseMobile={onCloseMobile}
+        />
+      </div>
+    </>
   );
 }

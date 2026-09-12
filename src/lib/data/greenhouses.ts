@@ -64,8 +64,8 @@ const gh01: Greenhouse = {
     waterTodayL: 240,
     waterYesterdayL: 214,
     waterDeltaPct: 12,
-    hstDays: 228,
-    hspDays: 197,
+    hstDays: 56,
+    hspDays: 16,
   },
   cropCycle: {
     status: "ACTIVE",

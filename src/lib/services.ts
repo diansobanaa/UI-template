@@ -26,6 +26,7 @@ import {
   harvestCropCycle,
   markComplexSyncAttempt,
   recordCropCyclePolinasi,
+  resetCropCycle,
   resumeComplex,
   setCalibrationDeviceReading,
   setComplexEsp32Synced,
@@ -33,6 +34,7 @@ import {
   startCropCycle,
   startManualRun,
   startOngoingCropCycle,
+  updateCropCycleMetadata,
   updateCropCycleTanggalPolinasi,
   updateCropCycleTanggalTanam,
   updateFanSchedule,
@@ -139,33 +141,63 @@ export const cropCycleService = {
   getCycle(ghId: string): CropCycle | undefined {
     return greenhouseService.get(ghId)?.cropCycle;
   },
-  async startCycle(ghId: string, tanggalTanam: string): Promise<Greenhouse> {
+  async startCycle(
+    ghId: string,
+    tanggalTanam: string,
+    options?: { variety?: string; plantCount?: number; notes?: string }
+  ): Promise<Greenhouse> {
     await delay(300);
-    return startCropCycle(ghId, tanggalTanam);
+    return startCropCycle(ghId, tanggalTanam, options);
   },
-  async startOngoingCycle(ghId: string, tanggalTanam: string): Promise<Greenhouse> {
+  async startOngoingCycle(
+    ghId: string,
+    tanggalTanam: string,
+    options?: { variety?: string; plantCount?: number; tanggalPolinasi?: string; notes?: string }
+  ): Promise<Greenhouse> {
     await delay(300);
-    return startOngoingCropCycle(ghId, tanggalTanam);
+    return startOngoingCropCycle(ghId, tanggalTanam, options);
   },
-  async recordPolinasi(ghId: string, tanggalPolinasi: string): Promise<Greenhouse> {
+  async recordPolinasi(
+    ghId: string,
+    tanggalPolinasi: string,
+    options?: { pollinationMethod?: "natural" | "bee" | "manual"; notes?: string }
+  ): Promise<Greenhouse> {
     await delay(300);
-    return recordCropCyclePolinasi(ghId, tanggalPolinasi);
+    return recordCropCyclePolinasi(ghId, tanggalPolinasi, options);
   },
   async updateTanggalTanam(ghId: string, newTanggalTanam: string): Promise<Greenhouse> {
     await delay(300);
     return updateCropCycleTanggalTanam(ghId, newTanggalTanam);
   },
-  async updateTanggalPolinasi(ghId: string, newTanggalPolinasi: string): Promise<Greenhouse> {
+  async updateTanggalPolinasi(
+    ghId: string,
+    newTanggalPolinasi: string,
+    options?: { pollinationMethod?: "natural" | "bee" | "manual" }
+  ): Promise<Greenhouse> {
     await delay(300);
-    return updateCropCycleTanggalPolinasi(ghId, newTanggalPolinasi);
+    return updateCropCycleTanggalPolinasi(ghId, newTanggalPolinasi, options);
+  },
+  async updateMetadata(
+    ghId: string,
+    updates: { variety?: string; plantCount?: number; notes?: string }
+  ): Promise<Greenhouse> {
+    await delay(300);
+    return updateCropCycleMetadata(ghId, updates);
   },
   async deleteTanggalPolinasi(ghId: string): Promise<Greenhouse> {
     await delay(300);
     return deleteCropCycleTanggalPolinasi(ghId);
   },
-  async harvest(ghId: string, harvestDate?: string): Promise<Greenhouse> {
+  async resetCycle(ghId: string): Promise<Greenhouse> {
+    await delay(300);
+    return resetCropCycle(ghId);
+  },
+  async harvest(
+    ghId: string,
+    options?: { harvestDate?: string; yieldKg?: number; grade?: string; notes?: string }
+  ): Promise<Greenhouse> {
     await delay(400);
-    return harvestCropCycle(ghId, harvestDate);
+    return harvestCropCycle(ghId, options);
   },
 };
 

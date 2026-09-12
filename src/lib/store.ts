@@ -607,7 +607,11 @@ export function setWellPumpOn(complexId: string, on: boolean): void {
 
 /* ----------------------- crop cycle / masa tanam ----------------------- */
 
-export function startCropCycle(ghId: string, tanggalTanam: string): Greenhouse {
+export function startCropCycle(
+  ghId: string,
+  tanggalTanam: string,
+  options?: { variety?: string; plantCount?: number; notes?: string }
+): Greenhouse {
   const gh = db.greenhouses.find((g) => g.id === ghId);
   if (!gh) throw new Error("Greenhouse not found");
   const val = validateTanggalTanam(tanggalTanam);
@@ -618,19 +622,38 @@ export function startCropCycle(ghId: string, tanggalTanam: string): Greenhouse {
     status: "ACTIVE",
     tanggalTanam,
     tanggalPolinasi: null,
+    variety: options?.variety,
+    plantCount: options?.plantCount ?? gh.plants.total,
+    notes: options?.notes,
     lastHarvestSummary: gh.cropCycle?.lastHarvestSummary ?? null,
   };
+  if (options?.plantCount) {
+    gh.plants.total = options.plantCount;
+    gh.plants.alive = options.plantCount;
+  }
   gh.telemetry.hstDays = hst;
   gh.telemetry.hspDays = null;
   commit();
   return gh;
 }
 
-export function startOngoingCropCycle(ghId: string, tanggalTanam: string): Greenhouse {
-  return startCropCycle(ghId, tanggalTanam);
+export function startOngoingCropCycle(
+  ghId: string,
+  tanggalTanam: string,
+  options?: { variety?: string; plantCount?: number; tanggalPolinasi?: string; notes?: string }
+): Greenhouse {
+  const gh = startCropCycle(ghId, tanggalTanam, options);
+  if (options?.tanggalPolinasi) {
+    recordCropCyclePolinasi(ghId, options.tanggalPolinasi);
+  }
+  return gh;
 }
 
-export function recordCropCyclePolinasi(ghId: string, tanggalPolinasi: string): Greenhouse {
+export function recordCropCyclePolinasi(
+  ghId: string,
+  tanggalPolinasi: string,
+  options?: { pollinationMethod?: "natural" | "bee" | "manual"; notes?: string }
+): Greenhouse {
   const gh = db.greenhouses.find((g) => g.id === ghId);
   if (!gh) throw new Error("Greenhouse not found");
   if (!gh.cropCycle || gh.cropCycle.status !== "ACTIVE" || !gh.cropCycle.tanggalTanam) {
@@ -641,6 +664,8 @@ export function recordCropCyclePolinasi(ghId: string, tanggalPolinasi: string): 
 
   const hsp = calculateDaysBetween(tanggalPolinasi);
   gh.cropCycle.tanggalPolinasi = tanggalPolinasi;
+  if (options?.pollinationMethod) gh.cropCycle.pollinationMethod = options.pollinationMethod;
+  if (options?.notes) gh.cropCycle.notes = options.notes;
   gh.telemetry.hspDays = hsp;
   commit();
   return gh;
@@ -668,8 +693,30 @@ export function updateCropCycleTanggalTanam(ghId: string, newTanggalTanam: strin
   return gh;
 }
 
-export function updateCropCycleTanggalPolinasi(ghId: string, newTanggalPolinasi: string): Greenhouse {
-  return recordCropCyclePolinasi(ghId, newTanggalPolinasi);
+export function updateCropCycleTanggalPolinasi(
+  ghId: string,
+  newTanggalPolinasi: string,
+  options?: { pollinationMethod?: "natural" | "bee" | "manual" }
+): Greenhouse {
+  return recordCropCyclePolinasi(ghId, newTanggalPolinasi, options);
+}
+
+export function updateCropCycleMetadata(
+  ghId: string,
+  updates: { variety?: string; plantCount?: number; notes?: string }
+): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle) throw new Error("Siklus tidak ditemukan");
+
+  if (updates.variety !== undefined) gh.cropCycle.variety = updates.variety;
+  if (updates.notes !== undefined) gh.cropCycle.notes = updates.notes;
+  if (updates.plantCount !== undefined) {
+    gh.cropCycle.plantCount = updates.plantCount;
+    gh.plants.total = updates.plantCount;
+  }
+  commit();
+  return gh;
 }
 
 export function deleteCropCycleTanggalPolinasi(ghId: string): Greenhouse {
@@ -678,19 +725,40 @@ export function deleteCropCycleTanggalPolinasi(ghId: string): Greenhouse {
   if (!gh.cropCycle) throw new Error("Siklus tidak ditemukan");
 
   gh.cropCycle.tanggalPolinasi = null;
+  gh.cropCycle.pollinationMethod = undefined;
   gh.telemetry.hspDays = null;
   commit();
   return gh;
 }
 
-export function harvestCropCycle(ghId: string, harvestDate?: string): Greenhouse {
+export function resetCropCycle(ghId: string): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new Error("Greenhouse not found");
+  if (!gh.cropCycle) throw new Error("Siklus tidak ditemukan");
+
+  gh.cropCycle = {
+    status: "NO_CYCLE",
+    tanggalTanam: null,
+    tanggalPolinasi: null,
+    lastHarvestSummary: gh.cropCycle.lastHarvestSummary ?? null,
+  };
+  gh.telemetry.hstDays = 0;
+  gh.telemetry.hspDays = null;
+  commit();
+  return gh;
+}
+
+export function harvestCropCycle(
+  ghId: string,
+  options?: { harvestDate?: string; yieldKg?: number; grade?: string; notes?: string }
+): Greenhouse {
   const gh = db.greenhouses.find((g) => g.id === ghId);
   if (!gh) throw new Error("Greenhouse not found");
   if (!gh.cropCycle || gh.cropCycle.status !== "ACTIVE") {
     throw new Error("Tidak ada siklus tanam aktif untuk dipanen.");
   }
 
-  const effectiveHarvestDate = harvestDate || toIsoDateString(getSystemDate());
+  const effectiveHarvestDate = options?.harvestDate || toIsoDateString(getSystemDate());
   const summary: CycleHarvestSummary = {
     harvestDate: effectiveHarvestDate,
     tanggalTanam: gh.cropCycle.tanggalTanam || "",
@@ -698,6 +766,9 @@ export function harvestCropCycle(ghId: string, harvestDate?: string): Greenhouse
     hstAtHarvest: gh.telemetry.hstDays,
     hspAtHarvest: gh.telemetry.hspDays,
     recordedAt: MOCK_NOW.dateTime,
+    yieldKg: options?.yieldKg,
+    grade: options?.grade,
+    notes: options?.notes,
   };
 
   gh.cropCycle = {

@@ -566,6 +566,62 @@ FERTIGATION
 
 Tidak boleh dianggap sebagai satu actuator timer tunggal.
 
+## 8.1 Calibration Snapshot Wajib untuk Setiap Batch
+
+Setiap batch mixing **WAJIB mempunyai calibration snapshot** pada saat batch dibuat. Batch tidak boleh masuk execution apabila calibration yang diperlukan untuk seluruh dosing component yang digunakan tidak tersedia.
+
+Aturan:
+
+1. UI/ESP32 memeriksa calibration aktif untuk setiap dosing pump yang digunakan oleh batch.
+2. Calibration yang dipakai adalah **calibration terakhir yang valid** pada saat batch dibuat.
+3. Nilai calibration tersebut disalin ke `batch.calibrationSnapshot`.
+4. Setelah batch dibuat, calibration snapshot batch bersifat immutable.
+5. Jika user melakukan calibration baru setelah batch dibuat, batch yang sedang berjalan **tetap menggunakan calibration snapshot lama**.
+6. Batch berikutnya akan menggunakan calibration terbaru yang valid pada saat batch tersebut dibuat.
+7. Tidak ada tolerance correction di tengah batch. Runtime dihitung dari calibration snapshot batch.
+8. Jika salah satu calibration yang diwajibkan tidak tersedia, batch **tidak boleh dibuat/started**. UI harus memberikan alert yang eksplisit dan ESP32 tetap menolak batch tersebut.
+
+### Mandatory UI Guard
+
+UI harus memiliki guard yang jelas dan tidak boleh bergantung hanya pada visual warning. Pemeriksaan wajib dilakukan sebelum request create/start batch. Implementasi UI harus mempunyai kondisi hardcoded yang mudah ditemukan dalam source code, misalnya:
+
+```ts
+if (!calibrationAvailableForBatch) {
+  alert('CALIBRATION REQUIRED: Calibration belum tersedia untuk semua dosing pump pada batch ini. Batch tidak dapat dijalankan.');
+  return;
+}
+```
+
+String alert tersebut sengaja dibuat eksplisit agar mudah dicari saat audit kode. Guard ini **bukan pengganti validasi ESP32**. ESP32 tetap wajib melakukan validasi kedua sebelum actuator dijalankan.
+
+### Batch Calibration Snapshot Example
+
+```json
+{
+  "batchId": "batch-20260913-0001",
+  "ghId": "gh-a",
+  "calibrationSnapshot": {
+    "A": {
+      "calibrationId": "cal-a-007",
+      "mlPerSecond": 1.82,
+      "calibratedAt": "2026-09-12T10:00:00+07:00"
+    },
+    "B": {
+      "calibrationId": "cal-b-004",
+      "mlPerSecond": 1.76,
+      "calibratedAt": "2026-09-12T10:02:00+07:00"
+    },
+    "N": {
+      "calibrationId": "cal-n-006",
+      "mlPerSecond": 2.10,
+      "calibratedAt": "2026-09-12T10:04:00+07:00"
+    }
+  }
+}
+```
+
+Batch tersebut selamanya menggunakan snapshot A/B/N di atas selama lifecycle batch tersebut.
+
 ---
 
 # 9. Batch Mixing Mechanical Rules
@@ -1281,7 +1337,7 @@ pump ON selama testDurationSec
 
 ## 19.7 Multiple Calibration Runs
 
-Untuk meningkatkan konsistensi, calibration dapat dilakukan lebih dari sekali.
+Calibration dapat dilakukan lebih dari sekali. Setiap hasil calibration yang valid menjadi kandidat calibration terbaru untuk component tersebut.
 
 Contoh:
 
@@ -1291,15 +1347,31 @@ Run 2 → 102 mL / 20 s = 5.10 mL/s
 Run 3 →  98 mL / 20 s = 4.90 mL/s
 ```
 
-System dapat menyimpan semua sample dan menghasilkan coefficient calibration berdasarkan policy final.
+Untuk runtime batch, yang digunakan adalah **satu calibration terakhir yang valid** pada saat batch dibuat. Tidak ada averaging/outlier correction otomatis di dalam batch.
 
-**Policy averaging/outlier rejection belum dibekukan.**
+## 19.8 Calibration Persistence dan Warning Age
 
-## 19.8 Calibration Refresh
+Calibration terakhir tetap digunakan sebagai calibration aktif sampai ada calibration baru yang valid. Tidak ada expiry otomatis yang membuat batch gagal hanya karena umur calibration.
 
-Calibration dilakukan secara berkala karena pump performance dapat berubah.
+Namun UI wajib memberikan warning berdasarkan umur calibration:
 
-Calibration baru harus memiliki timestamp/version sendiri dan menggantikan coefficient lama sebagai coefficient aktif setelah validasi.
+| Umur calibration terakhir | UI status | Makna |
+|---|---|---|
+| < 7 hari | normal | Calibration masih digunakan tanpa warning |
+| >= 7 hari dan < 10 hari | **WARNING KUNING** | Calibration sudah 1 minggu dan disarankan melakukan calibration ulang |
+| >= 10 hari | **WARNING ORANGE** | Calibration sudah 10 hari; user harus mendapat peringatan lebih kuat |
+
+Warning tersebut **tidak mengubah coefficient secara otomatis** dan **tidak menggagalkan batch**. Batch tetap menggunakan calibration terakhir yang valid, sesuai aturan snapshot batch.
+
+### Perhitungan umur
+
+UI/ESP32 menghitung umur dari:
+
+```text
+currentTime - calibratedAt
+```
+
+Batas warning harus menggunakan timestamp aktual, bukan jumlah batch.
 
 ## 19.9 Calibration Safety
 
@@ -1929,7 +2001,34 @@ Calibration baru memiliki timestamp/version.
 Coefficient terbaru yang valid menjadi coefficient aktif.
 
 ### AC-CAL-09
-UI tidak menghitung runtime actuator untuk normal dosing.
+Setiap batch wajib menyimpan calibration snapshot untuk seluruh dosing component yang digunakan.
+
+### AC-CAL-10
+Batch tidak boleh dibuat/started jika calibration yang dibutuhkan tidak tersedia.
+
+### AC-CAL-11
+UI memiliki hardcoded mandatory calibration guard dan alert yang eksplisit sebelum batch dikirim.
+
+### AC-CAL-12
+ESP32 melakukan validasi calibration secara independen sebelum actuator dosing dijalankan.
+
+### AC-CAL-13
+Batch menggunakan calibration snapshot yang immutable selama lifecycle batch.
+
+### AC-CAL-14
+Calibration terakhir tetap digunakan sampai calibration baru yang valid tersedia.
+
+### AC-CAL-15
+UI memberikan WARNING KUNING mulai umur calibration 7 hari.
+
+### AC-CAL-16
+UI memberikan WARNING ORANGE mulai umur calibration 10 hari.
+
+### AC-CAL-17
+Warning umur calibration tidak otomatis menggagalkan batch.
+
+### AC-CAL-18
+UI tidak menghitung runtime actuator untuk normal dosing; ESP32 menghitung runtime berdasarkan calibration snapshot batch.
 
 ---
 
@@ -2150,3 +2249,1326 @@ Dokumen ini menggunakan audit repository `CODEBASE_COMMUNICATION_AUDIT(1).md` se
 ```
 
 **Core rule:** raw water and dosing adalah satu batch. Raw water selalu mulai terlebih dahulu. Setelah actual raw-water volume mencapai threshold yang dapat diatur dari UI, dosing dilakukan **secara serial** sampai seluruh batch complete. Setelah batch READY dan waktu schedule tiba, fertigation pump GH menyalurkan batch sampai lower-boundary sensor ter-trigger. Fertigation antar-GH dapat berjalan bersamaan; central dosing tidak.
+
+# 23. Hardware Inventory Configuration
+
+## 23.1 Tujuan
+
+ESP32 harus memiliki daftar komponen hardware yang menggambarkan hardware fisik yang benar-benar dipasang pada Complex tersebut.
+
+Daftar ini **bukan dibuat otomatis oleh UI** pada tahap instalasi awal. User memasang hardware secara manual kemudian memasukkan mapping hardware tersebut ke JSON inventory ESP32 secara manual/hardcode.
+
+Inventory ini menjadi dasar bagi ESP32 untuk mengetahui:
+
+- Complex yang dikendalikan;
+- GH yang tersedia;
+- dosing pump yang tersedia;
+- dosing valve yang tersedia;
+- raw-water pump;
+- raw-water flow meter;
+- mixing/batch tank;
+- fertigation/distribution pump setiap GH;
+- valve setiap GH bila memang terpasang;
+- sensor yang tersedia;
+- channel GPIO/device address yang digunakan hardware.
+
+## 23.2 Prinsip Inventory
+
+Inventory menggambarkan **hardware fisik**, sedangkan `schedules[]` menggambarkan **apa yang harus dilakukan hardware tersebut**.
+
+```text
+HARDWARE INVENTORY
+        ↓
+validasi topology
+        ↓
+SCHEDULE CONFIGURATION
+        ↓
+ESP32 RUNTIME
+```
+
+Schedule tidak boleh menunjuk ke hardware yang tidak ada dalam inventory.
+
+## 23.3 Proposal Struktur JSON Inventory
+
+Struktur awal yang diusulkan:
+
+```json
+{
+  "complex": {
+    "id": "complex-a",
+    "name": "Complex A",
+    "controller": {
+      "type": "esp32",
+      "deviceId": "esp32-complex-a"
+    },
+    "components": {
+      "wellPump": {
+        "id": "wp-001",
+        "type": "well_pump"
+      },
+      "rawWaterFlowMeter": {
+        "id": "flow-raw-001",
+        "type": "flow_meter"
+      },
+      "dosing": {
+        "A": {
+          "pump": {
+            "id": "dp-a-001",
+            "type": "dosing_pump",
+            "channel": "A"
+          },
+          "valve": {
+            "id": "dv-a-001",
+            "type": "dosing_valve",
+            "channel": "A"
+          }
+        },
+        "B": {
+          "pump": {
+            "id": "dp-b-001",
+            "type": "dosing_pump",
+            "channel": "B"
+          },
+          "valve": {
+            "id": "dv-b-001",
+            "type": "dosing_valve",
+            "channel": "B"
+          }
+        },
+        "N": {
+          "pump": {
+            "id": "dp-n-001",
+            "type": "dosing_pump",
+            "channel": "N"
+          },
+          "valve": {
+            "id": "dv-n-001",
+            "type": "dosing_valve",
+            "channel": "N"
+          }
+        }
+      }
+    }
+  },
+  "greenhouses": {
+    "gh-a": {
+      "id": "gh-a",
+      "components": {
+        "mixingTank": {
+          "id": "tank-mix-a-001",
+          "type": "mixing_tank"
+        },
+        "fertigationPump": {
+          "id": "fp-a-001",
+          "type": "fertigation_pump"
+        },
+        "valve": {
+          "id": "gv-a-001",
+          "type": "gh_valve"
+        },
+        "lowerLevelSensor": {
+          "id": "level-low-a-001",
+          "type": "level_sensor"
+        }
+      }
+    },
+    "gh-b": {
+      "id": "gh-b",
+      "components": {}
+    }
+  }
+}
+```
+
+### 23.3.1 Dosing Channel
+
+Channel dosing dapat berupa:
+
+```text
+A
+B
+N
+```
+
+atau channel lain yang ditetapkan inventory final.
+
+Nama channel harus konsisten antara:
+
+- inventory;
+- schedule;
+- calibration;
+- runtime;
+- telemetry;
+- event log.
+
+## 23.4 Hardware Inventory adalah Static Device Data
+
+Inventory hardware dipasang/hardcode pada ESP32.
+
+Contoh alur instalasi:
+
+```text
+User memasang hardware fisik
+        ↓
+User menentukan mapping GPIO/channel/device
+        ↓
+User memasukkan inventory JSON ke firmware/config ESP32
+        ↓
+ESP32 boot
+        ↓
+ESP32 menyediakan GET /api/v1/inventory
+```
+
+ESP32 tidak boleh mengklaim hardware ada hanya karena UI membuat object component.
+
+## 23.5 Sinkronisasi Inventory ke UI
+
+Pada menu **Configuration** di UI, user dapat menjalankan:
+
+```text
+SYNC UI ↔ ESP32
+```
+
+UI meminta inventory dari ESP32 dan menyimpannya di browser state.
+
+Model:
+
+```text
+UI Configuration
+      ↓
+GET inventory ESP32
+      ↓
+ESP32 → inventory JSON
+      ↓
+UI browser state
+```
+
+Browser state menjadi cache/configuration context UI untuk operasi berikutnya.
+
+## 23.6 First Load / Inventory Tidak Ditemukan
+
+Jika UI tidak menemukan inventory hardware pada browser state:
+
+```text
+browser state
+   ↓
+NO HARDWARE INVENTORY
+   ↓
+automatic GET /api/v1/inventory
+   ↓
+ESP32 returns inventory
+   ↓
+UI saves inventory to browser state
+   ↓
+UI uses inventory for subsequent configuration
+```
+
+Dengan demikian user tidak harus memasukkan ulang hardware inventory secara manual di UI setiap membuka halaman.
+
+## 23.7 Browser State
+
+Minimal UI menyimpan:
+
+```text
+complexId
+esp32DeviceId
+hardwareInventory
+lastInventorySyncAt
+appliedConfigurationVersion
+lastConfigurationSnapshot
+lastCalibrationSnapshot
+```
+
+Browser state adalah cache/persistence UI, **bukan pengganti source of truth ESP32**.
+
+Jika terjadi perbedaan:
+
+```text
+ESP32 authoritative physical state
+```
+
+UI harus melakukan reconciliation.
+
+---
+
+# 24. Configuration Synchronization
+
+## 24.1 User-Initiated Sync
+
+Dari menu Configuration:
+
+```text
+USER CLICK SYNC
+      ↓
+GET inventory
+      ↓
+GET configuration
+      ↓
+GET calibration/status jika diperlukan
+      ↓
+UI update browser state
+```
+
+Tujuannya agar UI mengetahui:
+
+- hardware apa yang benar-benar ada;
+- configuration version yang diterapkan ESP32;
+- schedule aktif;
+- calibration aktif;
+- runtime mapping.
+
+## 24.2 Full Configuration Sync
+
+Saat user menyimpan perubahan schedule:
+
+```text
+UI browser state
+      ↓
+modify
+      ↓
+bentuk full configuration snapshot
+      ↓
+POST /api/v1/configuration/validate
+      ↓
+valid?
+  ├─ NO → UI tampilkan error, ESP32 tidak berubah
+  └─ YES
+       ↓
+PUT /api/v1/configuration
+       ↓
+ESP32 atomic apply
+       ↓
+UI refresh GET /api/v1/configuration
+```
+
+---
+
+# 25. Scheduling & Mechanical Control API Endpoints
+
+## 25.1 Current Endpoint Boundary
+
+Repository saat ini sudah memiliki client untuk endpoint berikut:
+
+```text
+GET  /api/v1/inventory
+GET  /api/v1/configuration
+POST /api/v1/configuration/validate
+PUT  /api/v1/configuration
+GET  /api/v1/telemetry
+GET  /api/v1/events
+GET  /api/v1/commands/{commandId}
+DELETE /api/v1/commands/{commandId}
+POST /api/v1/clock-sync
+POST /api/v1/commands/emergency-stop
+```
+
+Audit menegaskan bahwa keberadaan method tersebut di client belum membuktikan server endpoint sudah deployed/benar, dan active UI saat ini belum menggunakan client tersebut. fileciteturn5file1L76-L112
+
+## 25.2 Logical Scheduling Domains vs HTTP Endpoints
+
+`WELL_PUMP`, `MIXING`, dan `FERTIGATION` adalah **logical scheduling/runtime domains**.
+
+Mereka tidak harus memiliki tiga HTTP endpoint configuration yang terpisah.
+
+Configuration schedule tetap dikirim sebagai full snapshot melalui:
+
+```text
+POST /api/v1/configuration/validate
+PUT  /api/v1/configuration
+```
+
+`type` di dalam `schedules[]` membedakan domain.
+
+Contoh:
+
+```json
+{
+  "type": "well_pump"
+}
+```
+
+atau:
+
+```json
+{
+  "type": "fertigation"
+}
+```
+
+ESP32 kemudian membentuk runtime MIXING dan FERTIGATION dari fertigation schedule.
+
+---
+
+# 26. Endpoint: UI → ESP32
+
+## 26.1 GET `/api/v1/inventory`
+
+### Tujuan
+
+Meminta daftar hardware yang benar-benar terdaftar pada ESP32.
+
+### Request
+
+```http
+GET /api/v1/inventory
+```
+
+### Response proposal
+
+```json
+{
+  "deviceId": "esp32-complex-a",
+  "complexId": "complex-a",
+  "inventoryVersion": 3,
+  "generatedAt": "2026-09-13T00:10:00+07:00",
+  "inventory": {
+    "complex": {},
+    "greenhouses": {}
+  }
+}
+```
+
+UI menyimpan response tersebut ke browser state.
+
+---
+
+# 27. Endpoint: GET `/api/v1/configuration`
+
+## Tujuan
+
+UI meminta configuration snapshot yang sedang aktif di ESP32.
+
+### Response proposal
+
+```json
+{
+  "complexId": "complex-a",
+  "configurationVersion": 17,
+  "appliedAt": "2026-09-12T23:00:00+07:00",
+  "schedules": []
+}
+```
+
+UI harus menggunakan `configurationVersion` untuk mengetahui apakah browser state masih sama dengan ESP32.
+
+---
+
+# 28. Endpoint: POST `/api/v1/configuration/validate`
+
+## Tujuan
+
+Memeriksa snapshot baru sebelum diterapkan.
+
+### Request
+
+```json
+{
+  "complexId": "complex-a",
+  "baseConfigurationVersion": 17,
+  "configurationVersion": 18,
+  "schedules": [
+    {
+      "id": "wp-001",
+      "type": "well_pump",
+      "enabled": true,
+      "time": "06:00",
+      "to-time": "06:01"
+    },
+    {
+      "id": "fert-001",
+      "type": "fertigation",
+      "ghId": "gh-a",
+      "enabled": true,
+      "time": "15:00",
+      "rawWaterMl": 20000,
+      "dosing": {
+        "A": 20,
+        "B": 20,
+        "N": 20
+      },
+      "mixing": {
+        "rawWaterStartThresholdPercent": 20
+      }
+    }
+  ]
+}
+```
+
+### Validation minimal
+
+ESP32 harus memeriksa:
+
+- `complexId` cocok;
+- schedule type valid;
+- GH yang dirujuk ada;
+- hardware yang diperlukan tersedia;
+- volume tidak negatif;
+- threshold valid;
+- `time` dan `to-time` valid untuk well pump;
+- calibration tersedia untuk dosing yang digunakan;
+- tidak ada configuration conflict;
+- tidak ada topology violation;
+- schedule tidak menghasilkan execution yang tidak mungkin dilakukan hardware.
+
+### Response proposal — valid
+
+```json
+{
+  "valid": true,
+  "complexId": "complex-a",
+  "baseConfigurationVersion": 17,
+  "validatedConfigurationVersion": 18,
+  "errors": [],
+  "warnings": []
+}
+```
+
+### Response proposal — invalid
+
+```json
+{
+  "valid": false,
+  "complexId": "complex-a",
+  "errors": [
+    {
+      "code": "GH_NOT_FOUND",
+      "path": "schedules[1].ghId",
+      "message": "GH gh-x is not present in hardware/configuration inventory"
+    }
+  ],
+  "warnings": []
+}
+```
+
+---
+
+# 29. Endpoint: PUT `/api/v1/configuration`
+
+## Tujuan
+
+Menerapkan full configuration snapshot ke ESP32.
+
+### Request
+
+Payload pada dasarnya sama dengan hasil validation.
+
+### Behavior
+
+```text
+receive full snapshot
+      ↓
+validate
+      ↓
+check version
+      ↓
+atomic apply
+      ↓
+new configuration active
+```
+
+Jika gagal:
+
+```text
+old configuration remains active
+```
+
+ESP32 tidak boleh menerapkan setengah snapshot.
+
+### Response proposal
+
+```json
+{
+  "accepted": true,
+  "complexId": "complex-a",
+  "configurationVersion": 18,
+  "appliedAt": "2026-09-13T00:15:00+07:00",
+  "activeScheduleCount": 4
+}
+```
+
+---
+
+# 30. Endpoint: GET `/api/v1/telemetry`
+
+## Tujuan
+
+UI meminta keadaan fisik/runtime terbaru ESP32.
+
+### Response minimal terkait scheduling/mechanical control
+
+```json
+{
+  "deviceId": "esp32-complex-a",
+  "configurationVersion": 18,
+  "timestamp": "2026-09-13T00:20:00+07:00",
+  "wellPump": {
+    "commanded": false,
+    "runtimeMode": "SCHEDULED"
+  },
+  "rawWater": {
+    "flowMl": 0
+  },
+  "dosing": {
+    "A": {
+      "state": "IDLE"
+    },
+    "B": {
+      "state": "IDLE"
+    },
+    "N": {
+      "state": "IDLE"
+    }
+  },
+  "greenhouses": {
+    "gh-a": {
+      "mixing": {
+        "state": "READY"
+      },
+      "fertigation": {
+        "state": "IDLE"
+      },
+      "fertigationPump": {
+        "state": "OFF"
+      },
+      "lowerLevelSensor": {
+        "triggered": false
+      }
+    }
+  }
+}
+```
+
+Actual field names dapat disesuaikan dengan final telemetry contract.
+
+---
+
+# 31. Endpoint: GET `/api/v1/events`
+
+## Tujuan
+
+Mengambil event log yang dihasilkan ESP32.
+
+### Response proposal
+
+```json
+{
+  "events": [
+    {
+      "eventId": "evt-001",
+      "eventType": "MIXING_CREATED",
+      "batchId": "batch-001",
+      "scheduleId": "fert-001",
+      "ghId": "gh-a",
+      "configurationVersion": 18,
+      "timestamp": "2026-09-13T14:40:00+07:00",
+      "status": "OPEN"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Event wajib minimal:
+
+```text
+MIXING_QUEUED
+MIXING_CREATED
+FERTIGATION_START
+FERTIGATION_DELIVERED
+BATCH_FAILED
+BATCH_CANCELLED
+EMERGENCY_STOP
+```
+
+---
+
+# 32. Endpoint: GET `/api/v1/commands/{commandId}`
+
+Digunakan UI untuk memeriksa status command yang membutuhkan acknowledgement/status.
+
+Contoh response:
+
+```json
+{
+  "commandId": "cmd-001",
+  "status": "COMPLETED",
+  "acceptedAt": "2026-09-13T15:00:00+07:00",
+  "completedAt": "2026-09-13T15:04:12+07:00"
+}
+```
+
+---
+
+# 33. Endpoint: POST `/api/v1/commands/emergency-stop`
+
+Emergency stop adalah physical runtime command, bukan schedule configuration.
+
+### Request proposal
+
+```json
+{
+  "commandId": "cmd-estop-001",
+  "reason": "operator_request"
+}
+```
+
+### Response proposal
+
+```json
+{
+  "accepted": true,
+  "commandId": "cmd-estop-001",
+  "state": "EMERGENCY_STOP"
+}
+```
+
+ESP32 menghasilkan event:
+
+```text
+EMERGENCY_STOP
+```
+
+---
+
+# 34. Manual Well Pump Control Endpoint
+
+**TO BE CONTINUED — exact endpoint contract.**
+
+Logical command yang dibutuhkan UI:
+
+```text
+WELL_PUMP_MANUAL_START
+WELL_PUMP_MANUAL_STOP
+```
+
+Payload proposal:
+
+```json
+{
+  "commandId": "cmd-wp-001",
+  "type": "well_pump_manual_start",
+  "maxRuntimeSec": 900
+}
+```
+
+ESP32 wajib membatasi manual ON maksimum 900 detik (15 menit), walaupun request mencoba memberikan nilai lebih besar.
+
+STOP dapat dikirim secara eksplisit sebelum timeout.
+
+---
+
+# 35. Calibration API
+
+## 35.1 Calibration adalah Data Hardware, bukan Schedule
+
+Calibration tidak dimasukkan ke `schedules[]`.
+
+Calibration merupakan configuration/runtime support data yang digunakan ESP32 untuk menerjemahkan target mL menjadi ON time.
+
+## 35.2 GET `/api/v1/calibration`
+
+### Response proposal
+
+```json
+{
+  "calibrations": {
+    "A": {
+      "pumpId": "dp-a-001",
+      "active": {
+        "calibrationId": "cal-a-003",
+        "testDurationSec": 20,
+        "measuredVolumeMl": 100,
+        "mlPerSecond": 5,
+        "calibratedAt": "2026-09-12T10:00:00+07:00",
+        "version": 3
+      }
+    },
+    "B": {
+      "pumpId": "dp-b-001",
+      "active": null
+    },
+    "N": {
+      "pumpId": "dp-n-001",
+      "active": null
+    }
+  }
+}
+```
+
+## 35.3 POST `/api/v1/calibration/start`
+
+Request proposal:
+
+```json
+{
+  "calibrationId": "cal-a-new",
+  "pumpId": "dp-a-001",
+  "channel": "A",
+  "testDurationSec": 20
+}
+```
+
+Allowed test duration:
+
+```text
+10
+20
+39
+```
+
+ESP32 menjalankan pump selama durasi tersebut lalu berhenti.
+
+## 35.4 POST `/api/v1/calibration/result`
+
+Setelah volume aktual diukur:
+
+```json
+{
+  "calibrationId": "cal-a-new",
+  "pumpId": "dp-a-001",
+  "channel": "A",
+  "testDurationSec": 20,
+  "measuredVolumeMl": 100
+}
+```
+
+ESP32 menghitung:
+
+```text
+mlPerSecond = measuredVolumeMl / testDurationSec
+```
+
+dan menyimpan hasil calibration baru.
+
+## 35.5 Calibration Result Response
+
+```json
+{
+  "accepted": true,
+  "calibration": {
+    "calibrationId": "cal-a-new",
+    "channel": "A",
+    "testDurationSec": 20,
+    "measuredVolumeMl": 100,
+    "mlPerSecond": 5,
+    "calibratedAt": "2026-09-13T00:30:00+07:00",
+    "version": 4,
+    "active": true
+  }
+}
+```
+
+## 35.6 Last Calibration
+
+UI harus menampilkan minimal:
+
+```text
+Pump/channel
+Last calibration ID
+Last calibration date/time
+Test duration
+Measured volume
+Calculated mL/s
+Calibration version
+Active/inactive
+```
+
+Contoh:
+
+```text
+Dosing A
+Last calibration: 2026-09-13 00:30
+Test: 20 sec
+Measured: 100 mL
+Rate: 5.00 mL/s
+Version: 4
+Status: ACTIVE
+```
+
+## 35.7 Runtime Conversion
+
+Jika calibration aktif:
+
+```text
+runtimeSec = targetMl / mlPerSecond
+```
+
+ESP32 kemudian menerapkan runtime actuator sesuai resolution/timing firmware.
+
+Contoh:
+
+```text
+Target A = 20 mL
+Calibration A = 5 mL/s
+
+runtime = 20 / 5
+        = 4 seconds
+```
+
+ESP32 tetap mencatat target dan actual yang dapat diukur.
+
+---
+
+# 36. Calibration Persistence
+
+ESP32 harus menyimpan calibration aktif agar schedule tetap dapat berjalan tanpa koneksi UI/Python.
+
+Minimal yang harus survive reboot:
+
+```text
+active calibration
+calibration version
+calibration timestamp
+pump/channel mapping
+```
+
+UI menyimpan salinan calibration terakhir di browser state untuk display dan reconciliation.
+
+Python nantinya menyimpan history calibration untuk analysis.
+
+---
+
+# 37. Schedule → UI → Python
+
+**TO BE CONTINUED — UI → Python**
+
+Untuk scheduling, arah data yang ditetapkan:
+
+```text
+ESP32 → UI → Python
+```
+
+Data yang diteruskan:
+
+```text
+active schedule snapshot
+configurationVersion
+schedule execution information
+batchId
+runtime status
+```
+
+Python menyimpan dan menganalisis data tersebut.
+
+ESP32 tetap menjadi scheduler runtime.
+
+---
+
+# 38. Event Log → UI → Python
+
+Arah event:
+
+```text
+ESP32
+  ↓
+UI
+  ↓
+Python
+  ↓
+save + analysis
+```
+
+UI tidak mengubah `eventType`, `batchId`, timestamp, atau semantic state ESP32.
+
+Python dapat menambahkan metadata analysis tanpa mengubah original event.
+
+---
+
+# 39. Scheduled Backlog / Reconnect
+
+Jika Python tidak terhubung ketika schedule/event terjadi:
+
+```text
+ESP32 executes normally
+        ↓
+ESP32 stores event/log
+        ↓
+Python reconnects
+        ↓
+ESP32 backlog available
+        ↓
+UI retrieves backlog
+        ↓
+UI forwards to Python
+        ↓
+Python saves + analyses
+```
+
+User juga dapat menekan tombol manual Sync pada UI untuk memulai proses tersebut.
+
+## 39.1 Event Deletion
+
+Setelah event telah berhasil diteruskan:
+
+```text
+ESP32 → UI → Python
+```
+
+dan terdapat acknowledgement persistence dari Python melalui contract yang akan ditentukan, ESP32 dapat menghapus event yang sudah acknowledged.
+
+Namun:
+
+```text
+ONGOING BATCH
+```
+
+tidak boleh kehilangan batch context/log yang masih diperlukan untuk menyelesaikan lifecycle.
+
+Contoh:
+
+```text
+MIXING_CREATED
+      ↓
+DOSING ACTIVE
+      ↓
+FERTIGATION_START
+      ↓
+FERTIGATION_DELIVERED
+```
+
+Record batch tetap dipertahankan sampai lifecycle selesai dan retention/acknowledgement terpenuhi.
+
+---
+
+# 40. Example Full Operational Flow
+
+## 40.1 Configuration
+
+User membuat schedule:
+
+```text
+GH-A
+15:00
+Raw water = 20,000 mL
+A = 20 mL
+B = 20 mL
+N = 20 mL
+Raw-water start threshold = 20%
+```
+
+UI membuat full snapshot:
+
+```json
+{
+  "complexId": "complex-a",
+  "configurationVersion": 18,
+  "schedules": [
+    {
+      "id": "fert-001",
+      "type": "fertigation",
+      "ghId": "gh-a",
+      "enabled": true,
+      "time": "15:00",
+      "rawWaterMl": 20000,
+      "dosing": {
+        "A": 20,
+        "B": 20,
+        "N": 20
+      },
+      "mixing": {
+        "rawWaterStartThresholdPercent": 20
+      }
+    }
+  ]
+}
+```
+
+## 40.2 Batch Created
+
+ESP32:
+
+```text
+MIXING_CREATED
+```
+
+## 40.3 Raw Water
+
+Target:
+
+```text
+20,000 mL
+```
+
+Threshold:
+
+```text
+20%
+```
+
+Maka dosing threshold:
+
+```text
+4,000 mL
+```
+
+Sequence:
+
+```text
+RAW WATER START
+      ↓
+actual = 4,000 mL
+      ↓
+threshold reached
+```
+
+## 40.4 Dosing Serial
+
+Setelah threshold tercapai:
+
+```text
+A START
+A COMPLETE
+      ↓
+B START
+B COMPLETE
+      ↓
+N START
+N COMPLETE
+```
+
+Raw water tetap berjalan sampai raw-water target tercapai.
+
+Batch complete jika semua target batch selesai.
+
+## 40.5 Ready
+
+```text
+BATCH READY
+```
+
+Jika sekarang masih 14:40:
+
+```text
+READY → WAITING_FOR_SCHEDULE
+```
+
+## 40.6 Fertigation
+
+Pada 15:00:
+
+```text
+FERTIGATION_START
+      ↓
+GH-A pump ON
+      ↓
+monitor lower-level sensor
+      ↓
+lower-level triggered
+      ↓
+pump OFF
+      ↓
+FERTIGATION_DELIVERED
+```
+
+## 40.7 Next Batch
+
+Setelah fertigation batch selesai:
+
+```text
+create next mixing requirement
+      ↓
+MIXING_CREATED
+      ↓
+MIXING_QUEUED
+      ↓
+raw water
+      ↓
+dosing serial
+      ↓
+READY
+```
+
+---
+
+# 41. Operational Invariants
+
+Firmware dan UI harus mempertahankan invariant berikut:
+
+1. **Satu fertigation preparation = satu batch.**
+2. Raw water dan dosing merupakan bagian batch yang sama.
+3. Raw water selalu mulai sebelum dosing.
+4. Dosing hanya boleh mulai setelah actual raw water mencapai threshold configurable.
+5. Threshold tidak hardcoded di firmware.
+6. Central dosing execution selalu serial.
+7. Tidak ada dua batch yang menggunakan central dosing secara bersamaan.
+8. Fertigation pump antar-GH boleh berjalan bersamaan.
+9. Well pump schedule memiliki `time` dan `to-time`.
+10. Well pump tidak boleh dijalankan terus tanpa batas melalui schedule.
+11. Manual well pump maksimum 15 menit.
+12. Radar 220V menjadi physical cutoff di luar ESP32.
+13. UI input volume menggunakan mL.
+14. ESP32 menerjemahkan mL → runtime menggunakan calibration.
+15. Raw-water completion ditentukan oleh actual flow meter.
+16. Fertigation completion ditentukan oleh lower-level sensor.
+17. Configuration schedule dikirim sebagai full snapshot.
+18. Delete GH menghapus semua schedule yang mereferensikan GH tersebut.
+19. Hardware inventory berasal dari mapping hardware yang terdaftar pada ESP32.
+20. UI melakukan automatic inventory discovery jika browser state belum memiliki inventory.
+21. Browser state adalah cache/persistence UI, bukan physical authority.
+22. Event runtime berasal dari ESP32.
+23. Event dapat dikirim ke Python melalui UI.
+24. Event/backlog tidak boleh hilang sebelum lifecycle dan acknowledgement terpenuhi.
+25. Calibration aktif harus tersedia di ESP32 untuk dosing normal.
+26. Setiap batch wajib mempunyai calibration snapshot.
+27. Batch memakai calibration terakhir yang valid pada saat batch dibuat dan tidak berubah selama lifecycle batch.
+28. Calibration umur >= 7 hari menghasilkan warning kuning di UI.
+29. Calibration umur >= 10 hari menghasilkan warning orange di UI.
+30. Tidak ada tolerance correction atau automatic expiry yang menggagalkan batch hanya karena umur calibration.
+
+---
+
+# 42. Acceptance Criteria
+
+## Hardware Inventory
+
+- [ ] ESP32 mempunyai hardware inventory JSON.
+- [ ] User dapat memasukkan inventory secara manual/hardcode.
+- [ ] `GET /api/v1/inventory` mengembalikan inventory.
+- [ ] UI Configuration dapat sync inventory.
+- [ ] UI otomatis meminta inventory jika browser state kosong.
+- [ ] UI menyimpan inventory di browser state.
+
+## Scheduling
+
+- [ ] Well pump mendukung `time` + `to-time`.
+- [ ] Well pump tidak mempunyai open-ended scheduled run.
+- [ ] Manual well pump dapat START/STOP.
+- [ ] Manual well pump otomatis OFF maksimal 15 menit.
+- [ ] Radar 220V memutus pump secara fisik dan tidak bergantung pada ESP32 software interlock.
+- [ ] Fertigation schedule memiliki raw-water target dan dosing target.
+- [ ] Threshold raw-water configurable dari UI.
+
+## Mixing
+
+- [ ] Raw water + dosing adalah satu batch.
+- [ ] Raw water selalu start pertama.
+- [ ] Dosing baru start setelah threshold actual tercapai.
+- [ ] Raw water tetap dapat berjalan sampai target selesai.
+- [ ] Dosing A/B/N serial.
+- [ ] Tidak ada central dosing batch lain yang berjalan bersamaan.
+- [ ] Batch hanya READY setelah seluruh requirement selesai.
+
+## Fertigation
+
+- [ ] Fertigation menunggu batch READY.
+- [ ] Jika schedule datang sebelum READY, delivery dimulai segera setelah READY.
+- [ ] Fertigation pump antar-GH dapat berjalan bersamaan.
+- [ ] Distribution berhenti berdasarkan lower-level sensor.
+
+## Calibration
+
+- [ ] Test calibration mendukung 10/20/39 detik.
+- [ ] Actual output dicatat dalam mL.
+- [ ] `mL/s` dihitung dari hasil calibration.
+- [ ] Calibration mempunyai version dan timestamp.
+- [ ] Calibration terakhir tersedia di UI.
+- [ ] ESP32 menggunakan calibration aktif untuk runtime dosing.
+- [ ] Setiap batch menyimpan calibration snapshot.
+- [ ] Batch ditolak jika calibration dosing yang dibutuhkan tidak tersedia.
+- [ ] UI memiliki hardcoded mandatory calibration guard/alert.
+- [ ] Batch menggunakan calibration snapshot immutable.
+- [ ] Warning kuning muncul mulai 7 hari.
+- [ ] Warning orange muncul mulai 10 hari.
+- [ ] Calibration lama tetap usable sampai ada calibration baru yang valid.
+- [ ] Calibration A/B/N terpisah.
+
+## Event & Persistence
+
+- [ ] `MIXING_QUEUED` tercatat.
+- [ ] `MIXING_CREATED` tercatat.
+- [ ] `FERTIGATION_START` tercatat.
+- [ ] `FERTIGATION_DELIVERED` tercatat.
+- [ ] `BATCH_FAILED` tercatat.
+- [ ] `BATCH_CANCELLED` tercatat.
+- [ ] `EMERGENCY_STOP` tercatat.
+- [ ] Backlog event dikirim setelah koneksi tersedia.
+- [ ] Manual sync dapat meminta backlog.
+- [ ] Event ongoing tidak dihapus sebelum batch lifecycle selesai.
+
+---
+
+# 43. TO BE CONTINUED — UI → Python
+
+Bagian berikut belum menjadi kontrak final dan akan ditentukan pada spesifikasi komunikasi berikutnya:
+
+1. Endpoint UI → Python untuk save schedule.
+2. Endpoint UI → Python untuk save event.
+3. Endpoint UI → Python untuk save calibration history.
+4. Python acknowledgement kepada UI/ESP32.
+5. Event deduplication/idempotency.
+6. Cursor/sequence number backlog.
+7. Exact deletion acknowledgement dari Python ke ESP32.
+8. Reconciliation ketika Python mempunyai configuration version berbeda dari ESP32.
+9. Authentication untuk direct UI → ESP32.
+10. Offline conflict resolution.
+
+Untuk tahap ini, boundary yang sudah ditetapkan adalah:
+
+```text
+SCHEDULE RUNTIME
+ESP32 → UI → Python
+
+EVENT LOG
+ESP32 → UI → Python
+
+CONFIGURATION WRITE
+UI → ESP32
+
+HARDWARE INVENTORY
+ESP32 → UI
+
+RUNTIME TELEMETRY
+ESP32 → UI
+
+CALIBRATION
+UI ↔ ESP32
+
+PYTHON
+save + analysis
+```
+
+---
+
+# 44. Current Repository Note
+
+Repository saat ini masih memiliki mock/local execution path. Audit menunjukkan active UI belum benar-benar menggunakan API client ESP32, sementara API client sudah memiliki endpoint configuration, inventory, telemetry, events, command status, clock sync, dan emergency stop. fileciteturn5file1L94-L112
+
+Karena itu dokumen ini adalah **target mechanical/control contract** untuk implementasi berikutnya, bukan klaim bahwa seluruh endpoint di atas sudah aktif di server/ESP32 saat ini.
+
+---
+
+# 45. End of Current Specification
+
+Dokumen ini membekukan mechanical scheduling model sampai bagian yang telah ditandai **TO BE CONTINUED**.
+
+Prinsip utama:
+
+```text
+HARDWARE INVENTORY
+        ↓
+CONFIGURATION
+        ↓
+SCHEDULE
+        ↓
+BATCH CREATION
+        ↓
+RAW WATER FIRST
+        ↓
+CONFIGURABLE THRESHOLD
+        ↓
+SERIAL DOSING
+        ↓
+BATCH READY
+        ↓
+SCHEDULED FERTIGATION
+        ↓
+LOW-LEVEL SENSOR
+        ↓
+FERTIGATION DELIVERED
+        ↓
+EVENT LOG
+        ↓
+UI
+        ↓
+PYTHON SAVE + ANALYSIS
+```

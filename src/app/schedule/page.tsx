@@ -1,9 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Suspense, useState, type ComponentType, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  CalendarClock,
   Clock,
   Droplets,
   Fan,
@@ -19,9 +18,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher } from "@/components/layout/bits";
-import { SectionCard } from "@/components/ui/cards";
-import { Badge, Button, IconButton, Input, Select, StatusBadge, Toggle } from "@/components/ui/primitives";
-import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
+import { IconButton } from "@/components/ui/primitives";
 import { ConfirmDialog } from "@/components/ui/overlay";
 import { AddFertigationDrawer } from "@/components/schedule/AddFertigationDrawer";
 import { AddWellPumpDrawer } from "@/components/schedule/AddWellPumpDrawer";
@@ -54,7 +51,6 @@ export function ScheduleContent({
 }) {
   useDbVersion(); // re-render on any mock-store mutation
   const [params] = useSearchParams();
-  const router = useNavigate();
   const toast = useToast();
 
   const complexes = complexService.list();
@@ -84,23 +80,50 @@ export function ScheduleContent({
   // Queue = pending mixing entries for this GH
   const queue = fertSchedules.filter((s) => s.status === "scheduled");
 
-  const toTimelineStatus = (st: ScheduleStatus): TimelineEvent["status"] => {
+  const toTimelineStatus = (st: ScheduleStatus): ScheduleTimelineEvent["status"] => {
     if (st === "completed") return "completed";
     if (st === "running") return "running";
     if (st === "missed") return "missed";
     return "scheduled";
   };
 
-  const timelineEvents: TimelineEvent[] = [
+  const timelineEvents: ScheduleTimelineEvent[] = [
     ...fertSchedules
       .filter((s) => s.enabled)
-      .map((s): TimelineEvent => ({ time: s.time, title: `Fertigation · ${greenhouseService.get(s.ghId)?.code ?? "GH"}`, sub: `${s.targetWaterL} L`, status: toTimelineStatus(s.status) })),
+      .map((s) => ({
+        id: `fert-${s.id}`,
+        time: s.time,
+        greenhouse: greenhouseService.get(s.ghId)?.code ?? "GH",
+        type: "fertigation" as const,
+        title: "Fertigation",
+        sub: `${s.targetWaterL} L`,
+        durationMin: 45,
+        status: toTimelineStatus(s.status),
+      })),
     ...fanSchedules
       .filter((s) => s.enabled)
-      .map((s): TimelineEvent => ({ time: s.time, title: `Fan · ${greenhouseService.get(s.ghId)?.code ?? "GH"}`, sub: `${s.durationMin} min`, status: toTimelineStatus(s.status) })),
+      .map((s) => ({
+        id: `fan-${s.id}`,
+        time: s.time,
+        greenhouse: greenhouseService.get(s.ghId)?.code ?? "GH",
+        type: "fan" as const,
+        title: "Fan",
+        sub: `${s.durationMin} min`,
+        durationMin: s.durationMin,
+        status: toTimelineStatus(s.status),
+      })),
     ...wellPumps
       .filter((s) => s.enabled)
-      .map((s): TimelineEvent => ({ time: s.time, title: "Well Pump", sub: `${s.durationMin} min`, status: toTimelineStatus(s.status) })),
+      .map((s) => ({
+        id: `pump-${s.id}`,
+        time: s.time,
+        greenhouse: "Complex",
+        type: "pump" as const,
+        title: "Well Pump",
+        sub: `${s.durationMin} min`,
+        durationMin: s.durationMin,
+        status: toTimelineStatus(s.status),
+      })),
   ]
     .filter((e) => e.time && e.time !== "--:--")
     .sort((a, b) => a.time.localeCompare(b.time));
@@ -189,63 +212,86 @@ export function ScheduleContent({
 
   return (
     <ScheduleFrame embedded={embedded} complexId={complex.id}>
-      {/* Context switchers */}
-      <div className="mb-5 flex flex-wrap items-end gap-4">
+      {/* Context / top meta */}
+      <div className="mb-5 flex flex-wrap items-end gap-3">
         {!embedded && <ComplexSwitcher complexId={complex.id} complexes={complexes} />}
-        <div className="ml-auto flex items-center gap-2.5">
-          <span className="text-xs text-slate-400">{MOCK_NOW.label} • {MOCK_NOW.time}</span>
+        <div className="ml-auto flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/35 px-3 py-2 text-[11px] text-slate-400 shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
+          <Clock className="h-3.5 w-3.5 text-slate-500" />
+          <span>{MOCK_NOW.label}</span>
+          <span className="text-slate-600">•</span>
+          <span className="font-semibold text-slate-300">{MOCK_NOW.time}</span>
         </div>
       </div>
 
       {/* Page title */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Schedule &amp; Timer</h1>
-          <p className="mt-0.5 text-[13px] text-slate-500">
-            {complex.code} — operational schedules across {ghs.length} greenhouses
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-[25px] font-bold tracking-[-0.025em] text-slate-50">Schedule &amp; Timer</h1>
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/20 bg-red-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-red-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400 shadow-[0_0_10px_rgba(248,113,113,0.8)]" />
+              Problem
+            </div>
+            <LiveStatus state={realtimeState} label={`${complex.code} schedule data`} />
+          </div>
+          <p className="mt-1 text-[12px] leading-5 text-slate-500">
+            <span className="font-medium text-slate-300">{complex.code}</span> — operational schedules across {ghs.length} greenhouses
           </p>
         </div>
-        <LiveStatus state={realtimeState} label={`${complex.code} schedule data`} />
       </div>
 
       {/* Summary */}
-      <div className="mb-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Fertigation Schedules", value: fertSchedules.filter((s) => s.enabled).length, total: fertSchedules.length, icon: Droplets, tone: "bg-blue-50 text-blue-600" },
-          { label: "Well Pump Schedules", value: wellPumps.filter((s) => s.enabled).length, total: wellPumps.length, icon: Waves, tone: "bg-sky-50 text-sky-600" },
-          { label: "Fan Schedules", value: fanSchedules.filter((s) => s.enabled).length, total: fanSchedules.length, icon: Fan, tone: "bg-emerald-50 text-emerald-600" },
-          { label: "Queue (pending today)", value: queue.length, total: queue.length, icon: ListOrdered, tone: "bg-violet-50 text-violet-600" },
-        ].map((s) => (
-          <div key={s.label} className="flex items-center gap-3 rounded-xl border-[--color-line] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${s.tone}`}>
-              <s.icon className="h-5 w-5" />
-            </span>
-            <div>
-              <div className="text-2xl font-bold leading-tight text-slate-900">{s.value}</div>
-              <div className="text-xs text-slate-500">{s.label}</div>
+          { label: "Fertigation Schedules", value: fertSchedules.filter((s) => s.enabled).length, icon: Droplets, tone: "blue", spark: 0 },
+          { label: "Well Pump Schedules", value: wellPumps.filter((s) => s.enabled).length, icon: Waves, tone: "cyan", spark: 1 },
+          { label: "Fan Schedules", value: fanSchedules.filter((s) => s.enabled).length, icon: Fan, tone: "green", spark: 2 },
+          { label: "Queue (pending today)", value: queue.length, icon: ListOrdered, tone: "violet", spark: 3 },
+        ].map((s) => {
+          const tones = {
+            blue: { glow: "from-blue-500/18 via-blue-500/5 to-transparent", icon: "border-blue-400/20 bg-blue-500/12 text-blue-300", line: "text-blue-300" },
+            cyan: { glow: "from-cyan-500/18 via-cyan-500/5 to-transparent", icon: "border-cyan-400/20 bg-cyan-500/12 text-cyan-300", line: "text-cyan-300" },
+            green: { glow: "from-emerald-500/18 via-emerald-500/5 to-transparent", icon: "border-emerald-400/20 bg-emerald-500/12 text-emerald-300", line: "text-emerald-300" },
+            violet: { glow: "from-violet-500/18 via-violet-500/5 to-transparent", icon: "border-violet-400/20 bg-violet-500/12 text-violet-300", line: "text-violet-300" },
+          }[s.tone as "blue" | "cyan" | "green" | "violet"];
+          return (
+            <div key={s.label} className="relative overflow-hidden rounded-xl border border-slate-800/90 bg-[#0e1a2a]/95 px-4 py-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
+              <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${tones.glow}`} />
+              <div className="relative flex items-center gap-3">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${tones.icon}`}>
+                  <s.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[23px] font-bold leading-none tracking-tight text-slate-50">{s.value}</div>
+                  <div className="mt-1 text-[11px] font-medium text-slate-400">{s.label}</div>
+                </div>
+                <div className={`ml-auto ${tones.line}`}>
+                  <MiniSparkline offset={s.spark} />
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Today's timeline */}
       <div className="mb-5">
-        <SectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${MOCK_NOW.label}`}>
-          <Timeline events={timelineEvents} nowPct={MOCK_NOW.dayPct} />
-        </SectionCard>
+        <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${MOCK_NOW.label}`}>
+          <ScheduleTimeline events={timelineEvents} nowPct={MOCK_NOW.dayPct} />
+        </DarkSectionCard>
       </div>
 
       {/* Fertigation schedules (GH-level) */}
       <div className="mb-5">
-        <SectionCard
+        <DarkSectionCard
           title={`Fertigation Schedules — ${complex.code}`}
           icon={Droplets}
           iconTone="blue"
           subtitle="Greenhouse-level schedules"
           action={
-            <Button size="sm" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+            <ActionButton tone="blue" onClick={() => { setEditFert(null); setFertOpen(true); }}>
               <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
-            </Button>
+            </ActionButton>
           }
         >
           <ScheduleTable
@@ -268,21 +314,21 @@ export function ScheduleContent({
             onDelete={(id, name) => setDeleteTarget({ kind: "fert", id, name })}
             togglingId={togglingId}
           />
-        </SectionCard>
+        </DarkSectionCard>
       </div>
 
       {/* Well pump (Complex-level) + radar */}
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <SectionCard
+          <DarkSectionCard
             title={`Well Pump Schedule — ${complex.code}`}
             icon={Waves}
             iconTone="sky"
             subtitle="Complex-level: fills the shared raw water tank"
             action={
-              <Button size="sm" variant="outline" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
+              <ActionButton tone="cyan" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
                 <Plus className="h-3.5 w-3.5" /> Add Well Pump Schedule
-              </Button>
+              </ActionButton>
             }
           >
             <ScheduleTable
@@ -306,49 +352,48 @@ export function ScheduleContent({
               onDelete={(id, name) => setDeleteTarget({ kind: "pump", id, name })}
               togglingId={togglingId}
             />
-          </SectionCard>
+          </DarkSectionCard>
         </div>
 
-        <SectionCard title="Well Pump" icon={Radar} iconTone="slate" subtitle="AUTO MODE">
+        <DarkSectionCard title="Well Pump" icon={Radar} iconTone="slate" subtitle="AUTO MODE">
           <div className="space-y-3">
-            <div className={`rounded-xl p-4 ${radarState === "filling" ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50"}`}>
-              <div className="text-xs font-medium text-slate-500">Radar Tank Status</div>
-              <div className="mt-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-                    <span className={`h-2.5 w-2.5 rounded-full ${radarState === "filling" ? "bg-emerald-500 pulse-dot" : "bg-emerald-500/40"}`} />
+            <div className={`rounded-xl border px-4 py-4 ${radarState === "filling" ? "border-emerald-400/20 bg-emerald-500/8" : "border-slate-800 bg-slate-950/30"}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Radar Tank Status</div>
+              <div className="mt-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-300">
+                    <span className={`h-2 w-2 rounded-full ${radarState === "filling" ? "bg-emerald-400 pulse-dot shadow-[0_0_10px_rgba(52,211,153,0.7)]" : "bg-emerald-400/35"}`} />
                     Dalam Pengisian
                   </span>
-                  {radarState === "filling" && <Badge tone="green">Pump allowed</Badge>}
+                  {radarState === "filling" && <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />Pump allowed</span>}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-sm font-semibold text-slate-500">
-                    <span className={`h-2.5 w-2.5 rounded-full ${radarState === "full" ? "bg-slate-500" : "bg-slate-300"}`} />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-400">
+                    <span className={`h-2 w-2 rounded-full ${radarState === "full" ? "bg-slate-300" : "bg-slate-700"}`} />
                     Penuh
                   </span>
-                  {radarState === "full" && <Badge tone="gray">Pump OFF</Badge>}
+                  {radarState === "full" && <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/50 px-2.5 py-1 text-[10px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" />Pump OFF</span>}
                 </div>
               </div>
             </div>
-            <div className="rounded-lg bg-blue-50/70 px-3 py-2.5 text-[11px] leading-relaxed text-blue-700">
-              The radar is a binary state — not a percentage. The schedule always remains scheduled; the radar only
-              decides whether the physical pump is permitted to run.
+            <div className="rounded-xl border border-blue-400/10 bg-blue-500/7 px-3.5 py-3 text-[11px] leading-5 text-slate-400">
+              <span className="font-semibold text-blue-300">Binary radar state.</span> The schedule remains scheduled; radar only determines whether the physical pump is permitted to run.
             </div>
           </div>
-        </SectionCard>
+        </DarkSectionCard>
       </div>
 
       {/* Fan schedules (GH-level) */}
       <div className="mb-5">
-        <SectionCard
+        <DarkSectionCard
           title={`Fan Schedules — ${complex.code}`}
           icon={Fan}
           iconTone="green"
           subtitle="Greenhouse-level schedules"
           action={
-            <Button size="sm" variant="outline" onClick={() => { setEditFan(null); setFanOpen(true); }}>
+            <ActionButton tone="green" onClick={() => { setEditFan(null); setFanOpen(true); }}>
               <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
-            </Button>
+            </ActionButton>
           }
         >
           <ScheduleTable
@@ -372,49 +417,49 @@ export function ScheduleContent({
             onDelete={(id, name) => setDeleteTarget({ kind: "fan", id, name })}
             togglingId={togglingId}
           />
-        </SectionCard>
+        </DarkSectionCard>
       </div>
 
       {/* Queue + ESP32 config */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
+        <DarkSectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
           {queue.length === 0 ? (
-            <div className="rounded-xl border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
-              <p className="text-sm text-slate-400">No fertigation schedules configured.</p>
-              <Button size="sm" variant="outline" className="mt-2.5" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+            <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 py-7 text-center">
+              <p className="text-[13px] text-slate-500">No fertigation schedules configured.</p>
+              <ActionButton tone="violet" size="sm" className="mt-3" onClick={() => { setEditFert(null); setFertOpen(true); }}>
                 <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
-              </Button>
+              </ActionButton>
             </div>
           ) : (
             <div className="space-y-2.5">
               {queue.map((s) => (
-                <div key={s.id} className="flex items-center gap-3 rounded-xl border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
-                    <ListOrdered className="h-4.5 w-4.5" />
+                <div key={s.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-[#0d1929] px-3.5 py-3 shadow-[0_8px_18px_rgba(0,0,0,0.12)]">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-500/10 text-violet-300">
+                    <ListOrdered className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-slate-800">{s.name} • {greenhouseService.get(s.ghId)?.code ?? "GH"}</div>
-                    <div className="text-xs text-slate-500">{s.nextRun} • {s.targetWaterL} L</div>
+                    <div className="truncate text-[13px] font-semibold text-slate-100">{s.name} • {greenhouseService.get(s.ghId)?.code ?? "GH"}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">{s.nextRun} • {s.targetWaterL} L</div>
                   </div>
-                  <StatusBadge status="scheduled" />
+                  <StatusPill status="scheduled" />
                 </div>
               ))}
             </div>
           )}
-        </SectionCard>
+        </DarkSectionCard>
 
-        <SectionCard
+        <DarkSectionCard
           title="ESP32 Configuration"
           icon={MonitorCog}
           iconTone="slate"
           action={
-            <Button size="sm" variant="secondary" onClick={handleSync} disabled={syncing}>
+            <ActionButton tone="slate" onClick={handleSync} disabled={syncing}>
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
               {syncing ? "Synchronizing…" : "Sync Now"}
-            </Button>
+            </ActionButton>
           }
         >
-          <div className="space-y-2.5 text-[13px]">
+          <div className="space-y-1.5 text-[12px]">
             {[
               ["Device", `ESP32-S3 • ${complex.code}`],
               ["Status", complex.esp32.online ? "ONLINE" : "OFFLINE"],
@@ -423,13 +468,13 @@ export function ScheduleContent({
               ["ESP32 Config Version", `v${complex.esp32.esp32ConfigVersion}`],
               ["Synchronization", complex.esp32.synchronized ? "SYNCHRONIZED" : "PENDING"],
             ].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between rounded-lg border-slate-100 px-3.5 py-2.5">
+              <div key={k} className="flex items-center justify-between gap-4 rounded-lg border border-slate-800/70 bg-slate-950/25 px-3.5 py-2.5">
                 <span className="text-slate-500">{k}</span>
-                <span className="font-semibold text-slate-800">{v}</span>
+                <span className="text-right font-semibold text-slate-200">{v}</span>
               </div>
             ))}
           </div>
-        </SectionCard>
+        </DarkSectionCard>
       </div>
 
       {/* Drawers */}
@@ -472,8 +517,161 @@ export function ScheduleContent({
   );
 }
 
-function ScheduleFrame({ embedded, complexId, children }: { embedded: boolean; complexId: string; children: React.ReactNode }) {
-  return embedded ? <>{children}</> : <AppShell complexId={complexId}>{children}</AppShell>;
+type ScheduleTimelineEvent = {
+  id: string;
+  time: string;
+  greenhouse: string;
+  type: "fertigation" | "fan" | "pump";
+  title: string;
+  sub: string;
+  durationMin: number;
+  status: "completed" | "running" | "scheduled" | "missed";
+};
+
+function parseClock(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
+}
+
+function statusAccent(status: ScheduleTimelineEvent["status"]) {
+  if (status === "completed") return "border-emerald-400/25 bg-emerald-500/10";
+  if (status === "running") return "border-blue-400/45 bg-blue-500/15 shadow-[0_0_28px_rgba(59,130,246,0.2)]";
+  if (status === "missed") return "border-red-400/30 bg-red-500/10";
+  return "border-blue-400/25 bg-blue-500/10";
+}
+
+function eventIcon(type: ScheduleTimelineEvent["type"]) {
+  if (type === "fan") return <Fan className="h-3.5 w-3.5 text-emerald-300" />;
+  if (type === "pump") return <Waves className="h-3.5 w-3.5 text-cyan-300" />;
+  return <Droplets className="h-3.5 w-3.5 text-blue-300" />;
+}
+
+function MiniSparkline({ offset = 0 }: { offset?: number }) {
+  const d = `M2 25 C 16 ${25 - (offset % 5)} 22 8 38 ${15 - (offset % 4)} S 56 24 70 10 S 90 14 98 4`;
+  return (
+    <svg viewBox="0 0 100 30" className="h-8 w-24 shrink-0 opacity-80" aria-hidden="true">
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DarkSectionCard({
+  title,
+  icon: Icon,
+  iconTone = "blue",
+  subtitle,
+  action,
+  children,
+}: {
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  iconTone?: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+  children: ReactNode;
+}) {
+  const tones: Record<string, string> = {
+    blue: "border-blue-400/15 bg-blue-500/10 text-blue-300",
+    sky: "border-cyan-400/15 bg-cyan-500/10 text-cyan-300",
+    green: "border-emerald-400/15 bg-emerald-500/10 text-emerald-300",
+    violet: "border-violet-400/15 bg-violet-500/10 text-violet-300",
+    slate: "border-slate-700 bg-slate-800/70 text-slate-200",
+  };
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e1a2a] shadow-[0_18px_55px_rgba(0,0,0,0.22)]">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-800 bg-[#0f1d30] px-4 py-4 md:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${tones[iconTone] ?? tones.blue}`}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-slate-100">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-[11px] text-slate-500">{subtitle}</p>}
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className="p-4 md:p-5">{children}</div>
+    </section>
+  );
+}
+
+function ScheduleTimeline({ events, nowPct }: { events: ScheduleTimelineEvent[]; nowPct: number }) {
+  const lanes = ["GH 01", "GH 02", "GH 03", "GH 04", "GH 05"];
+  const palette = ["bg-blue-500", "bg-emerald-400", "bg-amber-400", "bg-violet-400", "bg-pink-400"];
+  const hourMarks = [0, 3, 6, 9, 12, 15, 18, 21, 24];
+  const nowMinutes = Math.min(1439, Math.max(0, Math.round(nowPct * 1440)));
+
+  return (
+    <div className="overflow-x-auto scroll-thin">
+      <div className="min-w-[1120px]">
+        <div className="mb-3 grid grid-cols-[80px_1fr] items-center">
+          <div />
+          <div className="relative flex justify-between px-1 text-[10px] font-semibold text-slate-500">
+            {hourMarks.map((h) => <span key={h}>{String(h).padStart(2, "0")}:00</span>)}
+          </div>
+        </div>
+        <div className="relative rounded-xl border border-slate-800 bg-[#0b1625] p-2.5">
+          <div className="pointer-events-none absolute inset-y-2 left-[80px] right-2">
+            {hourMarks.map((h) => (
+              <span key={h} className="absolute inset-y-0 border-l border-slate-800/80" style={{ left: `${(h / 24) * 100}%` }} />
+            ))}
+          </div>
+          {lanes.map((lane, laneIndex) => {
+            const laneEvents = events.filter((e) => e.greenhouse === lane);
+            return (
+              <div key={lane} className="relative grid min-h-[58px] grid-cols-[80px_1fr] items-center border-b border-slate-800/70 last:border-b-0">
+                <div className="flex items-center gap-2 pl-1 text-[11px] font-semibold text-slate-400">
+                  <span className={`h-2.5 w-2.5 rounded-full ${palette[laneIndex]}`} />
+                  {lane}
+                </div>
+                <div className="relative h-full min-h-[58px]">
+                  {laneEvents.map((e, idx) => {
+                    const start = parseClock(e.time);
+                    const left = (start / 1440) * 100;
+                    const width = Math.max(7.2, Math.min(12, ((e.durationMin || 45) / 1440) * 100 + 5));
+                    const stack = idx % 2;
+                    return (
+                      <div
+                        key={e.id}
+                        className={`absolute rounded-lg border px-2.5 py-1.5 shadow-[0_8px_25px_rgba(0,0,0,0.2)] ${statusAccent(e.status)}`}
+                        style={{ left: `${left}%`, width: `${width}%`, top: stack ? "6px" : "31px", minWidth: 96 }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          {eventIcon(e.type)}
+                          <span className="text-[10px] font-bold text-slate-100">{e.time}</span>
+                        </div>
+                        <div className="mt-0.5 truncate text-[9px] font-semibold text-slate-300">{e.title}</div>
+                        <div className="text-[9px] text-slate-500">{e.sub}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <div className="pointer-events-none absolute bottom-2 top-2" style={{ left: `calc(5.3% + ${Math.max(0, Math.min(1, nowPct)) * 94.7}%)` }}>
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-md bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-[0_0_18px_rgba(59,130,246,0.35)]">
+              {String(Math.floor(nowMinutes / 60)).padStart(2, "0")}:{String(nowMinutes % 60).padStart(2, "0")}
+            </div>
+            <div className="h-full w-px bg-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.75)]" />
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white">Now</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleFrame({ embedded, complexId, children }: { embedded: boolean; complexId: string; children: ReactNode }) {
+  const content = (
+    <div className="min-h-screen bg-[#07121f] text-slate-100 [background-image:radial-gradient(circle_at_top_right,rgba(37,99,235,0.12),transparent_28%),radial-gradient(circle_at_75%_85%,rgba(16,185,129,0.05),transparent_22%)]">
+      <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">
+        {children}
+      </div>
+    </div>
+  );
+  return embedded ? content : <AppShell complexId={complexId}>{content}</AppShell>;
 }
 
 /* ------------------------- schedule table ------------------------- */
@@ -518,101 +716,102 @@ function ScheduleTable({
     .filter((r) => (statusFilter === "all" ? true : statusFilter === "enabled" ? r.enabled : !r.enabled))
     .sort((a, b) => a.time.localeCompare(b.time));
 
+  const accentClasses = {
+    blue: "border-blue-400/20 bg-blue-500/10 text-blue-300",
+    sky: "border-cyan-400/20 bg-cyan-500/10 text-cyan-300",
+    green: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
+  }[accent];
+
   return (
     <div>
-      {/* search + status filter (spec #29) */}
       {rows.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <div className="mb-4 flex flex-wrap items-center gap-2.5">
           <div className="relative w-56">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <Input
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search schedules…"
-              className="pl-8.5"
+              className="h-10 w-full rounded-lg border border-slate-700/90 bg-[#0a1524] px-3 pl-8.5 text-[12px] font-medium text-slate-200 outline-none transition placeholder:text-slate-600 hover:border-slate-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             />
           </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="w-40"
-            options={[
-              { value: "all", label: "All statuses" },
-              { value: "enabled", label: "Enabled" },
-              { value: "disabled", label: "Disabled" },
-            ]}
-          />
+          <div className="relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              className="h-10 w-40 appearance-none rounded-lg border border-slate-700/90 bg-[#0a1524] px-3.5 pr-9 text-[12px] font-medium text-slate-200 outline-none transition hover:border-slate-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+            >
+              <option value="all">All statuses</option>
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled</option>
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">⌄</span>
+          </div>
         </div>
       )}
 
       {filtered.length === 0 ? (
-        <div className="rounded-xl border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
-          <p className="text-sm text-slate-400">
+        <div className="rounded-xl border border-dashed border-slate-800 bg-[#0a1524]/80 px-4 py-7 text-center">
+          <p className="text-[13px] font-medium text-slate-500">
             {rows.length === 0 ? `No ${addLabel.toLowerCase().replace(/^add /, "").replace(/ schedule$/, "")} schedules configured.` : "No schedules match your search or filter."}
           </p>
           {rows.length === 0 ? (
-            <Button size="sm" variant="outline" className="mt-2.5" onClick={onAdd}>
+            <ActionButton tone="slate" size="sm" className="mt-3" onClick={onAdd}>
               <Plus className="h-3.5 w-3.5" /> {addLabel}
-            </Button>
+            </ActionButton>
           ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="mt-2.5"
-              onClick={() => {
-                setQuery("");
-                setStatusFilter("all");
-              }}
+            <button
+              type="button"
+              className="mt-3 rounded-lg border border-slate-800 bg-[#0d1929] px-3 py-2 text-[11px] font-semibold text-slate-400 transition hover:border-slate-700 hover:bg-slate-800/70 hover:text-slate-200"
+              onClick={() => { setQuery(""); setStatusFilter("all"); }}
             >
               Clear filters
-            </Button>
+            </button>
           )}
         </div>
       ) : (
         <div className="scroll-thin overflow-x-auto">
-          <table className="w-full min-w-[820px] text-[13px]">
+          <table className="w-full min-w-[900px] text-[12px]">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="pb-2.5 font-medium">Task</th>
-                <th className="pb-2.5 font-medium">Greenhouse</th>
-                <th className="pb-2.5 font-medium">Time</th>
-                <th className="pb-2.5 font-medium">Repeat</th>
-                <th className="pb-2.5 font-medium">Last Run</th>
-                <th className="pb-2.5 font-medium">Next Run</th>
-                <th className="pb-2.5 font-medium">Status</th>
-                <th className="pb-2.5 font-medium">Enabled</th>
-                <th className="pb-2.5 text-right font-medium">Actions</th>
+              <tr className="border-b border-slate-800/90 text-left text-[9px] uppercase tracking-[0.14em] text-slate-600">
+                <th className="pb-2.5 font-semibold">Task</th>
+                <th className="pb-2.5 font-semibold">Greenhouse</th>
+                <th className="pb-2.5 font-semibold">Time</th>
+                <th className="pb-2.5 font-semibold">Repeat</th>
+                <th className="pb-2.5 font-semibold">Last Run</th>
+                <th className="pb-2.5 font-semibold">Next Run</th>
+                <th className="pb-2.5 font-semibold">Status</th>
+                <th className="pb-2.5 font-semibold">Enabled</th>
+                <th className="pb-2.5 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={r.id} className={`border-b border-slate-50 last:border-0 ${r.enabled ? "" : "opacity-55"}`}>
-                  <td className="py-3 pr-3">
-                    <div className="font-semibold text-slate-800">{r.name}</div>
-                    <div className="text-xs text-slate-500">{r.detail}</div>
+                <tr key={r.id} className={`border-b border-slate-800/60 last:border-0 ${r.enabled ? "" : "opacity-50"}`}>
+                  <td className="py-3.5 pr-3">
+                    <div className="font-semibold text-slate-100">{r.name}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">{r.detail}</div>
                   </td>
-                  <td className="py-3 pr-3 font-medium text-slate-600">{r.greenhouse}</td>
-                  <td className="py-3 pr-3">
-                    <span className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold ${
-                      accent === "sky" ? "bg-sky-50 text-sky-700" : accent === "green" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
-                    }`}>
+                  <td className="py-3.5 pr-3 font-medium text-slate-300">{r.greenhouse}</td>
+                  <td className="py-3.5 pr-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold ${accentClasses}`}>
                       <Clock className="h-3 w-3" /> {r.time}
                     </span>
                   </td>
-                  <td className="py-3 pr-3 text-slate-600">{r.repeat}</td>
-                  <td className="py-3 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
-                  <td className="py-3 pr-3 text-slate-600">{r.nextRun ?? "–"}</td>
-                  <td className="py-3 pr-3"><StatusBadge status={r.status} /></td>
-                  <td className="py-3 pr-3">
-                    <Toggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} disabled={togglingId === r.id} />
+                  <td className="py-3.5 pr-3 text-slate-300">{r.repeat}</td>
+                  <td className="py-3.5 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
+                  <td className="py-3.5 pr-3 font-medium text-slate-300">{r.nextRun ?? "–"}</td>
+                  <td className="py-3.5 pr-3"><StatusPill status={r.status} /></td>
+                  <td className="py-3.5 pr-3">
+                    <ScheduleToggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} disabled={togglingId === r.id} />
                   </td>
-                  <td className="py-3">
-                    <div className="flex justify-end gap-0.5">
-                      <IconButton aria-label="Edit" title="Edit" onClick={() => onEdit(r.id)}>
+                  <td className="py-3.5">
+                    <div className="flex justify-end gap-1">
+                      <IconButton aria-label="Edit" title="Edit" onClick={() => onEdit(r.id)} className="text-slate-500 hover:bg-blue-500/10 hover:text-blue-300">
                         <Pencil className="h-4 w-4" />
                       </IconButton>
-                      <IconButton aria-label="Delete" title="Delete" onClick={() => onDelete(r.id, r.name)}>
-                        <Trash2 className="h-4 w-4 text-red-400 hover:text-red-500" />
+                      <IconButton aria-label="Delete" title="Delete" onClick={() => onDelete(r.id, r.name)} className="text-slate-500 hover:bg-red-500/10 hover:text-red-300">
+                        <Trash2 className="h-4 w-4" />
                       </IconButton>
                     </div>
                   </td>
@@ -623,5 +822,80 @@ function ScheduleTable({
         </div>
       )}
     </div>
+  );
+}
+
+function ActionButton({
+  children,
+  tone = "blue",
+  size = "md",
+  className = "",
+  onClick,
+  disabled = false,
+}: {
+  children: ReactNode;
+  tone?: "blue" | "cyan" | "green" | "violet" | "slate";
+  size?: "sm" | "md";
+  className?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const tones = {
+    blue: "border-blue-400/20 bg-blue-600/90 text-blue-50 shadow-[0_8px_22px_rgba(37,99,235,0.20)] hover:bg-blue-500/95 hover:border-blue-300/30",
+    cyan: "border-cyan-400/20 bg-cyan-500/12 text-cyan-200 hover:bg-cyan-500/18 hover:border-cyan-300/30",
+    green: "border-emerald-400/20 bg-emerald-500/12 text-emerald-200 hover:bg-emerald-500/18 hover:border-emerald-300/30",
+    violet: "border-violet-400/20 bg-violet-500/12 text-violet-200 hover:bg-violet-500/18 hover:border-violet-300/30",
+    slate: "border-slate-700 bg-slate-800/45 text-slate-300 hover:bg-slate-700/55 hover:text-slate-100",
+  }[tone];
+  const sizing = size === "sm" ? "h-9 px-3 text-[11px]" : "h-10 px-3.5 text-[12px]";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border font-semibold tracking-[-0.005em] transition duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${sizing} ${tones} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusPill({ status }: { status: FertigationSchedule["status"] }) {
+  const config = {
+    completed: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
+    scheduled: "border-blue-400/20 bg-blue-500/10 text-blue-300",
+    running: "border-cyan-400/25 bg-cyan-500/10 text-cyan-300",
+    missed: "border-red-400/20 bg-red-500/10 text-red-300",
+    disabled: "border-slate-700 bg-slate-800/50 text-slate-500",
+  } as const;
+  const labels = { completed: "Completed", scheduled: "Scheduled", running: "Running", missed: "Missed", disabled: "Disabled" } as const;
+  const dot = {
+    completed: "bg-emerald-400",
+    scheduled: "bg-blue-400",
+    running: "bg-cyan-300",
+    missed: "bg-red-400",
+    disabled: "bg-slate-500",
+  } as const;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${config[status]}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot[status]}`} />
+      {labels[status]}
+    </span>
+  );
+}
+
+function ScheduleToggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={checked ? "Disable schedule" : "Enable schedule"}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-5 w-9 rounded-full border transition ${checked ? "border-blue-400/30 bg-blue-500" : "border-slate-700 bg-slate-800"} disabled:opacity-40`}
+    >
+      <span className={`absolute top-0.5 h-4 w-4 rounded-full shadow-sm transition ${checked ? "left-[18px] bg-white" : "left-0.5 bg-slate-500"}`} />
+    </button>
   );
 }

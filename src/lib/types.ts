@@ -121,12 +121,21 @@ export interface CycleHarvestSummary {
   hstAtHarvest: number;
   hspAtHarvest: number | null;
   recordedAt: string;
+  yieldKg?: number;
+  grade?: string;
+  notes?: string;
 }
 
 export interface CropCycle {
   status: CycleStatus;
   tanggalTanam: string | null; // "YYYY-MM-DD"
   tanggalPolinasi: string | null; // "YYYY-MM-DD"
+  variety?: string;
+  plantCount?: number;
+  pollinationMethod?: "natural" | "bee" | "manual";
+  targetHarvestHst?: number;
+  targetHarvestHsp?: number;
+  notes?: string;
   lastHarvestSummary?: CycleHarvestSummary | null;
 }
 

@@ -60,64 +60,230 @@ function DashboardRoute() {
   return params.get("complex") ? <ComplexDashboardContent /> : <GlobalDashboardContent />;
 }
 
+function Sparkline({ tone }: { tone: "violet" | "green" | "blue" | "red" }) {
+  const stroke = {
+    violet: "#a78bfa",
+    green: "#34d399",
+    blue: "#60a5fa",
+    red: "#fb7185",
+  }[tone];
+
+  return (
+    <svg viewBox="0 0 110 42" className="h-10 w-24 overflow-visible" aria-hidden="true">
+      <path
+        d="M0 34 C 12 34, 15 29, 22 30 S 31 25, 38 25 S 45 12, 53 17 S 66 14, 72 19 S 83 8, 92 11 S 102 5, 110 5"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function GlobalDashboardContent() {
   useDbVersion();
   const complexes = complexService.list();
-  const allGreenhouses = complexes.flatMap((complex) => greenhouseService.byComplex(complex.id).map((greenhouse) => ({ greenhouse, complex })));
+  const allGreenhouses = complexes.flatMap((complex) =>
+    greenhouseService.byComplex(complex.id).map((greenhouse) => ({ greenhouse, complex })),
+  );
   const activeRuns = allGreenhouses.filter(({ greenhouse }) => greenhouse.currentRun).length;
   const offline = allGreenhouses.filter(({ greenhouse }) => !greenhouse.online).length;
   const warnings = allGreenhouses.filter(({ greenhouse }) => greenhouse.health !== "NORMAL").length;
   const onlineEsp = complexes.filter((complex) => complex.esp32.online).length;
   const router = useNavigate();
+  const leadCrop = allGreenhouses[0]?.greenhouse.crop ?? "Tomato";
+
+  const metrics = [
+    { label: "Complexes", value: complexes.length, detail: `${onlineEsp} ESP32 online`, tone: "violet" as const },
+    { label: "Greenhouses", value: allGreenhouses.length, detail: `${allGreenhouses.length - offline} online`, tone: "green" as const },
+    { label: "Active Operations", value: activeRuns, detail: "fertigation running", tone: "blue" as const },
+    { label: "Attention Required", value: offline + warnings, detail: offline ? "offline or degraded" : "all systems normal", tone: "red" as const },
+  ];
 
   return (
     <AppShell complexId={complexes[0]?.id ?? ""}>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600">AgroTech Operations</div>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">Greenhouse command center</h1>
-          <p className="mt-1 text-sm text-slate-500">All Complexes · {allGreenhouses.length} greenhouses reporting in one operational view</p>
+      <section className="relative mb-5 min-h-[250px] overflow-hidden rounded-[24px] border border-emerald-300/10 bg-[#071c19] shadow-[0_22px_70px_rgba(0,0,0,.22)]">
+        <div className="absolute inset-0 opacity-65">
+          <GreenhouseArt crop={leadCrop} variant="landscape" className="h-full w-full scale-[1.08]" />
         </div>
-        <LiveStatus state={offline || warnings ? "problem" : "live"} label="All greenhouse realtime status" />
-      </div>
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,20,18,.97)_0%,rgba(4,27,22,.86)_43%,rgba(4,27,22,.34)_76%,rgba(4,20,18,.77)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_24%,rgba(58,204,146,.18),transparent_28%)]" />
+        <div className="pointer-events-none absolute -right-10 -top-16 h-52 w-52 rounded-full border-[16px] border-emerald-200/8" />
+        <div className="pointer-events-none absolute right-8 bottom-[-88px] h-44 w-44 rounded-full border-[14px] border-emerald-200/7" />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          ["Complexes", complexes.length, `${onlineEsp} ESP32 online`, "bg-violet-50 text-violet-600"],
-          ["Greenhouses", allGreenhouses.length, `${allGreenhouses.length - offline} online`, "bg-emerald-50 text-emerald-600"],
-          ["Active operations", activeRuns, "fertigation running", "bg-blue-50 text-blue-600"],
-          ["Attention required", offline + warnings, offline ? "offline or degraded" : "all systems normal", offline + warnings ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-600"],
-        ].map(([label, value, detail, tone]) => (
-          <div key={String(label)} className="rounded-2xl border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
-            <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${tone}`}><Activity className="h-4 w-4" /></div>
-            <div className="text-2xl font-bold text-slate-950">{value}</div>
-            <div className="mt-0.5 text-sm font-medium text-slate-700">{label}</div>
-            <div className="mt-1 text-xs text-slate-400">{detail}</div>
+        <div className="relative flex min-h-[250px] items-end justify-between gap-6 p-6 sm:p-8">
+          <div className="max-w-[800px]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-300">AgroTech Operations</div>
+            <h1 className="mt-2 text-[40px] font-extrabold leading-[1.02] tracking-[-0.04em] text-white sm:text-[47px]">
+              Greenhouse <span className="text-emerald-400">Command Center</span>
+            </h1>
+            <p className="mt-3 text-sm text-slate-300">
+              All complexes · {allGreenhouses.length} greenhouses reporting in one operational view
+            </p>
+            <div className="mt-5 h-1 w-12 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,.55)]" />
+          </div>
+
+          <div className="hidden items-end gap-4 xl:flex">
+            <div className="rounded-2xl border border-emerald-300/10 bg-[#0b2722]/75 px-5 py-4 backdrop-blur-xl">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400">System health</div>
+              <div className="mt-1 text-sm font-semibold text-emerald-300">
+                {offline || warnings ? "Needs Attention" : "Healthy Growth"}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-500">Brighter tomorrow</div>
+            </div>
+            <div className="min-w-[170px] border-l border-white/10 pl-5">
+              <div className="text-right text-[10px] text-slate-500">Thursday, Sep 11, 2026</div>
+              <div className="mt-1 text-right text-2xl font-extrabold tracking-tight text-white">
+                {MOCK_NOW.time} <span className="text-[10px] font-semibold text-slate-500">WIB</span>
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2 text-right">
+                <span className="text-xl text-slate-300">☁</span>
+                <div>
+                  <div className="text-sm font-semibold text-slate-200">26°C</div>
+                  <div className="text-[10px] text-slate-500">Partly Cloudy</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute right-5 top-5">
+            <LiveStatus state={offline || warnings ? "problem" : "live"} label="All greenhouse realtime status" />
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <div
+            key={metric.label}
+            className={`relative overflow-hidden rounded-[19px] border bg-[#0b2027]/92 p-4 shadow-[0_16px_45px_rgba(0,0,0,.16)] ${
+              metric.tone === "violet"
+                ? "border-violet-300/12"
+                : metric.tone === "green"
+                  ? "border-emerald-300/12"
+                  : metric.tone === "blue"
+                    ? "border-sky-300/12"
+                    : "border-rose-300/12"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div
+                  className={`mb-4 grid h-10 w-10 place-items-center rounded-xl ${
+                    metric.tone === "violet"
+                      ? "bg-violet-400/10 text-violet-300"
+                      : metric.tone === "green"
+                        ? "bg-emerald-400/10 text-emerald-300"
+                        : metric.tone === "blue"
+                          ? "bg-sky-400/10 text-sky-300"
+                          : "bg-rose-400/10 text-rose-300"
+                  }`}
+                >
+                  <Activity className="h-4.5 w-4.5" />
+                </div>
+                <div className="text-[34px] font-extrabold leading-none tracking-[-0.04em] text-white">{metric.value}</div>
+                <div className="mt-1.5 text-sm font-semibold text-slate-200">{metric.label}</div>
+                <div className="mt-1 text-[11px] text-slate-500">{metric.detail}</div>
+              </div>
+              <Sparkline tone={metric.tone} />
+            </div>
           </div>
         ))}
-      </div>
+      </section>
 
-      <SectionCard title="All Greenhouses" icon={Building2} iconTone="blue" subtitle="Live sensor and operation status across every Complex" realtime={offline || warnings ? "problem" : "live"}>
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {allGreenhouses.map(({ greenhouse, complex }) => <GreenhouseOverviewCard key={greenhouse.id} greenhouse={greenhouse} complex={complex} />)}
+      <section className="overflow-hidden rounded-[24px] border border-emerald-300/10 bg-[#081b22]/95 shadow-[0_20px_60px_rgba(0,0,0,.18)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-400/10 text-emerald-300">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">All Greenhouses</h2>
+              <p className="text-[11px] text-slate-500">Live sensor and operation status across every complex</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <span>View mode</span>
+            <button className="grid h-8 w-8 place-items-center rounded-lg border border-emerald-300/20 bg-emerald-400/10 text-emerald-300"><Building2 className="h-3.5 w-3.5" /></button>
+            <button className="grid h-8 w-8 place-items-center rounded-lg border border-white/8 bg-white/[0.025] text-slate-500"><ListChecks className="h-3.5 w-3.5" /></button>
+            <span className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2 text-slate-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> All Systems
+            </span>
+            <span className="rounded-lg border border-white/8 bg-white/[0.025] px-2.5 py-1.5 text-slate-500">•••</span>
+          </div>
         </div>
-      </SectionCard>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <SectionCard title="Complex Network" icon={Building2} iconTone="violet" subtitle="ESP32 and GH availability">
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2 xl:grid-cols-3">
+          {allGreenhouses.map(({ greenhouse, complex }) => (
+            <GreenhouseOverviewCard key={greenhouse.id} greenhouse={greenhouse} complex={complex} />
+          ))}
+        </div>
+      </section>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="rounded-[20px] border border-white/8 bg-[#0a1c23]/92 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-bold text-white">Complex Network</div>
+              <div className="text-[11px] text-slate-500">ESP32 and greenhouse availability</div>
+            </div>
+            <Building2 className="h-4 w-4 text-violet-300" />
+          </div>
           <div className="space-y-2">
             {complexes.map((complex) => {
               const complexGreenhouses = greenhouseService.byComplex(complex.id);
               const state = complexRealtimeState(complex, complexGreenhouses);
-              return <button key={complex.id} onClick={() => router(`/dashboard?complex=${complex.id}`)} className="flex w-full items-center justify-between rounded-xl border-slate-100 bg-slate-50/60 px-3.5 py-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40">
-                <span><span className="block text-sm font-bold text-slate-800">{complex.code}</span><span className="text-xs text-slate-500">{complexGreenhouses.length} GH · {complex.location}</span></span><LiveStatus state={state} label={`${complex.code} realtime status`} />
-              </button>;
+              return (
+                <button
+                  key={complex.id}
+                  onClick={() => router(`/dashboard?complex=${complex.id}`)}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-3 text-left transition hover:border-emerald-300/15 hover:bg-emerald-400/[0.035]"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-100">{complex.code}</span>
+                    <span className="text-[11px] text-slate-500">{complexGreenhouses.length} GH · {complex.location}</span>
+                  </span>
+                  <LiveStatus state={state} label={`${complex.code} realtime status`} />
+                </button>
+              );
             })}
           </div>
-        </SectionCard>
-        <SectionCard title="Attention Queue" icon={AlertTriangle} iconTone={offline || warnings ? "red" : "green"}>
-          {offline || warnings ? <div className="space-y-2">{allGreenhouses.filter(({ greenhouse }) => !greenhouse.online || greenhouse.health !== "NORMAL").map(({ greenhouse, complex }) => <button key={greenhouse.id} onClick={() => router(`/greenhouse/${greenhouse.id}?complex=${complex.id}`)} className="flex w-full items-center justify-between rounded-xl border-red-100 bg-red-50/50 px-3.5 py-3 text-left"><span><span className="block text-sm font-semibold text-red-800">{greenhouse.code} · {complex.code}</span><span className="text-xs text-red-600">{greenhouse.online ? "Health warning" : "Realtime disconnected"}</span></span><AlertTriangle className="h-4 w-4 text-red-500" /></button>)}</div> : <div className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-5 text-sm font-medium text-emerald-700"><ShieldCheck className="h-5 w-5" /> All Complexes and GH are operating normally.</div>}
-        </SectionCard>
+        </section>
+
+        <section className="rounded-[20px] border border-white/8 bg-[#0a1c23]/92 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-bold text-white">Attention Queue</div>
+              <div className="text-[11px] text-slate-500">Only systems requiring intervention</div>
+            </div>
+            <AlertTriangle className="h-4 w-4 text-rose-300" />
+          </div>
+          {offline || warnings ? (
+            <div className="space-y-2">
+              {allGreenhouses
+                .filter(({ greenhouse }) => !greenhouse.online || greenhouse.health !== "NORMAL")
+                .map(({ greenhouse, complex }) => (
+                  <button
+                    key={greenhouse.id}
+                    onClick={() => router(`/greenhouse/${greenhouse.id}?complex=${complex.id}`)}
+                    className="flex w-full items-center justify-between rounded-xl border border-rose-300/10 bg-rose-400/[0.05] px-3.5 py-3 text-left hover:bg-rose-400/[0.08]"
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-rose-100">{greenhouse.code} · {complex.code}</span>
+                      <span className="text-[11px] text-rose-300/65">{greenhouse.online ? "Health warning" : "Realtime disconnected"}</span>
+                    </span>
+                    <AlertTriangle className="h-4 w-4 text-rose-300" />
+                  </button>
+                ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-300/10 bg-emerald-400/[0.05] px-4 py-5 text-sm font-medium text-emerald-200">
+              <ShieldCheck className="h-5 w-5" /> All complexes and GH are operating normally.
+            </div>
+          )}
+        </section>
       </div>
     </AppShell>
   );
