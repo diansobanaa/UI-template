@@ -1,0 +1,8 @@
+"use client";
+import { History } from "lucide-react";
+import { Modal } from "@/components/ui/overlay";
+import { Button } from "@/components/ui/primitives";
+import type { CropCycle, Greenhouse } from "@/lib/types";
+import { formatIndoDate } from "@/lib/cropCycleProcessor";
+interface Props{gh:Greenhouse;cycle?:CropCycle;historyOpen:boolean;onCloseHistory:()=>void}
+export function CycleHistoryModal({gh,cycle,historyOpen,onCloseHistory}:Props){const summary=cycle?.lastHarvestSummary;return <Modal open={historyOpen} onClose={onCloseHistory} title={<div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><History className="h-5 w-5"/></span><div><div className="text-base font-bold text-slate-900">Panen Terakhir</div><div className="text-xs text-slate-500">{gh.code} • {gh.crop}</div></div></div>} footer={<div className="flex justify-end"><Button variant="ghost" onClick={onCloseHistory}>Tutup</Button></div>}><div className="space-y-3">{summary?<div className="grid grid-cols-2 gap-3">{[['Tanggal Panen',summary.harvestDate?formatIndoDate(summary.harvestDate):'–'],['Hasil',summary.yieldKg?`${summary.yieldKg} kg`: 'Tercatat'],['Grade',summary.grade||'–'],['Tanam',summary.plantingDate?formatIndoDate(summary.plantingDate):'–']].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] text-slate-500">{label}</div><div className="mt-1 text-sm font-bold text-slate-900">{value}</div></div>)}</div>:<div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Belum ada data panen tersimpan untuk siklus ini.</div>}</div></Modal>}
