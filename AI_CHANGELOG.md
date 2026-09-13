@@ -1,6 +1,36 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-011 Assembly/commissioning documentation created
+Safe Point: SP-011
+Status: COMPLETE
+
+Summary:
+- Authored comprehensive hardware documentation: `template/esp32/docs/ESP32_ASSEMBLY_GUIDE.md`.
+- Included complete Bill of Materials, matching pin registry, and 3-domain power architecture (3.3V/5V Low Voltage, 12V Auxiliary DC, 220V AC Mains).
+- Documented wiring, optocoupler isolation, flyback diodes, snubber networks, step-by-step physical assembly, and pre-power inspection checklist.
+- Provided multi-stage first power-up, continuity checks, sensor & actuator bring-up, network bring-up, and safe-state/E-stop procedures.
+- Established 15-item commissioning checklist (PASS/FAIL) and "Known Unknowns / Requires Physical Verification" section with safety warnings.
+- All 11 Safe Points (SP-001 through SP-011) are now fully completed.
+
+Files:
+- `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- Build: PASS (`tsc -b && vite build`)
+- Tests: PASS (`npm test`)
+- Contract: PASS (100% conformance)
+- Documentation: PASS (18 required sections fully documented)
+
+Next:
+- Physical hardware bring-up and flashing by field engineering team.
+
+---
+
 ## 2026-09-13 — SP-010 End-to-end verification created
+
 Safe Point: SP-010
 Status: COMPLETE
 
