@@ -86,7 +86,10 @@ export function createHardwareGateway(overrides: Partial<HardwarePortConfig> = {
       };
       return withFallback(
         () => python.syncClock(complexId, request),
-        () => esp32.syncClock(request),
+        async () => {
+          const clock = await esp32.syncClock(request);
+          return { appliedAt: clock.currentLocal || clock.currentUtc };
+        },
       );
     },
     emergencyStop: (complexId, reason) => withFallback(

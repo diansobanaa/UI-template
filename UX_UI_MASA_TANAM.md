@@ -11,7 +11,7 @@ Pengguna harus dapat memahami kondisi satu greenhouse dalam beberapa detik:
 - berapa HSP
 - apa tindakan yang tersedia sekarang
 
-UI tidak membuat pengguna mengelola angka HST/HSP secara manual. Pengguna mengelola **kejadian/tanggal**, sedangkan sistem menghitung nilainya.
+UI tidak membuat pengguna mengelola angka HST/HSP secara manual. Pengguna mengelola **kejadian/tanggal**. ESP32 menyimpan tanggal lifecycle dan mengembalikan HST/HSP sebagai nilai runtime authoritative; UI hanya boleh menghitung preview sementara sebelum submit.
 
 ---
 
@@ -317,8 +317,8 @@ Bagian ini menjadi daftar kerja implementasi. Urutan pengerjaan mengikuti keterg
 - [ ] ESP32 menyimpan `tanggal_tanam`.
 - [ ] ESP32 menyimpan `tanggal_polinasi` atau kondisi belum ada.
 - [ ] ESP32 mengembalikan state siklus kepada UI.
-- [ ] UI menghitung HST dari `tanggal_tanam`.
-- [ ] UI menghitung HSP dari `tanggal_polinasi`.
+- [ ] UI menggunakan HST yang dikembalikan ESP32 sebagai nilai authoritative; preview lokal hanya untuk sebelum submit.
+- [ ] UI menggunakan HSP yang dikembalikan ESP32 sebagai nilai authoritative; preview lokal hanya untuk sebelum submit.
 - [ ] UI menangani kondisi HSP belum tersedia.
 - [ ] UI tidak menyimpan HST/HSP sebagai input manual.
 
@@ -496,3 +496,27 @@ Urutan kerja yang direkomendasikan:
 - [ ] Semua fitur UI ↔ ESP32 harus dapat diuji tanpa Python.
 
 > **Prinsip implementasi: selesaikan jalur operasional nyata terlebih dahulu — `UI ↔ ESP32`. Setelah stabil dan dicentang selesai, barulah jalur `UI ↔ Python` dikerjakan ketika diperintah.**
+---
+
+## 16. Kontrak UI ↔ ESP32 untuk Masa Tanam
+
+Semua operasi Masa Tanam menggunakan REST API canonical berikut:
+
+| Operasi UI | Method | Endpoint | Hasil authoritative yang wajib dikembalikan |
+|---|---|---|---|
+| Baca siklus aktif | GET | `/api/v1/greenhouses/{ghId}/crop-cycle` | current cycle + HST/HSP |
+| Mulai tanam normal | POST | `/api/v1/greenhouses/{ghId}/crop-cycles` | cycle lengkap |
+| Masukkan siklus berjalan | POST | `/api/v1/greenhouses/{ghId}/crop-cycles/import-active` | cycle lengkap + HST/HSP |
+| Catat polinasi | POST | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination` | cycle lengkap + HSP |
+| Ubah tanggal polinasi | PATCH | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination` | cycle lengkap + HSP |
+| Hapus polinasi | DELETE | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination` | cycle tanpa tanggal polinasi |
+| Ubah tanggal tanam | PATCH | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/planting-date` | cycle lengkap + HST/HSP |
+| Ubah metadata | PATCH | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}` | cycle lengkap |
+| Batalkan siklus | POST | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/cancel` | state setelah cancel |
+| Hari panen | POST | `/api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/harvest` | state setelah panen + histori dipertahankan |
+| Riwayat siklus | GET | `/api/v1/greenhouses/{ghId}/crop-cycles` | daftar histori + cursor |
+
+Aturan utama: UI tidak boleh menebak bentuk response. TypeScript contract, OpenAPI, dan ESP32 DTO harus identik pada nama field, tipe, nullability, dan enum.
+
+Setelah mutation berhasil, UI mengganti state lokal berdasarkan response ESP32. UI tidak menganggap toast sukses sebagai bukti perubahan fisik/state sebelum response authoritative diterima.
+

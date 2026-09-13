@@ -400,7 +400,7 @@ export function CropCycleTimeline({
   const [activeTimelineTooltip, setActiveTimelineTooltip] = useState<{
     kind: "phase" | "projection" | "maintenance" | "real";
     rect: DOMRect;
-    point?: TimelinePoint & { hst: number; isEnd: boolean; note: string };
+    point?: { id: string; name: string; hst: number; isEnd?: boolean; note?: string; startHst?: number; endHst?: number };
     phase?: TimelinePoint;
     dateStr?: string;
     visual?: TimelineVisual;
@@ -959,7 +959,7 @@ export function CropCycleTimeline({
                 {activeTimelineTooltip.kind === "phase" && activeTimelineTooltip.phase && activeTimelineTooltip.visual && (
                   <>
                     <div className={`flex items-center gap-1.5 text-[11px] font-bold mb-1 ${activeTimelineTooltip.visual.color}`}>
-                      <ActiveTimelineTooltipIcon className="w-3.5 h-3.5" />
+                      {ActiveTimelineTooltipIcon && <ActiveTimelineTooltipIcon className="w-3.5 h-3.5" />}
                       {activeTimelineTooltip.phase.name}
                     </div>
                     <div className="text-[10px] text-white/60">
@@ -974,7 +974,7 @@ export function CropCycleTimeline({
                 {activeTimelineTooltip.kind === "projection" && activeTimelineTooltip.point && activeTimelineTooltip.visual && (
                   <>
                     <div className={`flex items-center gap-1.5 text-[11px] font-bold mb-1 ${activeTimelineTooltip.visual.color}`}>
-                      <ActiveTimelineTooltipIcon className="w-3.5 h-3.5" />
+                      {ActiveTimelineTooltipIcon && <ActiveTimelineTooltipIcon className="w-3.5 h-3.5" />}
                       {activeTimelineTooltip.point.name} {!activeTimelineTooltip.isTanam && "(Rencana)"}
                     </div>
                     <div className="text-[11px] font-medium text-white">{activeTimelineTooltip.dateStr}</div>

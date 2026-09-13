@@ -1,0 +1,1032 @@
+openapi: 3.0.3
+info:
+  title: AgroTech ESP32 Local API
+  version: "1.0.0"
+  description: Canonical local REST contract for Single HTML Vite UI ↔ ESP32-S3.
+servers:
+  - url: http://esp32.local
+    description: Example local device hostname
+tags:
+  - name: Device
+  - name: Configuration
+  - name: Clock
+  - name: Commands
+  - name: CropCycle
+  - name: Telemetry
+  - name: Events
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [Device]
+      operationId: getHealth
+      responses:
+        "200":
+          description: Health snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/status:
+    get:
+      tags: [Device]
+      operationId: getStatus
+      responses:
+        "200":
+          description: Full device snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /api/v1/inventory:
+    get:
+      tags: [Device]
+      operationId: getInventory
+      responses:
+        "200":
+          description: Hardware inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryResponse"
+
+  /api/v1/capabilities:
+    get:
+      tags: [Device]
+      operationId: getCapabilities
+      responses:
+        "200":
+          description: Firmware capabilities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilitiesResponse"
+
+  /api/v1/context:
+    get:
+      tags: [Device]
+      operationId: getContext
+      responses:
+        "200":
+          description: Device-bound operational context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextResponse"
+
+  /api/v1/clock:
+    get:
+      tags: [Clock]
+      operationId: getClock
+      responses:
+        "200":
+          description: Current device clock
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockResponse"
+
+  /api/v1/clock-sync:
+    post:
+      tags: [Clock]
+      operationId: syncClock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClockSyncRequest"
+      responses:
+        "200":
+          description: Clock synchronized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/configuration:
+    get:
+      tags: [Configuration]
+      operationId: getConfiguration
+      responses:
+        "200":
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+    put:
+      tags: [Configuration]
+      operationId: applyConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyConfigurationRequest"
+      responses:
+        "200":
+          description: Configuration applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/configuration/validate:
+    post:
+      tags: [Configuration]
+      operationId: validateConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateConfigurationRequest"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/commands:
+    post:
+      tags: [Commands]
+      operationId: createCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandRequest"
+      responses:
+        "202":
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/commands/{commandId}:
+    get:
+      tags: [Commands]
+      operationId: getCommand
+      parameters:
+        - $ref: "#/components/parameters/CommandId"
+      responses:
+        "200":
+          description: Command status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/commands/emergency-stop:
+    post:
+      tags: [Commands]
+      operationId: emergencyStop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmergencyStopRequest"
+      responses:
+        "202":
+          description: Emergency stop accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+
+  /api/v1/greenhouses/{ghId}/crop-cycle:
+    get:
+      tags: [CropCycle]
+      operationId: getCurrentCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      responses:
+        "200":
+          description: Current crop cycle projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles:
+    get:
+      tags: [CropCycle]
+      operationId: listCropCycles
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Crop-cycle history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CropCycleHistoryResponse"
+    post:
+      tags: [CropCycle]
+      operationId: startCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartCropCycleRequest"
+      responses:
+        "201":
+          description: Cycle created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/import-active:
+    post:
+      tags: [CropCycle]
+      operationId: importActiveCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportActiveCropCycleRequest"
+      responses:
+        "201":
+          description: Active cycle imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination:
+    post:
+      tags: [CropCycle]
+      operationId: recordPollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PollinationRequest"
+      responses:
+        "200":
+          description: Pollination recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    patch:
+      tags: [CropCycle]
+      operationId: updatePollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePollinationRequest"
+      responses:
+        "200":
+          description: Pollination updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [CropCycle]
+      operationId: deletePollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+        - $ref: "#/components/parameters/RequestIdQuery"
+      responses:
+        "200":
+          description: Pollination removed; history preserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/planting-date:
+    patch:
+      tags: [CropCycle]
+      operationId: updatePlantingDate
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlantingDateRequest"
+      responses:
+        "200":
+          description: Planting date updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}:
+    patch:
+      tags: [CropCycle]
+      operationId: updateCropCycleMetadata
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCropCycleMetadataRequest"
+      responses:
+        "200":
+          description: Cycle metadata updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/cancel:
+    post:
+      tags: [CropCycle]
+      operationId: cancelCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationRequest"
+      responses:
+        "200":
+          description: Cycle cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/harvest:
+    post:
+      tags: [CropCycle]
+      operationId: harvestCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HarvestCycleRequest"
+      responses:
+        "200":
+          description: Harvest recorded and active cycle closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/telemetry:
+    get:
+      tags: [Telemetry]
+      operationId: getTelemetry
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: afterSequence
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Telemetry samples
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryResponse"
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      operationId: getEvents
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: afterSequence
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+
+components:
+  parameters:
+    GhId:
+      name: ghId
+      in: path
+      required: true
+      schema: { type: string }
+    CycleId:
+      name: cycleId
+      in: path
+      required: true
+      schema: { type: string }
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string }
+    RequestIdQuery:
+      name: requestId
+      in: query
+      required: false
+      schema: { type: string }
+
+  responses:
+    ValidationError:
+      description: Semantic validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ConflictError:
+      description: State/version conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    EnvelopeBase:
+      type: object
+      required: [requestId, success, deviceTimestamp]
+      properties:
+        requestId: { type: string }
+        success: { type: boolean }
+        deviceTimestamp: { type: string, format: date-time }
+
+    HealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [apiVersion, schemaVersion, deviceId, complexId, firmwareVersion, bootId, uptimeSec, configurationVersion, inventoryVersion, runtimeState, health]
+              properties:
+                apiVersion: { type: string }
+                schemaVersion: { type: integer }
+                deviceId: { type: string }
+                complexId: { type: string }
+                firmwareVersion: { type: string }
+                bootId: { type: string }
+                uptimeSec: { type: integer, minimum: 0 }
+                currentTime: { type: string, format: date-time }
+                timezone: { type: string }
+                configurationVersion: { type: integer, minimum: 0 }
+                inventoryVersion: { type: integer, minimum: 0 }
+                runtimeState: { type: string }
+                health: { type: string }
+
+    StatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [device, network, clock, configuration, inventory, runtime, actuators, sensors, storage, safety]
+              properties:
+                device: { type: object, additionalProperties: true }
+                network: { type: object, additionalProperties: true }
+                clock: { type: object, additionalProperties: true }
+                configuration: { type: object, additionalProperties: true }
+                inventory: { type: object, additionalProperties: true }
+                runtime: { type: object, additionalProperties: true }
+                actuators: { type: object, additionalProperties: true }
+                sensors: { type: object, additionalProperties: true }
+                storage: { type: object, additionalProperties: true }
+                safety: { type: object, additionalProperties: true }
+                cropCycle:
+                  nullable: true
+                  $ref: "#/components/schemas/CropCycle"
+                queue: { type: object, additionalProperties: true }
+                sync: { type: object, additionalProperties: true }
+
+    InventoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceId, complexId, inventoryVersion, components]
+              properties:
+                deviceId: { type: string }
+                complexId: { type: string }
+                inventoryVersion: { type: integer }
+                components:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Component"
+
+    CapabilitiesResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceId, capabilitiesVersion, capabilities]
+              properties:
+                deviceId: { type: string }
+                capabilitiesVersion: { type: integer }
+                capabilities:
+                  type: object
+                  additionalProperties: { type: boolean }
+
+    ContextResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                complex:
+                  type: object
+                  additionalProperties: true
+                greenhouses:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+
+    ClockResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceTimestamp, timezone]
+              properties:
+                deviceTimestamp: { type: string, format: date-time }
+                timezone: { type: string }
+                synchronizedAt: { type: string, format: date-time, nullable: true }
+                rtcAvailable: { type: boolean }
+
+    ClockSyncRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        payload:
+          type: object
+          required: [timestamp, timezone]
+          properties:
+            timestamp: { type: string, format: date-time }
+            timezone: { type: string }
+
+    ClientInfo:
+      type: object
+      required: [type, version]
+      properties:
+        type: { type: string }
+        version: { type: string }
+
+    ConfigurationResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [configurationVersion, configurationHash, inventoryVersion, schemaVersion, payload]
+              properties:
+                configurationVersion: { type: integer }
+                configurationHash: { type: string }
+                inventoryVersion: { type: integer }
+                schemaVersion: { type: integer }
+                updatedAt: { type: string, format: date-time }
+                payload: { type: object, additionalProperties: true }
+
+    ValidateConfigurationRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [expectedVersion, configuration]
+          properties:
+            expectedVersion: { type: integer }
+            configuration: { type: object, additionalProperties: true }
+
+    ApplyConfigurationRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [expectedVersion, configuration]
+          properties:
+            expectedVersion: { type: integer }
+            configuration: { type: object, additionalProperties: true }
+
+    ValidationResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [valid, issues]
+              properties:
+                valid: { type: boolean }
+                issues:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+
+    CommandRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [commandId, type]
+          properties:
+            commandId: { type: string }
+            type: { type: string }
+            componentId: { type: string, nullable: true }
+            parameters: { type: object, additionalProperties: true }
+
+    CommandResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [commandId, status]
+              properties:
+                commandId: { type: string }
+                status:
+                  type: string
+                  enum: [CREATED, ACCEPTED, QUEUED, RUNNING, COMPLETED, FAILED, REJECTED, CANCELLED]
+                componentId: { type: string, nullable: true }
+                stateReason: { type: string, nullable: true }
+                actualState: { type: string, nullable: true }
+                createdAt: { type: string, format: date-time }
+                startedAt: { type: string, format: date-time, nullable: true }
+                completedAt: { type: string, format: date-time, nullable: true }
+
+    EmergencyStopRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [commandId]
+          properties:
+            commandId: { type: string }
+            reason: { type: string, nullable: true }
+
+    CropCycle:
+      type: object
+      required: [cycleId, ghId, status, tanggalTanam, hst, version]
+      properties:
+        cycleId: { type: string }
+        ghId: { type: string }
+        status: { type: string }
+        tanggalTanam: { type: string, format: date }
+        tanggalPolinasi: { type: string, format: date, nullable: true }
+        variety: { type: string, nullable: true }
+        plantCount: { type: integer, minimum: 0, nullable: true }
+        notes: { type: string, nullable: true }
+        hst: { type: integer, minimum: 0 }
+        hsp: { type: integer, minimum: 0, nullable: true }
+        lastUpdatedAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 0 }
+
+    CurrentCropCycleResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [ghId, cycle]
+              properties:
+                ghId: { type: string }
+                cycle:
+                  nullable: true
+                  $ref: "#/components/schemas/CropCycle"
+
+    CropCycleHistoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, hasMore]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CropCycle"
+                nextCursor: { type: string, nullable: true }
+                hasMore: { type: boolean }
+
+    BaseCropCycleRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload: { type: object, additionalProperties: true }
+
+    StartCropCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                notes: { type: string, nullable: true }
+
+    ImportActiveCropCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                tanggalPolinasi: { type: string, format: date, nullable: true }
+                notes: { type: string, nullable: true }
+
+    PollinationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalPolinasi]
+              properties:
+                tanggalPolinasi: { type: string, format: date }
+                pollinationMethod:
+                  type: string
+                  enum: [natural, bee, manual]
+                  nullable: true
+                notes: { type: string, nullable: true }
+
+    UpdatePollinationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalPolinasi, expectedVersion]
+              properties:
+                tanggalPolinasi: { type: string, format: date }
+                pollinationMethod:
+                  type: string
+                  enum: [natural, bee, manual]
+                  nullable: true
+                expectedVersion: { type: integer }
+
+    UpdatePlantingDateRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam, expectedVersion]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                expectedVersion: { type: integer }
+
+    UpdateCropCycleMetadataRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                notes: { type: string, nullable: true }
+                expectedVersion: { type: integer }
+
+    OperationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer }
+
+    HarvestCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                harvestDate: { type: string, format: date, nullable: true }
+                yieldKg: { type: number, minimum: 0, nullable: true }
+                grade: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                expectedVersion: { type: integer }
+
+    Component:
+      type: object
+      required: [componentId, scope, type, role, enabled, capabilities]
+      properties:
+        componentId: { type: string }
+        scope: { type: string, enum: [COMPLEX, GREENHOUSE] }
+        ghId: { type: string, nullable: true }
+        type: { type: string }
+        role: { type: string }
+        enabled: { type: boolean }
+        capabilities:
+          type: array
+          items: { type: string }
+
+    TelemetryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                samples:
+                  type: array
+                  items:
+                    type: object
+                    required: [sequence, deviceTimestamp, componentId, value, unit, quality, measurementType]
+                    properties:
+                      sequence: { type: integer }
+                      deviceTimestamp: { type: string, format: date-time }
+                      componentId: { type: string }
+                      value: { type: number }
+                      unit: { type: string }
+                      quality: { type: string }
+                      measurementType: { type: string, enum: [MEASURED, DERIVED, UNAVAILABLE, INVALID] }
+
+    EventResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required: [eventId, sequence, deviceTimestamp, eventType, severity]
+                    properties:
+                      eventId: { type: string }
+                      sequence: { type: integer }
+                      deviceTimestamp: { type: string, format: date-time }
+                      eventType: { type: string }
+                      severity: { type: string }
+                      componentId: { type: string, nullable: true }
+                      payload: { type: object, additionalProperties: true }
+                nextSequence: { type: integer, nullable: true }
+                hasMore: { type: boolean }
+
+    ErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [error]
+          properties:
+            error:
+              type: object
+              required: [code, message, retryable, reconcileRequired]
+              properties:
+                code: { type: string }
+                message: { type: string }
+                retryable: { type: boolean }
+                reconcileRequired: { type: boolean }
+                details: { type: object, additionalProperties: true }

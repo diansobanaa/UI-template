@@ -1,1582 +1,1367 @@
-# UI ↔ ESP32 COMMUNICATION SPEC
+# UI ↔ ESP32 COMMUNICATION SPECIFICATION
+## Canonical Contract — MVP Local WLAN, Direct Browser ↔ ESP32
 
-**Status:** Draft implementation-ready untuk MVP WLAN lokal  
-**Scope:** komunikasi langsung Web UI/Vite ↔ ESP32 controller  
-**Out of scope:** database Python secara penuh, autentikasi, internet/cloud, dan domain kontrol fertigasi secara rinci.
-
----
-
-## 1. Tujuan
-
-Dokumen ini mendefinisikan kontrak komunikasi antara **UI/Browser** dan **ESP32 controller** yang menjadi pengendali satu Complex.
-
-Tujuan utama:
-
-- UI dapat menemukan dan terhubung ke ESP32 melalui WLAN lokal.
-- UI dapat membaca kondisi aktual ESP32.
-- UI dapat mengirim configuration dan command yang memang diperlukan ESP32.
-- ESP32 tetap beroperasi tanpa UI maupun internet.
-- UI tidak pernah menjadikan localStorage/mock state sebagai physical truth.
-- Status aktual berasal dari ESP32.
-- Request dapat direkonsiliasi jika response HTTP hilang.
-- Configuration memiliki versioning dan atomic apply.
-- Telemetry/event dapat dibaca UI dan diteruskan ke Python pada lapisan berikutnya.
-- Protokol dapat menangani banyak Complex dan banyak ESP32 pada satu WLAN.
+**Status:** Canonical implementation contract for MVP  
+**Scope:** Single HTML Vite Web App ↔ ESP32-S3 local controller  
+**Transport:** HTTP/JSON over local WLAN/LAN  
+**Security MVP:** no authentication; trusted local network  
+**Internet:** not required  
+**Python:** future persistence/data layer; not a prerequisite for the UI↔ESP32 operational path
 
 ---
 
-# 2. Arsitektur Komunikasi MVP
+# 1. Purpose
 
-## 2.1 Network
+This document is the **canonical communication contract between the existing UI and ESP32**.
 
-MVP menggunakan **WLAN lokal**.
+The goal is not merely to define generic REST endpoints. Every UI action that is supposed to communicate with ESP32 must have:
 
-```text
-                    LOCAL WLAN
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-      PC / HP                      ESP32
-          │                           │
-     Web Browser                HTTP REST API
-          │                           │
-      Vite Web App                 Runtime
-```
+- exact endpoint;
+- HTTP method;
+- path parameters;
+- request payload;
+- response payload;
+- error contract;
+- state transition;
+- source of truth;
+- retry/idempotency behavior.
 
-Internet **tidak diperlukan**.
+The UI must not invent a second data model that differs from ESP32.
 
-Cloud, remote access, VPN, dan gateway internet bukan bagian dari MVP.
+The ESP32 must not return a generic payload that requires the UI to guess field meaning.
 
-## 2.2 Transport
+The contract must be machine-checkable and represented in the companion OpenAPI file:
 
-Transport utama:
-
-```text
-HTTP REST over local WLAN
-```
-
-MVP tidak menggunakan MQTT sebagai protokol wajib UI ↔ ESP32.
-
-Streaming/WebSocket dapat ditambahkan kemudian jika polling tidak cukup, tetapi tidak boleh menjadi prasyarat arsitektur dasar.
+`UI_ESP32_OPENAPI.yaml`
 
 ---
 
-# 3. Device Discovery
-
-## 3.1 Prinsip
-
-UI **tidak perlu mengetahui IP ESP32 secara hardcode**.
-
-ESP32 diberi identity tetap dan hostname lokal.
-
-Contoh:
+# 2. Architecture Boundary
 
 ```text
-Device ID : esp32-complex-001
-Hostname  : esp32-complex-001.local
+PC / HP
+└── Single HTML Vite App
+        │
+        │ HTTP REST / JSON
+        │
+        ▼
+Local WLAN / LAN
+        │
+        ▼
+ESP32-S3
+└── Runtime + Hardware + Local State + Local Logs
 ```
 
-UI mencari controller melalui local-network discovery/hostname resolution.
+ESP32 is the physical/runtime authority.
 
-## 3.2 mDNS
+The UI is:
+- presentation;
+- user interaction;
+- request initiator;
+- response/state renderer;
+- cache/orchestration layer.
 
-MVP menggunakan mDNS untuk local discovery.
+The UI is not:
+- physical actuator authority;
+- device scheduler;
+- permanent historical database;
+- replacement for ESP32 runtime.
 
-ESP32 mengiklankan hostname:
+This preserves the project rule that HTTP success means request handling/acceptance, not physical completion. Physical completion comes from ESP32 state, command status, telemetry, or event. fileciteturn11file3L545-L550
+
+---
+
+# 3. Current Scope vs Future Python
+
+## 3.1 Direct UI ↔ ESP32 MVP
+
+The direct ESP32 contract covers:
+
+- device discovery/connection;
+- health;
+- status;
+- inventory;
+- capabilities;
+- clock;
+- runtime/device commands;
+- emergency stop/resume;
+- crop-cycle / Masa Tanam runtime state;
+- crop-cycle history/event retrieval;
+- telemetry;
+- event/log retrieval;
+- configuration snapshot/version;
+- device-side configuration operations that are explicitly approved for MVP.
+
+## 3.2 Python-owned domains
+
+The following remain Python-owned and are NOT silently moved to ESP32:
+
+- permanent Complex database;
+- permanent Greenhouse master database;
+- permanent research history;
+- Plant/Fruit/Observation/Harvest permanent database;
+- analytics;
+- long-term archive;
+- cross-Complex analysis.
+
+The UI may later use Python APIs for these without changing visual UX.
+
+---
+
+# 4. One Canonical API Client
+
+No page/component may call `fetch()` directly.
+
+Required architecture:
+
+```text
+UI component
+   ↓
+domain service / application hook
+   ↓
+ESP32 API client
+   ↓
+central HTTP transport
+   ↓
+ESP32
+```
+
+This follows the existing frontend architecture rule that components should not contain raw fetch logic. fileciteturn11file4L612-L630
+
+The UI must have exactly one transport implementation for ESP32 requests.
+
+Recommended logical modules:
+
+```text
+src/lib/api/
+  esp32-client.ts
+  esp32-contracts.ts
+  transport.ts
+  connection-manager.ts
+```
+
+---
+
+# 5. Static Vite Deployment Requirement
+
+Because the target is a Vite build opened on PC/HP without an application server, the UI build must explicitly support the chosen deployment mode.
+
+## Preferred
+
+Generate a browser-loadable static bundle that does not require Python.
+
+For true direct `file://` opening, use a single-file/bundled deployment mode or provide a documented local static-server fallback.
+
+The communication contract must not assume `localhost:8000`.
+
+The UI must treat ESP32 URL as runtime configuration.
+
+Minimum runtime configuration:
+
+```json
+{
+  "esp32": {
+    "hostname": "esp32-complex-001.local",
+    "lastKnownIp": "192.168.1.50",
+    "port": 80
+  }
+}
+```
+
+Do not duplicate the ESP32 address across components.
+
+---
+
+# 6. Browser → ESP32 Network Contract
+
+MVP:
+
+```text
+Internet = not required
+Authentication = none
+HTTPS = none
+HTTP = required
+CORS = required
+```
+
+ESP32 must handle browser CORS including:
+
+```text
+Origin: null
+```
+
+for direct local-file usage when the browser sends it.
+
+Allow required methods:
+
+```text
+GET
+POST
+PUT
+PATCH
+DELETE
+OPTIONS
+```
+
+Only methods actually used by the contract need to be enabled.
+
+---
+
+# 7. Device Discovery
+
+## 7.1 Primary
+
+Use stable mDNS hostname:
+
+```text
+esp32-<device-id>.local
+```
+
+Example:
 
 ```text
 esp32-complex-001.local
 ```
 
-dan dapat mengiklankan service aplikasi, misalnya:
+## 7.2 Browser limitation
+
+The browser must not depend on raw mDNS service enumeration being universally available.
+
+Therefore the UI connection manager uses:
 
 ```text
-_agrotech._tcp
+1. configured hostname
+2. last-known IP
+3. manual endpoint fallback
 ```
 
-Service dapat membawa metadata minimal:
-
-```text
-deviceId=esp32-complex-001
-complexId=complex-001
-deviceType=greenhouse-controller
-apiVersion=1
-```
-
-## 3.3 Browser limitation
-
-Browser tidak dianggap memiliki kemampuan raw mDNS service browsing yang seragam pada semua platform.
-
-Karena itu kontrak UI menggunakan dua tingkat discovery:
-
-```text
-PRIMARY
-mDNS hostname / local hostname resolution
-
-FALLBACK
-last-known IP address yang sebelumnya berhasil digunakan
-```
-
-UI tidak boleh menganggap fallback IP sebagai identity.
-
-## 3.4 Device verification setelah discovery
-
-Setelah host ditemukan, UI wajib memanggil:
-
-```http
-GET /api/v1/health
-```
-
-UI mencocokkan minimal:
+After connecting, verify:
 
 ```text
 deviceId
 complexId
 apiVersion
+schemaVersion
 ```
 
-Jika identity tidak sesuai dengan controller yang sedang dicari, device tidak boleh dianggap connected.
+The discovered address is transport information; `deviceId` is identity.
 
 ---
 
-# 4. IP Address dan Hostname
+# 8. Device Connection State
 
-## 4.1 IP bukan identity
-
-IP dapat berubah akibat DHCP.
-
-Contoh:
+The UI must distinguish:
 
 ```text
-Hari 1 → 192.168.1.50
-Hari 2 → 192.168.1.64
+DISCONNECTED
+DISCOVERING
+CONNECTING
+ONLINE
+STALE
+SYNCING
+ERROR
 ```
 
-Identity tetap:
+`ONLINE` means a current successful health/status exchange.
 
-```text
-esp32-complex-001
-```
+`STALE` means the last known device data exists but cannot currently be refreshed.
 
-## 4.2 Konfigurasi ESP32
+Never display cached state as current truth.
 
-ESP32 boleh menggunakan DHCP pada WLAN selama hostname mDNS stabil.
-
-Hardcode yang diprioritaskan pada firmware:
-
-```cpp
-DEVICE_ID
-COMPLEX_ID
-MDNS_HOSTNAME
-```
-
-Bukan IP address.
-
-Static IP tetap diperbolehkan sebagai opsi deployment, tetapi tidak menjadi dependency protocol UI.
-
-## 4.3 Cache UI
-
-UI dapat menyimpan:
-
-```json
-{
-  "deviceId": "esp32-complex-001",
-  "complexId": "complex-001",
-  "hostname": "esp32-complex-001.local",
-  "lastKnownIp": "192.168.1.50",
-  "port": 80,
-  "lastSeenAt": "2026-09-13T02:00:00+07:00"
-}
-```
-
-Cache adalah optimization, bukan authority.
+This follows the project rule that a stale value must never be presented as current truth. fileciteturn11file0L217-L223
 
 ---
 
-# 5. Security Boundary MVP
+# 9. Request/Response Envelope
 
-Untuk MVP:
+## 9.1 Request
 
-```text
-Authentication : NONE
-Authorization  : NONE
-HTTPS          : NONE
-Internet       : NONE
-Trust boundary : local WLAN
-```
-
-Ini adalah keputusan eksplisit MVP, bukan omission.
-
-Konsekuensinya: siapa pun yang memiliki akses ke WLAN lokal secara teknis dapat mencoba mengakses API ESP32.
-
-Authentication, authorization, TLS, pairing, dan signed request dapat menjadi fase berikutnya tanpa mengubah identity model.
-
----
-
-# 6. Device Identity
-
-## 6.1 Required identity
+For mutating requests:
 
 ```json
 {
-  "deviceId": "esp32-complex-001",
-  "complexId": "complex-001"
-}
-```
-
-Aturan:
-
-- satu ESP32 mengontrol satu Complex;
-- `deviceId` immutable;
-- `complexId` adalah binding domain device;
-- IP/hostname bukan pengganti `deviceId`;
-- UI tidak membuat device ID baru ketika reconnect.
-
-## 6.2 API version dan schema version
-
-Setiap response device sebaiknya membawa:
-
-```json
-{
-  "apiVersion": "1",
-  "schemaVersion": "1"
-}
-```
-
-Ini memungkinkan UI mengetahui kompatibilitas sebelum memproses response.
-
----
-
-# 7. Health Endpoint
-
-## Request
-
-```http
-GET /api/v1/health
-```
-
-## Response minimum
-
-```json
-{
-  "apiVersion": "1",
-  "schemaVersion": "1",
-  "deviceId": "esp32-complex-001",
-  "complexId": "complex-001",
-  "firmwareVersion": "1.0.0",
-  "uptimeSec": 123456,
-  "bootId": "boot-20260913-001",
-  "currentTime": "2026-09-13T02:10:00+07:00",
-  "timezone": "Asia/Jakarta",
-  "configurationVersion": 17,
-  "inventoryVersion": 3,
-  "runtimeState": "IDLE",
-  "emergencyStop": false,
-  "health": "OK"
-}
-```
-
-Health dipakai untuk menentukan apakah device benar-benar reachable dan valid.
-
-HTTP `200` tidak berarti seluruh subsystem sehat. Field `health` dan status runtime harus tetap diperiksa.
-
----
-
-# 8. Full Device Status Snapshot
-
-UI membutuhkan satu snapshot authoritative untuk membuka/reconnect halaman tanpa melakukan banyak request terpisah.
-
-## Request
-
-```http
-GET /api/v1/status
-```
-
-## Response domain
-
-```json
-{
-  "device": {},
-  "health": {},
-  "configuration": {},
-  "runtime": {},
-  "actuators": {},
-  "sensors": {},
-  "queue": {},
-  "safety": {},
-  "sync": {}
-}
-```
-
-Snapshot harus merepresentasikan kondisi device pada satu pengambilan yang koheren sejauh kemampuan firmware.
-
-Snapshot tidak menggantikan endpoint khusus untuk detail/pagination.
-
----
-
-# 9. Inventory
-
-## Request
-
-```http
-GET /api/v1/inventory
-```
-
-Inventory menggambarkan hardware fisik yang diketahui ESP32.
-
-Inventory bukan schedule dan bukan business database.
-
-Contoh:
-
-```json
-{
-  "deviceId": "esp32-complex-001",
-  "complexId": "complex-001",
-  "inventoryVersion": 3,
-  "firmwareVersion": "1.0.0",
-  "inventory": {
-    "complex": {
-      "components": {
-        "wellPump": {},
-        "rawWaterFlowMeter": {},
-        "dosing": {
-          "A": { "pump": {}, "valve": {} },
-          "B": { "pump": {}, "valve": {} },
-          "N": { "pump": {}, "valve": {} }
-        }
-      }
-    },
-    "greenhouses": {
-      "gh-001": {
-        "components": {
-          "mixingTank": {},
-          "fertigationPump": {},
-          "valve": {},
-          "lowerLevelSensor": {}
-        }
-      }
-    }
-  }
-}
-```
-
-UI boleh cache inventory.
-
-ESP32 tetap physical authority.
-
----
-
-# 10. Capability Discovery
-
-Inventory menjawab **hardware apa yang ada**.
-
-Capability menjawab **kemampuan firmware apa yang tersedia**.
-
-## Request
-
-```http
-GET /api/v1/capabilities
-```
-
-Contoh:
-
-```json
-{
-  "deviceId": "esp32-complex-001",
-  "capabilitiesVersion": 1,
-  "capabilities": {
-    "configurationRead": true,
-    "configurationValidate": true,
-    "configurationApply": true,
-    "telemetryRead": true,
-    "eventRead": true,
-    "commandStatus": true,
-    "clockSync": true,
-    "emergencyStop": true
-  }
-}
-```
-
-UI tidak boleh menampilkan control yang mensyaratkan capability yang tidak tersedia.
-
----
-
-# 11. Request / Response Envelope
-
-Semua endpoint sebisa mungkin menggunakan envelope konsisten.
-
-## Request
-
-```json
-{
-  "requestId": "req-01J...",
-  "apiVersion": "1",
+  "requestId": "req-uuid",
   "client": {
     "type": "web-ui",
-    "version": "1.0.0"
+    "version": "ui-version"
   },
   "payload": {}
 }
 ```
 
-Untuk GET sederhana, query/header dapat membawa request ID bila body tidak digunakan.
-
-## Response
+## 9.2 Response
 
 ```json
 {
-  "requestId": "req-01J...",
-  "apiVersion": "1",
+  "requestId": "req-uuid",
   "success": true,
-  "deviceId": "esp32-complex-001",
-  "serverTime": "2026-09-13T02:10:00+07:00",
-  "payload": {},
-  "error": null
+  "data": {},
+  "error": null,
+  "deviceTimestamp": "2026-09-13T03:30:00+07:00"
 }
 ```
 
----
+For command-style operations:
 
-# 12. Request ID, Command ID, Event ID, Sequence
-
-Identifier memiliki fungsi berbeda.
-
-```text
-requestId   = satu request HTTP
-commandId   = satu operasi fisik/operasional
-operationId = satu intent yang harus dapat di-retry secara aman
- eventId    = satu event
-sequence    = urutan monotonik data device
+```json
+{
+  "requestId": "req-uuid",
+  "success": true,
+  "data": {
+    "commandId": "cmd-uuid",
+    "status": "ACCEPTED"
+  },
+  "error": null,
+  "deviceTimestamp": "..."
+}
 ```
 
-Untuk MVP `operationId` dapat disamakan dengan `commandId` pada command fisik jika tidak diperlukan pemisahan lebih jauh.
+The UI must use `requestId` for transport correlation and `commandId` for physical operation correlation.
 
 ---
 
-# 13. Command Lifecycle
+# 10. Error Envelope
 
-UI tidak boleh menganggap command selesai hanya karena HTTP sukses.
-
-Lifecycle minimum:
-
-```text
-CREATED
-   ↓
-ACCEPTED / REJECTED
-   ↓
-QUEUED (jika asynchronous)
-   ↓
-RUNNING
-   ↓
-COMPLETED / FAILED / CANCELLED
+```json
+{
+  "requestId": "req-uuid",
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "CYCLE_ALREADY_ACTIVE",
+    "message": "Greenhouse already has an active crop cycle.",
+    "retryable": false,
+    "reconcileRequired": false,
+    "details": {}
+  },
+  "deviceTimestamp": "..."
+}
 ```
 
-Command receipt harus dapat dibaca ulang menggunakan `commandId`.
+The UI retains the technical error code but displays a readable Indonesian message.
 
-## Request
+---
+
+# 11. HTTP Status Semantics
+
+| HTTP | Meaning |
+|---|---|
+| 200 | successful read/update with complete response |
+| 201 | resource/event created |
+| 202 | accepted for asynchronous command |
+| 204 | successful deletion when no body is required |
+| 400 | malformed request |
+| 404 | unknown device/resource |
+| 409 | version/state conflict |
+| 422 | semantic validation failure |
+| 429 | resource busy / rate limit |
+| 500 | firmware internal error |
+| 503 | temporarily unavailable/degraded |
+
+---
+
+# 12. Health
 
 ```http
-GET /api/v1/commands/{commandId}
+GET /api/v1/health
 ```
 
-## Contoh response
+UI expects:
 
 ```json
 {
-  "commandId": "cmd-001",
-  "status": "RUNNING",
-  "createdAt": "...",
-  "acceptedAt": "...",
-  "startedAt": "...",
-  "completedAt": null,
-  "result": null,
-  "error": null
+  "apiVersion": "1",
+  "schemaVersion": 1,
+  "deviceId": "esp32-complex-001",
+  "complexId": "complex-001",
+  "firmwareVersion": "0.1.0",
+  "bootId": "boot-...",
+  "uptimeSec": 1234,
+  "deviceTimestamp": "...",
+  "timezone": "Asia/Jakarta",
+  "configurationVersion": 1,
+  "inventoryVersion": 1,
+  "runtimeState": "IDLE",
+  "health": "OK"
 }
 ```
 
 ---
 
-# 14. Idempotency
+# 13. Full Status
 
-Semua command yang dapat menyebabkan perubahan fisik harus aman terhadap retry.
-
-Contoh:
-
-```text
-UI mengirim command
-ESP32 menjalankan command
-response HTTP hilang
-UI retry
+```http
+GET /api/v1/status
 ```
 
-ESP32 harus mengenali `commandId`/`operationId` yang sama dan tidak menjalankan operasi fisik dua kali secara tidak sengaja.
+The response must be a coherent device snapshot containing:
 
-Retry request dengan ID yang sama harus mengembalikan status command yang sudah ada.
+```text
+device
+network
+clock
+configuration
+inventory
+runtime
+actuators
+sensors
+storage
+safety
+cropCycle
+queue
+sync
+```
+
+The UI uses this endpoint to refresh its authoritative operational context.
 
 ---
 
-# 15. Desired State vs Actual State
+# 14. Inventory
 
-UI dapat mengirim desired state.
+```http
+GET /api/v1/inventory
+```
 
-ESP32 mengembalikan actual state.
+The UI uses inventory for:
+- detected hardware;
+- equipment page;
+- component selection;
+- hardware sync;
+- validation of available actions.
 
-Contoh:
+Inventory must contain stable component IDs.
+
+Example:
 
 ```json
 {
-  "componentId": "well-pump-01",
+  "deviceId": "esp32-complex-001",
+  "complexId": "complex-001",
+  "inventoryVersion": 1,
+  "components": [
+    {
+      "componentId": "well-pump",
+      "scope": "COMPLEX",
+      "type": "ACTUATOR",
+      "role": "WELL_PUMP",
+      "enabled": true,
+      "capabilities": ["START", "STOP"]
+    }
+  ]
+}
+```
+
+Do not expose raw GPIO as the UI's control contract.
+
+---
+
+# 15. Capabilities
+
+```http
+GET /api/v1/capabilities
+```
+
+Capabilities tell the UI what the firmware can actually do.
+
+The UI must hide/disable actions that are not supported.
+
+---
+
+# 16. Clock
+
+```http
+GET  /api/v1/clock
+POST /api/v1/clock-sync
+```
+
+The UI may send an authoritative timestamp/timezone during synchronization.
+
+The ESP32 owns runtime time after synchronization.
+
+---
+
+# 17. Actual vs Desired Physical State
+
+Where applicable:
+
+```json
+{
   "desiredState": "ON",
   "actualState": "OFF",
-  "stateReason": "SAFETY_INTERLOCK",
-  "source": "ESP32"
+  "stateReason": "SAFETY_INTERLOCK"
 }
 ```
 
-Ini memungkinkan UI menjelaskan kondisi seperti:
+The UI renders actual state as truth.
 
-```text
-User meminta ON
-ESP32 tetap OFF
-Reason = safety interlock
-```
-
-UI tidak boleh mengganti `actualState` secara lokal hanya karena tombol diklik.
+A successful request must not overwrite actual-state UI optimistically unless the response itself contains the new actual state.
 
 ---
 
-# 16. Configuration
-
-## 16.1 Scope
-
-Configuration adalah **desired runtime configuration** yang dibutuhkan ESP32.
-
-UI tidak mengirim seluruh database/object UI.
-
-Configuration projection harus typed dan device-safe.
-
-## 16.2 Configuration version
-
-Setiap applied configuration memiliki version monotonik.
-
-```json
-{
-  "configurationVersion": 17,
-  "expectedConfigurationVersion": 16
-}
-```
-
-Jika `expectedConfigurationVersion` tidak cocok dengan current device version, ESP32 menolak apply dengan conflict, bukan menimpa secara diam-diam.
-
-## 16.3 Configuration hash
-
-Configuration yang diterapkan juga memiliki hash:
-
-```json
-{
-  "configurationVersion": 17,
-  "configurationHash": "sha256:..."
-}
-```
-
-Hash membantu membuktikan bahwa dua pihak merujuk pada snapshot yang identik.
-
-## 16.4 Atomic apply
-
-Configuration update harus:
-
-```text
-RECEIVE
- ↓
-VALIDATE
- ↓
-BUILD NEW SNAPSHOT
- ↓
-ATOMIC APPLY
-```
-
-Jika validation gagal:
-
-```text
-Last Valid Configuration tetap aktif
-```
-
-Tidak boleh terjadi half-applied configuration.
-
----
-
-# 17. Configuration API
-
-## Read
+# 18. Generic Command API
 
 ```http
-GET /api/v1/configuration
+POST /api/v1/commands
+GET  /api/v1/commands/{commandId}
 ```
 
-## Validate
-
-```http
-POST /api/v1/configuration/validate
-```
-
-## Apply
-
-```http
-PUT /api/v1/configuration
-```
-
-Contoh response apply:
+Generic commands use semantic operations, for example:
 
 ```json
 {
-  "configurationVersion": 18,
-  "configurationHash": "sha256:...",
-  "status": "APPLIED",
-  "appliedAt": "..."
-}
-```
-
-Status konfigurasi minimal:
-
-```text
-VALID
-INVALID
-APPLYING
-APPLIED
-REJECTED
-CONFLICT
-```
-
----
-
-# 18. Queue dan Configuration Replacement
-
-Configuration replacement **tidak otomatis berarti seluruh runtime dihentikan**.
-
-Untuk setiap active/queued operation, ESP32 harus mempertahankan hubungan dengan configuration snapshot yang menjadi dasar operasi tersebut.
-
-Prinsip:
-
-```text
-RUNNING operation
-    → menggunakan snapshot saat operation dibuat/accepted
-
-NEW operation
-    → menggunakan configuration terbaru yang valid
-```
-
-Untuk queued operation, kebijakan final harus eksplisit pada domain command/configuration sebelum firmware production. Tidak boleh dibiarkan sebagai side effect tidak terdokumentasi.
-
----
-
-# 19. Runtime Status
-
-UI harus membaca runtime state dari ESP32.
-
-Minimum state model:
-
-```text
-IDLE
-QUEUED
-RUNNING
-PAUSED
-COMPLETED
-FAILED
-CANCELLED
-EMERGENCY_STOP
-OFFLINE
-```
-
-Phase spesifik domain dapat ditambahkan kemudian tanpa mengubah transport semantics.
-
-Contoh:
-
-```json
-{
-  "runtimeState": "RUNNING",
-  "phase": "DOMAIN_PHASE",
-  "operationId": "cmd-001",
-  "progress": 0.42
-}
-```
-
----
-
-# 20. Telemetry
-
-## Request
-
-```http
-GET /api/v1/telemetry
-```
-
-Telemetry harus membedakan nilai measured dengan nilai derived.
-
-Contoh field:
-
-```json
-{
-  "deviceTimestamp": "...",
-  "sequence": 10042,
-  "values": {
-    "temperatureC": 29.1,
-    "humidityPct": 73.2,
-    "flowLpm": 1.8
-  },
-  "quality": {
-    "temperatureC": "GOOD",
-    "humidityPct": "GOOD",
-    "flowLpm": "GOOD"
+  "requestId": "req-1",
+  "client": {"type": "web-ui", "version": "1.0.0"},
+  "payload": {
+    "type": "START_COMPONENT",
+    "componentId": "well-pump",
+    "parameters": {}
   }
 }
 ```
 
-ESP32 adalah sumber actual measurement.
-
-UI boleh menampilkan telemetry live, tetapi historical chart bukan hasil synthetic frontend timer.
-
----
-
-# 21. Telemetry Timestamp
-
-Timestamp minimal dibedakan menjadi:
+Never expose:
 
 ```text
-deviceTimestamp
-receivedAt
-processedAt
+POST /gpio
 ```
 
-`deviceTimestamp` digunakan untuk makna waktu pengukuran.
-
-UI tidak boleh mengganti device timestamp dengan waktu browser tanpa penandaan.
+The existing project architecture explicitly favors semantic component/action requests instead of raw GPIO values. fileciteturn11file0L47-L70
 
 ---
 
-# 22. Event dan Error Event
-
-## Request
-
-```http
-GET /api/v1/events
-```
-
-Event berasal dari ESP32 dan merupakan evidence runtime.
-
-Contoh event:
-
-```json
-{
-  "eventId": "evt-001",
-  "sequence": 10043,
-  "deviceId": "esp32-complex-001",
-  "deviceTimestamp": "...",
-  "type": "DEVICE_EVENT",
-  "severity": "WARNING",
-  "source": "ESP32",
-  "data": {}
-}
-```
-
-Event harus append-only pada sisi device sampai berhasil disinkronkan/dikelola sesuai retention policy.
-
----
-
-# 23. Sequence dan Backlog
-
-ESP32 menggunakan sequence monotonik per device untuk ordering dan deduplication.
-
-UI dapat meminta event/data setelah sequence tertentu:
-
-```http
-GET /api/v1/events?afterSequence=10000&limit=100
-```
-
-Response dapat berisi:
-
-```json
-{
-  "items": [],
-  "nextSequence": 10100,
-  "oldestAvailableSequence": 1,
-  "newestSequence": 10100,
-  "hasMore": false
-}
-```
-
-UI tidak boleh mengandalkan timestamp sebagai satu-satunya identity/order mechanism.
-
----
-
-# 24. Local Log Buffer
-
-ESP32 dapat kehilangan koneksi ke UI.
-
-Karena itu data penting harus dapat ditahan lokal.
-
-Status buffer minimal dapat menyediakan:
-
-```text
-pendingRecords
-oldestPendingSequence
-newestPendingSequence
-storageUsed
-storageCapacity
-```
-
-Prioritas retention:
-
-```text
-SAFETY/FAILURE
-COMMAND
-CRITICAL TELEMETRY
-NORMAL TELEMETRY
-```
-
----
-
-# 25. UI Synchronization Model
-
-UI mempunyai cache lokal, tetapi cache bukan authority.
-
-Urutan umum startup/reconnect:
-
-```text
-1. discover device
-2. GET /health
-3. verify identity
-4. GET /status
-5. GET /inventory bila cache tidak ada/stale
-6. compare configuration version
-7. compare inventory version
-8. retrieve missed events/telemetry bila diperlukan
-9. reconcile UI state
-```
-
----
-
-# 26. Configuration Synchronization
-
-UI harus membedakan:
-
-```text
-LOCAL EDITED
-LOCAL PENDING
-VALIDATING
-SENDING
-APPLIED
-CONFLICT
-FAILED
-UNKNOWN
-```
-
-`UNKNOWN` penting ketika request telah dikirim tetapi response hilang.
-
-UI tidak boleh langsung mengubah status menjadi FAILED hanya karena timeout.
-
-UI harus melakukan reconciliation:
-
-```http
-GET /api/v1/configuration
-GET /api/v1/status
-```
-
-untuk mengetahui apakah configuration sebenarnya telah berhasil diterapkan.
-
----
-
-# 27. Connection State Model UI
-
-Minimum:
-
-```text
-DISCOVERING
-CONNECTING
-ONLINE
-DEGRADED
-OFFLINE
-STALE
-ERROR
-```
-
-Makna:
-
-- `ONLINE`: health check berhasil dan identity cocok.
-- `DEGRADED`: device reachable tetapi sebagian subsystem bermasalah.
-- `OFFLINE`: tidak dapat dihubungi.
-- `STALE`: data terakhir tersedia tetapi sudah melewati freshness threshold UI.
-- `ERROR`: response/protocol/device error yang bukan sekadar offline.
-
-Browser disconnect sendiri tidak boleh otomatis dianggap device offline.
-
----
-
-# 28. Timeout dan Retry
-
-UI harus membedakan:
-
-```text
-HTTP error
-network timeout
-connection refused
-invalid response
-device rejection
-configuration conflict
-```
-
-Retry otomatis hanya boleh untuk operasi yang idempotent.
-
-Untuk command fisik:
-
-```text
-send
- ↓
-timeout
- ↓
-DO NOT duplicate blindly
- ↓
-reconcile commandId
-```
-
----
-
-# 29. HTTP Error Model
-
-Minimal mapping:
-
-| HTTP | Arti | UI treatment |
-|---|---|---|
-| 200 | success | process response |
-| 201 | created | process resource |
-| 400 | malformed request | no retry |
-| 404 | resource/command/device unknown | inspect context |
-| 409 | version/state conflict | reconcile |
-| 422 | validation rejected | show exact validation |
-| 500 | device internal error | retry/reconcile according context |
-| 503 | unavailable/busy | retry only when safe |
-| network timeout | unknown outcome | reconcile before retry |
-
-HTTP code tidak boleh menjadi satu-satunya sumber physical state.
-
----
-
-# 30. Command Cancel / Stop Semantics
-
-Harus dibedakan antara:
-
-```text
-CANCEL QUEUED OPERATION
-STOP RUNNING OPERATION
-EMERGENCY STOP
-```
-
-Ketiganya bukan command yang sama.
-
-Setiap command memiliki status final yang dapat dibaca kembali.
-
----
-
-# 31. Emergency Stop
-
-Emergency stop adalah command safety khusus.
-
-Contoh:
+# 19. Emergency Stop
 
 ```http
 POST /api/v1/commands/emergency-stop
 ```
 
-Request harus menyertakan `commandId`/`operationId` dan alasan bila diperlukan.
-
-Response HTTP hanya menyatakan penerimaan request.
-
-Authority safety tetap di ESP32.
-
-UI harus menunggu/mengecek actual safety state:
-
-```text
-emergencyStop = ACTIVE
-```
-
-Resume hanya boleh dilakukan setelah ESP32 menyatakan kondisi aman sesuai safety policy firmware.
-
----
-
-# 32. Clock Synchronization
-
-ESP32 membutuhkan waktu yang benar untuk fungsi runtime berbasis waktu.
-
-## Request
-
-```http
-POST /api/v1/clock-sync
-```
-
-Payload minimum:
+Request:
 
 ```json
 {
-  "requestId": "req-001",
-  "currentTime": "2026-09-13T02:15:00+07:00",
-  "timezone": "Asia/Jakarta"
+  "requestId": "req-...",
+  "client": {"type": "web-ui", "version": "1.0.0"},
+  "payload": {
+    "commandId": "cmd-...",
+    "reason": "operator"
+  }
 }
 ```
 
-ESP32 mengembalikan status clock:
+Response includes command/safety state.
 
-```text
-SYNCED
-UNSYNCED
-INVALID
-```
+UI then refreshes `/status`.
 
-UI tidak boleh menggunakan waktu browser sebagai pengganti runtime clock ESP32 setelah command/schedule telah diserahkan ke device.
+Emergency stop state is device-owned.
 
 ---
 
-# 33. Multi-Complex / Multi-ESP32
+# 20. Crop Cycle / Masa Tanam — Direct UI ↔ ESP32 Contract
 
-Satu UI dapat menangani banyak controller pada WLAN yang sama.
+This is part of the **current UI↔ESP32 MVP**, because the existing UI explicitly performs these actions against the ESP32 boundary. The existing UX specification requires the UI to send planting, pollination, date changes, harvest, and recovery/reconnect behavior through ESP32. fileciteturn12file3L278-L305 fileciteturn12file6L561-L575
 
-Contoh:
+The active cycle belongs to a GH.
 
-```text
-WLAN
-│
-├── esp32-complex-001.local
-│      └── Complex A
-│
-├── esp32-complex-002.local
-│      └── Complex B
-│
-└── esp32-complex-003.local
-       └── Complex C
-```
-
-Setiap device mempunyai identity sendiri.
-
-UI tidak boleh menganggap hanya ada satu ESP32.
+One GH may have at most one active cycle.
 
 ---
 
-# 34. Parallel Requests
+# 21. Crop Cycle Representation
 
-UI boleh melakukan request paralel ke beberapa ESP32 karena controller adalah device yang berbeda.
+Canonical current-cycle object:
 
-Contoh:
-
-```text
-GET status Complex A  ─┐
-GET status Complex B  ─┼── parallel
-GET status Complex C  ─┘
+```json
+{
+  "cycleId": "cycle-uuid",
+  "ghId": "gh-001",
+  "status": "ACTIVE",
+  "tanggalTanam": "2026-09-01",
+  "tanggalPolinasi": null,
+  "variety": "Melon",
+  "plantCount": 580,
+  "notes": "",
+  "hst": 12,
+  "hsp": null,
+  "lastUpdatedAt": "...",
+  "version": 3
+}
 ```
 
-Partial failure harus didukung.
+Rules:
 
-Jika B offline:
+- `cycleId` is stable.
+- `ghId` is immutable for the cycle.
+- `tanggalTanam` is required.
+- `tanggalPolinasi` may be null.
+- HST/HSP are never user-editable fields.
+- ESP32 stores/reconciles the derived counters from authoritative dates + device time.
+- UI may calculate preview values locally before submit, but after a successful mutation the authoritative displayed values must come from ESP32 response/state.
+- `hsp = null` when no pollination date exists.
+- HST starts at 0 on `tanggalTanam`.
 
-```text
-A = success
-B = offline
-C = success
-```
-
-bukan:
-
-```text
-ALL = failed
-```
-
-Namun concurrency antar request ke **ESP32 yang sama** tetap tunduk pada firmware/resource/state constraints.
+This reconciles the project requirement that the user manages dates/events rather than manually editing HST/HSP. fileciteturn12file5L454-L481
 
 ---
 
-# 35. Multiple Browser Tabs / Multiple Clients
-
-Dua browser/device dapat mencoba mengakses ESP32 yang sama.
-
-ESP32 tetap menjadi authority.
-
-UI tidak boleh menggunakan lock lokal browser sebagai jaminan eksklusivitas device.
-
-Untuk configuration, gunakan:
-
-```text
-expectedConfigurationVersion
-```
-
-Untuk command, gunakan:
-
-```text
-commandId / operationId
-```
-
-Dengan demikian dua client tidak dapat diam-diam menimpa state tanpa terdeteksi.
-
----
-
-# 36. Concurrency UI vs ESP32
-
-Concurrency komunikasi tidak berarti concurrency fisik.
-
-Contoh:
-
-```text
-UI dapat mengirim beberapa request
-```
-
-tetapi ESP32 mungkin harus mengeksekusi beberapa operasi secara serial karena resource firmware.
-
-Policy resource merupakan authority ESP32, bukan UI.
-
-UI hanya menampilkan queue/status yang dikembalikan device.
-
----
-
-# 37. Offline UI
-
-Jika browser kehilangan WLAN/ESP32:
-
-- UI boleh menampilkan last-known data;
-- UI harus memberi tanda stale/offline;
-- UI tidak boleh mengklaim perubahan fisik berhasil;
-- command pending harus tetap dapat di-reconcile ketika koneksi kembali.
-
-ESP32 tidak boleh berhenti hanya karena UI offline.
-
----
-
-# 38. Offline ESP32
-
-Jika ESP32 offline dari WLAN tetapi tetap menyala:
-
-```text
-runtime lokal tetap berjalan
-```
-
-UI hanya kehilangan komunikasi.
-
-Jika ESP32 reboot/power loss, firmware harus memuat Last Valid Configuration.
-
-Perilaku recovery terhadap operasi yang sedang berjalan/terlewat harus ditentukan sebagai bagian dari runtime firmware dan tidak boleh diimplementasikan oleh browser timer.
-
----
-
-# 39. Reconnection
-
-Ketika koneksi kembali:
-
-```text
-DISCOVER
- ↓
-HEALTH
- ↓
-VERIFY IDENTITY
- ↓
-STATUS
- ↓
-CONFIGURATION VERSION
- ↓
-INVENTORY VERSION
- ↓
-PENDING EVENT/LOG RANGE
- ↓
-RECONCILE
- ↓
-ONLINE
-```
-
-UI harus membedakan:
-
-```text
-device back online
-```
-
-dengan:
-
-```text
-configuration successfully synchronized
-```
-
-Keduanya bukan hal yang sama.
-
----
-
-# 40. Device Restart Detection
-
-`bootId` wajib berubah setiap boot/restart ESP32.
-
-Contoh:
-
-```text
-bootId = boot-001
-```
-
-setelah reboot:
-
-```text
-bootId = boot-002
-```
-
-UI dapat mengetahui bahwa terjadi restart walaupun IP dan `deviceId` tetap sama.
-
----
-
-# 41. Runtime Data vs Historical Data
-
-ESP32 menyimpan runtime data yang dibutuhkan untuk operasi dan backlog/log yang diperlukan untuk sinkronisasi.
-
-UI dapat menyimpan cache sementara.
-
-Historical/durable application data tidak menjadi tanggung jawab UI.
-
-Python pada arsitektur ecosystem tetap menjadi durable persistence/analysis layer.
-
-Namun dokumen ini tidak menentukan schema database Python.
-
----
-
-# 42. Domain Data Boundary
-
-ESP32 **tidak membutuhkan seluruh data UI**.
-
-Data yang umumnya tidak diperlukan untuk base device runtime:
-
-```text
-plant research history
-fruit research history
-harvest research archive
-chart configuration
-analytics
-browser-only preferences
-UI layout state
-```
-
-Data tersebut dapat tetap berada pada application/backend layer.
-
-ESP32 hanya menerima projection yang diperlukan untuk operasi controller.
-
----
-
-# 43. CORS
-
-Karena UI berupa Web App/Vite yang dijalankan melalui browser dan mengakses origin ESP32 secara langsung, ESP32 HTTP API harus menangani CORS secara eksplisit untuk origin yang digunakan oleh deployment UI.
-
-MVP dapat menggunakan kebijakan permissive pada trusted WLAN.
-
-Contoh konsep:
-
-```text
-Access-Control-Allow-Origin
-Access-Control-Allow-Methods
-Access-Control-Allow-Headers
-```
-
-Implementasi production security dapat memperketat origin setelah authentication ditambahkan.
-
----
-
-# 44. Browser Transport Constraint
-
-UI tidak boleh bergantung pada fitur browser yang tidak konsisten antar PC/HP.
-
-Protocol inti hanya membutuhkan:
-
-```text
-HTTP GET
-HTTP POST
-HTTP PUT
-HTTP DELETE (hanya bila memang diperlukan endpoint)
-```
-
-Discovery mDNS dilakukan melalui hostname/service resolution yang tersedia bagi environment jaringan/OS.
-
-UI harus menyediakan fallback last-known address untuk robustness.
-
----
-
-# 45. Endpoint Matrix MVP
-
-| Endpoint | Method | Fungsi | Authority |
-|---|---|---|---|
-| `/api/v1/health` | GET | health + identity | ESP32 |
-| `/api/v1/status` | GET | full runtime snapshot | ESP32 |
-| `/api/v1/inventory` | GET | physical hardware inventory | ESP32 |
-| `/api/v1/capabilities` | GET | firmware capability discovery | ESP32 |
-| `/api/v1/configuration` | GET | read current config | ESP32 |
-| `/api/v1/configuration/validate` | POST | validate proposed config | ESP32 |
-| `/api/v1/configuration` | PUT | atomically apply config | ESP32 |
-| `/api/v1/telemetry` | GET | current telemetry | ESP32 |
-| `/api/v1/events` | GET | event/log retrieval | ESP32 |
-| `/api/v1/commands/{commandId}` | GET | command status | ESP32 |
-| `/api/v1/clock-sync` | POST | synchronize device clock | ESP32 |
-| `/api/v1/commands/emergency-stop` | POST | emergency stop | ESP32 |
-
-Domain-specific runtime commands can be added later without changing the core transport model.
-
----
-
-# 46. UI Service Architecture
-
-UI tidak boleh menghubungi fetch/API transport dari setiap component secara langsung.
-
-Struktur yang disarankan:
-
-```text
-UI Component
-    ↓
-Domain Service
-    ↓
-ESP32 Client
-    ↓
-HTTP Transport
-    ↓
-ESP32
-```
-
-Contoh:
-
-```text
-FertigationPage
-      ↓
-service
-      ↓
-esp32Client
-      ↓
-request()
-```
-
-Dengan demikian visual/UI yang sudah matang tidak perlu diubah hanya karena transport diganti dari mock menjadi real API.
-
----
-
-# 47. Removal of Mock Physical Truth
-
-Dalam integration mode:
-
-- `startRealtimeMock()` tidak boleh menjadi source runtime truth;
-- local timer tidak boleh mensimulasikan progress fisik;
-- local emergency-stop boolean tidak boleh menjadi safety authority;
-- local pump state tidak boleh menggantikan actual device state;
-- local success toast tidak boleh berarti physical completion.
-
-Local store hanya boleh digunakan sebagai cache/UI state sementara.
-
----
-
-# 48. UI Display Rules
-
-UI harus selalu membedakan:
-
-```text
-User intent
-Command accepted
-Command running
-Actual physical state
-Command completed
-Command failed
-```
-
-Contoh yang benar:
-
-```text
-"Perintah diterima ESP32"
-```
-
-berbeda dengan:
-
-```text
-"Pompa sudah ON"
-```
-
-Pernyataan kedua membutuhkan actual state dari device.
-
----
-
-# 49. Reconciliation Rules
-
-## 49.1 Lost response
-
-```text
-REQUEST SENT
-   ↓
-TIMEOUT
-   ↓
-STATE = UNKNOWN
-   ↓
-READ command/status/configuration
-   ↓
-RECONCILE
-```
-
-## 49.2 Configuration apply
-
-```text
-PUT configuration v18
-   ↓
-response lost
-   ↓
-GET configuration/status
-   ↓
-ESP32 v18 → applied
-```
-
-Jangan mengirim v18 dua kali hanya karena response pertama hilang.
-
-## 49.3 Command
-
-```text
-commandId = cmd-123
-```
-
-Jika response hilang, UI membaca:
+# 22. Get Current Cycle
 
 ```http
-GET /api/v1/commands/cmd-123
+GET /api/v1/greenhouses/{ghId}/crop-cycle
+```
+
+Response:
+
+```json
+{
+  "ghId": "gh-001",
+  "cycle": null,
+  "deviceTimestamp": "..."
+}
+```
+
+or:
+
+```json
+{
+  "ghId": "gh-001",
+  "cycle": {
+    "cycleId": "cycle-001",
+    "status": "ACTIVE",
+    "tanggalTanam": "2026-09-01",
+    "tanggalPolinasi": null,
+    "variety": "Melon",
+    "plantCount": 580,
+    "notes": "",
+    "hst": 12,
+    "hsp": null,
+    "version": 1
+  },
+  "deviceTimestamp": "..."
+}
 ```
 
 ---
 
-# 50. What ESP32 Must Not Depend On
+# 23. Start Normal Cycle
 
-ESP32 tidak boleh membutuhkan:
+UI fields:
 
 ```text
-Internet
-Cloud
-Browser
-UI tab yang aktif
-localStorage browser
-Python availability
+tanggalTanam       required
+variety            optional
+plantCount         optional
+notes              optional
 ```
 
-agar runtime operasional yang sudah valid tetap berjalan.
+Endpoint:
+
+```http
+POST /api/v1/greenhouses/{ghId}/crop-cycles
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "tanggalTanam": "2026-09-13",
+    "variety": "Melon",
+    "plantCount": 580,
+    "notes": ""
+  }
+}
+```
+
+ESP32:
+1. validates no active cycle;
+2. validates date;
+3. creates cycle;
+4. persists cycle;
+5. creates event;
+6. returns the complete resulting cycle.
+
+Response:
+
+```json
+{
+  "requestId": "req-...",
+  "success": true,
+  "data": {
+    "cycle": {}
+  },
+  "error": null,
+  "deviceTimestamp": "..."
+}
+```
 
 ---
 
-# 51. What UI Must Not Assume
+# 24. Start Ongoing Cycle
 
-UI tidak boleh mengasumsikan:
+The existing UI has a separate flow for a crop cycle that already started before the device/client was introduced. The UI collects tanggal tanam, variety, plant count, optional pollination date, and notes. fileciteturn16file2L260-L286
+
+Endpoint:
+
+```http
+POST /api/v1/greenhouses/{ghId}/crop-cycles/import-active
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "tanggalTanam": "2026-09-01",
+    "variety": "Melon",
+    "plantCount": 580,
+    "tanggalPolinasi": null,
+    "notes": "Sistem dipasang di tengah masa tanam"
+  }
+}
+```
+
+ESP32 recomputes current HST/HSP before returning.
+
+---
+
+# 25. Record Pollination
+
+UI input:
 
 ```text
-HTTP 200 = physical success
-button ON = actuator ON
-browser timer = device timer
-local state = device state
-last displayed value = current value
-IP address = device identity
-browser online = ESP32 online
+tanggalPolinasi
+pollinationMethod: natural | bee | manual
+notes optional
+```
+
+Endpoint:
+
+```http
+POST /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "tanggalPolinasi": "2026-09-20",
+    "pollinationMethod": "manual",
+    "notes": ""
+  }
+}
+```
+
+Validation:
+- cycle must be active;
+- pollination date cannot precede planting date;
+- returned HSP must be recalculated.
+
+The UI explicitly requires this flow. fileciteturn12file6L537-L559
+
+---
+
+# 26. Update Planting Date
+
+```http
+PATCH /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/planting-date
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "tanggalTanam": "2026-09-03",
+    "expectedVersion": 3
+  }
+}
+```
+
+Response returns the complete resulting cycle.
+
+The UI must show preview before submit and then replace local state with the returned ESP32 state.
+
+---
+
+# 27. Update Pollination Date
+
+```http
+PATCH /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "tanggalPolinasi": "2026-09-21",
+    "pollinationMethod": "manual",
+    "expectedVersion": 4
+  }
+}
 ```
 
 ---
 
-# 52. Future Compatibility
+# 28. Delete Pollination Date
 
-Protokol harus tetap memungkinkan penambahan:
-
-```text
-authentication
-authorization
-TLS
-remote gateway
-Python-first routing
-WebSocket/MQTT
-firmware OTA
-advanced discovery
+```http
+DELETE /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination
 ```
 
-tanpa mengganti konsep dasar:
+This removes the active pollination date from the current cycle.
+
+It must NOT delete historical event records.
+
+The existing UX explicitly requires the confirmation message that HSP returns to unavailable while historical events are preserved. fileciteturn12file1L80-L91
+
+Response returns the resulting cycle.
+
+---
+
+# 29. Update Cycle Metadata
+
+The existing UI supports:
 
 ```text
-deviceId
-complexId
-configurationVersion
-commandId
+variety
+plantCount
+notes
+```
+
+Endpoint:
+
+```http
+PATCH /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "variety": "Melon",
+    "plantCount": 575,
+    "notes": "..."
+  },
+  "expectedVersion": 5
+}
+```
+
+---
+
+# 30. Cancel/Reset Active Cycle
+
+Existing UI exposes `onResetCycle()` as a cycle cancellation action. fileciteturn16file4L434-L447
+
+Endpoint:
+
+```http
+POST /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/cancel
+```
+
+This must:
+- close active runtime cycle;
+- preserve event/history;
+- return the resulting GH/cycle state.
+
+It must not silently erase history.
+
+---
+
+# 31. Harvest / End Cycle
+
+Existing UI collects:
+
+```text
+harvestDate optional
+yieldKg optional
+grade optional
+notes optional
+```
+
+fileciteturn16file0L175-L177
+
+Endpoint:
+
+```http
+POST /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/harvest
+```
+
+Request:
+
+```json
+{
+  "requestId": "req-...",
+  "payload": {
+    "harvestDate": "2026-12-01",
+    "yieldKg": 850.5,
+    "grade": "Grade A (Super)",
+    "notes": "..."
+  }
+}
+```
+
+ESP32:
+- records terminal harvest event;
+- closes active cycle;
+- preserves historical record;
+- clears only active-cycle state;
+- returns resulting GH state.
+
+The existing UX requires this behavior. fileciteturn12file2L206-L220
+
+---
+
+# 32. Crop Cycle History
+
+UI has a `CycleHistoryModal`.
+
+The API must therefore support read-only history:
+
+```http
+GET /api/v1/greenhouses/{ghId}/crop-cycles
+```
+
+Optional:
+
+```text
+status
+fromDate
+toDate
+limit
+cursor
+```
+
+Historical entries must not be deleted merely because a new cycle is started.
+
+History is device-local MVP history and is later eligible for UI → Python synchronization.
+
+---
+
+# 33. Crop Cycle Events
+
+Crop-cycle changes must generate events so that the history and later Python sync are not dependent solely on the current snapshot.
+
+Minimum event types:
+
+```text
+CROP_CYCLE_CREATED
+CROP_CYCLE_IMPORTED
+CROP_CYCLE_PLANTING_DATE_CHANGED
+CROP_CYCLE_POLLINATION_RECORDED
+CROP_CYCLE_POLLINATION_DATE_CHANGED
+CROP_CYCLE_POLLINATION_REMOVED
+CROP_CYCLE_METADATA_UPDATED
+CROP_CYCLE_CANCELLED
+CROP_CYCLE_HARVESTED
+```
+
+---
+
+# 34. Timeline Masa Tanam
+
+Timeline is a **projection**, not a primary mutable database entity.
+
+The UI timeline is derived from:
+- current cycle;
+- cycle events;
+- configured timeline presentation data.
+
+The API should not create a second competing "HST timeline state" merely for display.
+
+If the UI has custom timeline configuration such as:
+- target harvest HST;
+- phase ranges;
+- notes;
+
+that presentation/configuration must be explicitly classified as UI or Python configuration. It must not silently become physical runtime state.
+
+The existing UI currently persists timeline configuration separately in browser storage, which is a synchronization risk. fileciteturn16file0L42-L66
+
+For production integration, this must be moved behind an explicit ownership decision rather than remaining an undocumented second store.
+
+---
+
+# 35. Complex / GH Context
+
+ESP32 may expose a read-only operational context:
+
+```http
+GET /api/v1/context
+```
+
+Suggested response:
+
+```json
+{
+  "complex": {
+    "id": "complex-001",
+    "name": "Complex A"
+  },
+  "greenhouses": [
+    {
+      "id": "gh-001",
+      "name": "GH-01",
+      "code": "GH-01",
+      "status": "ACTIVE"
+    }
+  ]
+}
+```
+
+This is a device-bound operational projection, not the permanent Complex/GH master database.
+
+Permanent Complex/GH CRUD remains a Python responsibility.
+
+---
+
+# 36. Telemetry
+
+```http
+GET /api/v1/telemetry
+```
+
+UI receives measured values with:
+
+```text
 sequence
-actual device state
+deviceTimestamp
+componentId
+value
+unit
+quality
+measurementType
 ```
 
----
+Do not synthesize live telemetry in the browser during direct mode.
 
-# 53. Acceptance Criteria MVP
-
-MVP dianggap memenuhi kontrak apabila:
-
-1. PC/HP terhubung ke WLAN yang sama dengan ESP32.
-2. UI dapat menemukan atau mengakses ESP32 melalui local hostname/mDNS.
-3. UI dapat menggunakan last-known IP sebagai fallback.
-4. UI dapat memverifikasi `deviceId` dan `complexId` setelah discovery.
-5. UI dapat membaca `/health`.
-6. UI dapat membaca `/status`.
-7. UI dapat membaca `/inventory`.
-8. UI dapat membaca capability device.
-9. UI dapat membaca configuration version.
-10. UI dapat mengirim configuration tervalidasi dan ESP32 menerapkannya secara atomic.
-11. Configuration conflict menghasilkan reconciliation, bukan silent overwrite.
-12. Command memiliki `commandId` dan dapat dilacak setelah response hilang.
-13. UI dapat membedakan actual state dari desired state.
-14. Telemetry dan event mempunyai device timestamp serta sequence.
-15. UI dapat mengambil backlog menggunakan sequence/cursor.
-16. ESP32 tetap berjalan ketika browser ditutup.
-17. ESP32 tetap berjalan ketika internet tidak tersedia.
-18. Reconnect menyebabkan UI melakukan reconciliation terhadap device state.
-19. Restart ESP32 dapat dideteksi melalui `bootId`.
-20. Multi-Complex tidak mengharuskan hardcode satu IP global di UI.
-21. Partial failure antar device tidak menyebabkan seluruh daftar device dianggap gagal.
-22. Mock timer tidak lagi menjadi sumber physical runtime truth setelah integrasi aktif.
+The existing audit identifies browser realtime simulation as a critical source-of-truth risk. fileciteturn13file2L193-L210
 
 ---
 
-# 54. Non-Goals Dokumen Ini
+# 37. Events and Logs
 
-Dokumen ini **tidak** menetapkan:
+```http
+GET /api/v1/events
+```
 
-- schema database Python;
-- model bisnis Complex/GH secara lengkap;
-- struktur Plant/Fruit/Observation/Harvest;
-- detail algoritma fertigasi;
-- recipe calculation;
-- detail mixing/dosing sequence;
-- hardware safety matrix final;
-- auth/security production;
-- internet/cloud architecture.
-
-Domain tersebut dapat memiliki spec tersendiri dan hanya berinteraksi dengan kontrak UI ↔ ESP32 yang didefinisikan di sini.
-
----
-
-# 55. Architectural Summary
+Cursor/sequence:
 
 ```text
-                    LOCAL WLAN
-                        │
-           ┌────────────┴────────────┐
-           │                         │
-       PC / HP                    ESP32
-           │                         │
-      Vite Web UI               Device Runtime
-           │                         │
-           │  HTTP REST             │
-           ├────────────────────────►
-           │                         │
-           │   health/status         │
-           │◄────────────────────────┤
-           │                         │
-           │   configuration         │
-           ├────────────────────────►
-           │                         │
-           │   command               │
-           ├────────────────────────►
-           │                         │
-           │   state/telemetry/event │
-           │◄────────────────────────┤
-           │                         │
-           └───────── cache ─────────┘
-
-Authority:
-ESP32 = physical/runtime truth
-UI    = operator + presentation + synchronization client
-Python = durable ecosystem/history layer (outside this spec)
+afterSequence
+limit
 ```
 
-**Prinsip paling penting:** browser boleh kehilangan koneksi, berganti IP target, ditutup, atau tidak memiliki internet; selama ESP32 hidup dan memiliki Last Valid Configuration, controller tetap menjadi penguasa runtime fisik.
+Response:
+
+```json
+{
+  "events": [],
+  "nextSequence": 1010,
+  "hasMore": false
+}
+```
+
+Event sequence is monotonic per device.
+
+---
+
+# 38. Synchronization Cursor
+
+The UI must persist its last durable sync cursor.
+
+Do not restart from zero after transient failure.
+
+The master architecture explicitly requires resumable synchronization and safe cursor progress. fileciteturn11file0L132-L162
+
+---
+
+# 39. Configuration
+
+Read:
+
+```http
+GET /api/v1/configuration
+```
+
+Validate:
+
+```http
+POST /api/v1/configuration/validate
+```
+
+Apply:
+
+```http
+PUT /api/v1/configuration
+```
+
+Each configuration includes:
+
+```text
+configurationVersion
+configurationHash
+inventoryVersion
+schemaVersion
+updatedAt
+payload
+```
+
+The UI must never build a device configuration object by copying the entire UI database.
+
+---
+
+# 40. Configuration Synchronization State
+
+UI state must distinguish:
+
+```text
+LOCAL_EDITING
+VALIDATING
+APPLYING
+APPLIED
+CONFLICT
+REJECTED
+UNKNOWN_AFTER_TIMEOUT
+```
+
+After timeout:
+- do not mark failed immediately;
+- read device configuration/status;
+- determine whether the version/hash was applied.
+
+---
+
+# 41. Concurrency
+
+For configuration and crop-cycle updates:
+
+```text
+expectedVersion
+```
+
+must be accepted.
+
+If current device version differs:
+
+```text
+409
+```
+
+UI must:
+1. fetch current device state;
+2. show/resolve conflict;
+3. rebuild request;
+4. retry with the new expected version.
+
+No silent last-write-wins for critical state.
+
+---
+
+# 42. Command Idempotency
+
+Every mutating operation has a stable ID:
+- `requestId` for request correlation;
+- `commandId` or resource version for physical/state-changing operations.
+
+The UI must be safe to retry after:
+- network timeout;
+- lost HTTP response;
+- browser reconnect.
+
+The project architecture requires repeated delivery not to duplicate history/physical operations. fileciteturn11file0L166-L206
+
+---
+
+# 43. Offline Behavior
+
+## UI offline
+
+If browser cannot reach ESP32:
+- do not invent fresh runtime values;
+- show stale/unknown state;
+- allow non-device-local UI work where safe;
+- queue only explicitly supported idempotent synchronization operations.
+
+## ESP32 offline from UI
+
+ESP32 continues independently from its valid local runtime.
+
+The UI reconnects and reconciles.
+
+---
+
+# 44. After ESP32 Reboot
+
+UI detects reboot using `bootId`.
+
+Sequence:
+
+```text
+health
+ ↓
+bootId changed?
+ ↓
+GET status
+ ↓
+GET configuration
+ ↓
+GET current crop cycle/context
+ ↓
+GET events after saved sequence
+ ↓
+reconcile UI
+```
+
+No browser timer is allowed to reconstruct device runtime.
+
+---
+
+# 45. What the UI Must Remove in Direct Mode
+
+These current mock behaviors must stop being physical truth:
+
+- `startRealtimeMock()`;
+- local fertigation/runtime progress clocks;
+- local emergency-stop latch;
+- local actuator state as authoritative;
+- simulated success toasts;
+- synthetic current time for device operation.
+
+The code audit explicitly identifies these as current mock/simulation paths and integration risks. fileciteturn13file2L193-L210
+
+---
+
+# 46. Domain-to-ESP32 Matrix
+
+| UI domain/action | Direct ESP32? | Contract |
+|---|---:|---|
+| Device health/status | YES | `/health`, `/status` |
+| Hardware sync | YES | `/inventory`, `/capabilities` |
+| Clock sync | YES | `/clock-sync` |
+| Physical command | YES | `/commands` |
+| Emergency stop | YES | `/commands/emergency-stop` |
+| Crop cycle current state | YES | `/greenhouses/{ghId}/crop-cycle` |
+| Start normal cycle | YES | POST crop-cycles |
+| Import ongoing cycle | YES | import-active |
+| Record pollination | YES | pollination |
+| Edit planting date | YES | planting-date |
+| Edit pollination | YES | pollination PATCH |
+| Delete pollination | YES | DELETE pollination |
+| Edit cycle metadata | YES | PATCH cycle |
+| Cancel cycle | YES | cancel |
+| Harvest/end cycle | YES | harvest |
+| Crop-cycle history | YES | GET crop-cycles |
+| Telemetry | YES | `/telemetry` |
+| Events | YES | `/events` |
+| Permanent Complex CRUD | NO | Python |
+| Permanent GH master CRUD | NO | Python |
+| Plant/Fruit permanent DB | NO | Python |
+| Research analytics | NO | Python |
+
+---
+
+# 47. UI Mutation Rule
+
+Every successful mutating request follows:
+
+```text
+USER ACTION
+    ↓
+validate client-side
+    ↓
+send request
+    ↓
+ESP32 validates
+    ↓
+ESP32 persists / executes
+    ↓
+ESP32 returns resulting state/event
+    ↓
+UI replaces local state
+    ↓
+optional follow-up GET /status
+```
+
+Do not do:
+
+```text
+USER ACTION
+    ↓
+mutate local store
+    ↓
+show success
+    ↓
+send request
+```
+
+The current UI audit specifically identifies this semantic problem. fileciteturn10file0L281-L336
+
+---
+
+# 48. API Contract Testing
+
+The project must add contract tests that verify:
+
+1. request schema matches UI type;
+2. response schema matches UI type;
+3. enum values match;
+4. nullability matches;
+5. date/time format matches;
+6. numeric units match;
+7. HTTP status mapping matches;
+8. error codes map to UI messages;
+9. optimistic state is never treated as device truth;
+10. retry does not duplicate operations.
+
+The OpenAPI file is the canonical machine-readable contract for these tests.
+
+---
+
+# 49. Definition of Integration Done
+
+The UI↔ESP32 integration is complete only when:
+
+- every direct ESP32 UI action has one documented endpoint;
+- every endpoint has request/response schema;
+- UI TypeScript types and OpenAPI schemas agree;
+- ESP32 response fields are sufficient to render the UI without guessing;
+- no page contains raw HTTP;
+- no physical state is generated by mock timers;
+- crop-cycle actions work end-to-end;
+- cycle history works;
+- errors/retries/reconnect work;
+- browser cache does not override device truth;
+- device restart is detected;
+- contract tests pass.
+
+---
+
+# 50. Canonical Files
+
+The implementation should keep these synchronized:
+
+```text
+UI_ESP32_COMMUNICATION_SPEC.md
+UI_ESP32_OPENAPI.yaml
+ESP32_BACKEND_SPEC.md
+AI_AGENT_BUILD_ESP32_BACKEND_PROMPT.md
+AI_AGENT_FRONTEND_TEMPLATE_UI_ESP32.md
+UX_UI_MASA_TANAM.md
+```
+
+When a UI field changes, update the UI contract first and then update:
+1. OpenAPI;
+2. ESP32 firmware types/handlers;
+3. UI TypeScript contracts/service adapter;
+4. tests.
+
+Never silently change only one side.

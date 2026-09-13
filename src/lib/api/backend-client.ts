@@ -73,6 +73,6 @@ export function apiPatch<T>(path: string, body: unknown, config?: HardwarePortCo
   return request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, config);
 }
 
-export function apiDelete(path: string, config?: HardwarePortConfig): Promise<void> {
-  return request<void>(path, { method: "DELETE" }, config);
+export function apiDelete<T = void>(path: string, config?: HardwarePortConfig): Promise<T> {
+  return request<T>(path, { method: "DELETE" }, config);
 }

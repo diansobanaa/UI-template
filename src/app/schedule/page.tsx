@@ -866,14 +866,16 @@ function StatusPill({ status }: { status: FertigationSchedule["status"] }) {
     scheduled: "border-blue-400/20 bg-blue-500/10 text-blue-300",
     running: "border-cyan-400/25 bg-cyan-500/10 text-cyan-300",
     missed: "border-red-400/20 bg-red-500/10 text-red-300",
+    failed: "border-rose-400/20 bg-rose-500/10 text-rose-300",
     disabled: "border-slate-700 bg-slate-800/50 text-slate-500",
   } as const;
-  const labels = { completed: "Completed", scheduled: "Scheduled", running: "Running", missed: "Missed", disabled: "Disabled" } as const;
+  const labels = { completed: "Completed", scheduled: "Scheduled", running: "Running", missed: "Missed", failed: "Failed", disabled: "Disabled" } as const;
   const dot = {
     completed: "bg-emerald-400",
     scheduled: "bg-blue-400",
     running: "bg-cyan-300",
     missed: "bg-red-400",
+    failed: "bg-rose-400",
     disabled: "bg-slate-500",
   } as const;
   return (
