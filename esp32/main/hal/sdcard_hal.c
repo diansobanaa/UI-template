@@ -6,12 +6,19 @@
 #include "driver/spi_common.h"
 #include "sdmmc_cmd.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 static const char *TAG = "SDCARD_HAL";
 static bool s_sd_mounted = false;
 static sdmmc_card_t *s_card = NULL;
+static SemaphoreHandle_t s_sd_lock = NULL;
 
 esp_err_t sdcard_hal_init(void)
 {
+    if (!s_sd_lock) {
+        s_sd_lock = xSemaphoreCreateMutex();
+    }
     ESP_LOGI(TAG, "Checking for microSD card on SPI CS (GPIO %d)...", PIN_MICROSD_CS);
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
@@ -41,4 +48,18 @@ esp_err_t sdcard_hal_init(void)
 bool sdcard_hal_is_mounted(void)
 {
     return s_sd_mounted;
+}
+
+void sdcard_hal_lock(void)
+{
+    if (s_sd_lock) {
+        xSemaphoreTake(s_sd_lock, portMAX_DELAY);
+    }
+}
+
+void sdcard_hal_unlock(void)
+{
+    if (s_sd_lock) {
+        xSemaphoreGive(s_sd_lock);
+    }
 }

@@ -9,16 +9,19 @@ static const char *TAG = "CROPCYCLE_MGR";
 static const char *NVS_NAMESPACE = "agrotech_cc";
 
 static crop_cycle_record_t s_active_cycle = {
-    .cycle_id = "cycle-01",
+    .cycle_id = "",
     .gh_id = "gh-01",
-    .status = CYCLE_STATE_ACTIVE,
-    .tanggal_tanam = "2026-06-02",
-    .tanggal_polinasi = "2026-07-07",
-    .variety = "Tomat San Marzano",
-    .plant_count = 1200,
-    .notes = "Baseline active crop cycle",
-    .version = 1,
-    .has_harvest = false
+    .status = CYCLE_STATE_NO_CYCLE,
+    .tanggal_tanam = "",
+    .tanggal_polinasi = "",
+    .variety = "",
+    .plant_count = 0,
+    .notes = "No active crop cycle initially",
+    .version = 0,
+    .has_harvest = false,
+    .hst = -1,
+    .hsp = -1,
+    .has_hsp = false
 };
 
 static int days_between(const char *date_str)

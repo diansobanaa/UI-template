@@ -8,11 +8,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include "hal/sdcard_hal.h"
 
 static const char *TAG = "STORAGE_MGR";
 static const char *NVS_NAMESPACE = "agrotech";
 static const char *SPIFFS_BASE_PATH = "/spiffs";
-static const char *EVENT_LOG_FILE = "/spiffs/events.log";
+static const char *EVENT_LOG_FILE = "/sdcard/events.log";
 
 #define MAX_EVENT_LOG_BYTES (128 * 1024)
 
@@ -101,6 +102,11 @@ esp_err_t storage_mgr_init(void)
     /* 3. Configuration Metadata */
     nvs_get_u32(handle, "cfg_ver", &s_state.config_version);
     nvs_get_u32(handle, "cfg_crc", &s_state.config_crc);
+
+    /* 4. E-Stop Latch */
+    uint8_t estop = 0;
+    nvs_get_u8(handle, "estop", &estop);
+    s_state.e_stop_latched = (estop != 0);
 
     nvs_commit(handle);
     nvs_close(handle);
@@ -192,36 +198,45 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
 {
     if (!event_json) return ESP_ERR_INVALID_ARG;
 
-    /* Check file size */
+    if (!sdcard_hal_is_mounted()) return ESP_ERR_NOT_FOUND;
+
+    sdcard_hal_lock();
     struct stat st;
     if (stat(EVENT_LOG_FILE, &st) == 0 && st.st_size > MAX_EVENT_LOG_BYTES) {
-        /* Rotate / truncate if size exceeded */
         unlink(EVENT_LOG_FILE);
         ESP_LOGW(TAG, "Event log exceeded %d bytes; rotated.", MAX_EVENT_LOG_BYTES);
     }
 
     FILE *f = fopen(EVENT_LOG_FILE, "a");
-    if (!f) return ESP_FAIL;
+    if (!f) {
+        sdcard_hal_unlock();
+        return ESP_FAIL;
+    }
 
     fprintf(f, "%s\n", event_json);
     fclose(f);
+    sdcard_hal_unlock();
+
     return ESP_OK;
 }
 
 esp_err_t storage_mgr_read_event_logs(char *out_buf, size_t max_len, size_t *out_len)
 {
-    if (!out_buf || max_len == 0) return ESP_ERR_INVALID_ARG;
+    if (!sdcard_hal_is_mounted()) return ESP_ERR_NOT_FOUND;
 
+    sdcard_hal_lock();
     FILE *f = fopen(EVENT_LOG_FILE, "r");
     if (!f) {
         out_buf[0] = '\0';
         if (out_len) *out_len = 0;
+        sdcard_hal_unlock();
         return ESP_OK;
     }
 
     size_t bytes_read = fread(out_buf, 1, max_len - 1, f);
     out_buf[bytes_read] = '\0';
     fclose(f);
+    sdcard_hal_unlock();
 
     if (out_len) *out_len = bytes_read;
     return ESP_OK;
@@ -229,6 +244,31 @@ esp_err_t storage_mgr_read_event_logs(char *out_buf, size_t max_len, size_t *out
 
 esp_err_t storage_mgr_clear_event_logs(void)
 {
-    unlink(EVENT_LOG_FILE);
+    if (sdcard_hal_is_mounted()) {
+        sdcard_hal_lock();
+        unlink(EVENT_LOG_FILE);
+        sdcard_hal_unlock();
+    }
     return ESP_OK;
+}
+
+esp_err_t storage_mgr_set_estop(bool latched)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_u8(handle, "estop", latched ? 1 : 0);
+    if (err == ESP_OK) {
+        nvs_commit(handle);
+        s_state.e_stop_latched = latched;
+        ESP_LOGW(TAG, "E-Stop latch persisted to NVS: %d", latched);
+    }
+    nvs_close(handle);
+    return err;
+}
+
+bool storage_mgr_get_estop(void)
+{
+    return s_state.e_stop_latched;
 }

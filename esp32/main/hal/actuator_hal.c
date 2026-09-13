@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "storage/storage_mgr.h"
 
 static const char *TAG = "ACTUATOR_HAL";
 
@@ -56,6 +57,12 @@ esp_err_t actuator_hal_init(void)
 
     esp_err_t err = gpio_config(&io_conf);
     xSemaphoreGive(s_lock);
+
+    /* Initialize E-Stop state from persistent storage */
+    s_emergency_stop_latched = storage_mgr_get_estop();
+    if (s_emergency_stop_latched) {
+        ESP_LOGE(TAG, "Actuator HAL initialized in latched EMERGENCY STOP state!");
+    }
 
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Actuator HAL initialized with 7 channels in safe OFF state.");
@@ -133,9 +140,11 @@ esp_err_t actuator_hal_get_status(actuator_id_t id, actuator_status_t *out_statu
 
 void actuator_hal_emergency_stop(void)
 {
-    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!s_lock) return;
 
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     s_emergency_stop_latched = true;
+    storage_mgr_set_estop(true);
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         s_actuators[i].state = false;
@@ -143,24 +152,31 @@ void actuator_hal_emergency_stop(void)
     }
 
     /* Turn error lamp ON upon emergency stop */
-    s_actuators[ACTUATOR_ERROR_LAMP].state = true;
-    gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, ACTUATOR_LEVEL_ON);
+    if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT) {
+        s_actuators[ACTUATOR_ERROR_LAMP].state = true;
+        gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, s_actuators[ACTUATOR_ERROR_LAMP].active_level);
+    }
 
-    if (s_lock) xSemaphoreGive(s_lock);
-    ESP_LOGW(TAG, "EMERGENCY STOP ACTIVATED: All actuators killed, error lamp ON.");
+    ESP_LOGE(TAG, "EMERGENCY STOP EXECUTED: All actuators set to OFF state.");
+    xSemaphoreGive(s_lock);
 }
 
 void actuator_hal_resume(void)
 {
-    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!s_lock) return;
 
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     s_emergency_stop_latched = false;
-    /* Turn off error lamp upon normal resume */
-    s_actuators[ACTUATOR_ERROR_LAMP].state = false;
-    gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, ACTUATOR_LEVEL_OFF);
+    storage_mgr_set_estop(false);
+    
+    /* Turn error lamp OFF */
+    if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT) {
+        s_actuators[ACTUATOR_ERROR_LAMP].state = false;
+        gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, !s_actuators[ACTUATOR_ERROR_LAMP].active_level);
+    }
 
-    if (s_lock) xSemaphoreGive(s_lock);
-    ESP_LOGI(TAG, "Emergency stop CLEARED. System resumed.");
+    ESP_LOGI(TAG, "Emergency Stop latched cleared. Actuators can now be commanded.");
+    xSemaphoreGive(s_lock);
 }
 
 bool actuator_hal_is_emergency_stopped(void)

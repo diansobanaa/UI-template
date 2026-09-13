@@ -24,6 +24,7 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-REMED-001 Hardware Definition & Boot Initialization
 - [x] SP-REMED-002 Network & RTC Initialization
 - [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
+- [x] SP-REMED-004 Persistence & Memory Bounds
 
 ---
 
@@ -174,4 +175,37 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - REQUIRES PHYSICAL VERIFICATION for actual relay module polarity (active-low vs active-high).
 - **Next Safe Point / Action**:
   - Begin SP-REMED-004 (Persistence & Memory Bounds).
+
+---
+
+## Safe Point Record: SP-REMED-004
+- **ID**: SP-REMED-004
+- **Objective**: Persistence & Memory Bounds
+- **Completed Work**:
+  1. Updated `storage_mgr.c` and `storage_mgr.h` to persist Emergency Stop latch state in NVS (`BS-SAFE-001`).
+  2. Integrated E-Stop persistence in `actuator_hal.c` to prevent accidental reset.
+  3. Added FreeRTOS Mutex protection in `sdcard_hal.c` (`BS-MEM-002`).
+  4. Changed `storage_mgr.c` event logging to use `/sdcard/events.log` with mutex protection, instead of `/spiffs/events.log` (`BS-MEM-002`).
+  5. Implemented 4KB strict memory bound on POST payloads in `http_parse_json_body` inside `http_server.c` (`BS-MEM-001`).
+  6. Initialized `s_active_cycle` to `NO_CYCLE` in `crop_cycle_mgr.c` (`BS-STATE-001`).
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: N/A
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/storage/storage_mgr.h`
+  - `esp32/main/storage/storage_mgr.c`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/sdcard_hal.h`
+  - `esp32/main/hal/sdcard_hal.c`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/services/crop_cycle_mgr.c`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
+- **Known Issues / Blockers**:
+  - NONE.
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-005 (Async Command Processing & Contract Alignment).
 

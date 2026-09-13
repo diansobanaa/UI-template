@@ -1,5 +1,20 @@
 # AI CHANGELOG
 
+## 2026-09-14 — SP-REMED-004 Persistence & Memory Bounds
+Safe Point: SP-REMED-004
+Status: COMPLETE
+
+Summary:
+- Persisted E-Stop latch to NVS (`BS-SAFE-001`).
+- Added FreeRTOS Mutex for MicroSD access and moved event logs to SD Card (`BS-MEM-002`).
+- Enforced 4KB memory limit on HTTP POST payloads (`BS-MEM-001`).
+- Changed `crop_cycle_mgr` initial state to `NO_CYCLE` (`BS-STATE-001`).
+
+Next:
+- SP-REMED-005: Async Command Processing & Contract Alignment.
+
+---
+
 ## 2026-09-14 — SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
 Safe Point: SP-REMED-003
 Status: COMPLETE

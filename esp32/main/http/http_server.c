@@ -74,7 +74,7 @@ esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json)
 
     size_t total_len = req->content_len;
     if (total_len == 0) return ESP_ERR_INVALID_SIZE;
-    if (total_len > 16384) return ESP_ERR_NO_MEM;
+    if (total_len > 4096) return ESP_ERR_NO_MEM; // SP-REMED-004 Memory Bounds
 
     char *buf = (char *)malloc(total_len + 1);
     if (!buf) return ESP_ERR_NO_MEM;

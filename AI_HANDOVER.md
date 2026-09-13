@@ -2,17 +2,17 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-13
-- **Safe Point**: SP-REMED-003 (Physical Safety Interlocks & Sensor Drivers) is complete.
-- **Goal**: Implement Persistence & Memory Bounds (SP-REMED-004).
+- **Safe Point**: SP-REMED-004 (Persistence & Memory Bounds) is complete.
+- **Goal**: Implement Async Command Processing & Contract Alignment (SP-REMED-005).
 
-## What Was Just Completed
-- **Actuators**: Converted to Active-LOW by default (via `activeLevel`). Added dry-run protection to `actuator_hal_set()`.
-- **Sensors**: DS18B20 is now non-blocking (750ms). Replaced booleans with explicit `sensor_state_t`.
-- **Safety Monitor**: Detects welded relays by checking flow pulses while pump is OFF.
+### What was just completed
+- **Persistence**: Persisted E-Stop latch to NVS so it survives reboots. Moved event logging to MicroSD with FreeRTOS mutex protection.
+- **Memory Bounds**: Enforced strict 4KB limit on HTTP POST JSON parsing payloads.
+- **Crop Cycle**: Defaulted initial state to `NO_CYCLE`.
 
 ## Next Action for Next Agent
 1. Read `AI_PROGRESS.md` and this handover file.
-2. Begin `SP-REMED-004` (Persistence & Memory Bounds).
+2. Begin `SP-REMED-005` (Async Command Processing & Contract Alignment).
 
 ## Known Gotchas / Context for Next Agent
 - Do not trust prior conversation memory; always grep the code.

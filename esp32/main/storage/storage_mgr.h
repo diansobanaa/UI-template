@@ -17,6 +17,7 @@ typedef struct {
     uint32_t config_version;
     uint32_t config_crc;
     bool safe_boot_active;
+    bool e_stop_latched;
 } system_storage_state_t;
 
 /**
@@ -58,6 +59,16 @@ esp_err_t storage_mgr_read_event_logs(char *out_buf, size_t max_len, size_t *out
  * @brief Clear event logs.
  */
 esp_err_t storage_mgr_clear_event_logs(void);
+
+/**
+ * @brief Set and persist the E-Stop latch state to NVS.
+ */
+esp_err_t storage_mgr_set_estop(bool latched);
+
+/**
+ * @brief Read the current E-Stop latch state.
+ */
+bool storage_mgr_get_estop(void);
 
 #ifdef __cplusplus
 }

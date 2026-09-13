@@ -18,6 +18,16 @@ esp_err_t sdcard_hal_init(void);
  */
 bool sdcard_hal_is_mounted(void);
 
+/**
+ * @brief Lock microSD access (FreeRTOS mutex).
+ */
+void sdcard_hal_lock(void);
+
+/**
+ * @brief Unlock microSD access.
+ */
+void sdcard_hal_unlock(void);
+
 #ifdef __cplusplus
 }
 #endif
