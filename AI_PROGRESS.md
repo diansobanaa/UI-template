@@ -53,4 +53,4 @@ SP-008 Telemetry/events/logging (COMPLETE)
   - microSD card speed class and formatting (FAT32) must be verified on actual hardware insertion.
 - **Next Safe Point / Action**:
   - **SP-009**: Existing UI ↔ ESP32 integration (connect UI services to ESP32 direct mode, remove local simulation/mock dependencies, ensure seamless REST connection with real device state).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `e76ab18`
