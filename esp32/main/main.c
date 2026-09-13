@@ -14,6 +14,7 @@
 #include "config/pin_config.h"
 #include "config/system_config.h"
 #include "hal/hardware_registry.h"
+#include "storage/storage_mgr.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -111,5 +112,8 @@ void app_main(void)
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
 
-    ESP_LOGI(TAG, "Hardware Abstraction & Safe Boot initialized successfully (SP-003).");
+    /* 5. Initialize Durable Storage & Recovery (SP-004) */
+    ESP_ERROR_CHECK(storage_mgr_init());
+
+    ESP_LOGI(TAG, "Durable Storage & Recovery initialized successfully (SP-004).");
 }

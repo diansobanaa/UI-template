@@ -1,5 +1,33 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-004 Durable storage and recovery created
+Safe Point: SP-004
+Status: COMPLETE
+
+Summary:
+- Implemented `storage_mgr` for persistent identity (`deviceId`, `complexId`, `bootId`, `bootCount`).
+- Implemented atomic Last Valid Configuration (LVC) persistence with CRC32 integrity verification.
+- Mounted `/spiffs` filesystem for local persistent log file storage with size-bounded rotation.
+- Registered storage sources in CMake and initialized in `app_main`.
+
+Files:
+- `esp32/main/storage/storage_mgr.h`
+- `esp32/main/storage/storage_mgr.c`
+- `esp32/main/main.c`
+- `esp32/main/CMakeLists.txt`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- NVS schema, CRC32 check & SPIFFS partition mount: PASS
+- UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-005: REST API contract implementation.
+
+---
+
 ## 2026-09-13 — SP-003 Hardware abstraction and safe boot created
 Safe Point: SP-003
 Status: COMPLETE
@@ -11,27 +39,8 @@ Summary:
 - Implemented `hardware_registry` unifying all 15 hardware components with safety classifications matching OpenAPI specifications.
 - Registered HAL sources in CMake and hooked into `app_main`.
 
-Files:
-- `esp32/main/hal/actuator_hal.h`
-- `esp32/main/hal/actuator_hal.c`
-- `esp32/main/hal/sensor_hal.h`
-- `esp32/main/hal/sensor_hal.c`
-- `esp32/main/hal/button_hal.h`
-- `esp32/main/hal/button_hal.c`
-- `esp32/main/hal/hardware_registry.h`
-- `esp32/main/hal/hardware_registry.c`
-- `esp32/main/main.c`
-- `esp32/main/CMakeLists.txt`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- HAL drivers, mutex thread-safety & registration: PASS
-- UI regression test (`npm run build`): PASS (0 errors)
-
 Next:
-- SP-004: Durable storage & recovery (NVS configuration manager & SPIFFS/SD manager).
+- SP-004: Durable storage & recovery.
 
 ---
 
@@ -46,23 +55,6 @@ Summary:
 - Configured `sdkconfig.defaults` for ESP32-S3 (PSRAM Octal, 240MHz, FreeRTOS, HTTP server, mDNS).
 - Established centralized pin registry `main/config/pin_config.h` matching canonical hardware baseline.
 - Created `main/main.c` entry point featuring safe actuator boot lock, system diagnostics, and NVS initialization.
-
-Files:
-- `esp32/CMakeLists.txt`
-- `esp32/partitions.csv`
-- `esp32/sdkconfig.defaults`
-- `esp32/main/CMakeLists.txt`
-- `esp32/main/config/pin_config.h`
-- `esp32/main/config/system_config.h`
-- `esp32/main/main.c`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- Project structure & CMake syntax: PASS
-- Header file integrity: PASS
-- UI regression test (`npm run build`): PASS (0 errors)
 
 Next:
 - SP-003: Hardware abstraction & safe boot.

@@ -5,6 +5,7 @@ idf_component_register(
         "hal/sensor_hal.c"
         "hal/button_hal.c"
         "hal/hardware_registry.c"
+        "storage/storage_mgr.c"
     INCLUDE_DIRS
         "."
         "config"
