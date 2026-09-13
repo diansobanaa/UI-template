@@ -45,7 +45,8 @@ SP-010 End-to-end verification (COMPLETE)
   - None.
 - **Next Safe Point / Action**:
   - **SP-011**: Assembly/commissioning documentation (create comprehensive `template/esp32/docs/ESP32_ASSEMBLY_GUIDE.md` covering full BOM, pin mapping, power domains, isolation, wiring diagrams, bring-up checklist, and commissioning procedure).
-- **Git Commit**: PENDING_COMMIT
+- **Git Commit**: `47dd367`
+
 
 
 
