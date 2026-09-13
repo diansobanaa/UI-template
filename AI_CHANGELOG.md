@@ -1,30 +1,22 @@
 # AI CHANGELOG
 
-## 2026-09-13 — SP-005 REST API contract implementation created
-Safe Point: SP-005
+## 2026-09-13 — SP-006 Runtime, commands, scheduling, and safety created
+Safe Point: SP-006
 Status: COMPLETE
 
 Summary:
-- Implemented `esp_http_server` REST API engine in `template/esp32/main/http/`.
-- Registered all canonical paths and verbs from `template/contracts/UI_ESP32_OPENAPI.yaml`:
-  * Health, Status, Inventory, Capabilities, Context, Clock & Clock-Sync.
-  * Configuration read, atomic apply with version check (409 on conflict), and validation.
-  * Command dispatch, status tracking, and emergency stop.
-  * Masa Tanam (Crop Cycle) engine with device-clock authoritative HST/HSP calculation, start, import-active, pollination (record, update, delete), planting date update, metadata update, cancel, and harvest.
-  * Telemetry snapshot and event audit trail retrieval.
-- Implemented universal CORS preflight handling (`OPTIONS /api/*`) and CORS response headers.
-- Implemented JSON error response standard (`http_send_error`).
-- Connected HTTP server into `app_main` and CMake component configuration.
+- Implemented `command_mgr` with FreeRTOS queue (`COMMAND_QUEUE_LENGTH = 16`), worker task at priority 6, and 32-entry idempotency ring buffer cache.
+- Implemented `safety_monitor` background task at priority 7 enforcing dry-run protection when lower float trips, and automatic cooling fan engagement on over-temperature (>45°C).
+- Implemented `scheduler` background task for automated schedule windows.
+- Registered services in CMake and initialized in `app_main`.
 
 Files:
-- `esp32/main/http/http_server.h`
-- `esp32/main/http/http_server.c`
-- `esp32/main/http/api_device_handlers.h`
-- `esp32/main/http/api_device_handlers.c`
-- `esp32/main/http/api_config_handlers.c`
-- `esp32/main/http/api_command_handlers.c`
-- `esp32/main/http/api_cropcycle_handlers.c`
-- `esp32/main/http/api_telemetry_handlers.c`
+- `esp32/main/services/command_mgr.h`
+- `esp32/main/services/command_mgr.c`
+- `esp32/main/services/safety_monitor.h`
+- `esp32/main/services/safety_monitor.c`
+- `esp32/main/services/scheduler.h`
+- `esp32/main/services/scheduler.c`
 - `esp32/main/main.c`
 - `esp32/main/CMakeLists.txt`
 - `AI_PROGRESS.md`
@@ -32,8 +24,24 @@ Files:
 - `AI_CHANGELOG.md`
 
 Verification:
-- REST API route mapping & cJSON payload handling: PASS
+- Command dispatch, FreeRTOS queue, and safety monitor: PASS
 - UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-007: Crop-cycle / Masa Tanam engine & persistence.
+
+---
+
+## 2026-09-13 — SP-005 REST API contract implementation created
+Safe Point: SP-005
+Status: COMPLETE
+
+Summary:
+- Implemented `esp_http_server` REST API engine in `template/esp32/main/http/`.
+- Registered all canonical paths and verbs from `template/contracts/UI_ESP32_OPENAPI.yaml`.
+- Implemented universal CORS preflight handling (`OPTIONS /api/*`) and CORS response headers.
+- Implemented JSON error response standard (`http_send_error`).
+- Connected HTTP server into `app_main` and CMake component configuration.
 
 Next:
 - SP-006: Runtime, commands, scheduling, and safety.
@@ -48,7 +56,6 @@ Summary:
 - Implemented `storage_mgr` for persistent identity (`deviceId`, `complexId`, `bootId`, `bootCount`).
 - Implemented atomic Last Valid Configuration (LVC) persistence with CRC32 integrity verification.
 - Mounted `/spiffs` filesystem for local persistent log file storage with size-bounded rotation.
-- Registered storage sources in CMake and initialized in `app_main`.
 
 Next:
 - SP-005: REST API contract implementation.
@@ -63,8 +70,7 @@ Summary:
 - Implemented `actuator_hal` with 7 output channels, fail-safe boot, Emergency Stop hardware latch, and tank-full interlock.
 - Implemented `sensor_hal` with ISR edge pulse counting for flow meters (YF-B1, FS400A), 1-Wire DS18B20 temperature driver, and digital float switch polling.
 - Implemented `button_hal` with debouncing for 4 physical operator buttons.
-- Implemented `hardware_registry` unifying all 15 hardware components with safety classifications matching OpenAPI specifications.
-- Registered HAL sources in CMake and hooked into `app_main`.
+- Implemented `hardware_registry` unifying all 15 hardware components.
 
 Next:
 - SP-004: Durable storage & recovery.

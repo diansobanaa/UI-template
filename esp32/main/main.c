@@ -16,6 +16,9 @@
 #include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
 #include "http/http_server.h"
+#include "services/command_mgr.h"
+#include "services/safety_monitor.h"
+#include "services/scheduler.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -116,8 +119,13 @@ void app_main(void)
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());
 
-    /* 6. Start REST HTTP Server (SP-005) */
+    /* 6. Initialize Runtime Services & Safety (SP-006) */
+    ESP_ERROR_CHECK(command_mgr_init());
+    ESP_ERROR_CHECK(safety_monitor_init());
+    ESP_ERROR_CHECK(scheduler_init());
+
+    /* 7. Start REST HTTP Server (SP-005) */
     ESP_ERROR_CHECK(http_server_start());
 
-    ESP_LOGI(TAG, "ESP32 REST API server initialized successfully (SP-005). Ready for UI connections.");
+    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-006).");
 }
