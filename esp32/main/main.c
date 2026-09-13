@@ -1,0 +1,111 @@
+#include <stdio.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_netif.h"
+#include "esp_event.h"
+#include "driver/gpio.h"
+
+#include "config/pin_config.h"
+#include "config/system_config.h"
+
+static const char *TAG = "AGROTECH_MAIN";
+
+/**
+ * @brief Enforce immediate fail-safe state on all actuator GPIO outputs.
+ *
+ * This function executes BEFORE any network, storage, or runtime tasks start.
+ * Ensures that reboot, brownout recovery, or crash cannot leave pumps or fans ON.
+ */
+static void safe_boot_actuators(void)
+{
+    ESP_LOGI(TAG, "Executing safe boot: initializing all outputs to OFF state...");
+
+    const gpio_num_t output_pins[] = {
+        PIN_OUT_WELL_PUMP,
+        PIN_OUT_DIST_PUMP,
+        PIN_OUT_RAW_SUBMERSIBLE,
+        PIN_OUT_DOSING_A,
+        PIN_OUT_DOSING_B,
+        PIN_OUT_COOLING_FAN,
+        PIN_OUT_ERROR_LAMP
+    };
+
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = 0
+    };
+
+    for (size_t i = 0; i < sizeof(output_pins) / sizeof(output_pins[0]); ++i) {
+        /* Set level low first before setting as output */
+        gpio_set_level(output_pins[i], ACTUATOR_LEVEL_OFF);
+        io_conf.pin_bit_mask |= (1ULL << output_pins[i]);
+    }
+
+    esp_err_t err = gpio_config(&io_conf);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Safe boot complete: 7 actuator channels locked in safe-off state.");
+    } else {
+        ESP_LOGE(TAG, "CRITICAL: Failed to configure actuator safe GPIOs (err=0x%x)", err);
+    }
+}
+
+/**
+ * @brief Initialize Non-Volatile Storage (NVS).
+ */
+static esp_err_t init_nvs(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition truncated or reformatted. Erasing and retrying...");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    return ret;
+}
+
+/**
+ * @brief Print chip hardware diagnostics and memory status.
+ */
+static void print_system_diagnostics(void)
+{
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+
+    uint32_t flash_size = 0;
+    esp_flash_get_size(NULL, &flash_size);
+
+    ESP_LOGI(TAG, "==================================================");
+    ESP_LOGI(TAG, " %s v%s", FIRMWARE_NAME, FIRMWARE_VERSION);
+    ESP_LOGI(TAG, " Target Hardware : %s", HARDWARE_MODEL);
+    ESP_LOGI(TAG, " Contract Spec   : %s", CONTRACT_VERSION);
+    ESP_LOGI(TAG, " Cores           : %d (rev %d)", chip_info.cores, chip_info.revision);
+    ESP_LOGI(TAG, " Flash Size      : %lu MB", (unsigned long)(flash_size / (1024 * 1024)));
+    ESP_LOGI(TAG, " Free Heap       : %lu bytes", (unsigned long)esp_get_free_heap_size());
+    ESP_LOGI(TAG, " Min Free Heap   : %lu bytes", (unsigned long)esp_get_minimum_free_heap_size());
+    ESP_LOGI(TAG, "==================================================");
+}
+
+void app_main(void)
+{
+    /* 1. Safe boot first — outputs locked to safe OFF immediately */
+    safe_boot_actuators();
+
+    /* 2. Print boot banner and diagnostics */
+    print_system_diagnostics();
+
+    /* 3. Initialize core system services */
+    ESP_ERROR_CHECK(init_nvs());
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    ESP_LOGI(TAG, "ESP32 project foundation initialized successfully (SP-002).");
+}

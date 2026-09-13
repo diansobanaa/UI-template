@@ -1,24 +1,23 @@
 # AI HANDOVER
 
 ## Last Safe Point
-SP-001 (COMPLETE) — Repository discovery, compatibility baseline, and contract alignment.
+SP-002 (COMPLETE) — ESP32 project foundation in `template/esp32/`.
 
 ## State
-The repository baseline is clean and verified:
-1. `template/contracts/UI_ESP32_OPENAPI.yaml` is the canonical shared contract source of truth.
-2. Pre-existing TypeScript build errors in the UI have been resolved with zero regressions to visual styling.
-3. `src/lib/api/contracts.ts` and `src/lib/api/esp32-client.ts` have been aligned with canonical OpenAPI endpoints and schemas.
-4. `npm run build` (`tsc -b && vite build`) executes cleanly with zero errors.
+The ESP32 project foundation is established:
+1. Canonical location `template/esp32/` is active with ESP-IDF CMake files (`CMakeLists.txt`, `main/CMakeLists.txt`).
+2. Partition table `partitions.csv` and `sdkconfig.defaults` for ESP32-S3 (PSRAM, FreeRTOS, HTTP server, mDNS) configured.
+3. Centralized pin registry `template/esp32/main/config/pin_config.h` holds all GPIO mappings.
+4. Entry point `template/esp32/main/main.c` enforces fail-safe boot with all actuator pins initialized to OFF state.
 
 ## What the next agent must do
 1. Read `GEMINI.md`.
 2. Read `AI_PROGRESS.md`.
 3. Inspect `git status` / latest commit.
-4. Begin **SP-002**: Initialize ESP32-S3 firmware project structure under `template/esp32/`.
-   - ESP-IDF CMake project structure (`CMakeLists.txt`, `main/CMakeLists.txt`).
-   - `sdkconfig.defaults` targeting ESP32-S3 with PSRAM, FreeRTOS, and HTTP server enabled.
-   - Core app entry point (`main/main.c` / `main/main.cpp`).
+4. Begin **SP-003**: Hardware abstraction & safe boot.
+   - Implement HAL drivers under `template/esp32/main/hal/` (actuator driver, pulse counter flow meters for YF-B1 & FS400A, 1-Wire DS18B20 temperature sensor, float switches, and button debounce).
+   - Ensure actuators have software interlocks (emergency stop latch, raw water tank full interlock).
 
 ## Do not assume
-- Do not assume physical hardware wiring matches defaults without consulting documentation. Baseline pin assignments must remain centralized in `esp32/main/config/pin_config.h` or equivalent registry.
-- Do not bypass canonical contract `template/contracts/UI_ESP32_OPENAPI.yaml`.
+- Do not hardcode GPIO pins in individual driver files; always include `<config/pin_config.h>`.
+- Do not assume physical relay trigger polarity without datasheet verification (`VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION`).

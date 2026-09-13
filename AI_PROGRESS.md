@@ -4,11 +4,11 @@
 IN PROGRESS
 
 ## Latest Safe Point
-SP-001 Repository discovery and compatibility baseline (COMPLETE)
+SP-002 ESP32 project foundation (COMPLETE)
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
-- [ ] SP-002 ESP32 project foundation
+- [x] SP-002 ESP32 project foundation
 - [ ] SP-003 Hardware abstraction and safe boot
 - [ ] SP-004 Durable storage and recovery
 - [ ] SP-005 REST API contract implementation
@@ -21,40 +21,33 @@ SP-001 Repository discovery and compatibility baseline (COMPLETE)
 
 ---
 
-## Safe Point Record: SP-001
-- **ID**: SP-001
-- **Objective**: Repository discovery, establish canonical shared contract location under `template/contracts/`, audit UI ↔ ESP32 operations, resolve pre-existing UI build/type errors, and align API adapter contracts.
+## Safe Point Record: SP-002
+- **ID**: SP-002
+- **Objective**: Establish the ESP32-S3 firmware project foundation in `template/esp32/` with ESP-IDF CMake configuration, partition table, target defaults, centralized pin registry, and FreeRTOS safe entry point.
 - **Completed Work**:
-  1. Completed repository inspection across frontend entry points, service layers, and specification documents.
-  2. Established canonical shared API contract directory at `template/contracts/UI_ESP32_OPENAPI.yaml`.
-  3. Identified contract gaps/conflicts between UI client stubs and OpenAPI spec (especially crop-cycle endpoints and snake_case field discrepancies).
-  4. Resolved pre-existing UI build errors minimally without touching layout or styling:
-     - Created `src/app/range-types.ts` (`RangeId` type).
-     - Fixed `src/components/ui/crop-cycle/CycleHistoryModal.tsx` (`plantingDate` -> `tanggalTanam`).
-     - Added missing `"failed"` key to `StatusPill` in `src/app/schedule/page.tsx`.
-     - Guarded `ActiveTimelineTooltipIcon` and generalized timeline point typing in `src/app/page.tsx` and `src/app/greenhouse/[ghId]/page.tsx`.
-  5. Updated `src/lib/api/contracts.ts` and `src/lib/api/esp32-client.ts` with canonical DTOs and REST methods matching `UI_ESP32_OPENAPI.yaml`.
-  6. Verified automated production build (`tsc -b && vite build`) passes with zero errors.
+  1. Created `template/esp32/CMakeLists.txt` and `template/esp32/main/CMakeLists.txt`.
+  2. Created custom partition table `template/esp32/partitions.csv` (NVS, dual OTA 3MB partitions, and 9MB SPIFFS/storage partition).
+  3. Created `template/esp32/sdkconfig.defaults` configuring target `esp32s3`, 16MB QIO flash, Octal PSRAM, 1000Hz FreeRTOS tick rate, and tuned HTTP server / mDNS / LWIP buffers.
+  4. Established centralized pin registry `template/esp32/main/config/pin_config.h` covering SPI, I2C, actuator outputs, sensor inputs, operator buttons, and strapping pin reservations according to prompt section 9.
+  5. Established system constants `template/esp32/main/config/system_config.h`.
+  6. Implemented `app_main(void)` in `template/esp32/main/main.c` with fail-safe output initialization, system diagnostics, and core NVS/Netif/EventLoop startup.
 - **Verification Result**:
-  - Build: PASS (`tsc -b && vite build` completed cleanly, singlefile bundle generated)
-  - Tests: PASS (typecheck and bundle verification)
-  - Contract: PASS (aligned `contracts/UI_ESP32_OPENAPI.yaml` with TypeScript contract DTOs)
-  - UI integration: PASS (backward compatibility maintained in existing UI components)
-  - Hardware: NOT VERIFIED (physical hardware not connected)
+  - Build: PASS (UI build verified unaffected: `tsc -b && vite build` succeeded)
+  - Tests: PASS (CMake syntax, file structure, and header integrity verified)
+  - Contract: PASS (Canonical contract `contracts/UI_ESP32_OPENAPI.yaml` preserved)
+  - UI integration: PASS (No regressions in UI)
+  - Hardware: NOT VERIFIED (Physical ESP32 hardware not connected)
 - **Changed Files**:
-  - `contracts/UI_ESP32_OPENAPI.yaml` (canonical contract established)
-  - `src/app/range-types.ts` (new type file)
-  - `src/components/ui/crop-cycle/CycleHistoryModal.tsx` (field naming alignment)
-  - `src/app/schedule/page.tsx` (status dictionary completeness)
-  - `src/app/greenhouse/[ghId]/page.tsx` (type safety & tooltip guard)
-  - `src/app/page.tsx` (type safety & tooltip guard)
-  - `src/lib/api/contracts.ts` (canonical OpenAPI schemas & DTOs added)
-  - `src/lib/api/esp32-client.ts` (canonical REST endpoints implemented)
-  - `src/lib/api/backend-client.ts` (generic support for typed delete response)
-  - `src/lib/api/hardware-gateway.ts` (clock response adapter alignment)
+  - `esp32/CMakeLists.txt` (root CMake)
+  - `esp32/partitions.csv` (partition table)
+  - `esp32/sdkconfig.defaults` (ESP32-S3 target config)
+  - `esp32/main/CMakeLists.txt` (main component CMake)
+  - `esp32/main/config/pin_config.h` (central pin registry)
+  - `esp32/main/config/system_config.h` (system configuration)
+  - `esp32/main/main.c` (FreeRTOS entry point)
 - **Known Issues / Blockers**:
-  - Physical hardware wiring and module-specific electrical specifications must be verified before connection.
-  - Baseline pin mapping is a project baseline, not proof of physical board wiring.
+  - Physical board wiring and relay module trigger polarities must be verified before physical connection (`VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION`).
+  - ESP-IDF build toolchain (`idf.py`) is not installed in the Windows system PATH, so firmware compilation was checked structurally/syntactically rather than through an active toolchain run.
 - **Next Safe Point / Action**:
-  - **SP-002**: ESP32 project foundation under `template/esp32/` (ESP-IDF CMake project structure, target `esp32s3`, `sdkconfig.defaults`, FreeRTOS task skeleton).
-- **Git Commit**: `4cd62b0`
+  - **SP-003**: Hardware abstraction and safe boot (modular driver HAL for actuators, flow sensors YF-B1/FS400A, DS18B20 1-Wire temperature, float switches, and button debouncing).
+- **Git Commit**: (recorded upon commit)

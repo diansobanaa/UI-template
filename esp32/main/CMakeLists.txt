@@ -1,0 +1,27 @@
+idf_component_register(
+    SRCS
+        "main.c"
+    INCLUDE_DIRS
+        "."
+        "config"
+        "hal"
+        "services"
+        "http"
+        "storage"
+        "net"
+        "dto"
+        "util"
+    REQUIRES
+        esp_http_server
+        mdns
+        nvs_flash
+        esp_wifi
+        esp_netif
+        json
+        driver
+        spiffs
+        fatfs
+        vfs
+        esp_timer
+        esp_event
+)
