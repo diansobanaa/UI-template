@@ -4,6 +4,50 @@
 #include "cJSON.h"
 #include <string.h>
 
+static bool validate_config_payload(cJSON *body, cJSON *errors)
+{
+    bool valid = true;
+    cJSON *cfg = cJSON_GetObjectItem(body, "configuration");
+    if (!cfg || !cJSON_IsObject(cfg)) {
+        cJSON_AddItemToArray(errors, cJSON_CreateString("Missing 'configuration' object"));
+        return false;
+    }
+
+    cJSON *tz = cJSON_GetObjectItem(cfg, "timezone");
+    if (tz && cJSON_IsString(tz)) {
+        if (strlen(tz->valuestring) > 64) {
+            cJSON_AddItemToArray(errors, cJSON_CreateString("timezone string too long"));
+            valid = false;
+        }
+    }
+
+    cJSON *schedules = cJSON_GetObjectItem(cfg, "schedules");
+    if (schedules && cJSON_IsArray(schedules)) {
+        int arr_size = cJSON_GetArraySize(schedules);
+        if (arr_size > 16) {
+            cJSON_AddItemToArray(errors, cJSON_CreateString("Too many schedules (max 16)"));
+            valid = false;
+        }
+        for (int i = 0; i < arr_size; i++) {
+            cJSON *item = cJSON_GetArrayItem(schedules, i);
+            cJSON *action = cJSON_GetObjectItem(item, "action");
+            if (!action || !cJSON_IsString(action)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'action'"));
+                valid = false;
+            }
+            cJSON *duration = cJSON_GetObjectItem(item, "durationSec");
+            if (duration && cJSON_IsNumber(duration)) {
+                if (duration->valuedouble < 0 || duration->valuedouble > 86400) {
+                    cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule duration out of bounds [0, 86400]"));
+                    valid = false;
+                }
+            }
+        }
+    }
+    
+    return valid;
+}
+
 esp_err_t handler_get_configuration(httpd_req_t *req)
 {
     const system_storage_state_t *st = storage_mgr_get_state();
@@ -42,6 +86,14 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid configuration JSON payload", NULL);
     }
 
+    cJSON *errors = cJSON_CreateArray();
+    if (!validate_config_payload(body, errors)) {
+        cJSON_Delete(body);
+        cJSON_Delete(errors);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Configuration payload failed schema or bounds validation", NULL);
+    }
+    cJSON_Delete(errors);
+
     const system_storage_state_t *st = storage_mgr_get_state();
     cJSON *expected_ver = cJSON_GetObjectItem(body, "expectedVersion");
     if (expected_ver && cJSON_IsNumber(expected_ver)) {
@@ -71,9 +123,11 @@ esp_err_t handler_validate_configuration(httpd_req_t *req)
     }
 
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddBoolToObject(root, "valid", true);
-    cJSON_AddArrayToObject(root, "errors");
-    cJSON_AddArrayToObject(root, "warnings");
+    cJSON *errors = cJSON_AddArrayToObject(root, "errors");
+    cJSON *warnings = cJSON_AddArrayToObject(root, "warnings");
+
+    bool valid = validate_config_payload(body, errors);
+    cJSON_AddBoolToObject(root, "valid", valid);
 
     cJSON_Delete(body);
     return http_send_json_response(req, 200, root);
