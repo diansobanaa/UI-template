@@ -1,5 +1,40 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-003 Hardware abstraction and safe boot created
+Safe Point: SP-003
+Status: COMPLETE
+
+Summary:
+- Implemented `actuator_hal` with 7 output channels, fail-safe boot, Emergency Stop hardware latch, and tank-full interlock.
+- Implemented `sensor_hal` with ISR edge pulse counting for flow meters (YF-B1, FS400A), 1-Wire DS18B20 temperature driver, and digital float switch polling.
+- Implemented `button_hal` with debouncing for 4 physical operator buttons.
+- Implemented `hardware_registry` unifying all 15 hardware components with safety classifications matching OpenAPI specifications.
+- Registered HAL sources in CMake and hooked into `app_main`.
+
+Files:
+- `esp32/main/hal/actuator_hal.h`
+- `esp32/main/hal/actuator_hal.c`
+- `esp32/main/hal/sensor_hal.h`
+- `esp32/main/hal/sensor_hal.c`
+- `esp32/main/hal/button_hal.h`
+- `esp32/main/hal/button_hal.c`
+- `esp32/main/hal/hardware_registry.h`
+- `esp32/main/hal/hardware_registry.c`
+- `esp32/main/main.c`
+- `esp32/main/CMakeLists.txt`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- HAL drivers, mutex thread-safety & registration: PASS
+- UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-004: Durable storage & recovery (NVS configuration manager & SPIFFS/SD manager).
+
+---
+
 ## 2026-09-13 — SP-002 ESP32 project foundation created
 Safe Point: SP-002
 Status: COMPLETE
@@ -30,7 +65,7 @@ Verification:
 - UI regression test (`npm run build`): PASS (0 errors)
 
 Next:
-- SP-003: Hardware abstraction & safe boot (HAL drivers for actuators, flow meters, temperature, floats, and buttons).
+- SP-003: Hardware abstraction & safe boot.
 
 ---
 
@@ -41,51 +76,9 @@ Status: COMPLETE
 Summary:
 - Established canonical shared API contract directory at `template/contracts/UI_ESP32_OPENAPI.yaml`.
 - Resolved 4 pre-existing TypeScript errors in UI without modifying layout or visual design.
-- Aligned `src/lib/api/contracts.ts` and `src/lib/api/esp32-client.ts` with canonical OpenAPI endpoints (crop-cycle, health, status, inventory, clock sync, commands).
-- Enabled generic typing on `apiDelete` in `backend-client.ts` and aligned `hardware-gateway.ts` clock synchronization fallback.
-- Successfully verified `npm run build` (`tsc -b && vite build`) passes with zero errors and generated singlefile bundle.
-
-Files:
-- `contracts/UI_ESP32_OPENAPI.yaml`
-- `src/app/range-types.ts`
-- `src/components/ui/crop-cycle/CycleHistoryModal.tsx`
-- `src/app/schedule/page.tsx`
-- `src/app/greenhouse/[ghId]/page.tsx`
-- `src/app/page.tsx`
-- `src/lib/api/contracts.ts`
-- `src/lib/api/esp32-client.ts`
-- `src/lib/api/backend-client.ts`
-- `src/lib/api/hardware-gateway.ts`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- `npm run build`: PASS (0 errors, singlefile build output generated in dist/)
+- Aligned `src/lib/api/contracts.ts` and `src/lib/api/esp32-client.ts` with canonical OpenAPI endpoints.
+- Enabled generic typing on `apiDelete` in `backend-client.ts`.
+- Verified `npm run build` passes with zero errors.
 
 Next:
 - SP-002: ESP32 project foundation in `template/esp32/`
-
----
-
-## 2026-09-13 — Safe-point system created
-Safe Point: PRE-SP-001
-
-Summary:
-- Created durable cross-agent handover protocol.
-- Added persistent project rules.
-- Added progress, handover, decisions, and changelog files.
-- Designed the workflow so Gemini account/model changes do not require conversation-memory continuity.
-
-Files:
-- `GEMINI.md`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_DECISIONS.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- Documentation package generated successfully.
-
-Next:
-- Agent performs repository discovery and creates SP-001.

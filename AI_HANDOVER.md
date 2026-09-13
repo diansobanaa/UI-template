@@ -1,23 +1,23 @@
 # AI HANDOVER
 
 ## Last Safe Point
-SP-002 (COMPLETE) — ESP32 project foundation in `template/esp32/`.
+SP-003 (COMPLETE) — Hardware abstraction and safe boot.
 
 ## State
-The ESP32 project foundation is established:
-1. Canonical location `template/esp32/` is active with ESP-IDF CMake files (`CMakeLists.txt`, `main/CMakeLists.txt`).
-2. Partition table `partitions.csv` and `sdkconfig.defaults` for ESP32-S3 (PSRAM, FreeRTOS, HTTP server, mDNS) configured.
-3. Centralized pin registry `template/esp32/main/config/pin_config.h` holds all GPIO mappings.
-4. Entry point `template/esp32/main/main.c` enforces fail-safe boot with all actuator pins initialized to OFF state.
+The Hardware Abstraction Layer is implemented and registered in `template/esp32/main/hal/`:
+1. `actuator_hal`: Controls 7 outputs with immediate safe-off boot, Emergency Stop latch, and raw water tank full interlock.
+2. `sensor_hal`: Flow meter ISR pulse counters (YF-B1 & FS400A), DS18B20 1-Wire temperature, and float switch.
+3. `button_hal`: Debounced physical buttons with callback support.
+4. `hardware_registry`: Unified catalog of 15 hardware components matching OpenAPI inventory schemas.
 
 ## What the next agent must do
 1. Read `GEMINI.md`.
 2. Read `AI_PROGRESS.md`.
 3. Inspect `git status` / latest commit.
-4. Begin **SP-003**: Hardware abstraction & safe boot.
-   - Implement HAL drivers under `template/esp32/main/hal/` (actuator driver, pulse counter flow meters for YF-B1 & FS400A, 1-Wire DS18B20 temperature sensor, float switches, and button debounce).
-   - Ensure actuators have software interlocks (emergency stop latch, raw water tank full interlock).
+4. Begin **SP-004**: Durable storage & recovery.
+   - Implement storage subsystem in `template/esp32/main/storage/` (NVS manager for Last Valid Configuration, device identity, version hashing, and SPIFFS/SD file logging).
+   - Ensure reboot safety policy: recover last valid configuration and verify version match.
 
 ## Do not assume
-- Do not hardcode GPIO pins in individual driver files; always include `<config/pin_config.h>`.
-- Do not assume physical relay trigger polarity without datasheet verification (`VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION`).
+- Do not bypass `actuator_hal_set()` when driving physical outputs.
+- Never write unvalidated JSON directly to persistent flash.

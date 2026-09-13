@@ -13,6 +13,7 @@
 
 #include "config/pin_config.h"
 #include "config/system_config.h"
+#include "hal/hardware_registry.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -107,5 +108,8 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    ESP_LOGI(TAG, "ESP32 project foundation initialized successfully (SP-002).");
+    /* 4. Initialize Hardware Abstraction Layer (SP-003) */
+    ESP_ERROR_CHECK(hardware_hal_init_all());
+
+    ESP_LOGI(TAG, "Hardware Abstraction & Safe Boot initialized successfully (SP-003).");
 }

@@ -1,6 +1,10 @@
 idf_component_register(
     SRCS
         "main.c"
+        "hal/actuator_hal.c"
+        "hal/sensor_hal.c"
+        "hal/button_hal.c"
+        "hal/hardware_registry.c"
     INCLUDE_DIRS
         "."
         "config"
