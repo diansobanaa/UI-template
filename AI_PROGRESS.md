@@ -23,6 +23,7 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-REMEDIATION-PLAN-001 Remediation planning phase complete
 - [x] SP-REMED-001 Hardware Definition & Boot Initialization
 - [x] SP-REMED-002 Network & RTC Initialization
+- [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
 
 ---
 
@@ -143,4 +144,34 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - Requires physical hardware verification. SoftAP credentials are hardcoded as "AGROTECH-SETUP".
 - **Next Safe Point / Action**:
   - Begin SP-REMED-003 (Physical Safety Interlocks & Sensor Drivers).
+
+---
+
+## Safe Point Record: SP-REMED-003
+- **ID**: SP-REMED-003
+- **Objective**: Physical Safety Interlocks & Sensor Drivers
+- **Completed Work**:
+  1. Updated `actuator_hal.c` to use `activeLevel` (default 0 for Active-LOW) per actuator (`BS-HW-004`).
+  2. Implemented dry-run protection in `actuator_hal_set()` by reading `PIN_IN_FLOAT_LOWER` (`BS-SAFE-002`).
+  3. Changed DS18B20 conversion delay from 15ms to 750ms non-blocking (`BS-HW-005`).
+  4. Implemented explicit sensor state enums (`SENSOR_STATE_VALID`, etc) for DS18B20 (`BS-SENS-001`).
+  5. Updated `safety_monitor.c` to detect stuck/welded relays by checking flow pulses when pumps are OFF (`BS-SENS-001`).
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: N/A
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/hal/actuator_hal.h`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/sensor_hal.h`
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/services/safety_monitor.c`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
+- **Known Issues / Blockers**:
+  - REQUIRES PHYSICAL VERIFICATION for actual relay module polarity (active-low vs active-high).
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-004 (Persistence & Memory Bounds).
 

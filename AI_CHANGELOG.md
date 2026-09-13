@@ -1,5 +1,34 @@
 # AI CHANGELOG
 
+## 2026-09-14 — SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
+Safe Point: SP-REMED-003
+Status: COMPLETE
+
+Summary:
+- Refactored `actuator_hal` to support `activeLevel` (default Active-LOW) per actuator (`BS-HW-004`).
+- Implemented dry-run protection reading `PIN_IN_FLOAT_LOWER` directly in `actuator_hal_set()` (`BS-SAFE-002`).
+- Fixed `sensor_hal` DS18B20 750ms blocking issue and added explicit `sensor_state_t` enum (`BS-HW-005`, `BS-SENS-001`).
+- Added stuck/welded relay detection to `safety_monitor` utilizing flow meters (`BS-SENS-001`).
+
+Next:
+- SP-REMED-004: Persistence & Memory Bounds.
+
+---
+
+## 2026-09-14 — SP-REMED-002 Network & RTC Initialization
+Safe Point: SP-REMED-002
+Status: COMPLETE
+
+Summary:
+- Implemented `network_mgr` for Wi-Fi STA with SoftAP fallback (`BS-NET-001`).
+- Implemented `rtc_ds3231` I2C driver for physical DS3231 module (`BS-CLOCK-001`).
+- Added system time synchronization on boot (`BS-CLOCK-002`).
+
+Next:
+- SP-REMED-003: Physical Safety Interlocks & Sensor Drivers.
+
+---
+
 ## 2026-09-13 — SP-REMED-001 Hardware Definition & Boot Initialization complete
 Safe Point: SP-REMED-001
 Status: COMPLETE

@@ -26,6 +26,7 @@ typedef struct {
     bool is_on;
     bool is_interlocked;
     uint32_t run_time_seconds;
+    uint8_t active_level; // 0 for Active-LOW, 1 for Active-HIGH
 } actuator_status_t;
 
 /**

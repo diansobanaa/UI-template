@@ -90,16 +90,16 @@ static uint8_t ds18b20_read_byte(gpio_num_t pin)
     return byte;
 }
 
-static bool ds18b20_read_temp(gpio_num_t pin, float *out_temp)
+static sensor_state_t ds18b20_read_temp(gpio_num_t pin, float *out_temp)
 {
-    if (ds18b20_reset(pin) != ESP_OK) return false;
+    if (ds18b20_reset(pin) != ESP_OK) return SENSOR_STATE_DISCONNECTED;
     ds18b20_write_byte(pin, 0xCC); /* Skip ROM */
     ds18b20_write_byte(pin, 0x44); /* Start Convert */
 
-    /* Wait conversion time */
-    vTaskDelay(pdMS_TO_TICKS(15));
+    /* Wait conversion time (12-bit max ~750ms) */
+    vTaskDelay(pdMS_TO_TICKS(750));
 
-    if (ds18b20_reset(pin) != ESP_OK) return false;
+    if (ds18b20_reset(pin) != ESP_OK) return SENSOR_STATE_DISCONNECTED;
     ds18b20_write_byte(pin, 0xCC); /* Skip ROM */
     ds18b20_write_byte(pin, 0xBE); /* Read Scratchpad */
 
@@ -108,7 +108,12 @@ static bool ds18b20_read_temp(gpio_num_t pin, float *out_temp)
 
     int16_t raw = (int16_t)((msb << 8) | lsb);
     *out_temp = (float)raw / 16.0f;
-    return true;
+    
+    if (*out_temp <= -55.0f || *out_temp >= 125.0f) {
+        return SENSOR_STATE_OUT_OF_RANGE;
+    }
+    
+    return SENSOR_STATE_VALID;
 }
 
 esp_err_t sensor_hal_init(void)
@@ -163,8 +168,8 @@ esp_err_t sensor_hal_poll(void)
 
     /* DS18B20 Temperature Reading */
     float temp_val = 0.0f;
-    s_current_readings.temp_valid = ds18b20_read_temp(PIN_IN_TEMP_DS18B20, &temp_val);
-    if (s_current_readings.temp_valid) {
+    s_current_readings.temp_state = ds18b20_read_temp(PIN_IN_TEMP_DS18B20, &temp_val);
+    if (s_current_readings.temp_state == SENSOR_STATE_VALID) {
         s_current_readings.temperature_c = temp_val;
     }
 

@@ -11,16 +11,20 @@ typedef struct {
     const char *name;
     gpio_num_t gpio;
     bool state;
+    uint8_t active_level;
 } actuator_descriptor_t;
 
+/* User selected default Active-LOW (0). REQUIRES PHYSICAL VERIFICATION. */
+#define DEFAULT_ACTIVE_LEVEL 0
+
 static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
-    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false },
-    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false },
-    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false },
-    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false },
-    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false },
-    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false },
-    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false },
+    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
 };
 
 static bool s_emergency_stop_latched = false;
@@ -45,7 +49,8 @@ esp_err_t actuator_hal_init(void)
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         s_actuators[i].state = false;
-        gpio_set_level(s_actuators[i].gpio, ACTUATOR_LEVEL_OFF);
+        // Output inactive level is the opposite of active_level
+        gpio_set_level(s_actuators[i].gpio, !s_actuators[i].active_level);
         io_conf.pin_bit_mask |= (1ULL << s_actuators[i].gpio);
     }
 
@@ -82,8 +87,20 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         return ESP_ERR_INVALID_STATE;
     }
 
+    /* Interlock 3: Dry-Run Protection via Lower Float (BS-SAFE-002) */
+    if (on && (id == ACTUATOR_DIST_PUMP || id == ACTUATOR_WELL_PUMP || id == ACTUATOR_RAW_SUBMERSIBLE)) {
+        // Read directly from PIN_IN_FLOAT_LOWER. Assuming 1 = dry, 0 = wet (needs physical verification).
+        // If the tank is dry, reject pump activation.
+        if (gpio_get_level(PIN_IN_FLOAT_LOWER) == 1) { 
+            xSemaphoreGive(s_lock);
+            ESP_LOGW(TAG, "Blocked %s ON: Dry-run protection interlock active (Tank empty).", s_actuators[id].name);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
     s_actuators[id].state = on;
-    gpio_set_level(s_actuators[id].gpio, on ? ACTUATOR_LEVEL_ON : ACTUATOR_LEVEL_OFF);
+    uint8_t physical_level = on ? s_actuators[id].active_level : !s_actuators[id].active_level;
+    gpio_set_level(s_actuators[id].gpio, physical_level);
 
     ESP_LOGI(TAG, "%s state -> %s (GPIO %d)", s_actuators[id].name, on ? "ON" : "OFF", s_actuators[id].gpio);
 
@@ -105,8 +122,11 @@ esp_err_t actuator_hal_get_status(actuator_id_t id, actuator_status_t *out_statu
     out_status->name = s_actuators[id].name;
     out_status->gpio_num = s_actuators[id].gpio;
     out_status->is_on = s_actuators[id].state;
-    out_status->is_interlocked = (s_emergency_stop_latched || (id == ACTUATOR_WELL_PUMP && s_tank_full_interlock));
-    out_status->run_time_seconds = 0;
+    out_status->is_interlocked = s_emergency_stop_latched || 
+                                 (id == ACTUATOR_WELL_PUMP && s_tank_full_interlock) ||
+                                 ((id == ACTUATOR_DIST_PUMP || id == ACTUATOR_WELL_PUMP || id == ACTUATOR_RAW_SUBMERSIBLE) && gpio_get_level(PIN_IN_FLOAT_LOWER) == 1);
+    out_status->run_time_seconds = 0; // Not fully tracked yet
+    out_status->active_level = s_actuators[id].active_level;
 
     return ESP_OK;
 }
@@ -119,7 +139,7 @@ void actuator_hal_emergency_stop(void)
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         s_actuators[i].state = false;
-        gpio_set_level(s_actuators[i].gpio, ACTUATOR_LEVEL_OFF);
+        gpio_set_level(s_actuators[i].gpio, !s_actuators[i].active_level);
     }
 
     /* Turn error lamp ON upon emergency stop */

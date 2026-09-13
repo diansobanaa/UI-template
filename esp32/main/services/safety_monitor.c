@@ -9,6 +9,8 @@
 
 static const char *TAG = "SAFETY_MONITOR";
 static bool s_has_fault = false;
+static uint32_t s_last_yfb1 = 0;
+static uint32_t s_last_fs400a = 0;
 
 static void safety_monitor_task(void *pvParameters)
 {
@@ -34,16 +36,36 @@ static void safety_monitor_task(void *pvParameters)
         }
 
         /* Rule 2: Over-temperature protection (> 45°C) */
-        if (sensors.temp_valid && sensors.temperature_c > 45.0f) {
+        if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c > 45.0f) {
             if (!actuator_hal_get_state(ACTUATOR_COOLING_FAN)) {
                 ESP_LOGW(TAG, "High temperature detected (%.1f C). Activating cooling fan.", sensors.temperature_c);
                 actuator_hal_set(ACTUATOR_COOLING_FAN, true);
             }
-        } else if (sensors.temp_valid && sensors.temperature_c < 35.0f) {
+        } else if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c < 35.0f) {
             if (actuator_hal_get_state(ACTUATOR_COOLING_FAN)) {
                 actuator_hal_set(ACTUATOR_COOLING_FAN, false);
             }
         }
+
+        /* Rule 3: Stuck/Welded Relay Detection (BS-SENS-001) */
+        if (!actuator_hal_get_state(ACTUATOR_WELL_PUMP) && !actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE)) {
+            if ((sensors.total_pulses_yfb1 > s_last_yfb1 + 10)) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Flow detected while pump is OFF. Welded relay!");
+                actuator_hal_emergency_stop();
+                s_has_fault = true;
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY\",\"level\":\"CRITICAL\",\"message\":\"Flow detected while pump is OFF\"}");
+            }
+        }
+        if (!actuator_hal_get_state(ACTUATOR_DIST_PUMP)) {
+            if ((sensors.total_pulses_fs400a > s_last_fs400a + 10)) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Dist Flow detected while pump is OFF. Welded relay!");
+                actuator_hal_emergency_stop();
+                s_has_fault = true;
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY\",\"level\":\"CRITICAL\",\"message\":\"Dist flow detected while pump is OFF\"}");
+            }
+        }
+        s_last_yfb1 = sensors.total_pulses_yfb1;
+        s_last_fs400a = sensors.total_pulses_fs400a;
 
         vTaskDelay(pdMS_TO_TICKS(500));
     }

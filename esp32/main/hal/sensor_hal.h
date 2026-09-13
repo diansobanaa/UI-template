@@ -8,9 +8,18 @@
 extern "C" {
 #endif
 
+typedef enum {
+    SENSOR_STATE_VALID = 0,
+    SENSOR_STATE_INVALID,
+    SENSOR_STATE_STALE,
+    SENSOR_STATE_TIMEOUT,
+    SENSOR_STATE_DISCONNECTED,
+    SENSOR_STATE_OUT_OF_RANGE
+} sensor_state_t;
+
 typedef struct {
     float temperature_c;
-    bool temp_valid;
+    sensor_state_t temp_state;
 
     float flow_rate_yfb1_lpm;
     uint32_t total_pulses_yfb1;
