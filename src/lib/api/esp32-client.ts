@@ -97,9 +97,11 @@ export class Esp32Client {
     return apiGet<CommandReceipt>(this.path(`/api/v1/commands/${encodeURIComponent(commandId)}`), this.config);
   }
 
-  async postCommand(commandId: string, type: string, durationSeconds?: number): Promise<CommandReceipt> {
+  async postCommand(commandId: string, type: string, options?: { durationSeconds?: number, componentId?: string, parameters?: any }): Promise<CommandReceipt> {
     const payload: any = { commandId, type };
-    if (durationSeconds !== undefined) payload.durationSeconds = durationSeconds;
+    if (options?.durationSeconds !== undefined) payload.durationSeconds = options.durationSeconds;
+    if (options?.componentId !== undefined) payload.componentId = options.componentId;
+    if (options?.parameters !== undefined) payload.parameters = options.parameters;
     return apiPost<CommandReceipt>(this.path("/api/v1/commands"), payload, this.config);
   }
 

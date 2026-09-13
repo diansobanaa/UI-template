@@ -610,6 +610,33 @@ export const fertigationService = {
     if (gh.currentRun) {
       throw new ServiceError("CONFLICT", `${gh.code} already has a fertigation running. Wait for it to finish.`);
     }
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cmdId = `fert-${Date.now()}`;
+        await esp32Client.postCommand(cmdId, "START_FERTIGATION", {
+          componentId: ghId,
+          parameters: { recipeId, targetWaterL }
+        });
+        
+        const poll = async () => {
+          try {
+            const res = await esp32Client.getCommand(cmdId);
+            if (res.data.status === "COMPLETED" || res.data.status === "FAILED" || res.data.status === "REJECTED" || res.data.status === "CANCELLED") {
+              return;
+            }
+            setTimeout(poll, 2000);
+          } catch (e) {
+            setTimeout(poll, 2000);
+          }
+        };
+        setTimeout(poll, 2000);
+        return;
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to start fertigation on ESP32.");
+      }
+    }
+
     await delay();
     startManualRun(ghId, recipeId, targetWaterL);
     // Mock lifecycle: advance the run in a few ticks like a backend would stream progress.
@@ -670,6 +697,32 @@ export const fertigationService = {
   /** Manual resume: clears the latched emergency stop; the operator re-enables schedules/pumps normally. */
   async resume(complexId: string): Promise<void> {
     assertFound(complexService.get(complexId), "Complex");
+    
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cmdId = `resume-${Date.now()}`;
+        await esp32Client.postCommand(cmdId, "RESUME_CYCLE", {
+          componentId: complexId
+        });
+        
+        const poll = async () => {
+          try {
+            const res = await esp32Client.getCommand(cmdId);
+            if (res.data.status === "COMPLETED" || res.data.status === "FAILED" || res.data.status === "REJECTED" || res.data.status === "CANCELLED") {
+              return;
+            }
+            setTimeout(poll, 2000);
+          } catch (e) {
+            setTimeout(poll, 2000);
+          }
+        };
+        setTimeout(poll, 2000);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to resume on ESP32.");
+      }
+    }
+    
     await delay(400);
     resumeComplex(complexId);
   },
