@@ -1,21 +1,22 @@
 # AI HANDOVER
 
 ## Last Safe Point
-SP-007 (COMPLETE) — Crop-cycle / Masa Tanam engine & persistence.
+SP-008 (COMPLETE) — Telemetry/events/logging.
 
 ## State
-The Masa Tanam engine is active and integrated:
-1. `crop_cycle_mgr` governs active cycle state, validates transitions, persists to NVS, and recalculates authoritative HST and HSP using device time.
-2. `api_cropcycle_handlers.c` forwards all 11 OpenAPI endpoints directly to `crop_cycle_mgr` and serializes responses matching `CurrentCropCycleResponse`.
+The firmware backend is complete and operational:
+1. `telemetry_mgr`: Samples sensors & actuator states periodically, generating sequential snapshots matching `TelemetryResponse`.
+2. `event_mgr`: Circular event buffer with persistent storage in `/spiffs/events.log` and paginated JSON retrieval.
+3. `sdcard_hal`: Handles microSD on SPI CS GPIO 47 with safe fallback.
 
 ## What the next agent must do
 1. Read `GEMINI.md`.
 2. Read `AI_PROGRESS.md`.
 3. Inspect `git status` / latest commit.
-4. Begin **SP-008**: Telemetry, events, and logging.
-   - Implement periodic telemetry aggregator task in `template/esp32/main/services/telemetry_mgr.c`.
-   - Implement event manager with cursor-based pagination.
-   - Implement SPI / SD card storage driver on GPIO 47 for long-term historical logs.
+4. Begin **SP-009**: Existing UI ↔ ESP32 integration.
+   - Connect UI service layer (`src/lib/services.ts` and `src/lib/api/hardware-gateway.ts`) so when `VITE_ESP32_API_BASE` is provided (direct mode), the UI queries and mutates real ESP32 endpoints directly.
+   - Replace synthetic mock timers in direct mode with authoritative ESP32 status and HST/HSP.
+   - Keep UI visual components untouched; modify only the service/adapter boundary.
 
 ## Do not assume
-- Never store HST or HSP in NVS as static manual numbers; always recompute dynamically from `tanggalTanam` and `tanggalPolinasi`.
+- Never change UI visual styling, component hierarchies, or user-facing labels.

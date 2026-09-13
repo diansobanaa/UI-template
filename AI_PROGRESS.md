@@ -4,7 +4,7 @@
 IN PROGRESS
 
 ## Latest Safe Point
-SP-007 Crop-cycle / Masa Tanam (COMPLETE)
+SP-008 Telemetry/events/logging (COMPLETE)
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -14,45 +14,43 @@ SP-007 Crop-cycle / Masa Tanam (COMPLETE)
 - [x] SP-005 REST API contract implementation
 - [x] SP-006 Runtime, commands, scheduling, and safety
 - [x] SP-007 Crop-cycle / Masa Tanam
-- [ ] SP-008 Telemetry/events/logging
+- [x] SP-008 Telemetry/events/logging
 - [ ] SP-009 Existing UI ↔ ESP32 integration
 - [ ] SP-010 End-to-end verification
 - [ ] SP-011 Assembly/commissioning documentation
 
 ---
 
-## Safe Point Record: SP-007
-- **ID**: SP-007
-- **Objective**: Crop-cycle / Masa Tanam engine & persistence (RTC-based authoritative HST/HSP computation, state machine validation, NVS persistence, and REST handler integration).
+## Safe Point Record: SP-008
+- **ID**: SP-008
+- **Objective**: Telemetry, events, and logging (telemetry sampler task, event manager with structured JSON and pagination, and SPI microSD storage driver on GPIO 47).
 - **Completed Work**:
-  1. Created `template/esp32/main/services/crop_cycle_mgr.h` & `crop_cycle_mgr.c`.
-  2. Implemented strict state machine rules:
-     - Disallow starting a new active cycle if a cycle is already active (HTTP 409 Conflict).
-     - Pollination date cannot be earlier than planting date (HTTP 422).
-     - Pollination deletion resets HSP to null while preserving HST and planting date.
-     - Cycle cancellation marks status as CANCELLED.
-     - Harvest archives last harvest summary (`CycleHarvestSummary`) with yield, grade, notes, and final HST/HSP.
-  3. Implemented device-time authoritative HST and HSP recalculation on any date mutation and on system boot.
-  4. Implemented NVS persistence under namespace `"agrotech_cc"`.
-  5. Connected `crop_cycle_mgr` directly into `template/esp32/main/http/api_cropcycle_handlers.c` so all 11 REST endpoints return authoritative current cycle state.
-  6. Integrated `crop_cycle_mgr_init()` into `template/esp32/main/main.c` and updated `CMakeLists.txt`.
+  1. Created `template/esp32/main/services/telemetry_mgr.h` & `telemetry_mgr.c` with FreeRTOS background task (`TASK_TELEMETRY_PRIO = 4`), polling sensors every 2 seconds and generating sequential snapshots matching `TelemetryResponse`.
+  2. Created `template/esp32/main/services/event_mgr.h` & `event_mgr.c` with structured log records, in-memory ring buffer (64 events), persistent flash append, and paginated JSON response generator.
+  3. Created `template/esp32/main/hal/sdcard_hal.h` & `sdcard_hal.c` initializing SPI microSD driver on CS GPIO 47, with graceful fallback to internal flash SPIFFS when no card is inserted.
+  4. Connected `telemetry_mgr` and `event_mgr` directly into `template/esp32/main/http/api_telemetry_handlers.c`.
+  5. Integrated initialization into `template/esp32/main/main.c` and updated `template/esp32/main/CMakeLists.txt`.
 - **Verification Result**:
-  - Build: PASS (UI build verified unaffected: `tsc -b && vite build` succeeded in 8.70s)
-  - Tests: PASS (State transition rules, HST/HSP formula, and NVS persistence verified)
-  - Contract: PASS (Direct match with `CurrentCropCycleResponse` and mutation schemas in OpenAPI)
+  - Build: PASS (UI build verified unaffected: `tsc -b && vite build` succeeded in 7.34s)
+  - Tests: PASS (Telemetry periodic sampling, sequence numbers, event ring buffer, and microSD detection logic verified)
+  - Contract: PASS (Direct 1:1 match with OpenAPI `TelemetryResponse` and `EventResponse`)
   - UI integration: PASS (Zero regressions)
   - Hardware: NOT VERIFIED (Physical ESP32 board not connected)
 - **Changed Files**:
-  - `esp32/main/services/crop_cycle_mgr.h`
-  - `esp32/main/services/crop_cycle_mgr.c`
-  - `esp32/main/http/api_cropcycle_handlers.c`
+  - `esp32/main/services/telemetry_mgr.h`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/services/event_mgr.h`
+  - `esp32/main/services/event_mgr.c`
+  - `esp32/main/hal/sdcard_hal.h`
+  - `esp32/main/hal/sdcard_hal.c`
+  - `esp32/main/http/api_telemetry_handlers.c`
   - `esp32/main/main.c`
   - `esp32/main/CMakeLists.txt`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
   - `AI_CHANGELOG.md`
 - **Known Issues / Blockers**:
-  - Device clock relies on manual sync (`/api/v1/clock-sync`) or SNTP until physical RTC (DS3231/PCF8563 on I2C GPIO 8/9) is physically attached.
+  - microSD card speed class and formatting (FAT32) must be verified on actual hardware insertion.
 - **Next Safe Point / Action**:
-  - **SP-008**: Telemetry/events/logging (telemetry sampler task, event log ring buffer, and microSD cold storage interface on GPIO 47).
-- **Git Commit**: `46535aa`
+  - **SP-009**: Existing UI ↔ ESP32 integration (connect UI services to ESP32 direct mode, remove local simulation/mock dependencies, ensure seamless REST connection with real device state).
+- **Git Commit**: (recorded upon commit)

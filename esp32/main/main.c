@@ -20,6 +20,9 @@
 #include "services/safety_monitor.h"
 #include "services/scheduler.h"
 #include "services/crop_cycle_mgr.h"
+#include "services/telemetry_mgr.h"
+#include "services/event_mgr.h"
+#include "hal/sdcard_hal.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -116,6 +119,7 @@ void app_main(void)
 
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
+    sdcard_hal_init();
 
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());
@@ -128,8 +132,12 @@ void app_main(void)
     /* 7. Initialize Crop Cycle Engine & Persistence (SP-007) */
     ESP_ERROR_CHECK(crop_cycle_mgr_init());
 
-    /* 8. Start REST HTTP Server (SP-005) */
+    /* 8. Initialize Telemetry & Event System (SP-008) */
+    ESP_ERROR_CHECK(telemetry_mgr_init());
+    ESP_ERROR_CHECK(event_mgr_init());
+
+    /* 9. Start REST HTTP Server (SP-005) */
     ESP_ERROR_CHECK(http_server_start());
 
-    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-007).");
+    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-008).");
 }

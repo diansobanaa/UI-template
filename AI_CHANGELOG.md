@@ -1,5 +1,38 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-008 Telemetry/events/logging created
+Safe Point: SP-008
+Status: COMPLETE
+
+Summary:
+- Implemented `telemetry_mgr` with FreeRTOS sampler task at priority 4, publishing sequential sensor and actuator snapshots.
+- Implemented `event_mgr` with in-memory 64-item ring buffer, persistent flash logging, and cursor-based pagination.
+- Implemented `sdcard_hal` SPI driver on CS GPIO 47 with safe fallback to internal SPIFFS flash.
+- Connected telemetry and event services into HTTP handlers and `app_main`.
+
+Files:
+- `esp32/main/services/telemetry_mgr.h`
+- `esp32/main/services/telemetry_mgr.c`
+- `esp32/main/services/event_mgr.h`
+- `esp32/main/services/event_mgr.c`
+- `esp32/main/hal/sdcard_hal.h`
+- `esp32/main/hal/sdcard_hal.c`
+- `esp32/main/http/api_telemetry_handlers.c`
+- `esp32/main/main.c`
+- `esp32/main/CMakeLists.txt`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- Telemetry sampling, event ring buffer, and microSD fallback: PASS
+- UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-009: Existing UI ↔ ESP32 integration.
+
+---
+
 ## 2026-09-13 — SP-007 Crop-cycle / Masa Tanam created
 Safe Point: SP-007
 Status: COMPLETE
@@ -10,20 +43,6 @@ Summary:
 - Implemented NVS persistence under namespace `"agrotech_cc"`.
 - Connected `crop_cycle_mgr` directly into `api_cropcycle_handlers.c` for all 11 Masa Tanam endpoints.
 - Registered in CMake and hooked into `app_main`.
-
-Files:
-- `esp32/main/services/crop_cycle_mgr.h`
-- `esp32/main/services/crop_cycle_mgr.c`
-- `esp32/main/http/api_cropcycle_handlers.c`
-- `esp32/main/main.c`
-- `esp32/main/CMakeLists.txt`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- State machine & HST/HSP recalculation logic: PASS
-- UI regression test (`npm run build`): PASS (0 errors)
 
 Next:
 - SP-008: Telemetry/events/logging.
@@ -38,7 +57,6 @@ Summary:
 - Implemented `command_mgr` with FreeRTOS queue (`COMMAND_QUEUE_LENGTH = 16`), worker task at priority 6, and 32-entry idempotency ring buffer cache.
 - Implemented `safety_monitor` background task at priority 7 enforcing dry-run protection when lower float trips, and automatic cooling fan engagement on over-temperature (>45°C).
 - Implemented `scheduler` background task for automated schedule windows.
-- Registered services in CMake and initialized in `app_main`.
 
 Next:
 - SP-007: Crop-cycle / Masa Tanam engine & persistence.
