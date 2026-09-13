@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "node scripts/verify_e2e_contracts.mjs",
     "preview": "vite preview"
   },
+
   "dependencies": {
     "lucide-react": "^0.544.0",
     "react": "19.1.0",

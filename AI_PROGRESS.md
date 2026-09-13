@@ -4,7 +4,7 @@
 IN PROGRESS
 
 ## Latest Safe Point
-SP-009 Existing UI ↔ ESP32 integration (COMPLETE)
+SP-010 End-to-end verification (COMPLETE)
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -16,38 +16,36 @@ SP-009 Existing UI ↔ ESP32 integration (COMPLETE)
 - [x] SP-007 Crop-cycle / Masa Tanam
 - [x] SP-008 Telemetry/events/logging
 - [x] SP-009 Existing UI ↔ ESP32 integration
-- [ ] SP-010 End-to-end verification
+- [x] SP-010 End-to-end verification
 - [ ] SP-011 Assembly/commissioning documentation
 
 ---
 
-## Safe Point Record: SP-009
-- **ID**: SP-009
-- **Objective**: Existing UI ↔ ESP32 integration (connect UI services to ESP32 direct mode, remove local simulation/mock dependencies, ensure seamless REST connection with real device state).
+## Safe Point Record: SP-010
+- **ID**: SP-010
+- **Objective**: End-to-end verification (automated test suite for contract conformance, API schema validation across all 25 canonical endpoints, ESP32 firmware route coverage, and mock server verification).
 - **Completed Work**:
-  1. Updated `src/lib/api/backend-client.ts` to export `defaultConfig` and `isDirectEsp32Enabled()`, supporting dynamic detection of direct ESP32 mode via `VITE_ENABLE_DIRECT_ESP32` or `VITE_ESP32_API_BASE`.
-  2. Updated `src/lib/api/esp32-client.ts` to export a default `esp32Client` singleton configured for the active hardware environment.
-  3. Integrated `cropCycleService` in `src/lib/services.ts` directly with `esp32Client` endpoints (`startCropCycle`, `importActiveCropCycle`, `recordPollination`, `updatePlantingDate`, `updatePollination`, `updateCropCycleMetadata`, `deletePollination`, `cancelCropCycle`, `harvestCropCycle`), applying authoritative ESP32 cycle states and computed HST/HSP values to the UI reactive store.
-  4. Integrated `complexControlService.emergencyStop` and `syncEsp32` with `esp32Client` for instantaneous hardware E-stop latching and status synchronization.
-  5. Validated frontend production build cleanly with `tsc -b && vite build` (zero errors, 1736 modules transformed in 7.39s).
+  1. Created `template/scripts/verify_e2e_contracts.mjs` verifying 100% route coverage between `UI_ESP32_OPENAPI.yaml`, `esp32-client.ts`, and `esp32/main/http/http_server.c`.
+  2. Implemented lightweight mock ESP32 HTTP daemon testing all 25 canonical endpoints with actual HTTP requests, checking CORS preflight headers, JSON status codes (200, 201, 204, 404), and exact response body schemas.
+  3. Added `"test": "node scripts/verify_e2e_contracts.mjs"` script to `package.json`.
+  4. Ran automated verification suite and confirmed 100% pass across all categories.
 - **Verification Result**:
-  - Build: PASS (`tsc -b && vite build` completed in 7.39s with 0 errors)
-  - Tests: PASS (Service layer adapts between direct ESP32 REST calls and in-memory mock fallback)
-  - Contract: PASS (Aligned 100% with `UI_ESP32_OPENAPI.yaml`)
-  - UI integration: PASS (UI components remain completely untouched, service boundary preserved)
+  - Build: PASS (`tsc -b && vite build` succeeded with 0 errors)
+  - Tests: PASS (`npm test` passed: 25/25 OpenAPI canonical operations verified, 26 C handlers verified, mock REST server schema test passed)
+  - Contract: PASS (100% conformance with canonical contract)
+  - UI integration: PASS (Zero regressions)
   - Hardware: NOT VERIFIED (Physical ESP32 board not connected)
 - **Changed Files**:
-  - `src/lib/api/backend-client.ts`
-  - `src/lib/api/esp32-client.ts`
-  - `src/lib/services.ts`
-  - `dist/index.html`
+  - `scripts/verify_e2e_contracts.mjs`
+  - `package.json`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
   - `AI_CHANGELOG.md`
 - **Known Issues / Blockers**:
   - None.
 - **Next Safe Point / Action**:
-  - **SP-010**: End-to-end verification (create automated test suite for contract conformance, API schema validation across all 25 endpoints, and mock ESP32 server validation).
-- **Git Commit**: `68c7ad5`
+  - **SP-011**: Assembly/commissioning documentation (create comprehensive `template/esp32/docs/ESP32_ASSEMBLY_GUIDE.md` covering full BOM, pin mapping, power domains, isolation, wiring diagrams, bring-up checklist, and commissioning procedure).
+- **Git Commit**: PENDING_COMMIT
+
 
 

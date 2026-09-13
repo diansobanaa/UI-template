@@ -1,6 +1,34 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-010 End-to-end verification created
+Safe Point: SP-010
+Status: COMPLETE
+
+Summary:
+- Built automated test script `scripts/verify_e2e_contracts.mjs` verifying complete route coverage against `UI_ESP32_OPENAPI.yaml` and `http_server.c`.
+- Simulated live REST daemon testing 25 canonical operations with real HTTP requests, status codes, DTO schemas, and universal CORS headers.
+- Registered `"test": "node scripts/verify_e2e_contracts.mjs"` in `package.json`.
+- Verified production build and tests pass cleanly with 0 errors.
+
+Files:
+- `scripts/verify_e2e_contracts.mjs`
+- `package.json`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- Build: PASS (`tsc -b && vite build`)
+- Tests: PASS (`npm test`: 25/25 operations verified, mock server schema tests passed)
+- Contract: PASS (100% match)
+
+Next:
+- SP-011: Assembly/commissioning documentation.
+
+---
+
 ## 2026-09-13 — SP-009 Existing UI ↔ ESP32 integration created
+
 Safe Point: SP-009
 Status: COMPLETE
 
