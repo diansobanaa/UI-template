@@ -55,4 +55,4 @@ SP-007 Crop-cycle / Masa Tanam (COMPLETE)
   - Device clock relies on manual sync (`/api/v1/clock-sync`) or SNTP until physical RTC (DS3231/PCF8563 on I2C GPIO 8/9) is physically attached.
 - **Next Safe Point / Action**:
   - **SP-008**: Telemetry/events/logging (telemetry sampler task, event log ring buffer, and microSD cold storage interface on GPIO 47).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `46535aa`
