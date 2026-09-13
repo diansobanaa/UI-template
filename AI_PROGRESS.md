@@ -45,4 +45,4 @@ SP-004 Durable storage and recovery (COMPLETE)
   - microSD SPI CS (GPIO 47) driver for long-term historical cold storage will be integrated during telemetry phase (SP-008).
 - **Next Safe Point / Action**:
   - **SP-005**: REST API contract implementation (ESP-IDF HTTP server, exact routes from `contracts/UI_ESP32_OPENAPI.yaml`, JSON DTO serialization/deserialization with cJSON, CORS headers, requestId propagation, standard error responses).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `49b88e3`
