@@ -51,4 +51,4 @@ SP-003 Hardware abstraction and safe boot (COMPLETE)
   - Flow meter calibration pulses per liter and DS18B20 resolution must be field verified against actual sensors (`VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION`).
 - **Next Safe Point / Action**:
   - **SP-004**: Durable storage & recovery (NVS configuration manager for device identity, Last Valid Configuration, recovery state, and SPIFFS/SD manager for telemetry & events).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `9599d0a`
