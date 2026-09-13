@@ -53,4 +53,4 @@ SP-005 REST API contract implementation (COMPLETE)
   - Direct Wi-Fi STA connection / AP provisioning and mDNS registration will be finalized in network integration (SP-009).
 - **Next Safe Point / Action**:
   - **SP-006**: Runtime execution engine, FreeRTOS queue-based command dispatcher, automated schedule runner, and safety monitor.
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `eb9894f`
