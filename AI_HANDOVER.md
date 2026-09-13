@@ -1,25 +1,26 @@
 # AI HANDOVER
 
 ## Last Safe Point
-SP-011 (COMPLETE) — Assembly + commissioning documentation deliverable.
+SP-AUDIT-001 (COMPLETE) — UI ↔ ESP32 Deep Blindspot Audit Complete.
 
 ## State
-All 11 Safe Points (SP-001 through SP-011) of the AgroTech Greenhouse Controller ESP32 backend project are complete, verified, and committed:
-1. `template/contracts/UI_ESP32_OPENAPI.yaml`: Machine-readable canonical contract defining 25 REST endpoints.
-2. `template/esp32/`: Complete ESP-IDF firmware backend with FreeRTOS tasks (safety monitor, command worker, telemetry sampler, scheduler), durable storage (NVS, atomic LVC, SPIFFS ring buffer), hardware HAL (actuators, flow pulses, DS18B20 1-wire, buttons, microSD SPI), and HTTP server with universal CORS.
-3. `template/src/lib/services.ts`: Existing UI connected to direct ESP32 client with store synchronization; zero UI visual/structural regressions.
-4. `template/scripts/verify_e2e_contracts.mjs`: Automated integration test verifying 100% route and schema coverage.
-5. `template/esp32/docs/ESP32_ASSEMBLY_GUIDE.md`: Comprehensive physical assembly and commissioning manual with safety domains, wiring instructions, and PASS/FAIL commissioning checklist.
+A comprehensive pre-flash, pre-assembly blindspot audit was executed across the entire repository. Zero production code was altered. All 30 findings (6 CRITICAL, 14 HIGH, 8 MEDIUM, 1 LOW, 1 INFORMATIONAL) are fully documented with file-level evidence, failure scenarios, and recommended investigations in:
+1. `template/docs/AI_BLINDSPOT_FINDINGS_INDEX.md`
+2. `template/docs/AI_BLINDSPOT_AUDIT_REPORT_V1.md`
+
+## Critical Warnings Before Next Agent / Operator Proceeds
+DO NOT FLASH FIRMWARE OR ASSEMBLE HARDWARE BEFORE ADDRESSING THE FOLLOWING CRITICAL BLINDSPOTS:
+1. **Pin Collision on GPIO 19 (`BS-HW-001`)**: GPIO 19 is native USB D- on ESP32-S3. Connecting the lower float switch to GPIO 19 will kill native USB communication. Move float switch to an unreserved pin.
+2. **Pin Collision on GPIO 47 (`BS-HW-002`)**: GPIO 47 is occupied by embedded Octal PSRAM on the N16R8 module. Driving GPIO 47 for MicroSD CS causes CPU cache crash. Move MicroSD CS.
+3. **Network Driver Missing (`BS-NET-001`)**: Firmware lacks Wi-Fi or W5500 SPI Ethernet initialization in `main.c`. Device boots with no network reachability.
+4. **Active-Low Relay Safe Boot Inversion (`BS-HW-004`)**: If the physical relay board is active-low, driving GPIO LOW on safe boot turns all 7 pump/fan channels ON during boot. Verify physical board polarity.
+5. **Volatile Emergency Stop Latch (`BS-SAFE-001`)**: Emergency stop latch is lost on reboot/brownout.
 
 ## What the next agent / operator must do
-1. Inspect `git log` and `AI_PROGRESS.md`.
-2. Hardware Flashing: Connect ESP32-S3 over USB and execute `idf.py -p <COM_PORT> flash monitor`.
-3. Commissioning: Follow `template/esp32/docs/ESP32_ASSEMBLY_GUIDE.md` to conduct pre-power checks, first power-up, sensor validation, and checklist sign-off.
-4. Run `npm test` and `npm run build` anytime frontend modifications are made.
-
-## Hardware Safety Warning
-- Observe electrical safety isolation between Low-Voltage DC, 12V Auxiliary DC, and 220V Mains AC at all times.
-- Items marked `VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION` must be cross-checked against actual physical manufacturer datasheets before energizing.
-
-
-
+1. Read `template/docs/AI_BLINDSPOT_AUDIT_REPORT_V1.md` and `AI_PROGRESS.md`.
+2. Resolve the 3 items marked `REQUIRES DECISION`:
+   - Reassign GPIO 19 and GPIO 47 in `pin_config.h` and `ESP32_ASSEMBLY_GUIDE.md`.
+   - Decide between OpenAPI Envelope structure vs Flat JSON structure (`BS-CONT-001`).
+   - Define multi-greenhouse valve and routing architecture (`BS-TOP-001`).
+3. Implement Phase 1 & 2 remediations before physical wiring and flashing.
+4. Run `npm test` and `npm run build` after any modifications.
