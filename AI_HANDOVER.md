@@ -1,14 +1,15 @@
 # AI HANDOVER DOCUMENT
 
 ## Current Status
-- **Date/Time**: 2026-09-13
-- **Safe Point**: SP-REMED-005 (Async Command Processing & Contract Alignment) is complete.
-- **Goal**: Final verification and testing.
+- **Date/Time**: 2026-09-14
+- **Safe Point**: SP-REMED-009 (E2E Testing Transformation) is complete.
+- **Goal**: Final verification and handover.
 
 ### What was just completed
-- **Commands**: Implemented fully async command processing via `command_mgr` (`BS-API-002`). `POST /api/v1/commands` now submits to the queue and returns `202 Accepted`.
-- **Cancellation**: Implemented `DELETE /api/v1/commands/{commandId}` to cancel commands from cache/queue, halting actuators if active.
-- **UI Client**: Added `postCommand` to `esp32-client.ts`.
+- **SP-REMED-006**: Structured scheduler, dynamic topology validation, and config bounds validation implemented.
+- **SP-REMED-007**: `src/lib/services.ts` updated to use real async commands via `esp32Client.postCommand()`.
+- **SP-REMED-008**: Bearer token authentication implemented globally for ESP32 control endpoints via NVS.
+- **SP-REMED-009**: E2E verification script `scripts/verify_e2e_contracts.mjs` transformed to target live ESP32 by default and tested with mock flag.
 
 ## Next Action for Next Agent
 1. Read `AI_PROGRESS.md` and this handover file.

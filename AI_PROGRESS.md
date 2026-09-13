@@ -241,3 +241,95 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - **Next Safe Point / Action**:
   - Final Review & Compile/Check syntax (if IDF available).
 
+
+---
+
+## Safe Point Record: SP-REMED-006
+- **ID**: SP-REMED-006
+- **Objective**: Scheduler, Dynamic Topology & Config Validation
+- **Completed Work**:
+  1. Updated `scheduler.h` & `scheduler.c` with structured schedule model, NVS storage, and dispatch via Command Manager.
+  2. Updated `api_cropcycle_handlers.c` with dynamic `{ghId}` parameter validation.
+  3. Updated `api_config_handlers.c` with strict bounds and payload validation before persisting.
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: EVALUATED
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/services/scheduler.h`
+  - `esp32/main/services/scheduler.c`
+  - `esp32/main/http/api_cropcycle_handlers.c`
+  - `esp32/main/http/api_config_handlers.c`
+- **Known Issues / Blockers**:
+  - NONE
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-007 (UI Endpoint Alignment).
+
+---
+
+## Safe Point Record: SP-REMED-007
+- **ID**: SP-REMED-007
+- **Objective**: UI Endpoint Alignment
+- **Completed Work**:
+  1. Updated `src/lib/services.ts` (`startManual` & `resume`) to call real `esp32Client.postCommand()`, poll until completion, and remove `setTimeout` mock controllers when `isDirectEsp32Enabled()`.
+  2. Updated `src/lib/api/esp32-client.ts` `postCommand` signature to accept optional `componentId` and `parameters`.
+- **Verification Result**:
+  - Build: NOT RUN
+  - Tests: NOT RUN
+  - Contract: EVALUATED
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `src/lib/services.ts`
+  - `src/lib/api/esp32-client.ts`
+- **Known Issues / Blockers**:
+  - NONE
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-008 (Authentication & Security).
+
+---
+
+## Safe Point Record: SP-REMED-008
+- **ID**: SP-REMED-008
+- **Objective**: Authentication & Security
+- **Completed Work**:
+  1. Implemented Bearer token auth middleware `http_check_auth` reading from NVS in `http_server.c`.
+  2. Registered auth middleware in all POST/PUT/PATCH/DELETE endpoints in command, config, and crop cycle handlers.
+  3. Verified `backend-client.ts` already correctly injects Bearer token into headers.
+- **Verification Result**:
+  - Build: NOT RUN
+  - Tests: NOT RUN
+  - Contract: EVALUATED
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/http/http_server.h`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_config_handlers.c`
+  - `esp32/main/http/api_cropcycle_handlers.c`
+- **Known Issues / Blockers**:
+  - NONE
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-009 (E2E Testing Transformation).
+
+---
+
+## Safe Point Record: SP-REMED-009
+- **ID**: SP-REMED-009
+- **Objective**: E2E Testing Transformation
+- **Completed Work**:
+  1. Transformed `scripts/verify_e2e_contracts.mjs` to target a live ESP32 by default via `--target` or `ESP32_BASE_URL`.
+  2. Extracted the mock server logic behind the `--mock` flag.
+  3. Added Bearer token passing for E2E verification requests against mock/live targets.
+  4. Tested the mock path successfully.
+- **Verification Result**:
+  - Build: NOT RUN
+  - Tests: PASS (mock mode)
+  - Contract: EVALUATED
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `scripts/verify_e2e_contracts.mjs`
+- **Known Issues / Blockers**:
+  - NONE
+- **Next Safe Point / Action**:
+  - Final Verification & Handover.
