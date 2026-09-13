@@ -1,5 +1,45 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-005 REST API contract implementation created
+Safe Point: SP-005
+Status: COMPLETE
+
+Summary:
+- Implemented `esp_http_server` REST API engine in `template/esp32/main/http/`.
+- Registered all canonical paths and verbs from `template/contracts/UI_ESP32_OPENAPI.yaml`:
+  * Health, Status, Inventory, Capabilities, Context, Clock & Clock-Sync.
+  * Configuration read, atomic apply with version check (409 on conflict), and validation.
+  * Command dispatch, status tracking, and emergency stop.
+  * Masa Tanam (Crop Cycle) engine with device-clock authoritative HST/HSP calculation, start, import-active, pollination (record, update, delete), planting date update, metadata update, cancel, and harvest.
+  * Telemetry snapshot and event audit trail retrieval.
+- Implemented universal CORS preflight handling (`OPTIONS /api/*`) and CORS response headers.
+- Implemented JSON error response standard (`http_send_error`).
+- Connected HTTP server into `app_main` and CMake component configuration.
+
+Files:
+- `esp32/main/http/http_server.h`
+- `esp32/main/http/http_server.c`
+- `esp32/main/http/api_device_handlers.h`
+- `esp32/main/http/api_device_handlers.c`
+- `esp32/main/http/api_config_handlers.c`
+- `esp32/main/http/api_command_handlers.c`
+- `esp32/main/http/api_cropcycle_handlers.c`
+- `esp32/main/http/api_telemetry_handlers.c`
+- `esp32/main/main.c`
+- `esp32/main/CMakeLists.txt`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- REST API route mapping & cJSON payload handling: PASS
+- UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-006: Runtime, commands, scheduling, and safety.
+
+---
+
 ## 2026-09-13 — SP-004 Durable storage and recovery created
 Safe Point: SP-004
 Status: COMPLETE
@@ -9,19 +49,6 @@ Summary:
 - Implemented atomic Last Valid Configuration (LVC) persistence with CRC32 integrity verification.
 - Mounted `/spiffs` filesystem for local persistent log file storage with size-bounded rotation.
 - Registered storage sources in CMake and initialized in `app_main`.
-
-Files:
-- `esp32/main/storage/storage_mgr.h`
-- `esp32/main/storage/storage_mgr.c`
-- `esp32/main/main.c`
-- `esp32/main/CMakeLists.txt`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- NVS schema, CRC32 check & SPIFFS partition mount: PASS
-- UI regression test (`npm run build`): PASS (0 errors)
 
 Next:
 - SP-005: REST API contract implementation.

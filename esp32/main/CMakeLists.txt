@@ -6,6 +6,12 @@ idf_component_register(
         "hal/button_hal.c"
         "hal/hardware_registry.c"
         "storage/storage_mgr.c"
+        "http/http_server.c"
+        "http/api_device_handlers.c"
+        "http/api_config_handlers.c"
+        "http/api_command_handlers.c"
+        "http/api_cropcycle_handlers.c"
+        "http/api_telemetry_handlers.c"
     INCLUDE_DIRS
         "."
         "config"
