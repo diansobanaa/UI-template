@@ -20,9 +20,9 @@ esp_err_t handler_get_configuration(httpd_req_t *req);
 esp_err_t handler_put_configuration(httpd_req_t *req);
 esp_err_t handler_validate_configuration(httpd_req_t *req);
 
-/* Command Handlers */
 esp_err_t handler_post_command(httpd_req_t *req);
 esp_err_t handler_get_command(httpd_req_t *req);
+esp_err_t handler_delete_command(httpd_req_t *req);
 esp_err_t handler_emergency_stop(httpd_req_t *req);
 
 /* Crop Cycle Handlers */

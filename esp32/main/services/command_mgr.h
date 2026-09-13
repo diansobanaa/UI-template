@@ -50,6 +50,11 @@ esp_err_t command_mgr_submit(const command_item_t *cmd, command_item_t *out_rece
  */
 esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt);
 
+/**
+ * @brief Cancel a command (lifecycle termination).
+ */
+esp_err_t command_mgr_cancel(const char *command_id);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,5 +1,20 @@
 # AI CHANGELOG
 
+## 2026-09-14 — SP-REMED-005 Async Command Processing & Contract Alignment
+Safe Point: SP-REMED-005
+Status: COMPLETE
+
+Summary:
+- Converted `POST /api/v1/commands` to be fully asynchronous (returning 202 Accepted) (`BS-API-002`).
+- Implemented `DELETE /api/v1/commands/{commandId}` to support command cancellation.
+- Refactored `command_mgr` to handle cancellation and skipping rejected tasks from queue.
+- Added `postCommand` TS UI client handler.
+
+Next:
+- Final Review.
+
+---
+
 ## 2026-09-14 — SP-REMED-004 Persistence & Memory Bounds
 Safe Point: SP-REMED-004
 Status: COMPLETE

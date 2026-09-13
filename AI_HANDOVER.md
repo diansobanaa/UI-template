@@ -2,17 +2,17 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-13
-- **Safe Point**: SP-REMED-004 (Persistence & Memory Bounds) is complete.
-- **Goal**: Implement Async Command Processing & Contract Alignment (SP-REMED-005).
+- **Safe Point**: SP-REMED-005 (Async Command Processing & Contract Alignment) is complete.
+- **Goal**: Final verification and testing.
 
 ### What was just completed
-- **Persistence**: Persisted E-Stop latch to NVS so it survives reboots. Moved event logging to MicroSD with FreeRTOS mutex protection.
-- **Memory Bounds**: Enforced strict 4KB limit on HTTP POST JSON parsing payloads.
-- **Crop Cycle**: Defaulted initial state to `NO_CYCLE`.
+- **Commands**: Implemented fully async command processing via `command_mgr` (`BS-API-002`). `POST /api/v1/commands` now submits to the queue and returns `202 Accepted`.
+- **Cancellation**: Implemented `DELETE /api/v1/commands/{commandId}` to cancel commands from cache/queue, halting actuators if active.
+- **UI Client**: Added `postCommand` to `esp32-client.ts`.
 
 ## Next Action for Next Agent
 1. Read `AI_PROGRESS.md` and this handover file.
-2. Begin `SP-REMED-005` (Async Command Processing & Contract Alignment).
+2. Proceed with Final Verification and testing.
 
 ## Known Gotchas / Context for Next Agent
 - Do not trust prior conversation memory; always grep the code.

@@ -25,6 +25,7 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-REMED-002 Network & RTC Initialization
 - [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
 - [x] SP-REMED-004 Persistence & Memory Bounds
+- [x] SP-REMED-005 Async Command Processing & Contract Alignment
 
 ---
 
@@ -208,4 +209,35 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - NONE.
 - **Next Safe Point / Action**:
   - Begin SP-REMED-005 (Async Command Processing & Contract Alignment).
+
+---
+
+## Safe Point Record: SP-REMED-005
+- **ID**: SP-REMED-005
+- **Objective**: Async Command Processing & Contract Alignment
+- **Completed Work**:
+  1. Updated `api_command_handlers.c` to parse POST `/api/v1/commands` and submit it to the `command_mgr` queue instead of blocking (`BS-API-002`).
+  2. Implemented `DELETE /api/v1/commands/{commandId}` to cancel commands.
+  3. Added `command_mgr_cancel()` to mark queued/pending commands as `CMD_STATUS_REJECTED` and halt associated actuators if running.
+  4. Updated `command_worker_task` to drop rejected commands from execution queue.
+  5. Added `postCommand` API to TypeScript UI client (`src/lib/api/esp32-client.ts`).
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: N/A
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_device_handlers.h`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/services/command_mgr.h`
+  - `esp32/main/services/command_mgr.c`
+  - `src/lib/api/esp32-client.ts`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
+- **Known Issues / Blockers**:
+  - NONE.
+- **Next Safe Point / Action**:
+  - Final Review & Compile/Check syntax (if IDF available).
 

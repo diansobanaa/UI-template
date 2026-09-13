@@ -49,10 +49,16 @@ static void command_worker_task(void *pvParameters)
 
             xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
             command_item_t *cached = cache_find(cmd.command_id);
-            if (cached) {
+            bool cancelled = (cached && cached->status == CMD_STATUS_REJECTED);
+            if (cached && !cancelled) {
                 cached->status = CMD_STATUS_RUNNING;
             }
             xSemaphoreGive(s_cache_mutex);
+
+            if (cancelled) {
+                ESP_LOGI(TAG, "Command %s was cancelled in queue, skipping execution.", cmd.command_id);
+                continue;
+            }
 
             esp_err_t err = ESP_OK;
 
@@ -175,6 +181,37 @@ esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt)
     }
 
     *out_receipt = *cached;
+    xSemaphoreGive(s_cache_mutex);
+    return ESP_OK;
+}
+
+esp_err_t command_mgr_cancel(const char *command_id)
+{
+    if (!command_id) return ESP_ERR_INVALID_ARG;
+
+    xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
+    command_item_t *cached = cache_find(command_id);
+    if (!cached) {
+        xSemaphoreGive(s_cache_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (cached->status == CMD_STATUS_PENDING || cached->status == CMD_STATUS_RUNNING) {
+        cached->status = CMD_STATUS_REJECTED;
+        strncpy(cached->message, "Command cancelled", sizeof(cached->message) - 1);
+        ESP_LOGI(TAG, "Command %s cancelled", command_id);
+        
+        /* Stop actuators if it was a pump command */
+        if (cached->type == CMD_TYPE_WELL_PUMP) {
+            actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+        } else if (cached->type == CMD_TYPE_DIST_PUMP) {
+            actuator_hal_set(ACTUATOR_DIST_PUMP, false);
+        } else if (cached->type == CMD_TYPE_DOSING_RUN) {
+            actuator_hal_set(ACTUATOR_DOSING_A, false);
+            actuator_hal_set(ACTUATOR_DOSING_B, false);
+        }
+    }
+    
     xSemaphoreGive(s_cache_mutex);
     return ESP_OK;
 }

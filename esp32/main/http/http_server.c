@@ -166,6 +166,9 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_cmd_get = { .uri = "/api/v1/commands/*", .method = HTTP_GET, .handler = handler_get_command, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cmd_get);
 
+    httpd_uri_t uri_cmd_del = { .uri = "/api/v1/commands/*", .method = HTTP_DELETE, .handler = handler_delete_command, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cmd_del);
+
     /* Telemetry & Events */
     httpd_uri_t uri_telemetry = { .uri = "/api/v1/telemetry", .method = HTTP_GET, .handler = handler_get_telemetry, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_telemetry);
