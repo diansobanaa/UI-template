@@ -48,4 +48,4 @@ SP-006 Runtime, commands, scheduling, and safety (COMPLETE)
   - Precise timing of long schedule runs will synchronize with SNTP/RTC clock driver in SP-008.
 - **Next Safe Point / Action**:
   - **SP-007**: Crop-cycle / Masa Tanam engine & persistence (RTC-based HST/HSP computation, transition validation, harvest history persistence).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `71dd9e9`
