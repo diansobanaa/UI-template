@@ -9,6 +9,7 @@ idf_component_register(
         "services/command_mgr.c"
         "services/safety_monitor.c"
         "services/scheduler.c"
+        "services/crop_cycle_mgr.c"
         "http/http_server.c"
         "http/api_device_handlers.c"
         "http/api_config_handlers.c"

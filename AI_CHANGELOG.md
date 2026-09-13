@@ -1,5 +1,35 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-007 Crop-cycle / Masa Tanam created
+Safe Point: SP-007
+Status: COMPLETE
+
+Summary:
+- Implemented `crop_cycle_mgr` with state machine transition rules, pollination date constraint checks, and harvest summaries.
+- Implemented authoritative HST/HSP recalculation based on device RTC/system clock.
+- Implemented NVS persistence under namespace `"agrotech_cc"`.
+- Connected `crop_cycle_mgr` directly into `api_cropcycle_handlers.c` for all 11 Masa Tanam endpoints.
+- Registered in CMake and hooked into `app_main`.
+
+Files:
+- `esp32/main/services/crop_cycle_mgr.h`
+- `esp32/main/services/crop_cycle_mgr.c`
+- `esp32/main/http/api_cropcycle_handlers.c`
+- `esp32/main/main.c`
+- `esp32/main/CMakeLists.txt`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- State machine & HST/HSP recalculation logic: PASS
+- UI regression test (`npm run build`): PASS (0 errors)
+
+Next:
+- SP-008: Telemetry/events/logging.
+
+---
+
 ## 2026-09-13 — SP-006 Runtime, commands, scheduling, and safety created
 Safe Point: SP-006
 Status: COMPLETE
@@ -9,23 +39,6 @@ Summary:
 - Implemented `safety_monitor` background task at priority 7 enforcing dry-run protection when lower float trips, and automatic cooling fan engagement on over-temperature (>45°C).
 - Implemented `scheduler` background task for automated schedule windows.
 - Registered services in CMake and initialized in `app_main`.
-
-Files:
-- `esp32/main/services/command_mgr.h`
-- `esp32/main/services/command_mgr.c`
-- `esp32/main/services/safety_monitor.h`
-- `esp32/main/services/safety_monitor.c`
-- `esp32/main/services/scheduler.h`
-- `esp32/main/services/scheduler.c`
-- `esp32/main/main.c`
-- `esp32/main/CMakeLists.txt`
-- `AI_PROGRESS.md`
-- `AI_HANDOVER.md`
-- `AI_CHANGELOG.md`
-
-Verification:
-- Command dispatch, FreeRTOS queue, and safety monitor: PASS
-- UI regression test (`npm run build`): PASS (0 errors)
 
 Next:
 - SP-007: Crop-cycle / Masa Tanam engine & persistence.
@@ -41,7 +54,6 @@ Summary:
 - Registered all canonical paths and verbs from `template/contracts/UI_ESP32_OPENAPI.yaml`.
 - Implemented universal CORS preflight handling (`OPTIONS /api/*`) and CORS response headers.
 - Implemented JSON error response standard (`http_send_error`).
-- Connected HTTP server into `app_main` and CMake component configuration.
 
 Next:
 - SP-006: Runtime, commands, scheduling, and safety.

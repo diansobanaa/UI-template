@@ -19,6 +19,7 @@
 #include "services/command_mgr.h"
 #include "services/safety_monitor.h"
 #include "services/scheduler.h"
+#include "services/crop_cycle_mgr.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -124,8 +125,11 @@ void app_main(void)
     ESP_ERROR_CHECK(safety_monitor_init());
     ESP_ERROR_CHECK(scheduler_init());
 
-    /* 7. Start REST HTTP Server (SP-005) */
+    /* 7. Initialize Crop Cycle Engine & Persistence (SP-007) */
+    ESP_ERROR_CHECK(crop_cycle_mgr_init());
+
+    /* 8. Start REST HTTP Server (SP-005) */
     ESP_ERROR_CHECK(http_server_start());
 
-    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-006).");
+    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-007).");
 }

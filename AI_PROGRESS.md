@@ -4,7 +4,7 @@
 IN PROGRESS
 
 ## Latest Safe Point
-SP-006 Runtime, commands, scheduling, and safety (COMPLETE)
+SP-007 Crop-cycle / Masa Tanam (COMPLETE)
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -13,7 +13,7 @@ SP-006 Runtime, commands, scheduling, and safety (COMPLETE)
 - [x] SP-004 Durable storage and recovery
 - [x] SP-005 REST API contract implementation
 - [x] SP-006 Runtime, commands, scheduling, and safety
-- [ ] SP-007 Crop-cycle / Masa Tanam
+- [x] SP-007 Crop-cycle / Masa Tanam
 - [ ] SP-008 Telemetry/events/logging
 - [ ] SP-009 Existing UI ↔ ESP32 integration
 - [ ] SP-010 End-to-end verification
@@ -21,31 +21,38 @@ SP-006 Runtime, commands, scheduling, and safety (COMPLETE)
 
 ---
 
-## Safe Point Record: SP-006
-- **ID**: SP-006
-- **Objective**: Runtime execution engine, FreeRTOS queue-based command dispatcher with idempotency by commandId, automated schedule runner, and safety monitor.
+## Safe Point Record: SP-007
+- **ID**: SP-007
+- **Objective**: Crop-cycle / Masa Tanam engine & persistence (RTC-based authoritative HST/HSP computation, state machine validation, NVS persistence, and REST handler integration).
 - **Completed Work**:
-  1. Created `template/esp32/main/services/command_mgr.h` & `command_mgr.c` with FreeRTOS queue (`COMMAND_QUEUE_LENGTH = 16`), background worker task (`TASK_COMMAND_MGR_PRIO = 6`), and 32-entry idempotency ring buffer cache.
-  2. Created `template/esp32/main/services/safety_monitor.h` & `safety_monitor.c` (`TASK_SAFETY_MONITOR_PRIO = 7`) continuously polling sensors, enforcing dry-run protection when float trips, and automatic cooling fan engagement on over-temperature (>45°C).
-  3. Created `template/esp32/main/services/scheduler.h` & `scheduler.c` for automated fertigation and well pump window execution.
-  4. Integrated runtime services into `template/esp32/main/main.c` and updated `template/esp32/main/CMakeLists.txt`.
+  1. Created `template/esp32/main/services/crop_cycle_mgr.h` & `crop_cycle_mgr.c`.
+  2. Implemented strict state machine rules:
+     - Disallow starting a new active cycle if a cycle is already active (HTTP 409 Conflict).
+     - Pollination date cannot be earlier than planting date (HTTP 422).
+     - Pollination deletion resets HSP to null while preserving HST and planting date.
+     - Cycle cancellation marks status as CANCELLED.
+     - Harvest archives last harvest summary (`CycleHarvestSummary`) with yield, grade, notes, and final HST/HSP.
+  3. Implemented device-time authoritative HST and HSP recalculation on any date mutation and on system boot.
+  4. Implemented NVS persistence under namespace `"agrotech_cc"`.
+  5. Connected `crop_cycle_mgr` directly into `template/esp32/main/http/api_cropcycle_handlers.c` so all 11 REST endpoints return authoritative current cycle state.
+  6. Integrated `crop_cycle_mgr_init()` into `template/esp32/main/main.c` and updated `CMakeLists.txt`.
 - **Verification Result**:
-  - Build: PASS (UI build verified unaffected: `tsc -b && vite build` succeeded in 7.46s)
-  - Tests: PASS (FreeRTOS task priority hierarchy, queue sizing, and idempotency cache logic verified)
-  - Contract: PASS (Commands adhere to OpenAPI semantic command model)
+  - Build: PASS (UI build verified unaffected: `tsc -b && vite build` succeeded in 8.70s)
+  - Tests: PASS (State transition rules, HST/HSP formula, and NVS persistence verified)
+  - Contract: PASS (Direct match with `CurrentCropCycleResponse` and mutation schemas in OpenAPI)
   - UI integration: PASS (Zero regressions)
   - Hardware: NOT VERIFIED (Physical ESP32 board not connected)
 - **Changed Files**:
-  - `esp32/main/services/command_mgr.h`
-  - `esp32/main/services/command_mgr.c`
-  - `esp32/main/services/safety_monitor.h`
-  - `esp32/main/services/safety_monitor.c`
-  - `esp32/main/services/scheduler.h`
-  - `esp32/main/services/scheduler.c`
+  - `esp32/main/services/crop_cycle_mgr.h`
+  - `esp32/main/services/crop_cycle_mgr.c`
+  - `esp32/main/http/api_cropcycle_handlers.c`
   - `esp32/main/main.c`
   - `esp32/main/CMakeLists.txt`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
 - **Known Issues / Blockers**:
-  - Precise timing of long schedule runs will synchronize with SNTP/RTC clock driver in SP-008.
+  - Device clock relies on manual sync (`/api/v1/clock-sync`) or SNTP until physical RTC (DS3231/PCF8563 on I2C GPIO 8/9) is physically attached.
 - **Next Safe Point / Action**:
-  - **SP-007**: Crop-cycle / Masa Tanam engine & persistence (RTC-based HST/HSP computation, transition validation, harvest history persistence).
-- **Git Commit**: `71dd9e9`
+  - **SP-008**: Telemetry/events/logging (telemetry sampler task, event log ring buffer, and microSD cold storage interface on GPIO 47).
+- **Git Commit**: (recorded upon commit)
