@@ -22,6 +22,7 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-AUDIT-002 UI ↔ ESP32 Blindspot Audit Verification Complete
 - [x] SP-REMEDIATION-PLAN-001 Remediation planning phase complete
 - [x] SP-REMED-001 Hardware Definition & Boot Initialization
+- [x] SP-REMED-002 Network & RTC Initialization
 
 ---
 
@@ -112,4 +113,34 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - `idf.py` is not available in the current environment to verify compilation locally.
 - **Next Safe Point / Action**:
   - Begin SP-REMED-002 (Network & RTC Initialization).
+
+---
+
+## Safe Point Record: SP-REMED-002
+- **ID**: SP-REMED-002
+- **Objective**: Network & RTC Initialization
+- **Completed Work**:
+  1. Implemented `network_mgr` for Wi-Fi STA with SoftAP fallback (`BS-NET-001`).
+  2. Implemented `rtc_ds3231` I2C driver to read physical RTC on boot (`BS-CLOCK-001`).
+  3. Synced system POSIX time from DS3231 via `settimeofday` and enabled SNTP fallback (`BS-CLOCK-002`).
+  4. Updated `main.c` to initialize network and RTC in the boot sequence.
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: N/A
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/network/network_mgr.h` (NEW)
+  - `esp32/main/network/network_mgr.c` (NEW)
+  - `esp32/main/hal/rtc_ds3231.h` (NEW)
+  - `esp32/main/hal/rtc_ds3231.c` (NEW)
+  - `esp32/main/main.c`
+  - `esp32/main/CMakeLists.txt`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
+- **Known Issues / Blockers**:
+  - Requires physical hardware verification. SoftAP credentials are hardcoded as "AGROTECH-SETUP".
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-003 (Physical Safety Interlocks & Sensor Drivers).
 

@@ -16,6 +16,8 @@
 #include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
 #include "http/http_server.h"
+#include "network/network_mgr.h"
+#include "hal/rtc_ds3231.h"
 #include "services/command_mgr.h"
 #include "services/safety_monitor.h"
 #include "services/scheduler.h"
@@ -116,10 +118,13 @@ void app_main(void)
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(network_mgr_init());
 
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
     sdcard_hal_init();
+    ESP_ERROR_CHECK(rtc_ds3231_init());
+    rtc_ds3231_sync_to_system();
 
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());
