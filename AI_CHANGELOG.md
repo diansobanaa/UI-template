@@ -1,6 +1,37 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-009 Existing UI ↔ ESP32 integration created
+Safe Point: SP-009
+Status: COMPLETE
+
+Summary:
+- Integrated `cropCycleService` in `src/lib/services.ts` to communicate directly with `Esp32Client` when direct mode is active.
+- Integrated authoritative ESP32 cycle state and computed HST/HSP back into UI reactive store.
+- Connected `complexControlService.emergencyStop` and `syncEsp32` to ESP32 direct hardware endpoints.
+- Maintained UI component and styling zero-change policy.
+- Verified production build (`tsc -b && vite build`) compiles with 0 errors in ~7.4s.
+
+Files:
+- `src/lib/api/backend-client.ts`
+- `src/lib/api/esp32-client.ts`
+- `src/lib/services.ts`
+- `dist/index.html`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- Build: PASS (`tsc -b && vite build`)
+- Direct REST adapter test: PASS
+- UI styling and components: PASS (Untouched)
+
+Next:
+- SP-010: End-to-end verification.
+
+---
+
 ## 2026-09-13 — SP-008 Telemetry/events/logging created
+
 Safe Point: SP-008
 Status: COMPLETE
 

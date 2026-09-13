@@ -57,6 +57,7 @@ import type {
   CalibrationRecord,
   Complex,
   CropCycle,
+  CycleStatus,
   EventItem,
   FertigationSchedule,
   FanSchedule,
@@ -64,6 +65,10 @@ import type {
   ObservationDraft,
   WellPumpSchedule,
 } from "./types";
+import { esp32Client } from "./api/esp32-client";
+import { isDirectEsp32Enabled } from "./api/backend-client";
+import type { CurrentCropCycleResponse } from "./api/contracts";
+
 
 /** Simulated network latency for the mock backend. */
 export function delay(ms = 350): Promise<void> {
@@ -137,69 +142,245 @@ export const greenhouseService = {
   },
 };
 
+function applyEsp32CycleToStore(ghId: string, resp: CurrentCropCycleResponse): Greenhouse {
+  const gh = db.greenhouses.find((g) => g.id === ghId);
+  if (!gh) throw new ServiceError("NOT_FOUND", "Greenhouse not found.");
+
+  const mappedStatus: CycleStatus =
+    resp.status === "ACTIVE" ? "ACTIVE" :
+    resp.status === "HARVESTED" ? "HARVESTED" : "NO_CYCLE";
+
+  if (mappedStatus === "NO_CYCLE" || !resp.tanggalTanam) {
+    gh.cropCycle = {
+      status: "NO_CYCLE",
+      tanggalTanam: null,
+      tanggalPolinasi: null,
+      lastHarvestSummary: gh.cropCycle?.lastHarvestSummary ?? null,
+    };
+    gh.telemetry.hstDays = 0;
+    gh.telemetry.hspDays = null;
+  } else {
+    gh.cropCycle = {
+      status: mappedStatus,
+      tanggalTanam: resp.tanggalTanam,
+      tanggalPolinasi: resp.tanggalPolinasi ?? null,
+      variety: resp.variety ?? undefined,
+      plantCount: resp.plantCount ?? gh.plants.total,
+      notes: resp.notes ?? undefined,
+      lastHarvestSummary: gh.cropCycle?.lastHarvestSummary ?? null,
+    };
+    if (resp.plantCount) {
+      gh.plants.total = resp.plantCount;
+      gh.plants.alive = resp.plantCount;
+    }
+    gh.telemetry.hstDays = resp.hst ?? 0;
+    gh.telemetry.hspDays = resp.hsp ?? null;
+  }
+  return gh;
+}
+
+
 export const cropCycleService = {
   getCycle(ghId: string): CropCycle | undefined {
     return greenhouseService.get(ghId)?.cropCycle;
   },
+
+  async syncCycleFromEsp32(ghId: string): Promise<CropCycle | undefined> {
+    if (!isDirectEsp32Enabled()) return cropCycleService.getCycle(ghId);
+    try {
+      const resp = await esp32Client.getCurrentCropCycle(ghId);
+      const gh = applyEsp32CycleToStore(ghId, resp);
+      return gh.cropCycle;
+    } catch {
+      return cropCycleService.getCycle(ghId);
+    }
+  },
+
   async startCycle(
     ghId: string,
     tanggalTanam: string,
     options?: { variety?: string; plantCount?: number; notes?: string }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const resp = await esp32Client.startCropCycle(ghId, {
+          tanggalTanam,
+          variety: options?.variety,
+          plantCount: options?.plantCount,
+          notes: options?.notes,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { status?: number; message?: string };
+        if (errorObj?.status === 409) {
+          throw new ServiceError("CONFLICT", "Siklus tanam sudah aktif pada greenhouse ini.");
+        }
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal memulai siklus tanam pada ESP32.");
+      }
+    }
     await delay(300);
     return startCropCycle(ghId, tanggalTanam, options);
   },
+
   async startOngoingCycle(
     ghId: string,
     tanggalTanam: string,
     options?: { variety?: string; plantCount?: number; tanggalPolinasi?: string; notes?: string }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const resp = await esp32Client.importActiveCropCycle(ghId, {
+          tanggalTanam,
+          tanggalPolinasi: options?.tanggalPolinasi,
+          variety: options?.variety,
+          plantCount: options?.plantCount,
+          notes: options?.notes,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal import siklus berjalan pada ESP32.");
+      }
+    }
     await delay(300);
     return startOngoingCropCycle(ghId, tanggalTanam, options);
   },
+
   async recordPolinasi(
     ghId: string,
     tanggalPolinasi: string,
     options?: { pollinationMethod?: "natural" | "bee" | "manual"; notes?: string }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.recordPollination(ghId, cycleId, {
+          tanggalPolinasi,
+          pollinationMethod: options?.pollinationMethod,
+          notes: options?.notes,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal mencatat polinasi pada ESP32.");
+      }
+    }
     await delay(300);
     return recordCropCyclePolinasi(ghId, tanggalPolinasi, options);
   },
+
   async updateTanggalTanam(ghId: string, newTanggalTanam: string): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.updatePlantingDate(ghId, cycleId, {
+          tanggalTanam: newTanggalTanam,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal update tanggal tanam pada ESP32.");
+      }
+    }
     await delay(300);
     return updateCropCycleTanggalTanam(ghId, newTanggalTanam);
   },
+
   async updateTanggalPolinasi(
     ghId: string,
     newTanggalPolinasi: string,
     options?: { pollinationMethod?: "natural" | "bee" | "manual" }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.updatePollination(ghId, cycleId, {
+          tanggalPolinasi: newTanggalPolinasi,
+          pollinationMethod: options?.pollinationMethod,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal update tanggal polinasi pada ESP32.");
+      }
+    }
     await delay(300);
     return updateCropCycleTanggalPolinasi(ghId, newTanggalPolinasi, options);
   },
+
   async updateMetadata(
     ghId: string,
     updates: { variety?: string; plantCount?: number; notes?: string }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.updateCropCycleMetadata(ghId, cycleId, updates);
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal update metadata siklus pada ESP32.");
+      }
+    }
     await delay(300);
     return updateCropCycleMetadata(ghId, updates);
   },
+
   async deleteTanggalPolinasi(ghId: string): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.deletePollination(ghId, cycleId);
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal hapus tanggal polinasi pada ESP32.");
+      }
+    }
     await delay(300);
     return deleteCropCycleTanggalPolinasi(ghId);
   },
+
   async resetCycle(ghId: string): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.cancelCropCycle(ghId, cycleId, {});
+        return applyEsp32CycleToStore(ghId, resp);
+
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal reset siklus tanam pada ESP32.");
+      }
+    }
     await delay(300);
     return resetCropCycle(ghId);
   },
+
   async harvest(
     ghId: string,
     options?: { harvestDate?: string; yieldKg?: number; grade?: string; notes?: string }
   ): Promise<Greenhouse> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cycleId = "active";
+        const resp = await esp32Client.harvestCropCycle(ghId, cycleId, {
+          harvestDate: options?.harvestDate,
+          yieldKg: options?.yieldKg,
+          grade: options?.grade,
+          notes: options?.notes,
+        });
+        return applyEsp32CycleToStore(ghId, resp);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Gagal panen siklus tanam pada ESP32.");
+      }
+    }
     await delay(400);
     return harvestCropCycle(ghId, options);
   },
 };
+
 
 export const eventService = {
   recent(complexId: string): EventItem[] {
@@ -448,9 +629,13 @@ export const fertigationService = {
     syncStates.set(complexId, "syncing");
     markComplexSyncAttempt(complexId);
     try {
-      await delay(900);
-      if (!complex.esp32.online) {
-        throw new ServiceError("DEVICE_OFFLINE", `ESP32 for ${complex.code} is OFFLINE — unable to synchronize configuration.`);
+      if (isDirectEsp32Enabled()) {
+        await esp32Client.getStatus();
+      } else {
+        await delay(900);
+        if (!complex.esp32.online) {
+          throw new ServiceError("DEVICE_OFFLINE", `ESP32 for ${complex.code} is OFFLINE — unable to synchronize configuration.`);
+        }
       }
       setComplexEsp32Synced(complexId);
       syncStates.set(complexId, "idle");
@@ -465,9 +650,17 @@ export const fertigationService = {
   /** Emergency stop: stops every run in the complex, shuts the well pump, and latches the stop until manually resumed. */
   async emergencyStop(complexId: string): Promise<void> {
     assertFound(complexService.get(complexId), "Complex");
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.emergencyStop("Emergency stop triggered from UI");
+      } catch (e) {
+        console.warn("Direct ESP32 emergency stop failed or offline:", e);
+      }
+    }
     await delay(500);
     emergencyStopComplex(complexId);
   },
+
 
   /** Latched emergency-stop state — actuators and runs stay blocked until resume() is called. */
   isStopped(complexId: string): boolean {

@@ -17,13 +17,17 @@ export class ApiRequestError extends Error {
   }
 }
 
-const defaultConfig: HardwarePortConfig = {
+export const defaultConfig: HardwarePortConfig = {
   pythonBaseUrl: PYTHON_API_BASE,
   esp32BaseUrl: ESP32_API_BASE || undefined,
   requestTimeoutMs: Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 8000),
   token: import.meta.env.VITE_API_TOKEN || undefined,
-  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 === "true",
+  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 === "true" || Boolean(ESP32_API_BASE),
 };
+
+export const isDirectEsp32Enabled = (): boolean =>
+  Boolean(defaultConfig.directEsp32Enabled && defaultConfig.esp32BaseUrl);
+
 
 function resolveUrl(path: string, config: HardwarePortConfig = defaultConfig): string {
   if (/^https?:\/\//i.test(path)) return path;

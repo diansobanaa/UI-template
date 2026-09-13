@@ -22,7 +22,7 @@ import type {
   UpdatePlantingDateRequest,
   UpdatePollinationRequest,
 } from "./contracts";
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./backend-client";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
 
 /** Direct REST port used when the UI reaches the ESP32 directly on the local WLAN/LAN. */
 export class Esp32Client {
@@ -154,3 +154,6 @@ export class Esp32Client {
     return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/harvest`), payload, this.config);
   }
 }
+
+export const esp32Client = new Esp32Client(defaultConfig);
+
