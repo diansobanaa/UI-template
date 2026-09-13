@@ -50,4 +50,4 @@ SP-002 ESP32 project foundation (COMPLETE)
   - ESP-IDF build toolchain (`idf.py`) is not installed in the Windows system PATH, so firmware compilation was checked structurally/syntactically rather than through an active toolchain run.
 - **Next Safe Point / Action**:
   - **SP-003**: Hardware abstraction and safe boot (modular driver HAL for actuators, flow sensors YF-B1/FS400A, DS18B20 1-Wire temperature, float switches, and button debouncing).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `b7c9d4c`
