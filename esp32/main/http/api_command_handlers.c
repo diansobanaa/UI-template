@@ -7,6 +7,10 @@
 
 esp_err_t handler_emergency_stop(httpd_req_t *req)
 {
+
+    if (http_check_auth(req) != ESP_OK) {
+        return ESP_OK; // Response already sent
+    }
     cJSON *body = NULL;
     http_parse_json_body(req, &body);
 
@@ -36,6 +40,10 @@ esp_err_t handler_emergency_stop(httpd_req_t *req)
 
 esp_err_t handler_post_command(httpd_req_t *req)
 {
+
+    if (http_check_auth(req) != ESP_OK) {
+        return ESP_OK; // Response already sent
+    }
     cJSON *body = NULL;
     esp_err_t err = http_parse_json_body(req, &body);
     if (err != ESP_OK || !body) {
@@ -100,6 +108,10 @@ esp_err_t handler_get_command(httpd_req_t *req)
 
 esp_err_t handler_delete_command(httpd_req_t *req)
 {
+
+    if (http_check_auth(req) != ESP_OK) {
+        return ESP_OK; // Response already sent
+    }
     /* Extract commandId from URI: /api/v1/commands/{commandId} */
     const char *uri = req->uri;
     const char *prefix = "/api/v1/commands/";

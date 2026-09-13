@@ -8,7 +8,42 @@
 static const char *TAG = "HTTP_SERVER";
 static httpd_handle_t s_server = NULL;
 
-esp_err_t http_send_cors_headers(httpd_req_t *req)
+
+#include "nvs_flash.h"
+#include "nvs.h"
+
+esp_err_t http_check_auth(httpd_req_t *req)
+{
+    char buf[128];
+    esp_err_t err = httpd_req_get_hdr_value_str(req, "Authorization", buf, sizeof(buf));
+    if (err != ESP_OK) {
+        http_send_error(req, 401, "UNAUTHORIZED", "Missing Authorization header", NULL);
+        return ESP_FAIL;
+    }
+
+    if (strncmp(buf, "Bearer ", 7) != 0) {
+        http_send_error(req, 401, "UNAUTHORIZED", "Invalid token format", NULL);
+        return ESP_FAIL;
+    }
+
+    const char *token = buf + 7;
+    char stored_token[64] = "agrotech-secret-key"; // Default token
+
+    nvs_handle_t handle;
+    if (nvs_open("agrotech", NVS_READONLY, &handle) == ESP_OK) {
+        size_t len = sizeof(stored_token);
+        nvs_get_str(handle, "api_key", stored_token, &len);
+        nvs_close(handle);
+    }
+
+    if (strcmp(token, stored_token) != 0) {
+        http_send_error(req, 401, "UNAUTHORIZED", "Invalid API key", NULL);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+\nesp_err_t http_send_cors_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");

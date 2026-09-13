@@ -80,6 +80,10 @@ esp_err_t handler_get_configuration(httpd_req_t *req)
 
 esp_err_t handler_put_configuration(httpd_req_t *req)
 {
+
+    if (http_check_auth(req) != ESP_OK) {
+        return ESP_OK; // Response already sent
+    }
     cJSON *body = NULL;
     esp_err_t err = http_parse_json_body(req, &body);
     if (err != ESP_OK || !body) {
@@ -116,6 +120,10 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
 
 esp_err_t handler_validate_configuration(httpd_req_t *req)
 {
+
+    if (http_check_auth(req) != ESP_OK) {
+        return ESP_OK; // Response already sent
+    }
     cJSON *body = NULL;
     esp_err_t err = http_parse_json_body(req, &body);
     if (err != ESP_OK || !body) {

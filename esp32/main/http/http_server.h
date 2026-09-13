@@ -6,7 +6,13 @@
 #include "esp_http_server.h"
 #include "cJSON.h"
 
-#ifdef __cplusplus
+
+/**
+ * @brief Check Bearer token in Authorization header against NVS stored token.
+ * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
+ */
+esp_err_t http_check_auth(httpd_req_t *req);
+\n#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -45,6 +51,12 @@ esp_err_t http_send_json_response(httpd_req_t *req, int status_code, cJSON *json
  */
 esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json);
 
-#ifdef __cplusplus
+
+/**
+ * @brief Check Bearer token in Authorization header against NVS stored token.
+ * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
+ */
+esp_err_t http_check_auth(httpd_req_t *req);
+\n#ifdef __cplusplus
 }
 #endif
