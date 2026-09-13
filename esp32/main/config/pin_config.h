@@ -28,7 +28,7 @@ extern "C" {
 #define PIN_TFT_CS                  14
 #define PIN_TFT_DC                  21
 #define PIN_TFT_RST                 42
-#define PIN_MICROSD_CS              47
+#define PIN_MICROSD_CS              27
 
 /* ========================================================================== */
 /* I2C BUS (RTC & EXPANDERS)                                                 */
@@ -59,7 +59,7 @@ extern "C" {
 #define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */
 #define PIN_IN_FLOW_FS400A          16   /* Flow pulse input 2 */
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
-#define PIN_IN_FLOAT_LOWER          19   /* Digital Lower Float Switch */
+#define PIN_IN_FLOAT_LOWER          26   /* Digital Lower Float Switch */
 
 /* ========================================================================== */
 /* PHYSICAL OPERATOR BUTTONS                                                  */

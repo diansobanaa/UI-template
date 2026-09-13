@@ -2,23 +2,21 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-13
-- **Latest Safe Point**: SP-REMEDIATION-PLAN-001 (Remediation Planning Complete)
-- **Active Task**: None. Standing by for maintainer decisions on key architectural questions (e.g. Pin assignments).
-- **Repository State**: Verified, Clean, Unmodified (Verification-Only Pass Completed).
+- **Latest Safe Point**: SP-REMED-001 (Hardware Definition & Boot Initialization)
+- **Active Task**: None. Standing by to begin SP-REMED-002.
+- **Repository State**: SP-REMED-001 changes implemented but NOT VERIFIED locally due to missing `idf.py` environment.
 
 ## What Was Just Completed
-1. Executed a strict planning-only pass based on the verified blindspots from SP-AUDIT-002.
-2. Clustered all 28 verified findings into 9 coherent Remediation Groups based on common root causes (e.g., Boot/Initialization, Safety Interlocks, State Persistence, etc.).
-3. Established a dependency-driven implementation order (RG-HW-INIT -> RG-NET-TIME -> RG-SAFETY-HW -> etc.).
-4. Identified 4 critical project decisions required before full implementation (Pins, Network interface, Multi-GH routing architecture, Authentication strategy).
-5. Mapped fix conflicts, demonstrating why Memory Boundary limits must precede Async Queue rewrites, and why Safety interlocks must precede UI command wire-ups.
-6. Generated a 9-step Safe Point Sequence (SP-REMED-001 through SP-REMED-009) to ensure no regressions occur during fixing.
-7. Outputted all planning documents into `template/docs/`. Zero production code changes were made.
+1. Received approval to use GPIO 26 and 27 for `PIN_IN_FLOAT_LOWER` and `PIN_MICROSD_CS`.
+2. Implemented SP-REMED-001: Hardware Definition & Boot Initialization.
+3. Updated `pin_config.h` to use the new safe pins, resolving USB Native D- and Octal PSRAM conflicts.
+4. Added `spi_bus_initialize` to `hardware_registry.c` to prevent peripheral mount panics on boot.
+5. Created tracking artifacts: `AI_REMEDIATION_EXECUTION_LOG_V1.md` and `AI_REMEDIATION_EXECUTION_MATRIX_V1.md`.
 
 ## Next Action for Next Agent
 1. Read `AI_PROGRESS.md` and this handover file.
-2. DO NOT proceed with `SP-REMED-001` until the user/maintainer provides an answer for `DECISION-001: Safe Pin Allocations` (see `template/docs/AI_REMEDIATION_DECISIONS_V1.md`).
-3. Once the pin map is decided, begin `SP-REMED-001` (Hardware Foundation & SPI Initialization).
+2. Review `AI_REMEDIATION_DECISIONS_V1.md` to see if DECISION-002 (Primary Network Interface) needs answering before proceeding with SP-REMED-002.
+3. Begin `SP-REMED-002` (Network & RTC Initialization).
 
 ## Known Gotchas / Context for Next Agent
 - Do not trust prior conversation memory; always grep the code.

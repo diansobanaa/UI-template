@@ -1,5 +1,32 @@
 # AI CHANGELOG
 
+## 2026-09-13 — SP-REMED-001 Hardware Definition & Boot Initialization complete
+Safe Point: SP-REMED-001
+Status: COMPLETE
+
+Summary:
+- Received approval to relocate conflicting pins. Moved `PIN_IN_FLOAT_LOWER` from GPIO 19 to 26 and `PIN_MICROSD_CS` from 47 to 27.
+- Updated `hardware_registry.c` to properly initialize the SPI bus before mounting peripherals, resolving panic on boot.
+- Created `AI_REMEDIATION_EXECUTION_LOG_V1.md` and `AI_REMEDIATION_EXECUTION_MATRIX_V1.md`.
+
+Files:
+- `esp32/main/config/pin_config.h`
+- `esp32/main/hal/hardware_registry.c`
+- `docs/AI_REMEDIATION_EXECUTION_LOG_V1.md`
+- `docs/AI_REMEDIATION_EXECUTION_MATRIX_V1.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- `AI_CHANGELOG.md`
+
+Verification:
+- Build: NOT RUN (IDF not available)
+- Tests: NOT RUN
+
+Next:
+- SP-REMED-002: Network & RTC Initialization.
+
+---
+
 ## 2026-09-13 — SP-REMEDIATION-PLAN-001 Remediation planning phase complete
 Safe Point: SP-REMEDIATION-PLAN-001
 Status: COMPLETE

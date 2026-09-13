@@ -2,6 +2,7 @@
 #include "hal/button_hal.h"
 #include "config/pin_config.h"
 #include "esp_log.h"
+#include "driver/spi_master.h"
 
 static const char *TAG = "HW_REGISTRY";
 
@@ -31,6 +32,20 @@ static void on_button_event(button_id_t btn, bool pressed)
 esp_err_t hardware_hal_init_all(void)
 {
     ESP_LOGI(TAG, "Initializing all hardware HAL subsystems...");
+
+    spi_bus_config_t buscfg = {
+        .miso_io_num = PIN_SPI_MISO,
+        .mosi_io_num = PIN_SPI_MOSI,
+        .sclk_io_num = PIN_SPI_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096
+    };
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
     ESP_ERROR_CHECK(actuator_hal_init());
     ESP_ERROR_CHECK(sensor_hal_init());

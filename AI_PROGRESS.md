@@ -4,7 +4,7 @@
 COMPLETE
 
 ## Latest Safe Point
-SP-AUDIT-001 UI ↔ ESP32 Blindspot Audit Complete (COMPLETE)
+SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -21,6 +21,7 @@ SP-AUDIT-001 UI ↔ ESP32 Blindspot Audit Complete (COMPLETE)
 - [x] SP-AUDIT-001 UI ↔ ESP32 Blindspot Audit Complete
 - [x] SP-AUDIT-002 UI ↔ ESP32 Blindspot Audit Verification Complete
 - [x] SP-REMEDIATION-PLAN-001 Remediation planning phase complete
+- [x] SP-REMED-001 Hardware Definition & Boot Initialization
 
 ---
 
@@ -84,3 +85,31 @@ SP-AUDIT-001 UI ↔ ESP32 Blindspot Audit Complete (COMPLETE)
   - DECISION-001 (Safe Pin Allocations) must be resolved before SP-REMED-001 can be executed.
 - **Next Safe Point / Action**:
   - Await maintainer decision on DECISION-001, then begin SP-REMED-001.
+
+---
+
+## Safe Point Record: SP-REMED-001
+- **ID**: SP-REMED-001
+- **Objective**: Hardware Definition & Boot Initialization
+- **Completed Work**:
+  1. Relocated `PIN_IN_FLOAT_LOWER` from GPIO 19 to safe pin 26.
+  2. Relocated `PIN_MICROSD_CS` from GPIO 47 to safe pin 27.
+  3. Added SPI bus initialization (`spi_bus_initialize`) to `hardware_registry.c` before mounting peripherals.
+- **Verification Result**:
+  - Build: NOT RUN (IDF not available)
+  - Tests: NOT RUN
+  - Contract: N/A
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/hardware_registry.c`
+  - `docs/AI_REMEDIATION_EXECUTION_LOG_V1.md` (NEW)
+  - `docs/AI_REMEDIATION_EXECUTION_MATRIX_V1.md` (NEW)
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+  - `AI_CHANGELOG.md`
+- **Known Issues / Blockers**:
+  - `idf.py` is not available in the current environment to verify compilation locally.
+- **Next Safe Point / Action**:
+  - Begin SP-REMED-002 (Network & RTC Initialization).
+
