@@ -48,5 +48,6 @@ SP-009 Existing UI ↔ ESP32 integration (COMPLETE)
   - None.
 - **Next Safe Point / Action**:
   - **SP-010**: End-to-end verification (create automated test suite for contract conformance, API schema validation across all 25 endpoints, and mock ESP32 server validation).
-- **Git Commit**: PENDING_COMMIT
+- **Git Commit**: `68c7ad5`
+
 
