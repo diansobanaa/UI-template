@@ -57,4 +57,4 @@ SP-001 Repository discovery and compatibility baseline (COMPLETE)
   - Baseline pin mapping is a project baseline, not proof of physical board wiring.
 - **Next Safe Point / Action**:
   - **SP-002**: ESP32 project foundation under `template/esp32/` (ESP-IDF CMake project structure, target `esp32s3`, `sdkconfig.defaults`, FreeRTOS task skeleton).
-- **Git Commit**: (recorded upon commit)
+- **Git Commit**: `4cd62b0`
