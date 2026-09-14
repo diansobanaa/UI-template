@@ -5,6 +5,7 @@
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
 #include "sdmmc_cmd.h"
+#include "driver/gpio.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -19,7 +20,14 @@ esp_err_t sdcard_hal_init(void)
     if (!s_sd_lock) {
         s_sd_lock = xSemaphoreCreateMutex();
     }
-    ESP_LOGI(TAG, "Checking for microSD card on SPI CS (GPIO %d)...", PIN_MICROSD_CS);
+    
+    ESP_LOGI(TAG, "Initializing microSD interface on SPI CS (GPIO %d)...", PIN_MICROSD_CS);
+
+    // Pull up SPI lines so that unconnected/floating lines sit at bus idle (HIGH / 0xFF)
+    gpio_set_pull_mode(PIN_SPI_MISO, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(PIN_SPI_MOSI, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(PIN_SPI_SCK, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(PIN_MICROSD_CS, GPIO_PULLUP_ONLY);
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
@@ -28,21 +36,28 @@ esp_err_t sdcard_hal_init(void)
     };
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.command_timeout_ms = 100; // Bounded timeout (100 ms)
+
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_MICROSD_CS;
     slot_config.host_id = host.slot;
 
     esp_err_t ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot_config, &mount_config, &s_card);
+
     if (ret == ESP_OK) {
+        sdcard_hal_lock();
         s_sd_mounted = true;
-        ESP_LOGI(TAG, "microSD Card mounted at /sdcard (Capacity: %llu MB)",
+        sdcard_hal_unlock();
+        ESP_LOGI(TAG, "microSD card mounted at /sdcard (Capacity: %llu MB)",
                  ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024));
     } else {
+        sdcard_hal_lock();
         s_sd_mounted = false;
-        ESP_LOGW(TAG, "microSD card not detected (err=0x%x). System continues with internal SPIFFS.", ret);
+        sdcard_hal_unlock();
+        ESP_LOGW(TAG, "microSD card not detected or mount failed (err=0x%x). Operating in degraded mode.", ret);
     }
 
-    return ret;
+    return ESP_OK;
 }
 
 bool sdcard_hal_is_mounted(void)

@@ -123,8 +123,11 @@ void app_main(void)
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
     sdcard_hal_init();
-    ESP_ERROR_CHECK(rtc_ds3231_init());
-    rtc_ds3231_sync_to_system();
+    if (rtc_ds3231_init() == ESP_OK) {
+        rtc_ds3231_sync_to_system();
+    } else {
+        ESP_LOGW(TAG, "RTC DS3231 not present. Operating in degraded time mode (SNTP/system timer).");
+    }
 
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());

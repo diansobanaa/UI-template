@@ -4,9 +4,10 @@
 BUILD GREEN (FIRMWARE BINARY GENERATED)
 
 ### Latest Safe Point
-SP-REMED-014 Hardware Preparation & Commissioning Readiness
+SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1
 
 ## Safe Point Index
+- [ ] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)
 - [x] SP-001 Repository discovery and compatibility baseline
 - [x] SP-HW-002 Finalize Upper Float Removal and Safety Interlock
 - [x] SP-002 ESP32 project foundation
@@ -42,6 +43,37 @@ SP-REMED-014 Hardware Preparation & Commissioning Readiness
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-BOOT-REMED-001 (PARTIAL)
+- **ID**: SP-BOOT-REMED-001 (PARTIAL)
+- **Objective**: Execute Boot Remediation V1 to resolve boot failure on unpopulated hardware.
+- **Completed Work**:
+  1. Removed unused 9MB SPIFFS filesystem formatting from runtime to prevent format watchdog hang.
+  2. Replaced GPIO weak pull-down heuristics with bounded I2C ACK/NACK probe in `rtc_ds3231.c`.
+  3. Replaced fatal `ESP_ERROR_CHECK(rtc_ds3231_init())` in `main.c` with graceful degraded logging.
+  4. Enabled internal pull-ups on SPI pins and configured 100ms timeout for SDSPI in `sdcard_hal.c`.
+  5. Removed ad-hoc WDT calls in `storage_mgr.c`.
+  6. Updated feature capability string in `api_device_handlers.c`.
+  7. Formally documented all investigations in `AI_BOOT_REMEDIATION_REPORT_V1.md`, `AI_BOOT_REMEDIATION_PLAN_V1.md`, and `AI_BOOT_REMEDIATION_EXECUTION_REPORT_V1.md`.
+- **Verification Result**:
+  - Build: PASS (agrotech_esp32.bin, 1,004,528 bytes, 0 errors).
+  - Flash: PASS (COM3, hash verified).
+  - Boot Test: STOP CONDITION TRIGGERED (Failed at `sdcard_hal_init` due to `rst:0x8 (TG1WDT_SYS_RST)` during `esp_vfs_fat_sdspi_mount`).
+- **Changed Files**:
+  - `esp32/main/storage/storage_mgr.c`
+  - `esp32/main/hal/rtc_ds3231.c`
+  - `esp32/main/hal/sdcard_hal.c`
+  - `esp32/main/main.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `esp32/docs/AI_BOOT_REMEDIATION_REPORT_V1.md`
+  - `esp32/docs/AI_BOOT_REMEDIATION_PLAN_V1.md`
+  - `esp32/docs/AI_BOOT_REMEDIATION_EXECUTION_REPORT_V1.md`
+- **Known Issues / Blockers**:
+  - ESP-IDF `esp_vfs_fat_sdspi_mount` hangs/spins when no physical SD card reader is attached, triggering Timer Group 1 Watchdog.
+- **Next Action**:
+  - Obtain user decision on SD card absent handling (e.g., compile-time config flag / physical card detect / safe bypass for unpopulated hardware).
 
 ---
 

@@ -1,7 +1,6 @@
 #include "storage/storage_mgr.h"
 #include "config/system_config.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
 #include "esp_random.h"
 #include "nvs.h"
 #include "esp_rom_crc.h"
@@ -13,7 +12,6 @@
 
 static const char *TAG = "STORAGE_MGR";
 static const char *NVS_NAMESPACE = "agrotech";
-static const char *SPIFFS_BASE_PATH = "/spiffs";
 static const char *EVENT_LOG_FILE = "/sdcard/events.log";
 
 #define MAX_EVENT_LOG_BYTES (128 * 1024)
@@ -35,36 +33,6 @@ static void generate_boot_id(char *out_uuid, size_t max_len)
              (unsigned long)((r3 >> 16) & 0x3FFF) | 0x8000,
              (unsigned long)(r3 & 0xFFFF),
              (unsigned long)(r4 & 0xFFFF));
-}
-
-static esp_err_t init_spiffs(void)
-{
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = SPIFFS_BASE_PATH,
-        .partition_label = "storage",
-        .max_files = 5,
-        .format_if_mount_failed = true
-    };
-
-    esp_err_t ret = esp_vfs_spiffs_register(&conf);
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount or format SPIFFS filesystem");
-        } else if (ret == ESP_ERR_NOT_FOUND) {
-            ESP_LOGW(TAG, "Storage partition not found in partition table");
-        } else {
-            ESP_LOGE(TAG, "SPIFFS register failed (0x%x)", ret);
-        }
-        return ret;
-    }
-
-    size_t total = 0, used = 0;
-    ret = esp_spiffs_info("storage", &total, &used);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "SPIFFS mounted at %s: total=%d KB, used=%d KB",
-                 SPIFFS_BASE_PATH, (int)(total / 1024), (int)(used / 1024));
-    }
-    return ESP_OK;
 }
 
 esp_err_t storage_mgr_init(void)
@@ -112,13 +80,10 @@ esp_err_t storage_mgr_init(void)
     nvs_commit(handle);
     nvs_close(handle);
 
-    /* 4. Mount SPIFFS storage */
-    init_spiffs();
-
     s_state.safe_boot_active = true;
     s_initialized = true;
 
-    ESP_LOGI(TAG, "Storage manager ready: Device='%s', Complex='%s', BootId='%s', Boots=%lu, ConfigVer=%lu",
+    ESP_LOGI(TAG, "Storage manager ready (NVS persistent): Device='%s', Complex='%s', BootId='%s', Boots=%lu, ConfigVer=%lu",
              s_state.device_id, s_state.complex_id, s_state.boot_id,
              (unsigned long)s_state.boot_count, (unsigned long)s_state.config_version);
 

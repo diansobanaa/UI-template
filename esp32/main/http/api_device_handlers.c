@@ -107,7 +107,7 @@ esp_err_t handler_get_capabilities(httpd_req_t *req)
     cJSON_AddItemToArray(features, cJSON_CreateString("LOCAL_CORS"));
     cJSON_AddItemToArray(features, cJSON_CreateString("CROP_CYCLE_ENGINE"));
     cJSON_AddItemToArray(features, cJSON_CreateString("STORAGE_NVS_CRC"));
-    cJSON_AddItemToArray(features, cJSON_CreateString("SPIFFS_LOGGING"));
+    cJSON_AddItemToArray(features, cJSON_CreateString("EVENT_LOGGING"));
     cJSON_AddItemToArray(features, cJSON_CreateString("EMERGENCY_STOP"));
 
     return http_send_enveloped_response(req, 200, NULL, root);

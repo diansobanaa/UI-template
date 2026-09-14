@@ -11,6 +11,8 @@ static const char *TAG = "RTC_DS3231";
 
 static esp_err_t ds3231_i2c_init(void)
 {
+    ESP_LOGI(TAG, "Initializing I2C bus for DS3231 RTC (SDA=%d, SCL=%d)...", PIN_I2C_SDA, PIN_I2C_SCL);
+
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = PIN_I2C_SDA,
@@ -23,7 +25,27 @@ static esp_err_t ds3231_i2c_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    return i2c_driver_install(I2C_PORT_NUM, conf.mode, 0, 0, 0);
+    err = i2c_driver_install(I2C_PORT_NUM, conf.mode, 0, 0, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    /* Bounded ACK/NACK probe to detect if DS3231 hardware is present */
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (DS3231_ADDR << 1) | I2C_MASTER_WRITE, true /* check ACK */);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT_NUM, cmd, pdMS_TO_TICKS(50));
+    i2c_cmd_link_delete(cmd);
+
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "DS3231 RTC not detected on I2C bus (probe err=0x%x). Operating in degraded mode.", ret);
+        i2c_driver_delete(I2C_PORT_NUM);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(TAG, "DS3231 RTC acknowledged at 0x%02x.", DS3231_ADDR);
+    return ESP_OK;
 }
 
 static uint8_t bcd2dec(uint8_t val)
@@ -44,7 +66,7 @@ static esp_err_t ds3231_get_time(struct tm *timeinfo)
     i2c_master_read_byte(cmd, data + 6, I2C_MASTER_NACK);
     i2c_master_stop(cmd);
     
-    esp_err_t err = i2c_master_cmd_begin(I2C_PORT_NUM, cmd, pdMS_TO_TICKS(1000));
+    esp_err_t err = i2c_master_cmd_begin(I2C_PORT_NUM, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
 
     if (err != ESP_OK) {
