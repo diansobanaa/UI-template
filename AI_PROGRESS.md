@@ -743,5 +743,6 @@ inja -C build -j 1).
   - `AI_HANDOVER.md`
 - **Known Issues / Blockers**: None in software. Physical hardware requires verification according to Section 17 checklist.
 - **Next Safe Point / Action**: Physical hardware first flash and commissioning on target bench.
-- **Git Commit Hash**: [TO BE COMMITTED]
+- **Git Commit Hash**:
+  - Git commit: a6cf859 (SP-REMED-014)
 
