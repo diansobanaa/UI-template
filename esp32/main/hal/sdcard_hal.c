@@ -1,5 +1,6 @@
 #include "hal/sdcard_hal.h"
 #include "config/pin_config.h"
+#include "config/system_config.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdspi_host.h"
@@ -21,6 +22,11 @@ esp_err_t sdcard_hal_init(void)
         s_sd_lock = xSemaphoreCreateMutex();
     }
     
+#if !FEATURE_SDCARD_ENABLED
+    s_sd_mounted = false;
+    ESP_LOGW(TAG, "microSD interface DISABLED_FOR_BRINGUP (FEATURE_SDCARD_ENABLED=0). Operating in degraded mode.");
+    return ESP_OK;
+#else
     ESP_LOGI(TAG, "Initializing microSD interface on SPI CS (GPIO %d)...", PIN_MICROSD_CS);
 
     // Pull up SPI lines so that unconnected/floating lines sit at bus idle (HIGH / 0xFF)
@@ -58,6 +64,7 @@ esp_err_t sdcard_hal_init(void)
     }
 
     return ESP_OK;
+#endif
 }
 
 bool sdcard_hal_is_mounted(void)

@@ -44,6 +44,15 @@ extern "C" {
 /* Safety Limits */
 #define EMERGENCY_STOP_LATCH_MS     500
 
+/* Hardware Feature Flags */
+#ifndef FEATURE_SDCARD_ENABLED
+#define FEATURE_SDCARD_ENABLED      0   /* 0 = Disabled for board bring-up without microSD; 1 = Enabled when reader attached */
+#endif
+
+#ifndef FEATURE_SENSORS_ENABLED
+#define FEATURE_SENSORS_ENABLED     0   /* 0 = Disabled for board bring-up without external sensors; 1 = Enabled */
+#endif
+
 #ifdef __cplusplus
 }
 #endif

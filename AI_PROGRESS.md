@@ -1,20 +1,42 @@
 # AI PROGRESS
 
 ## Status
-BUILD GREEN (FIRMWARE BINARY GENERATED)
+BOOT GREEN (FIRST BRING-UP TO SYSTEM READY VERIFIED)
 
 ### Latest Safe Point
-SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1
+SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 
 ## Safe Point Index
-- [ ] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)
+- [x] SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
+- [x] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)
 - [x] SP-001 Repository discovery and compatibility baseline
 - [x] SP-HW-002 Finalize Upper Float Removal and Safety Interlock
 - [x] SP-002 ESP32 project foundation
 - [x] SP-003 Hardware abstraction and safe boot
 - [x] SP-004 Durable storage and recovery
-- [x] SP-005 REST API contract implementation
-- [x] SP-006 Runtime, commands, scheduling, and safety
+- [x] SP-007 Crop-cycle / Masa Tanam
+- [x] SP-008 Telemetry/events/logging
+- [x] SP-009 Existing UI ↔ ESP32 integration
+- [x] SP-010 End-to-end verification
+- [x] SP-011 Assembly/commissioning documentation
+- [x] SP-AUDIT-001 UI ↔ ESP32 Blindspot Audit Complete
+- [x] SP-AUDIT-002 UI ↔ ESP32 Blindspot Audit Verification Complete
+- [x] SP-REMEDIATION-PLAN-001 Remediation planning phase complete
+- [x] SP-REMED-001 Hardware Definition & Boot Initialization
+- [x] SP-REMED-002 Network & RTC Initialization
+- [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
+- [x] SP-REMED-004 Persistence & Memory Bounds
+- [x] SP-REMED-006 Scheduler, Dynamic Topology & Config Validation
+- [x] SP-REMED-011 Nested Request Envelope Migration Complete
+- [x] SP-REMED-012 Request Envelope Alignment & E2E Contract Verification
+- [x] SP-REMED-013 Post-Remediation Regression Audit and Fixes
+- [x] SP-REMED-014 Hardware Preparation & Commissioning Readiness
+- [x] Post-Build UI/API Endpoint alignment and integration audits (Phase 1 checks).
+- [x] OpenAPI EnvelopeBase compliance remediation.
+- [ ] ESP32 hardware execution testing.
+- [x] FIRST-BUILD-BLOCKER-main-net Root Cause & Resolution of main/net Blocker
+- [x] FIRST-BUILD-BLOCKER-esp_flash.h Missing esp_flash.h dependency
+- [x] FIRST-BUILD-BLOCKER-http-server Resolve syntax error in http_server.h
 - [x] SP-007 Crop-cycle / Masa Tanam
 - [x] SP-008 Telemetry/events/logging
 - [x] SP-009 Existing UI ↔ ESP32 integration
@@ -43,6 +65,39 @@ SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-BOOT-001
+- **ID**: SP-BOOT-001
+- **Objective**: Complete first bring-up boot to SYSTEM READY on unpopulated ESP32-S3 hardware.
+- **Completed Work**:
+  1. Configured compile-time hardware bring-up flags `FEATURE_SDCARD_ENABLED=0` and `FEATURE_SENSORS_ENABLED=0` in `system_config.h`.
+  2. Isolated `sdcard_hal_init()` to report `microSD interface DISABLED_FOR_BRINGUP` without blocking SPI bus.
+  3. Isolated `sensor_hal_init()` and `sensor_hal_poll()` to report `Sensor HAL DISABLED_FOR_BRINGUP` without attaching ISRs to floating GPIOs (15, 16) or polling DS18B20 1-Wire bus.
+  4. Verified DS3231 RTC bounded I2C probe (50ms timeout) cleanly reports absence and falls back gracefully to SNTP/system timer without panic or blocking.
+  5. Built firmware cleanly (934,752 bytes, 0 errors).
+  6. Flashed to ESP32-S3 on COM3 (hash verified).
+  7. Conducted serial boot test: reached full **SYSTEM READY** at 1639 ms with all 7 actuator channels locked in safe-off state, SoftAP `AGROTECH-SETUP` (192.168.4.1) active, NVS loaded, and HTTP server started on port 80.
+  8. Documented complete execution evidence in `esp32/docs/AI_SENSOR_BRINGUP_EXECUTION_REPORT_V1.md`.
+- **Verification Result**:
+  - Build: PASS (agrotech_esp32.bin, 934,752 bytes, 0 errors).
+  - Flash: PASS (COM3 @ 460800 baud, hash verified).
+  - Boot Test: **PASS — SYSTEM READY** (Timestamp 1639 ms, zero WDT resets, zero panics).
+  - Actuator Safety: PASS (7 channels locked safe OFF: Well, Dist, Submersible, Dosing A, Dosing B, Fan, Error Lamp).
+  - Peripherals: PASS (SD disabled degraded, RTC absent degraded, sensors disabled degraded).
+- **Changed Files**:
+  - `esp32/main/config/system_config.h`
+  - `esp32/main/hal/sdcard_hal.c`
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/docs/AI_BOOT_BRINGUP_NO_SD_EXECUTION_REPORT_V1.md`
+  - `esp32/docs/AI_SENSOR_BRINGUP_EXECUTION_REPORT_V1.md`
+- **Known Issues / Blockers**:
+  - None for core firmware bring-up. External sensors and microSD reader remain physically disconnected until individual hardware commissioning phases.
+- **Next Action**:
+  - Stop total. Await operator review before conducting any network/REST API testing or hardware peripheral commissioning.
+- **Git Commit Hash**:
+  - PENDING_COMMIT
 
 ---
 

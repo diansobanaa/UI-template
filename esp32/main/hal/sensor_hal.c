@@ -1,5 +1,6 @@
 #include "hal/sensor_hal.h"
 #include "config/pin_config.h"
+#include "config/system_config.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/gpio.h"
@@ -122,6 +123,19 @@ esp_err_t sensor_hal_init(void)
         s_sensor_lock = xSemaphoreCreateMutex();
     }
 
+#if !FEATURE_SENSORS_ENABLED
+    s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
+    s_current_readings.temperature_c = 0.0f;
+    s_current_readings.float_lower_ok = true;
+    s_current_readings.flow_rate_yfb1_lpm = 0.0f;
+    s_current_readings.flow_rate_fs400a_lpm = 0.0f;
+    s_current_readings.total_liters_yfb1 = 0.0f;
+    s_current_readings.total_liters_fs400a = 0.0f;
+    s_current_readings.last_sample_timestamp = esp_timer_get_time() / 1000ULL;
+
+    ESP_LOGW(TAG, "Sensor HAL DISABLED_FOR_BRINGUP (FEATURE_SENSORS_ENABLED=0). Operating in degraded mode.");
+    return ESP_OK;
+#else
     /* 1. Configure Pulse Inputs for Flow Meters */
     gpio_config_t flow_conf = {
         .mode = GPIO_MODE_INPUT,
@@ -155,12 +169,20 @@ esp_err_t sensor_hal_init(void)
              PIN_IN_FLOW_YFB1, PIN_IN_FLOW_FS400A, PIN_IN_TEMP_DS18B20, PIN_IN_FLOAT_LOWER);
 
     return ESP_OK;
+#endif
 }
 
 esp_err_t sensor_hal_poll(void)
 {
     if (!s_sensor_lock) return ESP_ERR_INVALID_STATE;
 
+#if !FEATURE_SENSORS_ENABLED
+    xSemaphoreTake(s_sensor_lock, portMAX_DELAY);
+    s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
+    s_current_readings.last_sample_timestamp = esp_timer_get_time() / 1000ULL;
+    xSemaphoreGive(s_sensor_lock);
+    return ESP_OK;
+#else
     xSemaphoreTake(s_sensor_lock, portMAX_DELAY);
 
     /* Float Switch: Level 1 = OK (float floating), Level 0 = LOW (tank low) */
@@ -184,6 +206,7 @@ esp_err_t sensor_hal_poll(void)
 
     xSemaphoreGive(s_sensor_lock);
     return ESP_OK;
+#endif
 }
 
 esp_err_t sensor_hal_get_readings(sensor_readings_t *out_readings)
