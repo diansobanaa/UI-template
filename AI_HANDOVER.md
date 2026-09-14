@@ -2,42 +2,41 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-15
-- **Safe Point**: SP-API-001 — ESP32 Canonical REST API Reachability and Verification Complete.
-- **Goal**: Verify reachability and functionality of canonical REST API from Host PC over local network and SoftAP with 100% actuator safe-off isolation.
+- **Safe Point**: SP-HW-003 — Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration Complete.
+- **Goal**: Resolve Mode Button vs Lower Float GPIO38 conflict and replace DS3231 I2C driver with DS1302 3-wire synchronous serial driver without impacting TFT SPI, SPI bus, or canonical API contracts.
 
 ### What was just completed
-- **SP-API-001**:
-  1. Inspected canonical OpenAPI contract (`UI_ESP32_OPENAPI.yaml`), HTTP server (`http_server.c`), and all API handlers.
-  2. Implemented dynamic NVS-backed Wi-Fi STA credential loading (`sta_ssid` and `sta_pass` in namespace `"agrotech"`) in `network_mgr.c`, eliminating hardcoded empty strings and phantom connection storms.
-  3. Retained dual-mode `WIFI_MODE_APSTA` with SoftAP `AGROTECH-SETUP` (`192.168.4.1`) permanently available as fallback/recovery interface.
-  4. Injected local Wi-Fi credentials into ESP32 NVS partition via host utility without writing secrets to source code or git repository.
-  5. Built and flashed firmware cleanly to COM3 (hash verified).
-  6. Verified Wi-Fi STA connection to local AP (`192.168.0.129`).
-  7. Executed comprehensive automated REST API smoke test from host PC across 13 test cases:
-     - `GET /api/v1/health` -> HTTP 200 OK (`HEALTHY`, ~8.6MB free heap).
-     - `GET /api/v1/status` -> HTTP 200 OK (all 7 actuators confirmed false / safe OFF).
-     - `GET /api/v1/inventory` -> HTTP 200 OK (15 registered components).
-     - `GET /api/v1/capabilities` -> HTTP 200 OK.
-     - `GET /api/v1/context` -> HTTP 200 OK.
-     - `GET /api/v1/clock` -> HTTP 200 OK.
-     - `GET /api/v1/configuration` -> HTTP 200 OK (no secrets leaked).
-     - `GET /api/v1/telemetry` -> HTTP 200 OK.
-     - `GET /api/v1/events` -> HTTP 200 OK (`SYS_BOOT` audit entry).
-     - `PUT /api/v1/configuration` without auth -> HTTP 401 Unauthorized (`Missing Authorization header`).
-     - `PUT /api/v1/configuration` with invalid token -> HTTP 401 Unauthorized (`Invalid API key`).
-     - `POST /api/v1/clock-sync` without auth -> HTTP 401 Unauthorized.
-     - `POST /api/v1/clock-sync` with valid auth but invalid payload -> HTTP 422 Unprocessable Entity (`VALIDATION_FAILED`).
-  8. Verified all responses conform to `EnvelopeBase` (`requestId`, `success`, `deviceTimestamp`, `data`/`error`).
-  9. Documented complete forensic inspection and execution evidence in `esp32/docs/AI_API_SMOKE_TEST_REPORT_V1.md`, `AI_WIFI_PROVISIONING_INSPECTION_V1.md`, and `AI_WIFI_PROVISIONING_IMPLEMENTATION_PLAN_V1.md`.
+- **SP-HW-003**:
+  1. Audited codebase for `PIN_BTN_MODE`, `PIN_IN_FLOAT_LOWER`, and `RTC_DS3231`.
+  2. Fixed pin mappings in `esp32/main/config/pin_config.h`:
+     - Mode Button: GPIO 0 (BOOT button / external NO button)
+     - Lower Float (Safety Interlock): GPIO 38
+     - RTC DS1302 (3-Wire Interface): CLK=GPIO 8, DAT=GPIO 9, RST/CE=GPIO 47
+  3. Implemented robust DS1302 3-wire synchronous serial HAL driver (`rtc_ds1302.h`, `rtc_ds1302.c`):
+     - Active-high CE (RST), LSB-first bit timing, bidirectional DAT pin handling.
+     - Non-destructive RAM probe for connection detection.
+     - Full bounded timeout preventing boot hanging or watchdog resets if RTC is disconnected.
+     - Compatibility with existing `rtc_ds1302_sync_system_time()` and system clock API.
+  4. Removed legacy `rtc_ds3231.c` and `rtc_ds3231.h` from build and git tree.
+  5. Built firmware (`agrotech_esp32.bin`, 939,264 bytes) with 0 errors.
+  6. Flashed to ESP32-S3-WROOM-1-N16R8 on COM3 at 460800 baud (hash verified).
+  7. Captured serial boot log confirming:
+     - `BUTTON_HAL: Button HAL initialized: Mode(0), ManA(39), ManB(40), Dist(41) pulled HIGH.`
+     - Zero GPIO 38 conflict.
+     - `RTC_DS1302: Initializing 3-wire interface for DS1302 RTC (CLK=8, DAT=9, RST=47)...`
+     - `TFT_HAL: Initializing ST7735 1.8" TFT SPI display (CS=14, DC=21, RST=42)...`
+     - Zero boot hangs, zero watchdog resets, zero panics.
+     - HTTP Server and Wi-Fi active.
 
 ## Repository Status
-- Firmware builds cleanly (935,504 bytes, 0 errors, 0 warnings).
+- Firmware builds cleanly (939,264 bytes, 0 errors, 0 warnings).
+- Target Hardware: ESP32-S3-WROOM-1-N16R8 on COM3.
 - Network status: Connected to LAN at `192.168.0.129` + SoftAP `AGROTECH-SETUP` at `192.168.4.1`.
 - Actuator status: **100% SAFE OFF**.
 - REST API status: **VERIFIED PASS**.
 
 ## Next Action for Next Agent / Operator
-1. Read `AI_PROGRESS.md`, `AI_HANDOVER.md`, and `esp32/docs/AI_API_SMOKE_TEST_REPORT_V1.md`.
-2. Hardware state MUST remain unchanged (no sensors, no microSD, no loads attached).
-3. Await operator instruction before proceeding to peripheral hardware commissioning (e.g., RTC DS3231, microSD reader, or sensors).
+1. Read `AI_PROGRESS.md` and `AI_HANDOVER.md`.
+2. Do not change pin mapping without explicit audit.
+3. Hardware wiring is currently pending operator instructions (DO NOT wire before authorization).
 

@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-API GREEN (CANONICAL REST API VERIFIED VIA LAN & SOFTAP)
+BUTTON CONFLICT RESOLVED & DS1302 RTC IMPLEMENTED (FLASH & BOOT VERIFIED)
 
 ### Latest Safe Point
-SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
+SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
 
 ## Safe Point Index
+- [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
 - [x] SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 - [x] SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 - [x] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)
@@ -65,6 +66,50 @@ SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-HW-003
+- **ID**: SP-HW-003
+- **Objective**: Fix button pin conflict (Mode button moving from GPIO 38 to GPIO 0, preserving Lower Float on GPIO 38) and implement DS1302 3-wire synchronous serial RTC driver replacing legacy DS3231 I2C driver while maintaining canonical API clock contracts and TFT mapping.
+- **Completed Work**:
+  1. Updated `esp32/main/config/pin_config.h`:
+     - `PIN_BTN_MODE` set to GPIO 0.
+     - `PIN_IN_FLOAT_LOWER` set to GPIO 38.
+     - Removed legacy DS3231 I2C definitions (`PIN_I2C_SDA`, `PIN_I2C_SCL`).
+     - Added DS1302 3-wire synchronous serial pins: `PIN_DS1302_CLK` (GPIO 8), `PIN_DS1302_DAT` (GPIO 9), `PIN_DS1302_RST` (GPIO 47).
+     - Verified TFT pin mapping preserved: SCK (GPIO 11), SDA/MOSI (GPIO 12), CS (GPIO 14), A0/DC (GPIO 21), RESET (GPIO 42).
+  2. Implemented DS1302 3-wire driver (`esp32/main/hal/rtc_ds1302.h`, `esp32/main/hal/rtc_ds1302.c`):
+     - Bit-banged LSB-first synchronous 3-wire protocol (RST active-high CE, CLK toggling, DAT bidirectional).
+     - Non-destructive RAM byte test probe for presence detection with bounded timeout.
+     - Graceful degraded mode fallback when RTC hardware is detached/unresponsive without boot hang or watchdog timeout.
+     - Preserved full public HAL API contract: `rtc_ds1302_init()`, `rtc_ds1302_is_present()`, `rtc_ds1302_get_time()`, `rtc_ds1302_set_time()`, `rtc_ds1302_sync_system_time()`.
+  3. Cleaned legacy DS3231 files: removed `rtc_ds3231.c` and `rtc_ds3231.h` from codebase.
+  4. Updated `esp32/main/CMakeLists.txt` and `esp32/main/main.c` to integrate `rtc_ds1302` and initialize DS1302.
+  5. Built firmware (`agrotech_esp32.bin`, 939,264 bytes) with 0 errors.
+  6. Flashed to COM3 using `esptool.py` (hash verified, hard reset executed).
+  7. Captured serial boot log confirming:
+     - `BUTTON_HAL: Button HAL initialized: Mode(0), ManA(39), ManB(40), Dist(41) pulled HIGH.`
+     - Zero GPIO 38 conflict.
+     - `RTC_DS1302: Initializing 3-wire interface for DS1302 RTC (CLK=8, DAT=9, RST=47)...`
+     - `TFT_HAL: Initializing ST7735 1.8" TFT SPI display (CS=14, DC=21, RST=42)...`
+     - `HTTP_SERVER: HTTP Server successfully started with all canonical OpenAPI routes registered.`
+     - Zero watchdog reset, zero panic, zero boot hang.
+- **Verification Result**:
+  - Build: PASS (0 errors, 0 warnings).
+  - Flash: PASS (COM3 @ 460800 baud, 16MB dio 80m, hash verified).
+  - Boot: PASS (Boot to SYSTEM READY, Mode=GPIO0, Lower Float=GPIO38, DS1302=GPIO8/9/47, TFT=GPIO11/12/14/21/42).
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/button_hal.c`
+  - `esp32/main/hal/rtc_ds1302.h` (NEW)
+  - `esp32/main/hal/rtc_ds1302.c` (NEW)
+  - `esp32/main/hal/rtc_ds3231.h` (DELETED)
+  - `esp32/main/hal/rtc_ds3231.c` (DELETED)
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/main/main.c`
+- **Known Issues**:
+  - Physical hardware components (TFT ST7735, DS1302, sensors, actuators) are not yet wired to the breadboard/terminals.
 
 ---
 

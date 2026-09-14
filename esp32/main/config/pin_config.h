@@ -25,7 +25,7 @@ extern "C" {
 #define PIN_SPI_MISO                13
 
 #define PIN_W5500_CS                10
-#define PIN_MICROSD_CS              27
+#define PIN_MICROSD_CS              48
 
 /* ========================================================================== */
 /* DISPLAY: ST7735 1.8" TFT SPI (128x160)                                    */
@@ -40,12 +40,12 @@ extern "C" {
 #define PIN_TFT_RST                 42
 
 /* ========================================================================== */
-/* I2C BUS (RTC & EXPANDERS)                                                 */
+/* RTC: DS1302 3-WIRE SYNCHRONOUS BUS                                         */
+/* Pins: CLK (GPIO 8), DAT (GPIO 9), RST/CE (GPIO 47)                         */
 /* ========================================================================== */
-#define PIN_I2C_SDA                 8
-#define PIN_I2C_SCL                 9
-#define I2C_PORT_NUM                0
-#define I2C_FREQ_HZ                 100000
+#define PIN_DS1302_CLK              8
+#define PIN_DS1302_DAT              9
+#define PIN_DS1302_RST              47
 
 /* ========================================================================== */
 /* OUTPUT ACTUATORS (RELAYS & SWITCHES)                                       */
@@ -68,7 +68,7 @@ extern "C" {
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */
-/* Lower Float Switch (Safety Stop Point / Dry-Run Protection): GPIO 26      */
+/* Lower Float Switch (Safety Stop Point / Dry-Run Protection): GPIO 38      */
 /* Pulled up internally to 3.3V.                                             */
 /* When tank has water: float is up (switch open) -> pin reads 1 (OK/NORMAL)  */
 /* When tank reaches min: float drops (switch closes to GND) -> pin reads 0 (DRY) */
@@ -79,7 +79,7 @@ extern "C" {
 #define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */
 #define PIN_IN_FLOW_FS400A          16   /* Flow pulse input 2 */
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
-#define PIN_IN_FLOAT_LOWER          26   /* Digital Lower Float Switch */
+#define PIN_IN_FLOAT_LOWER          38   /* Digital Lower Float Switch (Safety Interlock) */
 
 #define FLOAT_LEVEL_DRY             0    /* 0 = Dry / Min Tank Stop Point (Trip) */
 #define FLOAT_LEVEL_OK              1    /* 1 = Water OK / Sufficient Level */
@@ -88,7 +88,7 @@ extern "C" {
 /* PHYSICAL OPERATOR BUTTONS                                                  */
 /* Active level: Active-Low (Pulled High internally/externally)              */
 /* ========================================================================== */
-#define PIN_BTN_MODE                38
+#define PIN_BTN_MODE                0    /* Onboard BOOT Button / External NO Push Button */
 #define PIN_BTN_MANUAL_A            39
 #define PIN_BTN_MANUAL_B            40
 #define PIN_BTN_DISTRIBUTION        41
@@ -98,14 +98,13 @@ extern "C" {
 
 /* ========================================================================== */
 /* RESERVED STRAPPING & SYSTEM PINS (DO NOT REASSIGN)                         */
-/* Reserved: GPIO 0, 3, 20, 33-37, 43-44, 45-46, 48                          */
+/* Reserved: GPIO 3, 19, 20, 26-37, 43-44, 45-46                              */
 /* ========================================================================== */
 #define IS_RESERVED_PIN(pin) ( \
-    ((pin) == 0) || ((pin) == 3) || ((pin) == 20) || \
-    ((pin) >= 33 && (pin) <= 37) || \
+    ((pin) == 3) || ((pin) == 19) || ((pin) == 20) || \
+    ((pin) >= 26 && (pin) <= 37) || \
     ((pin) == 43) || ((pin) == 44) || \
-    ((pin) == 45) || ((pin) == 46) || \
-    ((pin) == 48) \
+    ((pin) == 45) || ((pin) == 46) \
 )
 
 #ifdef __cplusplus

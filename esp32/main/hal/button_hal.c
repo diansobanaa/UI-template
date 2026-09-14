@@ -38,7 +38,8 @@ esp_err_t button_hal_init(button_event_cb_t cb)
 
     esp_err_t err = gpio_config(&btn_conf);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Button HAL initialized: Mode(38), ManA(39), ManB(40), Dist(41) pulled HIGH.");
+        ESP_LOGI(TAG, "Button HAL initialized: Mode(%d), ManA(%d), ManB(%d), Dist(%d) pulled HIGH.",
+                 PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_MANUAL_B, PIN_BTN_DISTRIBUTION);
     }
     return err;
 }

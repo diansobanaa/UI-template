@@ -17,7 +17,7 @@
 #include "storage/storage_mgr.h"
 #include "http/http_server.h"
 #include "network/network_mgr.h"
-#include "hal/rtc_ds3231.h"
+#include "hal/rtc_ds1302.h"
 #include "services/command_mgr.h"
 #include "services/safety_monitor.h"
 #include "services/scheduler.h"
@@ -25,6 +25,7 @@
 #include "services/telemetry_mgr.h"
 #include "services/event_mgr.h"
 #include "hal/sdcard_hal.h"
+#include "hal/tft_hal.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -123,14 +124,27 @@ void app_main(void)
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
     sdcard_hal_init();
-    if (rtc_ds3231_init() == ESP_OK) {
-        rtc_ds3231_sync_to_system();
+    if (rtc_ds1302_init() == ESP_OK) {
+        rtc_ds1302_sync_to_system();
     } else {
-        ESP_LOGW(TAG, "RTC DS3231 not present. Operating in degraded time mode (SNTP/system timer).");
+        ESP_LOGW(TAG, "RTC DS1302 not present. Operating in degraded time mode (SNTP/system timer).");
+    }
+
+    /* Initialize TFT ST7735 display in degraded-safe mode */
+    if (tft_hal_init() == ESP_OK && tft_hal_is_available()) {
+        tft_show_diagnostic_screen(DEFAULT_DEVICE_ID, FIRMWARE_VERSION);
+    } else {
+        ESP_LOGW(TAG, "TFT ST7735 not present or unattached. Operating in degraded headless mode.");
     }
 
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());
+    if (tft_hal_is_available()) {
+        const system_storage_state_t *st = storage_mgr_get_state();
+        if (st && st->device_id[0] != '\0') {
+            tft_show_diagnostic_screen(st->device_id, FIRMWARE_VERSION);
+        }
+    }
 
     /* 6. Initialize Runtime Services & Safety (SP-006) */
     ESP_ERROR_CHECK(command_mgr_init());
