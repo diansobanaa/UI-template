@@ -51,7 +51,7 @@ esp_err_t handler_get_status(httpd_req_t *req)
     sensor_readings_t sensors;
     sensor_hal_get_readings(&sensors);
     cJSON *s_obj = cJSON_AddObjectToObject(root, "sensors");
-    if (sensors.temp_valid) {
+    if (sensors.temp_state == SENSOR_STATE_VALID) {
         cJSON_AddNumberToObject(s_obj, "temperatureC", sensors.temperature_c);
     } else {
         cJSON_AddNullToObject(s_obj, "temperatureC");

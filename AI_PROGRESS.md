@@ -1,10 +1,10 @@
 # AI PROGRESS
 
 ## Status
-COMPLETE
+BUILD GREEN (FIRMWARE BINARY GENERATED)
 
 ## Latest Safe Point
-SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
+FIRST-BUILD-BLOCKER-command-redefinition
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -30,6 +30,12 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-REMED-008 Authentication & Security
 - [x] SP-REMED-009 E2E Testing Transformation
 - [x] FIRST-BUILD-BLOCKER-main-net Root Cause & Resolution of main/net Blocker
+- [x] FIRST-BUILD-BLOCKER-esp_flash.h Missing esp_flash.h dependency
+- [x] FIRST-BUILD-BLOCKER-http-server Resolve syntax error in http_server.h
+- [x] FIRST-BUILD-BLOCKER-storage-unlink Resolve missing unlink declaration in storage_mgr.c
+- [x] FIRST-BUILD-BLOCKER-telemetry-sensor-contract Resolve telemetry_mgr.c contract drift
+- [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
+- [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 
 ---
 
@@ -367,3 +373,190 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - `main.c:7:10: fatal error: esp_flash.h: No such file or directory` — `main/CMakeLists.txt` missing component requirement `spi_flash`.
 - **Next Safe Point / Action**:
   - Resolve `esp_flash.h` component requirement (`spi_flash`) in `main/CMakeLists.txt` and resume build.
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-esp_flash.h
+- **ID**: FIRST-BUILD-BLOCKER-esp_flash.h
+- **Objective**: Resolve missing `esp_flash.h` dependency.
+- **Completed Work**:
+  1. Identified `spi_flash` as the ESP-IDF v5.x component providing `esp_flash.h`.
+  2. Added `spi_flash` to `REQUIRES` in `esp32/main/CMakeLists.txt`.
+  3. Re-ran compilation. Confirmed `main.c` compiled successfully.
+  4. Captured next build blocker: `stray '\' in program` at `http_server.h:15`.
+  5. Documented in `AI_FIRST_BUILD_BLOCKERS_V1.md` and `AI_FIRST_BUILD_BLOCKER_ESP_FLASH_V1.md`.
+- **Verification Result**:
+  - Build: ADVANCED. Passed `main.c`. Halted at `http_server.h`.
+  - Tests: N/A
+  - Contract: N/A
+  - Hardware: N/A
+- **Changed Files**:
+  - `esp32/main/CMakeLists.txt`
+  - `docs/AI_FIRST_BUILD_BLOCKERS_V1.md`
+  - `docs/AI_FIRST_BUILD_BLOCKER_ESP_FLASH_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Next Blocker**:
+  - `http_server.h:15:1: error: stray '\' in program`
+- **Next Safe Point / Action**:
+  - Fix syntax error in `http_server.h`.
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-http-server
+- **ID**: FIRST-BUILD-BLOCKER-http-server
+- **Objective**: Resolve syntax error `stray '\' in program` in `http_server.h`.
+- **Completed Work**:
+  1. Inspected `esp32/main/http/http_server.h`.
+  2. Checked git history and git blame, proving the `\n` literals were accidentally injected by a previous AI agent in commit `98f36f4c` ("SP-REMED-008: Authentication & Security").
+  3. Replaced literal `\n` characters with actual newlines on lines 15 and 60.
+  4. Ran `idf.py build -j 1`.
+  5. The compiler successfully advanced past `http_server.h` and began compiling component object files until halting at `storage_mgr.c`.
+  6. Documented root cause and findings in `AI_FIRST_BUILD_BLOCKER_HTTP_SERVER_V1.md` and `AI_FIRST_BUILD_BLOCKERS_V1.md`.
+- **Verification Result**:
+  - Build: ADVANCED. Passed `main.c` and `http_server.h`. Halted at `storage_mgr.c`.
+  - Tests: N/A
+  - Contract: N/A
+  - Hardware: N/A
+- **Changed Files**:
+  - `esp32/main/http/http_server.h`
+  - `docs/AI_FIRST_BUILD_BLOCKERS_V1.md`
+  - `docs/AI_FIRST_BUILD_BLOCKER_HTTP_SERVER_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Next Blocker**:
+  - `storage_mgr.c:206:9: error: implicit declaration of function 'unlink'`
+- **Next Safe Point / Action**:
+  - Fix implicit declaration of `unlink()` in `storage_mgr.c`.
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-storage-unlink
+- **ID**: FIRST-BUILD-BLOCKER-storage-unlink
+- **Objective**: Resolve implicit declaration of `unlink()` in `storage_mgr.c`.
+- **Completed Work**:
+  1. Inspected `esp32/main/storage/storage_mgr.c` usage of `unlink(EVENT_LOG_FILE)`.
+  2. Verified `EVENT_LOG_FILE` is an SD card path (`/sdcard/events.log`) leveraging ESP-IDF VFS.
+  3. Identified `unistd.h` as the standard POSIX header providing `unlink()`.
+  4. Added `#include <unistd.h>` to `storage_mgr.c` without altering semantics or adding CMake dependencies.
+  5. Ran `idf.py build -j 1`.
+  6. The compiler successfully advanced past `storage_mgr.c` and halted at `telemetry_mgr.c`.
+  7. Documented root cause and findings in `AI_FIRST_BUILD_BLOCKER_STORAGE_UNLINK_V1.md` and `AI_FIRST_BUILD_BLOCKERS_V1.md`.
+- **Verification Result**:
+  - Build: ADVANCED. Passed `storage_mgr.c`. Halted at `telemetry_mgr.c`.
+  - Tests: N/A
+  - Contract: N/A
+  - Hardware: N/A
+- **Changed Files**:
+  - `esp32/main/storage/storage_mgr.c`
+  - `docs/AI_FIRST_BUILD_BLOCKERS_V1.md`
+  - `docs/AI_FIRST_BUILD_BLOCKER_STORAGE_UNLINK_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Next Blocker**:
+  - `telemetry_mgr.c:35:40: error: 'sensor_readings_t' has no member named 'temp_valid'`
+- **Next Safe Point / Action**:
+  - Fix missing struct member access in `telemetry_mgr.c`.
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-telemetry-sensor-contract
+- **ID**: FIRST-BUILD-BLOCKER-telemetry-sensor-contract
+- **Objective**: Resolve invalid struct member access `temp_valid` in `telemetry_mgr.c`.
+- **Completed Work**:
+  1. Identified that `sensor_readings_t.temp_valid` was intentionally changed to `sensor_state_t temp_state` during SP-REMED-003 to support stricter safety definitions (VALID, INVALID, TIMEOUT, DISCONNECTED).
+  2. Traced consumer dependencies in `telemetry_mgr.c` and `api_device_handlers.c`.
+  3. Mapped the new explicit state (`s_snapshot.temp_valid = (sensors.temp_state == SENSOR_STATE_VALID);`) to preserve the existing JSON representation used by the current implementation; explicit OpenAPI field evidence remains to be verified.
+  4. Updated both `telemetry_mgr.c` and `api_device_handlers.c`.
+  5. Documented root cause and contract evidence in `AI_FIRST_BUILD_BLOCKER_TELEMETRY_SENSOR_CONTRACT_V1.md`.
+- **Verification Performed**:
+  - Inspected consumer/producer header dependencies.
+  - Re-ran local ESP-IDF compilation (`idf.py build -j 1`).
+- **Verification Result**:
+  - Build: ADVANCED. Passed `telemetry_mgr.c`. Halted at `http_server.c`.
+  - Tests: N/A
+  - Contract: UNVERIFIED (preserves the existing JSON representation used by the current implementation; explicit OpenAPI field evidence remains to be verified).
+  - Hardware: N/A
+- **Changed Files**:
+  - `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `docs/AI_FIRST_BUILD_BLOCKERS_V1.md`
+  - `docs/AI_FIRST_BUILD_BLOCKER_TELEMETRY_SENSOR_CONTRACT_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**:
+  - None regarding telemetry.
+- **Known Blockers**:
+  - `http_server.c:46:1: error: stray '\' in program`
+- **Next Action**:
+  - Resolve the stray `\n` in `http_server.c`.
+- **Git Commit Hash**:
+  - Git commit: NOT YET COMMITTED (Status: PARTIAL/UNCOMMITTED)
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-http-server-literal-newline
+- **ID**: FIRST-BUILD-BLOCKER-http-server-literal-newline
+- **Objective**: Resolve literal \n corruption in HTTP server files.
+- **Completed Work**:
+  1. Identified that literal string \n characters were written as raw source tokens in http_server.c and pi_cropcycle_handlers.c by a previous AI agent.
+  2. Searched the source tree for literal \n to inventory all corruptions.
+  3. Repaired http_server.c:46 and all corruptions in pi_cropcycle_handlers.c by safely converting literal backslash-n into real newline characters.
+  4. Verified with a secondary scan that no literal \n corruptions remain.
+  5. Ran ESP-IDF compilation (
+inja -C build -j 1).
+  6. The compiler successfully advanced past http_server.c, pi_device_handlers.c, and pi_config_handlers.c, before halting at pi_command_handlers.c.
+  7. Documented root cause and findings in AI_FIRST_BUILD_BLOCKER_HTTP_LITERAL_NEWLINE_V1.md.
+- **Verification Result**:
+  - Build: ADVANCED. Passed http_server.c and others. Halted at pi_command_handlers.c.
+  - Tests: N/A
+  - Contract: N/A
+  - Hardware: N/A
+- **Changed Files**:
+  - esp32/main/http/http_server.c
+  - esp32/main/http/api_cropcycle_handlers.c
+  - docs/AI_FIRST_BUILD_BLOCKERS_V1.md
+  - docs/AI_FIRST_BUILD_BLOCKER_HTTP_LITERAL_NEWLINE_V1.md
+  - AI_PROGRESS.md
+  - AI_HANDOVER.md
+- **Known Issues**:
+  - None.
+- **Known Blockers**:
+  - pi_command_handlers.c:84:15: error: redefinition of 'err'
+- **Next Action**:
+  - Resolve the variable redefinition error in pi_command_handlers.c.
+- **Git Commit Hash**:
+  - Git commit: NOT YET COMMITTED (Status: PARTIAL/UNCOMMITTED)
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-command-redefinition
+- **ID**: FIRST-BUILD-BLOCKER-command-redefinition
+- **Objective**: Resolve variable redefinition error and achieve a full firmware build.
+- **Completed Work**:
+  1. Investigated the error redefinition of 'err' in api_command_handlers.c line 84.
+  2. Applied a mechanical fix to reuse the existing esp_err_t err variable instead of declaring a new one in the same scope.
+  3. Cleaned up a trailing whitespace in api_cropcycle_handlers.c.
+  4. Re-ran the build using ESP-IDF ninja -C build -j 1.
+  5. The compiler successfully built and linked all components.
+  6. The agrotech_esp32.bin firmware binary was generated successfully.
+- **Verification Result**:
+  - Build: SUCCESS. 100% complete and linked.
+  - Tests: N/A
+  - Contract: N/A
+  - Hardware: N/A
+- **Changed Files**:
+  - esp32/main/http/api_command_handlers.c
+  - esp32/main/http/api_cropcycle_handlers.c
+  - docs/AI_FIRST_BUILD_BLOCKERS_V1.md
+  - docs/AI_FIRST_BUILD_BLOCKER_COMMAND_REDEFINITION_V1.md
+  - AI_PROGRESS.md
+  - AI_HANDOVER.md
+- **Known Issues**:
+  - Firmware build is complete, but hardware behavior remains unverified.
+- **Known Blockers**:
+  - None!
+- **Next Action**:
+  - The firmware compilation blockers have been fully resolved. Await user instruction for testing or next phases.
+- **Git Commit Hash**:
+  - Git commit: NOT YET COMMITTED (Status: UNCOMMITTED)

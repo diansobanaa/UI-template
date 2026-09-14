@@ -43,7 +43,8 @@ esp_err_t http_check_auth(httpd_req_t *req)
 
     return ESP_OK;
 }
-\nesp_err_t http_send_cors_headers(httpd_req_t *req)
+
+esp_err_t http_send_cors_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");

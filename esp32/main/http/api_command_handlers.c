@@ -80,8 +80,7 @@ esp_err_t handler_post_command(httpd_req_t *req)
     if (dur && cJSON_IsNumber(dur)) {
         cmd.param_duration_sec = dur->valueint;
     }
-    
-    esp_err_t err = command_mgr_submit(&cmd, NULL);
+    err = command_mgr_submit(&cmd, NULL);
     if (err != ESP_OK) {
         cJSON_Delete(body);
         return http_send_error(req, 503, "QUEUE_FULL", "Command queue is full", NULL);

@@ -42,4 +42,5 @@ idf_component_register(
         vfs
         esp_timer
         esp_event
+        spi_flash
 )

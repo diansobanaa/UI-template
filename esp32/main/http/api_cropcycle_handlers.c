@@ -1,61 +1,335 @@
-#include "http/api_device_handlers.h"\n#include "http/http_server.h"\n#include "services/crop_cycle_mgr.h"\n#include "cJSON.h"\n#include "esp_log.h"\n#include <string.h>\n\nstatic const char *TAG = "CROPCYCLE_API";\n\nstatic esp_err_t validate_gh_id(httpd_req_t *req, char *gh_id, size_t max_len) {\n    const char *prefix = "/api/v1/greenhouses/";\n    if (strncmp(req->uri, prefix, strlen(prefix)) != 0) return ESP_FAIL;\n    const char *start = req->uri + strlen(prefix);\n    const char *end = strchr(start, '/');\n    if (!end) end = start + strlen(start);\n    size_t len = end - start;\n    if (len == 0 || len >= max_len) return ESP_FAIL;\n    strncpy(gh_id, start, len);\n    gh_id[len] = '\0';\n    \n    /* Phase 1 constraint: Only gh_id is physically installed and supported */\n    if (strcmp(gh_id, gh_id) != 0) {\n        return ESP_ERR_NOT_FOUND;\n    }\n    return ESP_OK;\n}\n\n\nesp_err_t handler_get_crop_cycle(httpd_req_t *req)\n{\n    char gh_id[32];
+#include "http/api_device_handlers.h"
+#include "http/http_server.h"
+#include "services/crop_cycle_mgr.h"
+#include "cJSON.h"
+#include "esp_log.h"
+#include <string.h>
+
+static const char *TAG = "CROPCYCLE_API";
+
+static esp_err_t validate_gh_id(httpd_req_t *req, char *gh_id, size_t max_len) {
+    const char *prefix = "/api/v1/greenhouses/";
+    if (strncmp(req->uri, prefix, strlen(prefix)) != 0) return ESP_FAIL;
+    const char *start = req->uri + strlen(prefix);
+    const char *end = strchr(start, '/');
+    if (!end) end = start + strlen(start);
+    size_t len = end - start;
+    if (len == 0 || len >= max_len) return ESP_FAIL;
+    strncpy(gh_id, start, len);
+    gh_id[len] = '\0';
+
+    /* Phase 1 constraint: Only gh_id is physically installed and supported */
+    if (strcmp(gh_id, gh_id) != 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return ESP_OK;
+}
+
+
+esp_err_t handler_get_crop_cycle(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    cJSON *root = crop_cycle_mgr_to_json(&record);\n    return http_send_json_response(req, 200, root);\n}\n\nesp_err_t handler_list_crop_cycles(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    cJSON *root = crop_cycle_mgr_to_json(&record);
+    return http_send_json_response(req, 200, root);
+}
+
+esp_err_t handler_list_crop_cycles(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n\n    cJSON *root = cJSON_CreateObject();\n    cJSON *items = cJSON_AddArrayToObject(root, "items");\n    cJSON_AddItemToArray(items, crop_cycle_mgr_to_json(&record));\n    cJSON_AddNumberToObject(root, "total", 1);\n    cJSON_AddNullToObject(root, "nextCursor");\n\n    return http_send_json_response(req, 200, root);\n}\n\nesp_err_t handler_start_crop_cycle(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *items = cJSON_AddArrayToObject(root, "items");
+    cJSON_AddItemToArray(items, crop_cycle_mgr_to_json(&record));
+    cJSON_AddNumberToObject(root, "total", 1);
+    cJSON_AddNullToObject(root, "nextCursor");
+
+    return http_send_json_response(req, 200, root);
+}
+
+esp_err_t handler_start_crop_cycle(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    esp_err_t err = http_parse_json_body(req, &body);\n    if (err != ESP_OK || !body) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);\n    }\n\n    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");\n    if (!tanam || !cJSON_IsString(tanam)) {\n        cJSON_Delete(body);\n        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);\n    }\n\n    const char *variety = NULL;\n    cJSON *v = cJSON_GetObjectItem(body, "variety");\n    if (v && cJSON_IsString(v)) variety = v->valuestring;\n\n    uint32_t count = 0;\n    cJSON *p = cJSON_GetObjectItem(body, "plantCount");\n    if (p && cJSON_IsNumber(p)) count = (uint32_t)p->valuedouble;\n\n    const char *notes = NULL;\n    cJSON *n = cJSON_GetObjectItem(body, "notes");\n    if (n && cJSON_IsString(n)) notes = n->valuestring;\n\n    err = crop_cycle_mgr_start(gh_id, tanam->valuestring, variety, count, notes);\n    cJSON_Delete(body);\n\n    if (err == ESP_ERR_INVALID_STATE) {\n        return http_send_error(req, 409, "CONFLICT", "An active cycle already exists in this greenhouse", NULL);\n    } else if (err != ESP_OK) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to start cycle", NULL);\n    }\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 201, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_import_active_crop_cycle(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+
+    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");
+    if (!tanam || !cJSON_IsString(tanam)) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);
+    }
+
+    const char *variety = NULL;
+    cJSON *v = cJSON_GetObjectItem(body, "variety");
+    if (v && cJSON_IsString(v)) variety = v->valuestring;
+
+    uint32_t count = 0;
+    cJSON *p = cJSON_GetObjectItem(body, "plantCount");
+    if (p && cJSON_IsNumber(p)) count = (uint32_t)p->valuedouble;
+
+    const char *notes = NULL;
+    cJSON *n = cJSON_GetObjectItem(body, "notes");
+    if (n && cJSON_IsString(n)) notes = n->valuestring;
+
+    err = crop_cycle_mgr_start(gh_id, tanam->valuestring, variety, count, notes);
+    cJSON_Delete(body);
+
+    if (err == ESP_ERR_INVALID_STATE) {
+        return http_send_error(req, 409, "CONFLICT", "An active cycle already exists in this greenhouse", NULL);
+    } else if (err != ESP_OK) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to start cycle", NULL);
+    }
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 201, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_import_active_crop_cycle(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    esp_err_t err = http_parse_json_body(req, &body);\n    if (err != ESP_OK || !body) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);\n    }\n\n    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");\n    if (!tanam || !cJSON_IsString(tanam)) {\n        cJSON_Delete(body);\n        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);\n    }\n\n    const char *pol = NULL;\n    cJSON *p = cJSON_GetObjectItem(body, "tanggalPolinasi");\n    if (p && cJSON_IsString(p)) pol = p->valuestring;\n\n    const char *variety = NULL;\n    cJSON *v = cJSON_GetObjectItem(body, "variety");\n    if (v && cJSON_IsString(v)) variety = v->valuestring;\n\n    uint32_t count = 0;\n    cJSON *pc = cJSON_GetObjectItem(body, "plantCount");\n    if (pc && cJSON_IsNumber(pc)) count = (uint32_t)pc->valuedouble;\n\n    const char *notes = NULL;\n    cJSON *n = cJSON_GetObjectItem(body, "notes");\n    if (n && cJSON_IsString(n)) notes = n->valuestring;\n\n    err = crop_cycle_mgr_import_active(gh_id, tanam->valuestring, pol, variety, count, notes);\n    cJSON_Delete(body);\n\n    if (err != ESP_OK) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to import active cycle", NULL);\n    }\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 201, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_record_pollination(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+
+    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");
+    if (!tanam || !cJSON_IsString(tanam)) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);
+    }
+
+    const char *pol = NULL;
+    cJSON *p = cJSON_GetObjectItem(body, "tanggalPolinasi");
+    if (p && cJSON_IsString(p)) pol = p->valuestring;
+
+    const char *variety = NULL;
+    cJSON *v = cJSON_GetObjectItem(body, "variety");
+    if (v && cJSON_IsString(v)) variety = v->valuestring;
+
+    uint32_t count = 0;
+    cJSON *pc = cJSON_GetObjectItem(body, "plantCount");
+    if (pc && cJSON_IsNumber(pc)) count = (uint32_t)pc->valuedouble;
+
+    const char *notes = NULL;
+    cJSON *n = cJSON_GetObjectItem(body, "notes");
+    if (n && cJSON_IsString(n)) notes = n->valuestring;
+
+    err = crop_cycle_mgr_import_active(gh_id, tanam->valuestring, pol, variety, count, notes);
+    cJSON_Delete(body);
+
+    if (err != ESP_OK) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to import active cycle", NULL);
+    }
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 201, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_record_pollination(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    esp_err_t err = http_parse_json_body(req, &body);\n    if (err != ESP_OK || !body) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);\n    }\n\n    cJSON *pol = cJSON_GetObjectItem(body, "tanggalPolinasi");\n    if (!pol || !cJSON_IsString(pol)) {\n        cJSON_Delete(body);\n        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalPolinasi is required", NULL);\n    }\n\n    const char *method = "manual";\n    cJSON *m = cJSON_GetObjectItem(body, "pollinationMethod");\n    if (m && cJSON_IsString(m)) method = m->valuestring;\n\n    err = crop_cycle_mgr_set_pollination(gh_id, pol->valuestring, method);\n    cJSON_Delete(body);\n\n    if (err != ESP_OK) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalPolinasi cannot be earlier than tanggalTanam", NULL);\n    }\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_update_pollination(httpd_req_t *req)\n{\n    return handler_record_pollination(req);\n}\n\nesp_err_t handler_delete_pollination(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+
+    cJSON *pol = cJSON_GetObjectItem(body, "tanggalPolinasi");
+    if (!pol || !cJSON_IsString(pol)) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalPolinasi is required", NULL);
+    }
+
+    const char *method = "manual";
+    cJSON *m = cJSON_GetObjectItem(body, "pollinationMethod");
+    if (m && cJSON_IsString(m)) method = m->valuestring;
+
+    err = crop_cycle_mgr_set_pollination(gh_id, pol->valuestring, method);
+    cJSON_Delete(body);
+
+    if (err != ESP_OK) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalPolinasi cannot be earlier than tanggalTanam", NULL);
+    }
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_update_pollination(httpd_req_t *req)
+{
+    return handler_record_pollination(req);
+}
+
+esp_err_t handler_delete_pollination(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    crop_cycle_mgr_delete_pollination(gh_id);\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_update_planting_date(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    crop_cycle_mgr_delete_pollination(gh_id);
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_update_planting_date(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    esp_err_t err = http_parse_json_body(req, &body);\n    if (err != ESP_OK || !body) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);\n    }\n\n    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");\n    if (!tanam || !cJSON_IsString(tanam)) {\n        cJSON_Delete(body);\n        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);\n    }\n\n    err = crop_cycle_mgr_update_planting_date(gh_id, tanam->valuestring);\n    cJSON_Delete(body);\n\n    if (err != ESP_OK) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to update planting date", NULL);\n    }\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_update_cycle_metadata(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+
+    cJSON *tanam = cJSON_GetObjectItem(body, "tanggalTanam");
+    if (!tanam || !cJSON_IsString(tanam)) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required", NULL);
+    }
+
+    err = crop_cycle_mgr_update_planting_date(gh_id, tanam->valuestring);
+    cJSON_Delete(body);
+
+    if (err != ESP_OK) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to update planting date", NULL);
+    }
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_update_cycle_metadata(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    esp_err_t err = http_parse_json_body(req, &body);\n    if (err != ESP_OK || !body) {\n        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);\n    }\n\n    const char *variety = NULL;\n    cJSON *v = cJSON_GetObjectItem(body, "variety");\n    if (v && cJSON_IsString(v)) variety = v->valuestring;\n\n    uint32_t count = 0;\n    cJSON *p = cJSON_GetObjectItem(body, "plantCount");\n    if (p && cJSON_IsNumber(p)) count = (uint32_t)p->valuedouble;\n\n    const char *notes = NULL;\n    cJSON *n = cJSON_GetObjectItem(body, "notes");\n    if (n && cJSON_IsString(n)) notes = n->valuestring;\n\n    crop_cycle_mgr_update_metadata(gh_id, variety, count, notes);\n    cJSON_Delete(body);\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_cancel_crop_cycle(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+
+    const char *variety = NULL;
+    cJSON *v = cJSON_GetObjectItem(body, "variety");
+    if (v && cJSON_IsString(v)) variety = v->valuestring;
+
+    uint32_t count = 0;
+    cJSON *p = cJSON_GetObjectItem(body, "plantCount");
+    if (p && cJSON_IsNumber(p)) count = (uint32_t)p->valuedouble;
+
+    const char *notes = NULL;
+    cJSON *n = cJSON_GetObjectItem(body, "notes");
+    if (n && cJSON_IsString(n)) notes = n->valuestring;
+
+    crop_cycle_mgr_update_metadata(gh_id, variety, count, notes);
+    cJSON_Delete(body);
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_cancel_crop_cycle(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    crop_cycle_mgr_cancel(gh_id);\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n\nesp_err_t handler_harvest_crop_cycle(httpd_req_t *req)\n{\n    char gh_id[32];
+    }
+    crop_cycle_mgr_cancel(gh_id);
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}
+
+esp_err_t handler_harvest_crop_cycle(httpd_req_t *req)
+{
+    char gh_id[32];
     esp_err_t err_gh = validate_gh_id(req, gh_id, sizeof(gh_id));
     if (err_gh == ESP_ERR_NOT_FOUND) {
         return http_send_error(req, 404, "NOT_FOUND", "Greenhouse ID not found or unsupported in Phase 1 topology", NULL);
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
-    }\n    cJSON *body = NULL;\n    http_parse_json_body(req, &body);\n\n    const char *harvest_date = "2026-09-13";\n    float yield_kg = 325.0f;\n    const char *grade = "A";\n    const char *notes = "Harvest completed";\n\n    if (body) {\n        cJSON *d = cJSON_GetObjectItem(body, "harvestDate");\n        if (d && cJSON_IsString(d)) harvest_date = d->valuestring;\n        cJSON *y = cJSON_GetObjectItem(body, "yieldKg");\n        if (y && cJSON_IsNumber(y)) yield_kg = (float)y->valuedouble;\n        cJSON *g = cJSON_GetObjectItem(body, "grade");\n        if (g && cJSON_IsString(g)) grade = g->valuestring;\n        cJSON *n = cJSON_GetObjectItem(body, "notes");\n        if (n && cJSON_IsString(n)) notes = n->valuestring;\n    }\n\n    crop_cycle_mgr_harvest(gh_id, harvest_date, yield_kg, grade, notes);\n    if (body) cJSON_Delete(body);\n\n    crop_cycle_record_t record;\n    crop_cycle_mgr_get_current(gh_id, &record);\n    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));\n}\n
+    }
+    cJSON *body = NULL;
+    http_parse_json_body(req, &body);
+
+    const char *harvest_date = "2026-09-13";
+    float yield_kg = 325.0f;
+    const char *grade = "A";
+    const char *notes = "Harvest completed";
+
+    if (body) {
+        cJSON *d = cJSON_GetObjectItem(body, "harvestDate");
+        if (d && cJSON_IsString(d)) harvest_date = d->valuestring;
+        cJSON *y = cJSON_GetObjectItem(body, "yieldKg");
+        if (y && cJSON_IsNumber(y)) yield_kg = (float)y->valuedouble;
+        cJSON *g = cJSON_GetObjectItem(body, "grade");
+        if (g && cJSON_IsString(g)) grade = g->valuestring;
+        cJSON *n = cJSON_GetObjectItem(body, "notes");
+        if (n && cJSON_IsString(n)) notes = n->valuestring;
+    }
+
+    crop_cycle_mgr_harvest(gh_id, harvest_date, yield_kg, grade, notes);
+    if (body) cJSON_Delete(body);
+
+    crop_cycle_record_t record;
+    crop_cycle_mgr_get_current(gh_id, &record);
+    return http_send_json_response(req, 200, crop_cycle_mgr_to_json(&record));
+}

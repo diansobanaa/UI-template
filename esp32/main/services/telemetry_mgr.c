@@ -32,7 +32,7 @@ static void telemetry_sampler_task(void *pvParameters)
         time_t now = time(NULL);
         strftime(s_snapshot.timestamp, sizeof(s_snapshot.timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
 
-        s_snapshot.temp_valid = sensors.temp_valid;
+        s_snapshot.temp_valid = (sensors.temp_state == SENSOR_STATE_VALID);
         s_snapshot.temperature_c = sensors.temperature_c;
         s_snapshot.humidity_pct = 68.5f; /* Default greenhouse humidity baseline */
         s_snapshot.light_lux = 45000.0f; /* Daytime lux baseline */

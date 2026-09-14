@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "hal/sdcard_hal.h"
 
 static const char *TAG = "STORAGE_MGR";

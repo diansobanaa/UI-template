@@ -12,7 +12,8 @@
  * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
  */
 esp_err_t http_check_auth(httpd_req_t *req);
-\n#ifdef __cplusplus
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -57,6 +58,7 @@ esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json);
  * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
  */
 esp_err_t http_check_auth(httpd_req_t *req);
-\n#ifdef __cplusplus
+
+#ifdef __cplusplus
 }
 #endif
