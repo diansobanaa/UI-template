@@ -776,6 +776,6 @@ inja -C build -j 1).
 - **Known Issues / Blockers**: None in software. Physical verification items documented in Section 7 of inventory report.
 - **Next Safe Point / Action**: Physical hardware first flash and workbench boot verification by operator.
 - **Git Commit Hash**:
-  - Git commit: PENDING (to be committed as SP-HW-001)
+  - Git commit: a23c517 (SP-HW-001)
 
 
