@@ -25,10 +25,19 @@ extern "C" {
 #define PIN_SPI_MISO                13
 
 #define PIN_W5500_CS                10
+#define PIN_MICROSD_CS              27
+
+/* ========================================================================== */
+/* DISPLAY: ST7735 1.8" TFT SPI (128x160)                                    */
+/* Controller: ST7735, Resolution: 128 x 160, Bus: Shared SPI               */
+/* Do NOT use 2.4" or 2.8" displays or ILI9341/ST7789 controllers.           */
+/* ========================================================================== */
+#define TFT_DRIVER_ST7735           1
+#define TFT_WIDTH_PX                128
+#define TFT_HEIGHT_PX               160
 #define PIN_TFT_CS                  14
 #define PIN_TFT_DC                  21
 #define PIN_TFT_RST                 42
-#define PIN_MICROSD_CS              27
 
 /* ========================================================================== */
 /* I2C BUS (RTC & EXPANDERS)                                                 */
@@ -59,9 +68,12 @@ extern "C" {
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */
-/* Float switch is pulled up internally to 3.3V:                             */
+/* Lower Float Switch (Dry-Run Protection): GPIO 26                          */
+/* Pulled up internally to 3.3V.                                             */
 /* When tank has water: float is up (switch open) -> pin reads 1 (OK/NORMAL)  */
 /* When tank is empty: float drops (switch closes to GND) -> pin reads 0 (DRY)*/
+/* Upper Float Switch (Tank Full Interlock): Hardware READY in inventory.     */
+/* Interlock currently handled in firmware via actuator_hal_set_tank_full_interlock. */
 /* NOTE: VERIFY FLOAT CONTACT ORIENTATION (NO vs NC) UPON INSTALLATION.       */
 /* ========================================================================== */
 #define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */

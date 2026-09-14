@@ -9,24 +9,39 @@
 
 ---
 
-## 1. Bill of Materials (BOM) & Modules
+## 1. Bill of Materials (BOM) & Modules (Actual Hardware Status)
 
-| Item | Component / Module | Qty | Operating Voltage | Interface / Signal | Function / Role |
+| Item | Component / Module | Qty | Operating Voltage | Interface / Signal | Status & Function / Role |
 |---|---|---|---|---|---|
-| **MCU** | ESP32-S3-WROOM-1 / DevKitC-1 (16MB Flash, 8MB Octal PSRAM) | 1 | 3.3V DC (5V USB/Vin) | GPIO / SPI / I2C / UART | Main controller & runtime authority |
-| **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | SPI (CS: GPIO 10) | Hardwired local LAN connection |
-| **RTC** | DS3231 High-Precision I2C RTC Module | 1 | 3.3V DC | I2C (SDA: 8, SCL: 9) | Hardware battery-backed real-time clock |
-| **LCD** | ST7789 / ILI9341 SPI TFT Display (2.8" or 3.2") | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42) | Local status & diagnostics screen |
-| **STORAGE** | MicroSD SPI Card Socket Module | 1 | 3.3V DC | SPI (CS: GPIO 27) | Local telemetry & event log storage |
-| **RELAY** | 8-Channel Optocoupled Relay Board (5V/12V coil, 250VAC/10A contacts) | 1 | 5V / 12V Coil | Digital active-low inputs (0=ON, 1=OFF) | Actuator galvanic isolation & switching |
-| **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | Main fertigation loop flow meter |
-| **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | Raw water source / supply flow meter |
-| **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | Water tank temperature monitoring |
-| **LEVEL** | Stainless Steel Vertical Float Switch (Normally Open) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | Low-level dry-run safety interlock |
-| **BUTTONS** | Momentary Push Buttons (16mm / 22mm IP65 panel mount) | 4 | 3.3V (Internal pullup) | Digital input (GPIO 38, 39, 40, 41) | MODE, MANUAL A, MANUAL B, DISTRIB |
-| **PSU 1** | Industrial DIN-Rail Power Supply 12V DC (e.g. Mean Well MDR-60-12) | 1 | 220V AC in, 12V DC out | DC Power | Powers 12V dosing pumps, fan, relay coils |
-| **PSU 2** | Step-down Buck Converter / DC-DC Regulator (12V to 5V 3A) | 1 | 12V DC in, 5.0V DC out | DC Power | Powers ESP32 5V rail and W5500 / TFT |
-| **ENCL** | IP65 Electrical Enclosure Box with DIN rail & cable glands | 1 | N/A | Mechanical | Weatherproof environmental housing |
+| **MCU** | ESP32-S3-WROOM-1-N16R8 Dev Board (16MB Flash, 8MB Octal PSRAM) | 1 | 3.3V DC (5V USB/Vin) | GPIO / SPI / I2C / UART | **READY**: Main controller & runtime authority |
+| **BREADBOARD**| 400-Point Breadboard + Wiring Accessories | 1 kit | N/A | Prototyping | **READY**: Workbench prototyping & sensor interconnect |
+| **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | SPI (CS: GPIO 10) | **READY**: Hardwired local LAN interface |
+| **WIFI-ANT** | External 2.4GHz 5dBi Antenna + U.FL to SMA Pigtail | 1 | Passive RF | U.FL / SMA | **READY**: External high-gain wireless network antenna |
+| **RTC** | DS3231M High-Precision I2C RTC Module | 1 | 3.3V DC | I2C (SDA: 8, SCL: 9) | **READY**: Battery-backed real-time clock authority |
+| **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
+| **STORAGE** | MicroSD SPI Card Socket Module + MicroSD Card | 1 | 3.3V DC | SPI (CS: GPIO 27) | **PENDING / NOT AVAILABLE**: Not required for first flash |
+| **FRAM** | Ferroelectric RAM | 0 | N/A | N/A | **NOT USED / NOT REQUIRED**: NVS & SPIFFS used for persistence |
+| **RELAY-4CH** | 4-Channel Optocoupled Relay Board | 1 | 5V Coil | Active-LOW inputs | **READY**: Galvanic isolation for intermediate loads |
+| **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts | **READY**: Switches 220V AC Deep Well Pump |
+| **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
+| **MOSFET-15A**| High-Power MOSFET Driver Module 15A / 400W | 3 | 3.3V/5V Logic in, 12V out | PWM / Logic | **READY**: High-speed DC switching (Dosing A, Dosing B, Fan/Pump) |
+| **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | **READY**: Main fertigation loop flow meter |
+| **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
+| **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
+| **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | **READY**: Low-level dry-run safety trip interlock |
+| **FLOAT-UP** | Stainless Steel Vertical Float Switch (Upper) | 1 | 3.3V signal (Dry Contact) | Digital input / Interlock | **READY**: High-level overflow / tank full interlock |
+| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 38-41) | **READY**: MODE, MANUAL A, MANUAL B, DISTRIBUTION |
+| **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
+| **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
+| **AC-IN** | 3-in-1 AC Power Inlet Socket with Fuse & Switch | 1 | 250V AC 10A | Mains Power Entry | **READY**: Master power disconnect and fuse protection |
+| **ACT-PUMP1** | Pompa Besar Sumur (Deep Well Submersible) | 1 | 220V AC Mains | Switched by Omron #1 | **READY**: Raw water replenishment into storage tank |
+| **ACT-PUMP2** | Pompa Besar Distribusi / Fertigasi GH-1 | 1 | 220V AC Mains | Switched by Omron #2 | **READY**: Greenhouse 1 nutrition irrigation loop |
+| **ACT-SUB12** | Submersible / Raw-Water Pump 12V DC | 1 | 12V DC | Switched by Relay/MOSFET | **READY**: Tank mixing, agitation, or transfer |
+| **ACT-DOSE-A**| Dosing Pump A (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET #1 | **READY**: Concentrated nutrient solution A dosing |
+| **ACT-DOSE-B**| Dosing Pump B (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET #2 | **READY**: Concentrated nutrient B / pH buffer dosing |
+| **ACT-FAN** | Cooling / Exhaust Fan 12V DC | 1 | 12V DC | Switched by MOSFET #3 | **READY**: Cabinet ventilation / thermal control |
+| **ACT-LAMP** | Red Pilot / Beacon Indicator Lamp | 1 | 12V DC / 5V | Switched by Relay Ch 4 | **READY**: Visual system error / emergency beacon |
+| **DMM** | Digital Multimeter (DMM) with Probes | 1 | Battery | Test & Measurement | **READY**: Essential pre-power and bring-up verification tool |
 
 ---
 
@@ -117,18 +132,18 @@ The controller enclosure contains three strictly segregated power domains:
 5. Adjust or verify the buck converter output voltage to exactly **5.05V DC ± 0.05V** before connecting to the ESP32.
 6. Connect buck converter 5V output to the ESP32 `5V` (or `Vin`) pin and `GND` to ESP32 `GND`.
 
-### 4.2. Output Actuators (Relay Board)
-| Channel | Output Pin | Relay Input | Relay Contact Wiring | Load Controlled |
-|---|---|---|---|---|
-| **Ch 1** | GPIO 1 | IN1 | 220V AC Live (COM1) → NO1 → Well Pump L | Deep Well Submersible Pump |
-| **Ch 2** | GPIO 2 | IN2 | 220V AC Live (COM2) → NO2 → Dist Pump L | Fertigation Irrigation Booster Pump |
-| **Ch 3** | GPIO 4 | IN3 | 220V AC Live (COM3) → NO3 → Raw Sub L | Raw Water Tank Agitator / Pump |
-| **Ch 4** | GPIO 5 | IN4 | 12V DC Pos (COM4) → NO4 → Dosing A (+) | Peristaltic Dosing Pump A (Nutrient) |
-| **Ch 5** | GPIO 6 | IN5 | 12V DC Pos (COM5) → NO5 → Dosing B (+) | Peristaltic Dosing Pump B (Acid/Nutrient) |
-| **Ch 6** | GPIO 7 | IN6 | 12V DC Pos (COM6) → NO6 → Fan (+) | Enclosure / Greenhouse Exhaust Fan |
-| **Ch 7** | GPIO 18 | IN7 | 12V DC Pos (COM7) → NO7 → Beacon (+) | Flashing Error / Warning Beacon |
+### 4.2. Output Actuators (Relay Modules & MOSFET Drivers)
+| Channel | Output Pin | Driver Module | Contact / Power Wiring | Load Controlled | Load Type |
+|---|---|---|---|---|---|
+| **Ch 1** | GPIO 1 | Relay Omron #1 (Heavy Duty) | 220V AC Live (COM1) → NO1 → Well Pump L | Deep Well Submersible Pump | 220V AC Mains |
+| **Ch 2** | GPIO 2 | Relay Omron #2 (Heavy Duty) | 220V AC Live (COM2) → NO2 → Dist Pump L | Fertigation Booster Pump GH-1 | 220V AC Mains |
+| **Ch 3** | GPIO 4 | 4-Ch Relay Board Ch 1 / MOSFET | 12V DC Pos (COM3) → NO3 → Submersible (+) | Raw Water Submersible Pump | 12V DC |
+| **Ch 4** | GPIO 5 | MOSFET Module #1 (15A) | 12V DC Pos → Drain/Source → Dosing A (+) | Peristaltic Dosing Pump A | 12V DC (Nutrient) |
+| **Ch 5** | GPIO 6 | MOSFET Module #2 (15A) | 12V DC Pos → Drain/Source → Dosing B (+) | Peristaltic Dosing Pump B | 12V DC (Acid/Nutrient) |
+| **Ch 6** | GPIO 7 | MOSFET Module #3 (15A) | 12V DC Pos → Drain/Source → Fan (+) | Cabinet / Exhaust Fan | 12V DC |
+| **Ch 7** | GPIO 18 | 4-Ch Relay Board Ch 2 | 12V DC Pos (COM7) → NO7 → Beacon (+) | Red Pilot / Alarm Lamp | 12V DC |
 
-*Note: All loads are wired to Normally Open (NO) terminals so they remain de-energized during power-off or boot safe clamp.*
+*Note: All loads are wired to Normally Open (NO) terminals or active-high MOSFET gates so they remain strictly de-energized during power-off or boot safe clamp.*
 
 ### 4.3. Sensors & Level Switches
 - **YF-B1 (Flow Sensor 1):**
@@ -148,6 +163,10 @@ The controller enclosure contains three strictly segregated power domains:
   - Terminal A: Connect to GPIO 26.
   - Terminal B: Connect to GND_LV.
   - Switch is oriented such that when the water level is sufficient, the float is raised (open contact with internal pull-up = 3.3V HIGH). When water is low, float drops (closes contact to GND_LV = 0V LOW). The firmware evaluates GPIO 26: High (1) = Normal/OK, Low (0) = Dry Trip.
+- **Upper Float Switch (Tank Full / Overflow Interlock):**
+  - Status: READY in inventory.
+  - Terminal A: Connect to tank high-level sensor circuit or safety cutoff chain.
+  - Triggers tank full interlock to inhibit Well Pump replenishment when reservoir reaches capacity.
 
 ### 4.4. Physical Operator Buttons
 All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`. The internal pull-up resistor on the ESP32 holds the line at 3.3V when open; depressing the button pulls the line to 0V:
@@ -159,8 +178,8 @@ All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`
 ### 4.5. SPI Peripheral Bus Wiring
 The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared across W5500, TFT Display, and MicroSD card. Keep wire lengths under 15 cm:
 - **W5500 Ethernet:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 10, RST → 3.3V (or NC), VCC → 3.3V, GND → GND_LV.
-- **TFT Display:** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV.
-- **MicroSD Module:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 27, VCC → 3.3V, GND → GND_LV.
+- **TFT Display (ST7735 1.8" 128×160 SPI):** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV. (Hardware controller: ST7735. Do NOT substitute with 2.4" or 2.8" or ILI9341/ST7789).
+- **MicroSD Module:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 27, VCC → 3.3V, GND → GND_LV. (*Pending procurement; card reader not required for first flash*).
 
 ---
 

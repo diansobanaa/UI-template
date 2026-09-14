@@ -744,5 +744,38 @@ inja -C build -j 1).
 - **Known Issues / Blockers**: None in software. Physical hardware requires verification according to Section 17 checklist.
 - **Next Safe Point / Action**: Physical hardware first flash and commissioning on target bench.
 - **Git Commit Hash**:
-  - Git commit: a6cf859 (SP-REMED-014)
+  - Git commit: 26fcb47 (SP-REMED-014 doc commit)
+
+---
+
+## Safe Point Record: SP-HW-001
+- **ID**: SP-HW-001
+- **Objective**: Final Hardware Inventory Update & First Flash Readiness Protocol.
+- **Completed Work**:
+  1. Reconciled physical hardware inventory authority against actual ready workbench hardware:
+     - **PSU**: Formally documented switching power supply 12V 5A (60W), replacing outdated 12V 10A assumption. Evaluated detailed power budget proving 12V 5A is sufficient (nominal DC load ~3.25A / 39W with ~35% safety margin; 220V AC pumps run on mains and consume 0A from 12V PSU).
+     - **Display**: Firmly established LCD TFT SPI 1.8 inch (driver ST7735, resolution 128×160 SPI). Prohibited 2.4", 2.8", and ST7789/ILI9341 controllers. Updated `esp32/main/config/pin_config.h` with dedicated definitions (`TFT_DRIVER_ST7735`, `TFT_WIDTH_PX 128`, `TFT_HEIGHT_PX 160`).
+     - **Pumps**: Recorded both high-power AC pumps as READY: Pompa Besar dari Sumur (220V AC via Omron #1) and Pompa Besar Distribusi/Fertigasi GH-1 (220V AC via Omron #2). Confirmed 12V DC submersible pump and 12V dosing pumps A & B as READY.
+     - **Actuator Drivers**: Documented 4-channel 5V relay module, 2x Omron heavy-duty industrial relays, 3x 15A MOSFET modules, level shifters, and flyback diodes.
+     - **Sensors & Inputs**: Documented YF-B1 (GPIO 15), FS400A (GPIO 16), DS18B20 (GPIO 17), Float Switch Bawah (GPIO 26), Float Switch Atas (tank full interlock), and 4x panel buttons (GPIO 38-41).
+     - **Pending Hardware**: MicroSD card + reader marked PENDING (not a blocker for first flash; firmware bypasses cleanly and utilizes internal 16MB SPI flash NVS/SPIFFS).
+     - **Unused Hardware**: FRAM explicitly declared NOT USED / NOT REQUIRED.
+  2. Updated `esp32/docs/ESP32_ASSEMBLY_GUIDE.md` Section 1 BOM, Section 4.2 actuator drivers, Section 4.3 sensors, and Section 4.5 SPI wiring.
+  3. Created primary deliverable `docs/AI_HARDWARE_INVENTORY_AND_FIRST_FLASH_V1.md` containing final inventory, PSU load analysis, first-flash protocol (bare-board minimum, disconnected peripherals, PC USB power, serial boot verification steps, and post-boot network test), 6-phase commissioning sequence, and physical verification checklist.
+  4. Executed verification: Frontend production build (`tsc -b && vite build`) passed with 0 errors; End-to-End API contract mock verification (`verify_e2e_contracts.mjs --mock`) passed 100%.
+- **Verification Result**:
+  - UI Build: SUCCESS (`tsc -b && vite build` bundled clean, 0 errors).
+  - Contract Tests: SUCCESS (`verify_e2e_contracts.mjs --mock` 100% pass across 25 endpoints).
+  - Hardware Execution: BENCH-AUDITED (Ready for workbench first flash).
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `docs/AI_HARDWARE_INVENTORY_AND_FIRST_FLASH_V1.md` (NEW)
+  - `AI_HANDOVER.md`
+  - `AI_PROGRESS.md`
+- **Known Issues / Blockers**: None in software. Physical verification items documented in Section 7 of inventory report.
+- **Next Safe Point / Action**: Physical hardware first flash and workbench boot verification by operator.
+- **Git Commit Hash**:
+  - Git commit: PENDING (to be committed as SP-HW-001)
+
 
