@@ -34,9 +34,10 @@
   2. Implement Valve Matrix HAL for multi-GH.
 - **Pros/cons**: Option 1 is faster but tech debt. Option 2 requires physical valves.
 - **Recommended option**: Option 1 for Phase 1, but parameterize the API anyway.
-- **User Decision**: Pending.
-- **What changes**: The HTTP handlers parse `{ghId}` but return 400 for anything other than `"gh-01"` for now.
-- **Can implementation proceed without deciding?**: YES.
+- **User Decision**: Option A (Phase 1 supports dynamic `{ghId}` API, only 1 physically installed GH registered, e.g. `"gh-01"`. Requests for unregistered/unsupported GHs return contract-defined 404/400. Do not implement virtual multi-GH valve matrix or assign extra valve GPIOs).
+- **What changes**: HTTP handlers parse `{ghId}` dynamically; validate against registered greenhouse list; return 404/400 if not found.
+- **Can implementation proceed without deciding?**: YES (Decided).
+
 ## DECISION-004: Authentication Method
 - **Question**: Which authentication method will secure the local HTTP API?
 - **Why it matters**: Zero authentication currently exists, leading to DoS/Takeover risks (BS-SEC-001).
@@ -45,18 +46,13 @@
   1. Static Bearer Token / API Key.
   2. Local accounts with username/password.
 - **Pros/cons**: Static key is simple but hard to rotate. Local accounts are secure but complex.
-- **Recommended option**: Option 1 (Static API Key provisioned via NVS or Wi-Fi captive portal).
-- **User Decision**: Pending.
-- **What changes**: HTTP middleware and UI `esp32-client.ts` headers.
-- **Can implementation proceed without deciding?**: YES (can mock a dummy auth check first).
+- **Recommended option**: Option 1 (Static API Key provisioned via NVS).
+- **User Decision**: Option A (Static API key with `Authorization: Bearer <token>`. Stored in NVS, used on all control/command/E-stop endpoints. Provisioning/setup support. Never log token plaintext).
+- **What changes**: HTTP auth middleware in `http_server.c` and UI `esp32-client.ts` headers.
+- **Can implementation proceed without deciding?**: YES (Decided).
 
-## SP-REMED-003 to SP-REMED-005 Decisions
-- **BS-HW-004 (Relay Polarity)**: Use Active-LOW as default, but implement via `activeLevel` per actuator. Mark physical polarity as REQUIRES PHYSICAL VERIFICATION.
-- **BS-SAFE-002 (Dry-Run Interlock)**: Enforce protection at `actuator_hal_set()`. Do not rely solely on HTTP/UI validation.
-- **BS-HW-005 (DS18B20 Timing)**: Non-blocking 750ms conversion using FreeRTOS yields/delays.
-- **BS-SENS-001 (Sensor Validity)**: Implement explicit sensor state semantics (VALID, INVALID, STALE, etc).
-- **Architecture (Persistence)**: NVS for critical state (e.g., E-Stop). MicroSD for high-volume logs/telemetry. E-Stop latch requires explicit manual clear.
-- **BS-MEM-001 (HTTP Limits)**: 4KB JSON payload limit, to be verified against API contract.
-- **BS-CC-001 (Crop Cycle)**: Default state is `NO_CYCLE`.
-- **BS-MEM-002 (MicroSD Mutex)**: FreeRTOS mutex to protect shared MicroSD log access.
-- **BS-CMD-001/002 & BS-CONT-002 (Commands)**: `POST /api/v1/commands` must be async (HTTP 202). `DELETE /api/v1/commands/{commandId}` cancels lifecycle. Physical commands converge through Command Manager -> Queue -> Worker -> HAL. UI must reconcile from state.
+## SP-REMED-006 to SP-REMED-009 Additional Decisions
+- **BS-SCHED-001 (Firmware Scheduler)**: Device-owned, persistent in NVS. Structured schedule model (day-of-week, specific date, interval, action/duration). High-volume logs on microSD. Evaluates against authoritative time (1 min eval) and dispatches via Command Manager -> Safety -> Queue -> Worker. Handles reboot, missed schedule, duplicate prevention, and cancellation. No cron parser library.
+- **BS-UI-001/002 (UI Alignment)**: `startManualFertigation` and `resumeExecution` in `services.ts` invoke real `POST /api/v1/commands` (`START_FERTIGATION`, `RESUME_CYCLE`) and asynchronously poll `commandId` until terminal status. No browser `setTimeout` as runtime controller.
+- **BS-TEST-001 (E2E Test)**: `scripts/verify_e2e_contracts.mjs` targets live ESP32 by default via `--target <IP>` or `ESP32_BASE_URL`. Fails if unreachable or test fails. Mock mode only runs if `--mock` flag is explicitly passed. No auto-fallback.
+

@@ -29,9 +29,6 @@ idf_component_register(
         "http"
         "storage"
         "network"
-        "net"
-        "dto"
-        "util"
     REQUIRES
         esp_http_server
         mdns

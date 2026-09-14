@@ -25,7 +25,11 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
 - [x] SP-REMED-002 Network & RTC Initialization
 - [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
 - [x] SP-REMED-004 Persistence & Memory Bounds
-- [x] SP-REMED-005 Async Command Processing & Contract Alignment
+- [x] SP-REMED-006 Scheduler, Dynamic Topology & Config Validation
+- [x] SP-REMED-007 UI Endpoint Alignment
+- [x] SP-REMED-008 Authentication & Security
+- [x] SP-REMED-009 E2E Testing Transformation
+- [x] FIRST-BUILD-BLOCKER-main-net Root Cause & Resolution of main/net Blocker
 
 ---
 
@@ -333,3 +337,33 @@ SP-REMED-001 Hardware Definition & Boot Initialization (COMPLETE)
   - NONE
 - **Next Safe Point / Action**:
   - Final Verification & Handover.
+
+---
+
+## Safe Point Record: FIRST-BUILD-BLOCKER-main-net
+- **ID**: FIRST-BUILD-BLOCKER-main-net
+- **Objective**: Source-tree investigation, root cause diagnosis, and minimal resolution of `main/net` CMake include directory blocker, plus migration of deprecated CPU frequency configs for ESP-IDF 5.5.5.
+- **Completed Work**:
+  1. Completed source-tree investigation across `esp32/main/` directories, source files, and header files.
+  2. Identified that network implementation lives in `esp32/main/network/` (`network_mgr.c`, `network_mgr.h`), created during SP-REMED-002.
+  3. Traced origin of `"net"`, `"dto"`, and `"util"` in `main/CMakeLists.txt` to initial scaffold in commit `b7c9d4c1` (SP-002).
+  4. Determined Scenario B/C: CMake `INCLUDE_DIRS` contained vestigial placeholders (`net`, `dto`, `util`). The active networking subsystem is in `main/network`.
+  5. Applied minimal fix removing `"net"`, `"dto"`, `"util"` from `INCLUDE_DIRS` in `main/CMakeLists.txt`.
+  6. Verified and migrated deprecated `CONFIG_ESP32S3_DEFAULT_CPU_FREQ_*` to `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_*` in `sdkconfig.defaults` per ESP-IDF 5.5.5 convention.
+  7. Re-ran compilation via ESP-IDF v5.5.5 toolchain. CMake configuration completed cleanly (100% resolved), core ESP-IDF components compiled cleanly ([610/658]).
+  8. Successfully captured next concrete build blocker: `fatal error: esp_flash.h: No such file or directory` in `main.c:7` (missing `spi_flash` in `REQUIRES` of `main/CMakeLists.txt`).
+- **Verification Result**:
+  - Build: ADVANCED TO COMPILATION PHASE ([610/658] compiled, halted at main.c due to missing `esp_flash.h`)
+  - Tests: N/A
+  - Contract: COMPLIANT
+  - Hardware: PHYSICAL-HARDWARE-UNVERIFIED
+- **Changed Files**:
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/sdkconfig.defaults`
+  - `docs/AI_REMEDIATION_DECISIONS_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Next Blocker**:
+  - `main.c:7:10: fatal error: esp_flash.h: No such file or directory` — `main/CMakeLists.txt` missing component requirement `spi_flash`.
+- **Next Safe Point / Action**:
+  - Resolve `esp_flash.h` component requirement (`spi_flash`) in `main/CMakeLists.txt` and resume build.
