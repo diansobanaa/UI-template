@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Initialize microSD SPI driver on CS GPIO 47.
+ * @brief Initialize microSD SPI driver on CS GPIO 27 (PIN_MICROSD_CS).
  * Returns ESP_OK if mounted, or ESP_ERR_NOT_FOUND if card not inserted.
  */
 esp_err_t sdcard_hal_init(void);

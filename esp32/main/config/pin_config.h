@@ -40,7 +40,10 @@ extern "C" {
 
 /* ========================================================================== */
 /* OUTPUT ACTUATORS (RELAYS & SWITCHES)                                       */
-/* Active level: Default Active-High (1 = ON, 0 = OFF)                       */
+/* Standard optocoupled relay modules: Active-LOW (0 = ON, 1 = OFF)           */
+/* Direct logic / MOSFET driver boards: Active-HIGH (1 = ON, 0 = OFF)         */
+/* Default in firmware is Active-LOW (0) for optocoupled relay board.         */
+/* NOTE: VERIFY RELAY MODULE DATASHEET / POLARITY BEFORE CONNECTION.          */
 /* ========================================================================== */
 #define PIN_OUT_WELL_PUMP           1
 #define PIN_OUT_DIST_PUMP           2
@@ -50,16 +53,24 @@ extern "C" {
 #define PIN_OUT_COOLING_FAN         7
 #define PIN_OUT_ERROR_LAMP          18
 
-#define ACTUATOR_LEVEL_ON           1
-#define ACTUATOR_LEVEL_OFF          0
+#define ACTUATOR_ACTIVE_LEVEL       0   /* 0 = Active-LOW (standard relay boards), 1 = Active-HIGH (VERIFY DATASHEET) */
+#define ACTUATOR_LEVEL_ON           (ACTUATOR_ACTIVE_LEVEL)
+#define ACTUATOR_LEVEL_OFF          (!ACTUATOR_ACTIVE_LEVEL)
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */
+/* Float switch is pulled up internally to 3.3V:                             */
+/* When tank has water: float is up (switch open) -> pin reads 1 (OK/NORMAL)  */
+/* When tank is empty: float drops (switch closes to GND) -> pin reads 0 (DRY)*/
+/* NOTE: VERIFY FLOAT CONTACT ORIENTATION (NO vs NC) UPON INSTALLATION.       */
 /* ========================================================================== */
 #define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */
 #define PIN_IN_FLOW_FS400A          16   /* Flow pulse input 2 */
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
 #define PIN_IN_FLOAT_LOWER          26   /* Digital Lower Float Switch */
+
+#define FLOAT_LEVEL_DRY             0    /* 0 = Dry / Low Tank Alarm (Trip) */
+#define FLOAT_LEVEL_OK              1    /* 1 = Water OK / Sufficient Level */
 
 /* ========================================================================== */
 /* PHYSICAL OPERATOR BUTTONS                                                  */

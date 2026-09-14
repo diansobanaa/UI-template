@@ -3,8 +3,8 @@
 ## Status
 BUILD GREEN (FIRMWARE BINARY GENERATED)
 
-## Latest Safe Point
-FIRST-BUILD-BLOCKER-command-redefinition
+### Latest Safe Point
+SP-REMED-014 Hardware Preparation & Commissioning Readiness
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -26,6 +26,10 @@ FIRST-BUILD-BLOCKER-command-redefinition
 - [x] SP-REMED-003 Physical Safety Interlocks & Sensor Drivers
 - [x] SP-REMED-004 Persistence & Memory Bounds
 - [x] SP-REMED-006 Scheduler, Dynamic Topology & Config Validation
+- [x] SP-REMED-011 Nested Request Envelope Migration Complete
+- [x] SP-REMED-012 Request Envelope Alignment & E2E Contract Verification
+- [x] SP-REMED-013 Post-Remediation Regression Audit and Fixes
+- [x] SP-REMED-014 Hardware Preparation & Commissioning Readiness
 - [x] Post-Build UI/API Endpoint alignment and integration audits (Phase 1 checks).
 - [x] OpenAPI EnvelopeBase compliance remediation.
 - [ ] ESP32 hardware execution testing.
@@ -694,3 +698,50 @@ inja -C build -j 1).
 - **Next Safe Point / Action**: Physical hardware commissioning and integration testing.
 - **Git Commit Hash**:
   - Git commit: a3d0d43 (SP-REMED-013)
+
+---
+
+## Safe Point Record: SP-REMED-014
+- **ID**: SP-REMED-014
+- **Objective**: Hardware Preparation & Commissioning Readiness Verification.
+- **Completed Work**:
+  1. Audited firmware, pin map, hardware abstraction, sensor definitions, actuator definitions, safety behavior, and assembly documentation.
+  2. Identified and resolved critical contradictions between firmware and docs:
+     - Updated `ESP32_ASSEMBLY_GUIDE.md` and `sdcard_hal.h` with re-allocated non-conflicting pins (GPIO 26 for Float Switch, GPIO 27 for MicroSD CS).
+     - Synchronized actuator active levels across `pin_config.h`, `actuator_hal.c`, and `main.c` to default Active-LOW (`ACTUATOR_ACTIVE_LEVEL = 0`), with safe boot pull-up clamp (`ACTUATOR_LEVEL_OFF = 1`) preventing boot-time relay chatter.
+     - Fixed bug in `actuator_hal_set_tank_full_interlock()` where well pump shutoff used raw `ACTUATOR_LEVEL_OFF` (0) which would turn on Active-LOW relays.
+     - Synchronized float switch dry-run logic across `sensor_hal.c`, `actuator_hal.c`, and `safety_monitor.c` using unified `FLOAT_LEVEL_OK (1)` and `FLOAT_LEVEL_DRY (0)` definitions.
+  3. Created comprehensive 17-section readiness deliverable `docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md` documenting:
+     - Target hardware, component connections, pin mapping & reserved pins.
+     - Relay driver requirements, galvanic isolation, snubber/flyback diodes.
+     - Power segregation (220V AC, 12V DC, 5V/3.3V logic) and pre-power DMM checks.
+     - Safe boot clamp and emergency stop latching behavior.
+     - First power-on procedure before actuators connected.
+     - Exact binary offsets and flashing commands for `esptool.py` and `idf.py`.
+     - 9-phase commissioning sequence from lowest to highest risk.
+     - Safety checks (E-stop, dry-run, welded relay).
+     - Network test (Wi-Fi APSTA `AGROTECH-SETUP` + REST API).
+     - Sensor calibration/test and actuator test checklist.
+     - UI ↔ ESP32 live integration test and failure/recovery test.
+     - Full inventory of items marked `VERIFY DATASHEET / HARDWARE MANUAL BEFORE CONNECTION` / `PHYSICAL VERIFICATION REQUIRED`.
+  4. Successfully compiled firmware binary image using native ESP-IDF toolchain (`agrotech_esp32.bin`, 1,028,864 bytes).
+  5. Verified React/Vite UI (`tsc --noEmit`) and API contract tests (`verify_e2e_contracts.mjs --mock`), passing 100%.
+- **Verification Result**:
+  - Firmware Build: SUCCESS (ESP-IDF ninja/cmake linked binary `agrotech_esp32.bin`, 0 warnings).
+  - TypeScript Typecheck: SUCCESS (`tsc --noEmit` clean, 0 errors).
+  - Contract Tests: SUCCESS (`verify_e2e_contracts.mjs` 100% pass).
+  - Hardware Execution: PHYSICAL-HARDWARE-UNVERIFIED (Ready for first flash).
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/hal/sdcard_hal.h`
+  - `esp32/main/main.c`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md` (NEW)
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None in software. Physical hardware requires verification according to Section 17 checklist.
+- **Next Safe Point / Action**: Physical hardware first flash and commissioning on target bench.
+- **Git Commit Hash**: [TO BE COMMITTED]
+

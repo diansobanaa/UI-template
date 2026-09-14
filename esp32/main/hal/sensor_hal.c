@@ -164,7 +164,7 @@ esp_err_t sensor_hal_poll(void)
     xSemaphoreTake(s_sensor_lock, portMAX_DELAY);
 
     /* Float Switch: Level 1 = OK (float floating), Level 0 = LOW (tank low) */
-    s_current_readings.float_lower_ok = (gpio_get_level(PIN_IN_FLOAT_LOWER) != 0);
+    s_current_readings.float_lower_ok = (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_OK);
 
     /* DS18B20 Temperature Reading */
     float temp_val = 0.0f;

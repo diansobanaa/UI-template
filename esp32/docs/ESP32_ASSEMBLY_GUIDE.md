@@ -17,12 +17,12 @@
 | **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | SPI (CS: GPIO 10) | Hardwired local LAN connection |
 | **RTC** | DS3231 High-Precision I2C RTC Module | 1 | 3.3V DC | I2C (SDA: 8, SCL: 9) | Hardware battery-backed real-time clock |
 | **LCD** | ST7789 / ILI9341 SPI TFT Display (2.8" or 3.2") | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42) | Local status & diagnostics screen |
-| **STORAGE** | MicroSD SPI Card Socket Module | 1 | 3.3V DC | SPI (CS: GPIO 47) | Local telemetry & event log storage |
-| **RELAY** | 8-Channel Optocoupled Relay Board (5V/12V coil, 250VAC/10A contacts) | 1 | 5V / 12V Coil | Digital active-high/low inputs | Actuator galvanic isolation & switching |
+| **STORAGE** | MicroSD SPI Card Socket Module | 1 | 3.3V DC | SPI (CS: GPIO 27) | Local telemetry & event log storage |
+| **RELAY** | 8-Channel Optocoupled Relay Board (5V/12V coil, 250VAC/10A contacts) | 1 | 5V / 12V Coil | Digital active-low inputs (0=ON, 1=OFF) | Actuator galvanic isolation & switching |
 | **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | Main fertigation loop flow meter |
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | Water tank temperature monitoring |
-| **LEVEL** | Stainless Steel Vertical Float Switch (Normally Open) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 19) | Low-level dry-run safety interlock |
+| **LEVEL** | Stainless Steel Vertical Float Switch (Normally Open) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | Low-level dry-run safety interlock |
 | **BUTTONS** | Momentary Push Buttons (16mm / 22mm IP65 panel mount) | 4 | 3.3V (Internal pullup) | Digital input (GPIO 38, 39, 40, 41) | MODE, MANUAL A, MANUAL B, DISTRIB |
 | **PSU 1** | Industrial DIN-Rail Power Supply 12V DC (e.g. Mean Well MDR-60-12) | 1 | 220V AC in, 12V DC out | DC Power | Powers 12V dosing pumps, fan, relay coils |
 | **PSU 2** | Step-down Buck Converter / DC-DC Regulator (12V to 5V 3A) | 1 | 12V DC in, 5.0V DC out | DC Power | Powers ESP32 5V rail and W5500 / TFT |
@@ -36,12 +36,12 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 
 | GPIO Pin | Function / Target Module | Direction | Electrical Domain | Active State / Note |
 |---|---|---|---|---|
-| **GPIO 1** | Well Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-High (1 = Run) |
-| **GPIO 2** | Distribution Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-High (1 = Run) |
-| **GPIO 4** | Raw Submersible Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-High (1 = Run) |
-| **GPIO 5** | Dosing Pump A Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-High (1 = Run) |
-| **GPIO 6** | Dosing Pump B Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-High (1 = Run) |
-| **GPIO 7** | Cabinet Cooling Fan Relay / MOSFET | OUTPUT | 3.3V Logic → Driver | Active-High (1 = Fan ON) |
+| **GPIO 1** | Well Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 2** | Distribution Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 4** | Raw Submersible Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 5** | Dosing Pump A Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 6** | Dosing Pump B Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 7** | Cabinet Cooling Fan Relay / MOSFET | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Fan ON, 1 = Safe OFF) |
 | **GPIO 8** | I2C SDA (DS3231 RTC / Sensors) | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 9** | I2C SCL (DS3231 RTC / Sensors) | OUTPUT | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 10** | W5500 SPI Ethernet Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (SPI Bus) |
@@ -52,18 +52,18 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 15** | YF-B1 Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 16** | FS400A Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 17** | DS18B20 1-Wire Temperature Data | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
-| **GPIO 18** | System Status / Error Beacon Lamp | OUTPUT | 3.3V Logic → Driver | Active-High (1 = Lamp ON) |
-| **GPIO 19** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal |
+| **GPIO 18** | System Status / Error Beacon Lamp | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Lamp ON, 1 = OFF) |
 | **GPIO 21** | TFT Display Data / Command (DC) | OUTPUT | 3.3V Logic | High = Data, Low = Command |
+| **GPIO 26** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal |
+| **GPIO 27** | MicroSD Card Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (SPI Bus) |
 | **GPIO 38** | Physical Button: MODE Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 39** | Physical Button: MANUAL RUN A | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 40** | Physical Button: MANUAL RUN B | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 41** | Physical Button: DISTRIBUTION | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
-| **GPIO 47** | MicroSD Card Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (SPI Bus) |
 
 > **RESERVED PINS (DO NOT WIRE / DO NOT REASSIGN):**
-> GPIO 0 (Boot strap), GPIO 3 (JTAG), GPIO 20 (USB D+), GPIO 33–37 (Octal PSRAM / SPI Flash), GPIO 43–44 (UART0 TX/RX console), GPIO 45–46 (VDD_SPI), GPIO 48 (RGB WS2812).
+> GPIO 0 (Boot strap), GPIO 3 (JTAG), GPIO 19 (Native USB D-), GPIO 20 (Native USB D+), GPIO 33–37 (Octal PSRAM / SPI Flash), GPIO 43–44 (UART0 TX/RX console), GPIO 45–46 (VDD_SPI), GPIO 47 (Octal PSRAM CS), GPIO 48 (RGB WS2812).
 
 ---
 
@@ -145,9 +145,9 @@ The controller enclosure contains three strictly segregated power domains:
   - Black wire (GND): Connect to GND_LV.
   - Yellow/White wire (Data): Connect to GPIO 17. Solder a 4.7kΩ pull-up resistor between Data and 3.3V.
 - **Lower Float Switch (Dry-Run Protection):**
-  - Terminal A: Connect to GPIO 19.
+  - Terminal A: Connect to GPIO 26.
   - Terminal B: Connect to GND_LV.
-  - Switch is oriented such that when the water level is sufficient, the float is raised (closed contact or open contact depending on orientation). The firmware evaluates GPIO 19: High = Normal, Low = Dry Trip.
+  - Switch is oriented such that when the water level is sufficient, the float is raised (open contact with internal pull-up = 3.3V HIGH). When water is low, float drops (closes contact to GND_LV = 0V LOW). The firmware evaluates GPIO 26: High (1) = Normal/OK, Low (0) = Dry Trip.
 
 ### 4.4. Physical Operator Buttons
 All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`. The internal pull-up resistor on the ESP32 holds the line at 3.3V when open; depressing the button pulls the line to 0V:
@@ -160,7 +160,7 @@ All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`
 The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared across W5500, TFT Display, and MicroSD card. Keep wire lengths under 15 cm:
 - **W5500 Ethernet:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 10, RST → 3.3V (or NC), VCC → 3.3V, GND → GND_LV.
 - **TFT Display:** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV.
-- **MicroSD Module:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 47, VCC → 3.3V, GND → GND_LV.
+- **MicroSD Module:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 27, VCC → 3.3V, GND → GND_LV.
 
 ---
 
@@ -375,11 +375,11 @@ Test each output channel individually with dummy loads or multimeter:
 | Symptom / Fault | Potential Cause | Diagnostic & Rectification |
 |---|---|---|
 | **ESP32 loops in boot crash / Brownout** | Insufficient 5V supply current | Verify buck converter can deliver 2A–3A peak. Replace thin USB cable with direct 18 AWG power wires. |
-| **Pumps turn ON briefly at boot** | Active-low relay board inverted logic | Ensure relay is connected to Normally Open (NO) terminals and driver polarity matches `ACTUATOR_LEVEL_ON = 1`. |
-| **W5500 Ethernet not detected** | SPI wiring error or clock too fast | Verify SCK (11), MOSI (12), MISO (13), and CS (10). Check that SPI bus speed is set to 20MHz or lower. |
+| **Pumps turn ON briefly at boot** | Active-low relay board inverted logic or floating inputs | Ensure relay is connected to Normally Open (NO) terminals. Firmware defaults to Active-LOW (`ACTUATOR_ACTIVE_LEVEL = 0`) with inactive pin state forced to HIGH (3.3V) with pull-up. |
+| **W5500 Ethernet not detected** | SPI wiring error or clock too fast | Verify SCK (11), MOSI (12), MISO (13), and CS (10). Check that SPI bus speed is set to 20MHz or lower. Note: Wi-Fi STA+AP is default network in Phase 1 firmware. |
 | **DS18B20 reads -127°C or 85°C** | Missing 4.7kΩ pull-up resistor | Solder 4.7kΩ resistor between Data (GPIO 17) and 3.3V. Check for loose terminal connection. |
 | **Flow sensor registers zero pulses** | 5V signal not triggering 3.3V input | Verify voltage divider wiring and pulse input on oscilloscope or LED indicator. |
-| **SD card mount failure** | Card format not FAT32 or loose CS | Format microSD as FAT32 (32KB cluster). Check CS pin is wired to GPIO 47. |
+| **SD card mount failure** | Card format not FAT32 or loose CS | Format microSD as FAT32 (32KB cluster). Check CS pin is wired to GPIO 27 (PIN_MICROSD_CS). |
 
 ---
 
