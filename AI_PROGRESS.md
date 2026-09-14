@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-BOOT GREEN (FIRST BRING-UP TO SYSTEM READY VERIFIED)
+API GREEN (CANONICAL REST API VERIFIED VIA LAN & SOFTAP)
 
 ### Latest Safe Point
-SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
+SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 
 ## Safe Point Index
+- [x] SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 - [x] SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 - [x] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)
 - [x] SP-001 Repository discovery and compatibility baseline
@@ -14,7 +15,6 @@ SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 - [x] SP-002 ESP32 project foundation
 - [x] SP-003 Hardware abstraction and safe boot
 - [x] SP-004 Durable storage and recovery
-- [x] SP-007 Crop-cycle / Masa Tanam
 - [x] SP-008 Telemetry/events/logging
 - [x] SP-009 Existing UI ↔ ESP32 integration
 - [x] SP-010 End-to-end verification
@@ -65,6 +65,52 @@ SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-API-001
+- **ID**: SP-API-001
+- **Objective**: Verify that the currently flashed ESP32 firmware is reachable over the local network and that the canonical REST API operates correctly according to UI_ESP32_OPENAPI.yaml with 100% actuator safe-off isolation.
+- **Completed Work**:
+  1. Inspected canonical OpenAPI contract (`UI_ESP32_OPENAPI.yaml`), HTTP server (`http_server.c`), and all API handlers.
+  2. Implemented dynamic NVS-backed Wi-Fi STA credential loading (`sta_ssid` and `sta_pass` in namespace `"agrotech"`) in `network_mgr.c`, eliminating hardcoded empty strings and phantom connection storms.
+  3. Retained dual-mode `WIFI_MODE_APSTA` with SoftAP `AGROTECH-SETUP` (`192.168.4.1`) permanently available as fallback/recovery interface.
+  4. Injected local Wi-Fi credentials into ESP32 NVS partition via host utility without writing secrets to source code or git repository.
+  5. Built and flashed firmware cleanly to COM3 (hash verified).
+  6. Verified Wi-Fi STA connection to local AP (`192.168.0.129`).
+  7. Executed comprehensive automated REST API smoke test from host PC across 13 test cases:
+     - `GET /api/v1/health` -> HTTP 200 OK (`HEALTHY`, ~8.6MB free heap).
+     - `GET /api/v1/status` -> HTTP 200 OK (all 7 actuators confirmed false / safe OFF).
+     - `GET /api/v1/inventory` -> HTTP 200 OK (15 registered components).
+     - `GET /api/v1/capabilities` -> HTTP 200 OK.
+     - `GET /api/v1/context` -> HTTP 200 OK.
+     - `GET /api/v1/clock` -> HTTP 200 OK.
+     - `GET /api/v1/configuration` -> HTTP 200 OK (no secrets leaked).
+     - `GET /api/v1/telemetry` -> HTTP 200 OK.
+     - `GET /api/v1/events` -> HTTP 200 OK (`SYS_BOOT` audit entry).
+     - `PUT /api/v1/configuration` without auth -> HTTP 401 Unauthorized (`Missing Authorization header`).
+     - `PUT /api/v1/configuration` with invalid token -> HTTP 401 Unauthorized (`Invalid API key`).
+     - `POST /api/v1/clock-sync` without auth -> HTTP 401 Unauthorized.
+     - `POST /api/v1/clock-sync` with valid auth but invalid payload -> HTTP 422 Unprocessable Entity (`VALIDATION_FAILED`).
+  8. Verified all responses conform to `EnvelopeBase` (`requestId`, `success`, `deviceTimestamp`, `data`/`error`).
+  9. Documented complete forensic inspection and execution evidence in `esp32/docs/AI_API_SMOKE_TEST_REPORT_V1.md`, `AI_WIFI_PROVISIONING_INSPECTION_V1.md`, and `AI_WIFI_PROVISIONING_IMPLEMENTATION_PLAN_V1.md`.
+- **Verification Result**:
+  - Build: PASS (agrotech_esp32.bin, 935,504 bytes, 0 errors, 0 warnings).
+  - Flash: PASS (COM3 @ 460800 baud, hash verified).
+  - Network Association: PASS (STA IP `192.168.0.129`, SoftAP IP `192.168.4.1`).
+  - API Smoke Test: PASS (13/13 test cases passed with valid HTTP status codes and EnvelopeBase schemas).
+  - Actuator Safety: PASS (all 7 channels verified safe OFF, zero physical commands sent).
+- **Changed Files**:
+  - `esp32/main/network/network_mgr.c`
+  - `esp32/docs/AI_API_SMOKE_TEST_REPORT_V1.md`
+  - `esp32/docs/AI_WIFI_PROVISIONING_INSPECTION_V1.md`
+  - `esp32/docs/AI_WIFI_PROVISIONING_IMPLEMENTATION_PLAN_V1.md`
+- **Known Issues / Blockers**:
+  - None for network/REST API. External peripherals (RTC, microSD, sensors, relays, pumps) remain physically disconnected.
+- **Next Action**:
+  - Await operator instructions before proceeding to peripheral hardware commissioning.
+- **Git Commit Hash**:
+  - PENDING_COMMIT
 
 ---
 
