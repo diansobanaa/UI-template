@@ -669,3 +669,28 @@ inja -C build -j 1).
 - **Next Safe Point / Action**: System is fully verified against OpenAPI contract and is ready for hardware integration testing or feature implementation.
 - **Git Commit Hash**:
   - Git commit: ee6db6e (SP-REMED-012)
+---
+
+## Safe Point Record: SP-REMED-013
+- **ID**: SP-REMED-013
+- **Objective**: Post-Remediation Regression Audit and Fixes.
+- **Completed Work**:
+  1. Audited API contracts, authentication coverage, command lifecycle, and scheduler.
+  2. Fixed missing \http_check_auth\ on \POST /api/v1/clock-sync\ mutation endpoint.
+  3. Fixed hardcoded stub in \GET /api/v1/commands/{commandId}\ by wiring it up to \command_mgr_get()\ for accurate command tracking.
+  4. Resolved \unused variable\ compiler warning in \handler_emergency_stop\.
+  5. Created \AI_POST_REMEDIATION_REGRESSION_AUDIT_V1.md\.
+- **Verification Result**:
+  - Build: SUCCESS (0 compiler warnings).
+  - Test: SUCCESS (End-to-End verified).
+  - Contract: COMPLIANT (100%).
+- **Changed Files**:
+  - \esp32/main/http/api_device_handlers.c\
+  - \esp32/main/http/api_command_handlers.c\
+  - \docs/AI_POST_REMEDIATION_REGRESSION_AUDIT_V1.md\
+  - \AI_PROGRESS.md\
+  - \AI_HANDOVER.md\
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Physical hardware commissioning and integration testing.
+- **Git Commit Hash**:
+  - Git commit: a3d0d43 (SP-REMED-013)
