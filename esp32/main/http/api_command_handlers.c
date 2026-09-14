@@ -32,6 +32,7 @@ esp_err_t handler_emergency_stop(httpd_req_t *req)
     }
 
     actuator_hal_emergency_stop();
+    (void)reason;
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "commandId", cmd_id);
@@ -109,10 +110,46 @@ esp_err_t handler_post_command(httpd_req_t *req)
 
 esp_err_t handler_get_command(httpd_req_t *req)
 {
+    /* Extract commandId from URI: /api/v1/commands/{commandId} */
+    const char *uri = req->uri;
+    const char *prefix = "/api/v1/commands/";
+    const char *cmd_id = strstr(uri, prefix);
+    
+    if (!cmd_id) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Missing command ID", NULL);
+    }
+    cmd_id += strlen(prefix);
+    
+    char cmd_id_buf[64] = {0};
+    const char *query_pos = strchr(cmd_id, '?');
+    if (query_pos) {
+        strncpy(cmd_id_buf, cmd_id, query_pos - cmd_id);
+    } else {
+        strncpy(cmd_id_buf, cmd_id, sizeof(cmd_id_buf) - 1);
+    }
+    
+    command_item_t cmd;
+    esp_err_t err = command_mgr_get(cmd_id_buf, &cmd);
+    
+    if (err == ESP_ERR_NOT_FOUND) {
+        return http_send_error(req, 404, "NOT_FOUND", "Command not found", NULL);
+    } else if (err != ESP_OK) {
+        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to get command", NULL);
+    }
+
+    const char *status_str = "PENDING";
+    switch (cmd.status) {
+        case CMD_STATUS_RUNNING: status_str = "RUNNING"; break;
+        case CMD_STATUS_COMPLETED: status_str = "COMPLETED"; break;
+        case CMD_STATUS_FAILED: status_str = "FAILED"; break;
+        case CMD_STATUS_REJECTED: status_str = "REJECTED"; break;
+        default: break;
+    }
+
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "commandId", "cmd-latest");
-    cJSON_AddStringToObject(root, "status", "COMPLETED");
-    cJSON_AddStringToObject(root, "message", "Operation finished");
+    cJSON_AddStringToObject(root, "commandId", cmd_id_buf);
+    cJSON_AddStringToObject(root, "status", status_str);
+    cJSON_AddStringToObject(root, "message", cmd.message[0] ? cmd.message : "Command status fetched");
 
     return http_send_enveloped_response(req, 200, NULL, root);
 }
