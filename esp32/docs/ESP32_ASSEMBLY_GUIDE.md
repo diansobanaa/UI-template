@@ -28,8 +28,7 @@
 | **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | **READY**: Main fertigation loop flow meter |
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
-| **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | **READY**: Low-level dry-run safety trip interlock |
-| **FLOAT-UP** | Stainless Steel Vertical Float Switch (Upper) | 1 | 3.3V signal (Dry Contact) | Digital input / Interlock | **READY**: High-level overflow / tank full interlock |
+| **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
 | **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 38-41) | **READY**: MODE, MANUAL A, MANUAL B, DISTRIBUTION |
 | **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
 | **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
@@ -159,14 +158,14 @@ The controller enclosure contains three strictly segregated power domains:
   - Red wire (VCC): Connect to 3.3V DC.
   - Black wire (GND): Connect to GND_LV.
   - Yellow/White wire (Data): Connect to GPIO 17. Solder a 4.7kΩ pull-up resistor between Data and 3.3V.
-- **Lower Float Switch (Dry-Run Protection):**
+- **Lower Float Switch (Safety STOP POINT / Dry-Run Interlock):**
   - Terminal A: Connect to GPIO 26.
   - Terminal B: Connect to GND_LV.
-  - Switch is oriented such that when the water level is sufficient, the float is raised (open contact with internal pull-up = 3.3V HIGH). When water is low, float drops (closes contact to GND_LV = 0V LOW). The firmware evaluates GPIO 26: High (1) = Normal/OK, Low (0) = Dry Trip.
-- **Upper Float Switch (Tank Full / Overflow Interlock):**
-  - Status: READY in inventory.
-  - Terminal A: Connect to tank high-level sensor circuit or safety cutoff chain.
-  - Triggers tank full interlock to inhibit Well Pump replenishment when reservoir reaches capacity.
+  - Switch is oriented such that when water level is sufficient, float is raised (open contact with internal pull-up = 3.3V HIGH). When water drops to minimum safety level, float drops (closes contact to GND_LV = 0V LOW).
+  - Firmware / Safety layer behavior: Lower float acts as the mandatory hardware safety STOP POINT for distribution/fertigation and feed pumps. Both manual commands and scheduler execution are immediately blocked/stopped when float is LOW.
+- **Tank Capacity & High-Level Architecture (No Upper Float):**
+  - Sensor tank full / upper float is **TIDAK DIGUNAKAN**.
+  - Tank volume is strictly controlled via UI target volume input with capacity boundary validation (volume target cannot exceed configured tank capacity). No hardware upper float is wired.
 
 ### 4.4. Physical Operator Buttons
 All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`. The internal pull-up resistor on the ESP32 holds the line at 3.3V when open; depressing the button pulls the line to 0V:

@@ -44,9 +44,7 @@ Tujuan utama dokumen ini:
 | **Real-Time Clock** | RTC DS3231M High-Precision + Baterai CR2032 | 1 | I2C (SDA: GPIO 8, SCL: GPIO 9, Addr: 0x68) | **READY**: Penjaga waktu akurat saat controller offline |
 | **Sensor Aliran 1** | YF-B1 Hall-Effect Flow Sensor (DN15, G1/2") | 1 | Pulsa (GPIO 15 via divider/shifter) | **READY**: Pengukur debit nutrisi loop fertigasi |
 | **Sensor Aliran 2** | FS400A Hall-Effect Flow Sensor (G1") | 1 | Pulsa (GPIO 16 via divider/shifter) | **READY**: Pengukur debit suplai air baku intake |
-| **Sensor Suhu** | DS18B20 Waterproof Stainless Probe | 1 | 1-Wire Bus (GPIO 17 + 4.7kΩ pullup) | **READY**: Monitoring temperatur tangki air nutrisi |
-| **Level Switch** | Float Switch Bawah (Stainless Steel) | 1 | Digital Input (GPIO 26, internal pullup) | **READY**: Proteksi mutlak low-level dry-run trip |
-| **Level Switch** | Float Switch Atas (Stainless Steel) | 1 | Digital Input / Safety cutoff | **READY**: Proteksi overflow / tank full interlock |
+| **Level Switch** | Float Switch Bawah (Stainless Steel) | 1 | Digital Input (GPIO 26, internal pullup) | **READY**: Safety STOP POINT mutlak untuk pompa distribusi/fertigasi & pompa suplai |
 | **Operator Input** | Tombol Fisik MODE (Panel Push Button) | 1 | Digital Input (GPIO 38, Active-Low) | **READY**: Pergantian mode AUTO / MANUAL |
 | **Operator Input** | Tombol Fisik MANUAL A (Push Button) | 1 | Digital Input (GPIO 39, Active-Low) | **READY**: Uji manual aktivasi Pompa Dosing A |
 | **Operator Input** | Tombol Fisik MANUAL B (Push Button) | 1 | Digital Input (GPIO 40, Active-Low) | **READY**: Uji manual aktivasi Pompa Dosing B |
@@ -83,6 +81,7 @@ Tujuan utama dokumen ini:
 | Komponen | Status | Catatan Tegas |
 |---|---|---|
 | **FRAM (Ferroelectric RAM)** | **TIDAK DIGUNAKAN** | Jangan memasukkan FRAM sebagai hardware yang harus dibeli atau dipasang. Seluruh status konfigurasi, siklus tanam, dan audit log disimpan pada 16MB internal flash (NVS Flash + Storage Partition). |
+| **Sensor Tank Full / Float Switch Atas** | **TIDAK DIGUNAKAN** | Kapasitas tangki mixing dikontrol dari input volume di UI dengan validasi batas kapasitas tangki. Tidak ada sensor fisik, pin mapping, atau interlock firmware untuk upper float. |
 
 ---
 
@@ -313,7 +312,6 @@ Setiap parameter berikut ditandai secara tegas untuk diverifikasi pada unit fisi
 | **Inrush Current Pompa Sumur AC** | Pastikan kontaktor/relay Omron memiliki rating kontak AC-3 yang memadai untuk lonjakan motor pompa sumur (bila > 1.5 kW, gunakan kontaktor magnetik tambahan). | `VERIFY DATASHEET / HARDWARE MANUAL` |
 | **Inrush Current Pompa Distribusi GH-1** | Cek daya watt dan ampere motor booster GH-1 pada nameplate motor. | `VERIFY DATASHEET / HARDWARE MANUAL` |
 | **Orientasi Pelampung Float Switch Bawah** | Cek dengan DMM kontinuitas sakelar pelampung (NO vs NC saat cincin berada di posisi bawah). Harus sesuai logika `FLOAT_LEVEL_DRY = 0` (kontak tertutup ke GND saat air habis). | `PHYSICAL VERIFICATION REQUIRED` |
-| **Orientasi Pelampung Float Switch Atas** | Tentukan apakah kontak membuka atau menutup saat level air mencapai bibir tangki penuh. | `PHYSICAL VERIFICATION REQUIRED` |
 | **Polaritas Input Modul Relay 4-Ch** | Pastikan modul relay beroperasi pada Active-LOW (default firmware `ACTUATOR_ACTIVE_LEVEL = 0`). Bila active-high, ubah parameter header firmware. | `VERIFY DATASHEET` |
 | **Trimmer Tegangan Buck LM2596** | Wajib diukur dan dikunci pada 5.05V DC sebelum menghubungkan pin Vin ESP32. | `PHYSICAL VERIFICATION REQUIRED` |
 | **Wiring Pinout LCD ST7735 1.8"** | Periksa label pinout pada modul display (VCC, GND, CS, RESET, A0/DC, SDA/MOSI, SCK, LED backlight). Hubungkan pin LED ke 3.3V via resistor 100Ω untuk kecerahan optimal. | `VERIFY DATASHEET` |

@@ -18,6 +18,7 @@ export function AddFertigationDrawer({
   ghCode,
   recipes,
   initial,
+  tankCapacityL,
   onSubmit,
 }: {
   open: boolean;
@@ -27,6 +28,7 @@ export function AddFertigationDrawer({
   recipes: { id: string; name: string; waterL: number; dosingAml: number; dosingBml: number }[];
   /** When provided the drawer runs in EDIT mode pre-filled with this schedule. */
   initial?: FertigationSchedule | null;
+  tankCapacityL?: number;
   onSubmit: (input: Omit<FertigationSchedule, "id">, initial: FertigationSchedule | null) => Promise<void>;
 }) {
   const editing = Boolean(initial);
@@ -136,13 +138,14 @@ export function AddFertigationDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipeId, open]);
 
+  const maxCapacity = tankCapacityL && tankCapacityL > 0 ? tankCapacityL : 100;
   const validate = (): FieldErrors => {
     const errs: FieldErrors = {
       name: required(name, "Schedule name"),
       time: timeValid(time),
       intervalH: trigger === "interval" ? number(intervalH, { label: "Interval", positive: true, integer: true }) : null,
       date: trigger === "specific-date" ? required(date, "Date") : null,
-      water: number(water, { label: "Target water", positive: true }),
+      water: number(water, { label: "Target water", positive: true, max: maxCapacity }),
       ppm: targetMode === "ppm" ? number(ppm, { label: "Target PPM", positive: true }) : null,
       dosingA: targetMode === "volume" ? number(dosingA, { label: "Dosing Pump A", min: 0 }) : null,
       dosingB: targetMode === "volume" ? number(dosingB, { label: "Dosing Pump B", min: 0 }) : null,

@@ -1,6 +1,8 @@
 #include "services/command_mgr.h"
 #include "hal/actuator_hal.h"
 #include "config/system_config.h"
+#include "config/pin_config.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -76,19 +78,35 @@ static void command_worker_task(void *pvParameters)
                 case CMD_TYPE_WELL_PUMP:
                     err = actuator_hal_set(ACTUATOR_WELL_PUMP, cmd.param_duration_sec > 0);
                     if (err == ESP_OK && cmd.param_duration_sec > 0) {
-                        vTaskDelay(pdMS_TO_TICKS(cmd.param_duration_sec * 1000));
+                        for (int s = 0; s < cmd.param_duration_sec; s++) {
+                            if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY || actuator_hal_is_emergency_stopped()) {
+                                actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+                                err = ESP_ERR_INVALID_STATE;
+                                ESP_LOGW(TAG, "Well pump run stopped: Lower float reached dry state.");
+                                break;
+                            }
+                            vTaskDelay(pdMS_TO_TICKS(1000));
+                        }
                         actuator_hal_set(ACTUATOR_WELL_PUMP, false);
                     }
-                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Well pump run complete" : "Well pump command blocked");
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Well pump run complete" : "Well pump command blocked or stopped by safety");
                     break;
 
                 case CMD_TYPE_DIST_PUMP:
                     err = actuator_hal_set(ACTUATOR_DIST_PUMP, cmd.param_duration_sec > 0);
                     if (err == ESP_OK && cmd.param_duration_sec > 0) {
-                        vTaskDelay(pdMS_TO_TICKS(cmd.param_duration_sec * 1000));
+                        for (int s = 0; s < cmd.param_duration_sec; s++) {
+                            if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY || actuator_hal_is_emergency_stopped()) {
+                                actuator_hal_set(ACTUATOR_DIST_PUMP, false);
+                                err = ESP_ERR_INVALID_STATE;
+                                ESP_LOGW(TAG, "Distribution pump run STOPPED: Lower float reached minimum stop point.");
+                                break;
+                            }
+                            vTaskDelay(pdMS_TO_TICKS(1000));
+                        }
                         actuator_hal_set(ACTUATOR_DIST_PUMP, false);
                     }
-                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Dist pump run complete" : "Dist pump command blocked");
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Dist pump run complete" : "Dist pump command blocked or stopped by safety stop point");
                     break;
 
                 case CMD_TYPE_DOSING_RUN:

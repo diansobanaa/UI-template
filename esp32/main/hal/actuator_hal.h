@@ -64,11 +64,6 @@ void actuator_hal_resume(void);
  */
 bool actuator_hal_is_emergency_stopped(void);
 
-/**
- * @brief Set the raw water tank full interlock (prevents well pump from turning ON).
- */
-void actuator_hal_set_tank_full_interlock(bool full);
-
 #ifdef __cplusplus
 }
 #endif

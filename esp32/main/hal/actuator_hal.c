@@ -29,7 +29,6 @@ static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
 };
 
 static bool s_emergency_stop_latched = false;
-static bool s_tank_full_interlock = false;
 static SemaphoreHandle_t s_lock = NULL;
 
 esp_err_t actuator_hal_init(void)
@@ -88,19 +87,12 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Interlock 2: Tank Full inhibits Well Pump */
-    if (on && id == ACTUATOR_WELL_PUMP && s_tank_full_interlock) {
-        xSemaphoreGive(s_lock);
-        ESP_LOGW(TAG, "Blocked Well Pump ON: Raw water tank radar full interlock active.");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    /* Interlock 3: Dry-Run Protection via Lower Float (BS-SAFE-002) */
+    /* Interlock 2: Lower Float Dry-Run Protection (Safety Stop Point for Distribution & Pumps) */
     if (on && (id == ACTUATOR_DIST_PUMP || id == ACTUATOR_WELL_PUMP || id == ACTUATOR_RAW_SUBMERSIBLE)) {
         // Read directly from PIN_IN_FLOAT_LOWER. Level 0 = Dry (Trip), Level 1 = Normal (Water OK).
         if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY) { 
             xSemaphoreGive(s_lock);
-            ESP_LOGW(TAG, "Blocked %s ON: Dry-run protection interlock active (Tank empty).", s_actuators[id].name);
+            ESP_LOGW(TAG, "Blocked %s ON: Lower float dry-run interlock active (Tank reached minimum level).", s_actuators[id].name);
             return ESP_ERR_INVALID_STATE;
         }
     }
@@ -130,7 +122,6 @@ esp_err_t actuator_hal_get_status(actuator_id_t id, actuator_status_t *out_statu
     out_status->gpio_num = s_actuators[id].gpio;
     out_status->is_on = s_actuators[id].state;
     out_status->is_interlocked = s_emergency_stop_latched || 
-                                 (id == ACTUATOR_WELL_PUMP && s_tank_full_interlock) ||
                                  ((id == ACTUATOR_DIST_PUMP || id == ACTUATOR_WELL_PUMP || id == ACTUATOR_RAW_SUBMERSIBLE) && gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY);
     out_status->run_time_seconds = 0; // Not fully tracked yet
     out_status->active_level = s_actuators[id].active_level;
@@ -182,19 +173,4 @@ void actuator_hal_resume(void)
 bool actuator_hal_is_emergency_stopped(void)
 {
     return s_emergency_stop_latched;
-}
-
-void actuator_hal_set_tank_full_interlock(bool full)
-{
-    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
-
-    s_tank_full_interlock = full;
-    if (full && s_actuators[ACTUATOR_WELL_PUMP].state) {
-        /* Kill well pump immediately */
-        s_actuators[ACTUATOR_WELL_PUMP].state = false;
-        gpio_set_level(s_actuators[ACTUATOR_WELL_PUMP].gpio, !s_actuators[ACTUATOR_WELL_PUMP].active_level);
-        ESP_LOGW(TAG, "Well pump automatically turned OFF by radar tank full interlock.");
-    }
-
-    if (s_lock) xSemaphoreGive(s_lock);
 }

@@ -485,6 +485,7 @@ export function ScheduleContent({
         ghCode={gh.code}
         recipes={gh.recipes}
         initial={editFert}
+        tankCapacityL={gh.telemetry.tankCapacityL}
         onSubmit={handleFertSubmit}
       />
       <AddWellPumpDrawer

@@ -92,6 +92,7 @@ export function AddWellPumpDrawer({
     task: required(task, "Task name"),
     time: timeValid(time, "Start time"),
     duration: number(duration, { label: "Duration", positive: true, integer: true }),
+    targetL: targetL && targetL.trim() ? number(targetL, { label: "Target volume", positive: true, max: 1000 }) : null,
     intervalH: trigger === "interval" ? number(intervalH, { label: "Interval", positive: true, integer: true }) : null,
     days: trigger === "days" && days.length === 0 ? "Select at least one day." : null,
   });
@@ -270,6 +271,7 @@ export function AddWellPumpDrawer({
                 <div>
                   <Label>Target Volume (optional)</Label>
                   <Input type="number" min={0} value={targetL} onChange={(e) => setTargetL(e.target.value)} unit="L" />
+                  <FieldError>{errors.targetL}</FieldError>
                 </div>
               </div>
               <InfoNote>

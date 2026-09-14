@@ -22,16 +22,19 @@ static void safety_monitor_task(void *pvParameters)
         sensor_readings_t sensors;
         sensor_hal_get_readings(&sensors);
 
-        /* Rule 1: Dry run protection */
+        /* Rule 1: Lower float safety STOP POINT for distribution and feed pumps */
         if (!sensors.float_lower_ok) {
-            if (actuator_hal_get_state(ACTUATOR_DIST_PUMP) || actuator_hal_get_state(ACTUATOR_WELL_PUMP)) {
-                ESP_LOGE(TAG, "SAFETY TRIP: Float lower switch tripped! Killing pumps to prevent dry run.");
+            if (actuator_hal_get_state(ACTUATOR_DIST_PUMP) ||
+                actuator_hal_get_state(ACTUATOR_WELL_PUMP) ||
+                actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE)) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Lower float switch tripped! Stopping distribution and feed pumps immediately.");
                 actuator_hal_set(ACTUATOR_DIST_PUMP, false);
                 actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+                actuator_hal_set(ACTUATOR_RAW_SUBMERSIBLE, false);
                 actuator_hal_set(ACTUATOR_ERROR_LAMP, true);
                 s_has_fault = true;
 
-                storage_mgr_append_event_log("{\"code\":\"SAFETY_DRY_RUN\",\"level\":\"CRITICAL\",\"message\":\"Dry-run protection tripped: tank low\"}");
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_DRY_RUN\",\"level\":\"CRITICAL\",\"message\":\"Lower float tripped: tank reached minimum level. Distribution stopped.\"}");
             }
         }
 

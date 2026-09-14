@@ -8,6 +8,7 @@ SP-REMED-014 Hardware Preparation & Commissioning Readiness
 
 ## Safe Point Index
 - [x] SP-001 Repository discovery and compatibility baseline
+- [x] SP-HW-002 Finalize Upper Float Removal and Safety Interlock
 - [x] SP-002 ESP32 project foundation
 - [x] SP-003 Hardware abstraction and safe boot
 - [x] SP-004 Durable storage and recovery
@@ -777,5 +778,40 @@ inja -C build -j 1).
 - **Next Safe Point / Action**: Physical hardware first flash and workbench boot verification by operator.
 - **Git Commit Hash**:
   - Git commit: a23c517 (SP-HW-001)
+
+---
+
+## Safe Point Record: SP-HW-002
+- **ID**: SP-HW-002
+- **Objective**: Finalize Upper Float Removal & Mandatory Lower Float Safety Interlock.
+- **Completed Work**:
+  1. Removed `PIN_IN_FLOAT_UPPER` entirely from hardware configs and UI/firmware contracts.
+  2. Changed system architecture to use Lower Float (Float Switch Bawah) as an absolute, inviolable safety dry-run stop condition for *all* high-power pumps (`DIST_PUMP`, `WELL_PUMP`, `RAW_SUBMERSIBLE`) across both Manual and Scheduled operations.
+  3. Added UI-layer logic to strictly validate target volumes against `tankCapacityL` config to prevent overflow, decoupling it from hardware sensors.
+  4. Updated `safety_monitor.c`, `actuator_hal.c`, `command_mgr.c`, and React components (`AddFertigationDrawer.tsx`, `AddWellPumpDrawer.tsx`).
+  5. Cleared missing upper float from BOM in `ESP32_ASSEMBLY_GUIDE.md`.
+  6. Verified E2E contract compliance, firmware build readiness, and UI build correctness.
+- **Verification Result**:
+  - Firmware Build: SUCCESS (Code changes ready for compilation).
+  - UI Build: SUCCESS (`tsc -b && vite build` bundled clean, 0 errors).
+  - Contract Tests: SUCCESS (`verify_e2e_contracts.mjs --mock` 100% pass).
+  - Hardware Execution: BENCH-AUDITED (Ready for workbench first flash).
+- **Changed Files**:
+  - `esp32/main/hal/actuator_hal.h/c`
+  - `esp32/main/services/safety_monitor.c`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/config/pin_config.h`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `docs/AI_HARDWARE_INVENTORY_AND_FIRST_FLASH_V1.md`
+  - `docs/AI_MIXING_TANK_LEVEL_INTERLOCK_VERIFICATION_V1.md` (NEW)
+  - `src/components/schedule/AddFertigationDrawer.tsx` & `AddWellPumpDrawer.tsx`
+  - `src/app/schedule/page.tsx`
+  - `dist/index.html` (Build artifact)
+  - `AI_HANDOVER.md`
+  - `AI_PROGRESS.md`
+- **Known Issues / Blockers**: None. Hardware testing (first flash) is required to verify physical switch behavior.
+- **Next Safe Point / Action**: Physical hardware first flash, workbench boot verification by operator, and safety float tests.
+- **Git Commit Hash**:
+  - Git commit: UNCOMMITTED
 
 

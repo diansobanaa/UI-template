@@ -68,12 +68,12 @@ extern "C" {
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */
-/* Lower Float Switch (Dry-Run Protection): GPIO 26                          */
+/* Lower Float Switch (Safety Stop Point / Dry-Run Protection): GPIO 26      */
 /* Pulled up internally to 3.3V.                                             */
 /* When tank has water: float is up (switch open) -> pin reads 1 (OK/NORMAL)  */
-/* When tank is empty: float drops (switch closes to GND) -> pin reads 0 (DRY)*/
-/* Upper Float Switch (Tank Full Interlock): Hardware READY in inventory.     */
-/* Interlock currently handled in firmware via actuator_hal_set_tank_full_interlock. */
+/* When tank reaches min: float drops (switch closes to GND) -> pin reads 0 (DRY) */
+/* NOTE: Upper float / tank-full sensor is NOT USED. Tank volume is controlled*/
+/* by UI target volume input with capacity boundary validation.              */
 /* NOTE: VERIFY FLOAT CONTACT ORIENTATION (NO vs NC) UPON INSTALLATION.       */
 /* ========================================================================== */
 #define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */
@@ -81,7 +81,7 @@ extern "C" {
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
 #define PIN_IN_FLOAT_LOWER          26   /* Digital Lower Float Switch */
 
-#define FLOAT_LEVEL_DRY             0    /* 0 = Dry / Low Tank Alarm (Trip) */
+#define FLOAT_LEVEL_DRY             0    /* 0 = Dry / Min Tank Stop Point (Trip) */
 #define FLOAT_LEVEL_OK              1    /* 1 = Water OK / Sufficient Level */
 
 /* ========================================================================== */
