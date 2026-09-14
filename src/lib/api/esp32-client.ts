@@ -35,66 +35,106 @@ export class Esp32Client {
     return `${this.config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
   }
 
+  private buildRequestEnvelope(payload: unknown): { requestId: string; client: { type: string; version: string }; payload: unknown } {
+    return {
+      requestId: crypto.randomUUID(),
+      client: {
+        type: "ReactUI",
+        version: "1.0.0"
+      },
+      payload
+    };
+  }
+
+  private async getEnveloped<T>(path: string): Promise<T> {
+    const res = await apiGet<{ data: T }>(this.path(path), this.config);
+    return res.data;
+  }
+
+  private async postEnveloped<T>(path: string, body: unknown): Promise<T> {
+    const envelopedBody = this.buildRequestEnvelope(body);
+    const res = await apiPost<{ data: T }>(this.path(path), envelopedBody, this.config);
+    return res.data;
+  }
+
+  private async putEnveloped<T>(path: string, body: unknown): Promise<T> {
+    const envelopedBody = this.buildRequestEnvelope(body);
+    const res = await apiPut<{ data: T }>(this.path(path), envelopedBody, this.config);
+    return res.data;
+  }
+
+  private async patchEnveloped<T>(path: string, body: unknown): Promise<T> {
+    const envelopedBody = this.buildRequestEnvelope(body);
+    const res = await apiPatch<{ data: T }>(this.path(path), envelopedBody, this.config);
+    return res.data;
+  }
+
+  private async deleteEnveloped<T>(path: string): Promise<T> {
+    const res = await apiDelete<{ data: T }>(this.path(path), this.config);
+    return res.data;
+  }
+
   /* -------------------------- Device & System -------------------------- */
 
   async getHealth(): Promise<HealthResponse> {
-    return apiGet<HealthResponse>(this.path("/api/v1/health"), this.config);
+    return this.getEnveloped<HealthResponse>("/api/v1/health");
   }
 
   async getStatus(): Promise<StatusResponse> {
-    return apiGet<StatusResponse>(this.path("/api/v1/status"), this.config);
+    return this.getEnveloped<StatusResponse>("/api/v1/status");
   }
 
   async getInventory(): Promise<Esp32Inventory> {
-    return apiGet<Esp32Inventory>(this.path("/api/v1/inventory"), this.config);
+    return this.getEnveloped<Esp32Inventory>("/api/v1/inventory");
   }
 
   async getContext(): Promise<ContextResponse> {
-    return apiGet<ContextResponse>(this.path("/api/v1/context"), this.config);
+    return this.getEnveloped<ContextResponse>("/api/v1/context");
   }
 
   async getClock(): Promise<ClockResponse> {
-    return apiGet<ClockResponse>(this.path("/api/v1/clock"), this.config);
+    return this.getEnveloped<ClockResponse>("/api/v1/clock");
   }
 
   async syncClock(request: ClockSyncRequest): Promise<ClockResponse> {
-    return apiPost<ClockResponse>(this.path("/api/v1/clock-sync"), request, this.config);
+    return this.postEnveloped<ClockResponse>("/api/v1/clock-sync", request);
   }
 
   /* -------------------------- Configuration -------------------------- */
 
   async getConfiguration(): Promise<Esp32Configuration> {
-    return apiGet<Esp32Configuration>(this.path("/api/v1/configuration"), this.config);
+    return this.getEnveloped<Esp32Configuration>("/api/v1/configuration");
   }
 
   async validateConfiguration(configuration: Esp32Configuration): Promise<ConfigurationValidation> {
-    return apiPost<ConfigurationValidation>(this.path("/api/v1/configuration/validate"), { configuration }, this.config);
+    return this.postEnveloped<ConfigurationValidation>("/api/v1/configuration/validate", { configuration });
   }
 
   async saveConfiguration(configuration: Esp32Configuration): Promise<Esp32Configuration> {
-    return apiPut<Esp32Configuration>(this.path("/api/v1/configuration"), configuration, this.config);
+    return this.putEnveloped<Esp32Configuration>("/api/v1/configuration", configuration);
   }
 
   /* -------------------------- Telemetry & Events -------------------------- */
 
   async getTelemetry(greenhouseId?: string): Promise<TelemetrySnapshot> {
     const query = greenhouseId ? `?ghId=${encodeURIComponent(greenhouseId)}` : "";
-    return apiGet<TelemetrySnapshot>(this.path(`/api/v1/telemetry${query}`), this.config);
+    return this.getEnveloped<TelemetrySnapshot>(`/api/v1/telemetry${query}`);
   }
 
   async getLogs(cursor?: string): Promise<{ items: Esp32EventLog[]; nextCursor?: string }> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    return apiGet<{ items: Esp32EventLog[]; nextCursor?: string }>(this.path(`/api/v1/events${query}`), this.config);
+    return this.getEnveloped<{ items: Esp32EventLog[]; nextCursor?: string }>(`/api/v1/events${query}`);
   }
 
   /* -------------------------- Commands & Safety -------------------------- */
 
-  async emergencyStop(reason: string, requestId?: string): Promise<CommandReceipt> {
-    return apiPost<CommandReceipt>(this.path("/api/v1/commands/emergency-stop"), { reason, requestId }, this.config);
+  async emergencyStop(reason?: string): Promise<CommandReceipt> {
+    const commandId = `estop-${Date.now()}`;
+    return this.postEnveloped<CommandReceipt>("/api/v1/commands/emergency-stop", { commandId, reason });
   }
 
   async getCommand(commandId: string): Promise<CommandReceipt> {
-    return apiGet<CommandReceipt>(this.path(`/api/v1/commands/${encodeURIComponent(commandId)}`), this.config);
+    return this.getEnveloped<CommandReceipt>(`/api/v1/commands/${encodeURIComponent(commandId)}`);
   }
 
   async postCommand(commandId: string, type: string, options?: { durationSeconds?: number, componentId?: string, parameters?: any }): Promise<CommandReceipt> {
@@ -102,7 +142,7 @@ export class Esp32Client {
     if (options?.durationSeconds !== undefined) payload.durationSeconds = options.durationSeconds;
     if (options?.componentId !== undefined) payload.componentId = options.componentId;
     if (options?.parameters !== undefined) payload.parameters = options.parameters;
-    return apiPost<CommandReceipt>(this.path("/api/v1/commands"), payload, this.config);
+    return this.postEnveloped<CommandReceipt>("/api/v1/commands", payload);
   }
 
   async acknowledgeCommand(commandId: string): Promise<CommandReceipt> {
@@ -110,56 +150,56 @@ export class Esp32Client {
   }
 
   async cancelCommand(commandId: string): Promise<void> {
-    return apiDelete(this.path(`/api/v1/commands/${encodeURIComponent(commandId)}`), this.config);
+    return this.deleteEnveloped(`/api/v1/commands/${encodeURIComponent(commandId)}`);
   }
 
   /* -------------------------- Canonical Crop Cycle (OpenAPI) -------------------------- */
 
   async getCurrentCropCycle(ghId: string): Promise<CurrentCropCycleResponse> {
-    return apiGet<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycle`), this.config);
+    return this.getEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycle`);
   }
 
   async listCropCycles(ghId: string, limit = 50, cursor?: string): Promise<CropCycleHistoryResponse> {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
-    return apiGet<CropCycleHistoryResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles?${query.toString()}`), this.config);
+    return this.getEnveloped<CropCycleHistoryResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles?${query.toString()}`);
   }
 
   async startCropCycle(ghId: string, payload: StartCropCycleRequest): Promise<CurrentCropCycleResponse> {
-    return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles`), payload, this.config);
+    return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles`, payload);
   }
 
   async importActiveCropCycle(ghId: string, payload: ImportActiveCropCycleRequest): Promise<CurrentCropCycleResponse> {
-    return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/import-active`), payload, this.config);
+    return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/import-active`, payload);
   }
 
   async recordPollination(ghId: string, cycleId: string, payload: PollinationRequest): Promise<CurrentCropCycleResponse> {
-    return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination`), payload, this.config);
+    return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination`, payload);
   }
 
   async updatePollination(ghId: string, cycleId: string, payload: UpdatePollinationRequest): Promise<CurrentCropCycleResponse> {
-    return apiPatch<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination`), payload, this.config);
+    return this.patchEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination`, payload);
   }
 
   async deletePollination(ghId: string, cycleId: string, requestId?: string): Promise<CurrentCropCycleResponse> {
     const query = requestId ? `?requestId=${encodeURIComponent(requestId)}` : "";
-    return apiDelete<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination${query}`), this.config);
+    return this.deleteEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/pollination${query}`);
   }
 
   async updatePlantingDate(ghId: string, cycleId: string, payload: UpdatePlantingDateRequest): Promise<CurrentCropCycleResponse> {
-    return apiPatch<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/planting-date`), payload, this.config);
+    return this.patchEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/planting-date`, payload);
   }
 
   async updateCropCycleMetadata(ghId: string, cycleId: string, payload: UpdateCropCycleMetadataRequest): Promise<CurrentCropCycleResponse> {
-    return apiPatch<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}`), payload, this.config);
+    return this.patchEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}`, payload);
   }
 
   async cancelCropCycle(ghId: string, cycleId: string, payload: OperationRequest = {}): Promise<CurrentCropCycleResponse> {
-    return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/cancel`), payload, this.config);
+    return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/cancel`, payload);
   }
 
   async harvestCropCycle(ghId: string, cycleId: string, payload: HarvestCycleRequest = {}): Promise<CurrentCropCycleResponse> {
-    return apiPost<CurrentCropCycleResponse>(this.path(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/harvest`), payload, this.config);
+    return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/harvest`, payload);
   }
 }
 

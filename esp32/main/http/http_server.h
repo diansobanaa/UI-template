@@ -7,11 +7,7 @@
 #include "cJSON.h"
 
 
-/**
- * @brief Check Bearer token in Authorization header against NVS stored token.
- * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
- */
-esp_err_t http_check_auth(httpd_req_t *req);
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,6 +42,11 @@ esp_err_t http_send_error(httpd_req_t *req, int status_code, const char *code, c
  * @brief Send cJSON response, automatically adding CORS headers and freeing the JSON object.
  */
 esp_err_t http_send_json_response(httpd_req_t *req, int status_code, cJSON *json_root);
+
+/**
+ * @brief Send EnvelopeBase wrapped JSON response, extracting X-Request-ID and system time.
+ */
+esp_err_t http_send_enveloped_response(httpd_req_t *req, int status_code, const char *req_id, cJSON *data_payload);
 
 /**
  * @brief Read and parse incoming HTTP JSON body.

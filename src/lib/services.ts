@@ -621,7 +621,7 @@ export const fertigationService = {
         const poll = async () => {
           try {
             const res = await esp32Client.getCommand(cmdId);
-            if (res.data.status === "COMPLETED" || res.data.status === "FAILED" || res.data.status === "REJECTED" || res.data.status === "CANCELLED") {
+            if (res.status === "COMPLETED" || res.status === "FAILED" || res.status === "REJECTED" || res.status === "CANCELLED") {
               return;
             }
             setTimeout(poll, 2000);
@@ -708,7 +708,7 @@ export const fertigationService = {
         const poll = async () => {
           try {
             const res = await esp32Client.getCommand(cmdId);
-            if (res.data.status === "COMPLETED" || res.data.status === "FAILED" || res.data.status === "REJECTED" || res.data.status === "CANCELLED") {
+            if (res.status === "COMPLETED" || res.status === "FAILED" || res.status === "REJECTED" || res.status === "CANCELLED") {
               return;
             }
             setTimeout(poll, 2000);

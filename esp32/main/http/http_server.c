@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 static const char *TAG = "HTTP_SERVER";
 static httpd_handle_t s_server = NULL;
@@ -64,11 +65,32 @@ esp_err_t handler_options_preflight(httpd_req_t *req)
 esp_err_t http_send_error(httpd_req_t *req, int status_code, const char *code, const char *message, const char *request_id)
 {
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "code", code ? code : "INTERNAL_ERROR");
-    cJSON_AddStringToObject(root, "message", message ? message : "An error occurred");
+    
+    char req_id_buf[64] = "none";
     if (request_id) {
-        cJSON_AddStringToObject(root, "requestId", request_id);
+        strncpy(req_id_buf, request_id, sizeof(req_id_buf) - 1);
+    } else {
+        if (httpd_req_get_hdr_value_str(req, "X-Request-ID", req_id_buf, sizeof(req_id_buf)) != ESP_OK) {
+            static uint32_t s_err_req_counter = 0;
+            snprintf(req_id_buf, sizeof(req_id_buf), "req-%lu", (unsigned long)++s_err_req_counter);
+        }
     }
+    cJSON_AddStringToObject(root, "requestId", req_id_buf);
+    cJSON_AddBoolToObject(root, "success", false);
+    
+    char time_str[32] = "1970-01-01T00:00:00Z";
+    time_t now;
+    time(&now);
+    struct tm tm_info;
+    gmtime_r(&now, &tm_info);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%SZ", &tm_info);
+    cJSON_AddStringToObject(root, "deviceTimestamp", time_str);
+
+    cJSON *err_obj = cJSON_AddObjectToObject(root, "error");
+    cJSON_AddStringToObject(err_obj, "code", code ? code : "INTERNAL_ERROR");
+    cJSON_AddStringToObject(err_obj, "message", message ? message : "An error occurred");
+    cJSON_AddBoolToObject(err_obj, "retryable", (status_code >= 500) || (status_code == 429) || (status_code == 503));
+    cJSON_AddBoolToObject(err_obj, "reconcileRequired", (status_code == 409));
 
     return http_send_json_response(req, status_code, root);
 }
@@ -101,6 +123,39 @@ esp_err_t http_send_json_response(httpd_req_t *req, int status_code, cJSON *json
     esp_err_t ret = httpd_resp_send(req, rendered, strlen(rendered));
     free(rendered);
     return ret;
+}
+
+esp_err_t http_send_enveloped_response(httpd_req_t *req, int status_code, const char *req_id, cJSON *data_payload)
+{
+    cJSON *root = cJSON_CreateObject();
+    
+    char req_id_buf[64] = "none";
+    if (req_id) {
+        strncpy(req_id_buf, req_id, sizeof(req_id_buf) - 1);
+    } else {
+        if (httpd_req_get_hdr_value_str(req, "X-Request-ID", req_id_buf, sizeof(req_id_buf)) != ESP_OK) {
+            static uint32_t s_req_counter = 0;
+            snprintf(req_id_buf, sizeof(req_id_buf), "req-%lu", (unsigned long)++s_req_counter);
+        }
+    }
+    cJSON_AddStringToObject(root, "requestId", req_id_buf);
+    cJSON_AddBoolToObject(root, "success", true);
+
+    char time_str[32] = "1970-01-01T00:00:00Z";
+    time_t now;
+    time(&now);
+    struct tm tm_info;
+    gmtime_r(&now, &tm_info);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%SZ", &tm_info);
+    cJSON_AddStringToObject(root, "deviceTimestamp", time_str);
+
+    if (data_payload) {
+        cJSON_AddItemToObject(root, "data", data_payload);
+    } else {
+        cJSON_AddNullToObject(root, "data");
+    }
+
+    return http_send_json_response(req, status_code, root);
 }
 
 esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json)

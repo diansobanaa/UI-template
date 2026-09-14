@@ -80,15 +80,14 @@ export function createHardwareGateway(overrides: Partial<HardwarePortConfig> = {
     ),
     syncClock: (complexId, source) => {
       const request: ClockSyncRequest = {
-        utcNow: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        source,
       };
       return withFallback(
         () => python.syncClock(complexId, request),
         async () => {
           const clock = await esp32.syncClock(request);
-          return { appliedAt: clock.currentLocal || clock.currentUtc };
+          return { appliedAt: clock.deviceTimestamp };
         },
       );
     },

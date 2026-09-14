@@ -11,7 +11,15 @@ export class BackendNotConnectedError extends Error {
 }
 
 export class ApiRequestError extends Error {
-  constructor(public readonly status: number, public readonly path: string, message: string) {
+  constructor(
+    public readonly status: number, 
+    public readonly path: string, 
+    message: string,
+    public readonly code?: string,
+    public readonly retryable?: boolean,
+    public readonly reconcileRequired?: boolean,
+    public readonly requestId?: string
+  ) {
     super(message);
     this.name = "ApiRequestError";
   }
@@ -45,8 +53,28 @@ async function request<T>(path: string, init: RequestInit = {}, config = default
   try {
     const response = await fetch(resolveUrl(path, config), { ...init, headers, signal: controller.signal });
     if (!response.ok) {
-      const message = await response.text().catch(() => "");
-      throw new ApiRequestError(response.status, path, message || `${init.method ?? "GET"} ${path} failed`);
+      let message = `${init.method ?? "GET"} ${path} failed`;
+      let code = undefined;
+      let retryable = undefined;
+      let reconcileRequired = undefined;
+      let requestId = undefined;
+
+      try {
+        const errData = await response.clone().json();
+        if (errData && errData.error) {
+          message = errData.error.message || message;
+          code = errData.error.code;
+          retryable = errData.error.retryable;
+          reconcileRequired = errData.error.reconcileRequired;
+          requestId = errData.requestId;
+        } else {
+          message = await response.text().catch(() => message);
+        }
+      } catch (e) {
+        message = await response.text().catch(() => message);
+      }
+
+      throw new ApiRequestError(response.status, path, message, code, retryable, reconcileRequired, requestId);
     }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;

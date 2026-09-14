@@ -82,24 +82,21 @@ export interface Esp32EventLog {
 
 export interface CommandReceipt {
   commandId: string;
-  status: "ACCEPTED" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "REJECTED";
+  status: "CREATED" | "ACCEPTED" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "REJECTED" | "CANCELLED";
   acceptedAt: string;
   message?: string;
 }
 
 export interface ClockSyncRequest {
-  utcNow: string;
+  timestamp: string;
   timezone: string;
-  source: "PYTHON" | "UI";
 }
 
 export interface ClockResponse {
-  currentUtc: string;
-  currentLocal: string;
+  deviceTimestamp: string;
   timezone: string;
-  synced: boolean;
-  lastSyncSource?: "NTP" | "PYTHON" | "UI" | "RTC";
-  driftMs?: number;
+  synchronizedAt?: string | null;
+  rtcAvailable?: boolean;
 }
 
 export interface HealthResponse {
@@ -180,7 +177,6 @@ export interface StartCropCycleRequest {
   variety?: string;
   plantCount?: number;
   notes?: string;
-  requestId?: string;
 }
 
 export interface ImportActiveCropCycleRequest {
@@ -189,32 +185,30 @@ export interface ImportActiveCropCycleRequest {
   variety?: string;
   plantCount?: number;
   notes?: string;
-  requestId?: string;
 }
 
 export interface PollinationRequest {
   tanggalPolinasi: string;
   pollinationMethod?: "natural" | "bee" | "manual";
   notes?: string;
-  requestId?: string;
 }
 
 export interface UpdatePollinationRequest {
   tanggalPolinasi: string;
   pollinationMethod?: "natural" | "bee" | "manual";
-  requestId?: string;
+  expectedVersion?: number;
 }
 
 export interface UpdatePlantingDateRequest {
   tanggalTanam: string;
-  requestId?: string;
+  expectedVersion?: number;
 }
 
 export interface UpdateCropCycleMetadataRequest {
   variety?: string;
   plantCount?: number;
   notes?: string;
-  requestId?: string;
+  expectedVersion?: number;
 }
 
 export interface HarvestCycleRequest {
@@ -222,11 +216,11 @@ export interface HarvestCycleRequest {
   yieldKg?: number;
   grade?: string;
   notes?: string;
-  requestId?: string;
+  expectedVersion?: number;
 }
 
 export interface OperationRequest {
-  requestId?: string;
+  expectedVersion?: number;
 }
 
 export interface CropCycleHistoryResponse {

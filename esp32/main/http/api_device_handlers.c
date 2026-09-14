@@ -23,7 +23,7 @@ esp_err_t handler_get_health(httpd_req_t *req)
     strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
     cJSON_AddStringToObject(root, "timestamp", time_str);
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_get_status(httpd_req_t *req)
@@ -62,7 +62,7 @@ esp_err_t handler_get_status(httpd_req_t *req)
     cJSON_AddNumberToObject(s_obj, "totalLitersFs400a", sensors.total_liters_fs400a);
     cJSON_AddBoolToObject(s_obj, "floatLowerOk", sensors.float_lower_ok);
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_get_inventory(httpd_req_t *req)
@@ -91,7 +91,7 @@ esp_err_t handler_get_inventory(httpd_req_t *req)
         }
     }
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_get_capabilities(httpd_req_t *req)
@@ -110,7 +110,7 @@ esp_err_t handler_get_capabilities(httpd_req_t *req)
     cJSON_AddItemToArray(features, cJSON_CreateString("SPIFFS_LOGGING"));
     cJSON_AddItemToArray(features, cJSON_CreateString("EMERGENCY_STOP"));
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_get_context(httpd_req_t *req)
@@ -126,7 +126,7 @@ esp_err_t handler_get_context(httpd_req_t *req)
     cJSON_AddStringToObject(root, "hostname", "esp32-gh-01.local");
     cJSON_AddStringToObject(root, "ipAddress", "192.168.4.1");
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_get_clock(httpd_req_t *req)
@@ -141,7 +141,7 @@ esp_err_t handler_get_clock(httpd_req_t *req)
     cJSON_AddStringToObject(root, "timezone", "Asia/Jakarta");
     cJSON_AddBoolToObject(root, "synced", true);
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_post_clock_sync(httpd_req_t *req)
@@ -152,19 +152,31 @@ esp_err_t handler_post_clock_sync(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
     }
 
-    cJSON *utc_now = cJSON_GetObjectItem(body, "utcNow");
-    if (!utc_now || !cJSON_IsString(utc_now)) {
+    cJSON *rq = cJSON_GetObjectItem(body, "requestId");
+    const char *req_id = (rq && cJSON_IsString(rq)) ? rq->valuestring : NULL;
+
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    if (!payload) {
         cJSON_Delete(body);
-        return http_send_error(req, 422, "VALIDATION_FAILED", "utcNow string is required", NULL);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Missing payload envelope", req_id);
     }
 
+    cJSON *ts = cJSON_GetObjectItem(payload, "timestamp");
+    if (!ts || !cJSON_IsString(ts)) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "timestamp string is required in payload", req_id);
+    }
+
+    const char *tz = "Asia/Jakarta";
+    cJSON *tz_item = cJSON_GetObjectItem(payload, "timezone");
+    if (tz_item && cJSON_IsString(tz_item)) tz = tz_item->valuestring;
+
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "currentUtc", utc_now->valuestring);
-    cJSON_AddStringToObject(root, "currentLocal", utc_now->valuestring);
-    cJSON_AddStringToObject(root, "timezone", "Asia/Jakarta");
-    cJSON_AddBoolToObject(root, "synced", true);
-    cJSON_AddStringToObject(root, "lastSyncSource", "UI");
+    cJSON_AddStringToObject(root, "deviceTimestamp", ts->valuestring);
+    cJSON_AddStringToObject(root, "timezone", tz);
+    cJSON_AddNullToObject(root, "synchronizedAt");
+    cJSON_AddBoolToObject(root, "rtcAvailable", true);
 
     cJSON_Delete(body);
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, req_id, root);
 }

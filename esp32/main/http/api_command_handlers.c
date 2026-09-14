@@ -16,26 +16,29 @@ esp_err_t handler_emergency_stop(httpd_req_t *req)
 
     const char *reason = "Emergency Stop triggered from REST API";
     const char *req_id = NULL;
+    const char *cmd_id = "estop-active";
 
     if (body) {
-        cJSON *r = cJSON_GetObjectItem(body, "reason");
-        if (r && cJSON_IsString(r)) reason = r->valuestring;
         cJSON *rq = cJSON_GetObjectItem(body, "requestId");
         if (rq && cJSON_IsString(rq)) req_id = rq->valuestring;
+
+        cJSON *payload = cJSON_GetObjectItem(body, "payload");
+        if (payload) {
+            cJSON *r = cJSON_GetObjectItem(payload, "reason");
+            if (r && cJSON_IsString(r)) reason = r->valuestring;
+            cJSON *ci = cJSON_GetObjectItem(payload, "commandId");
+            if (ci && cJSON_IsString(ci)) cmd_id = ci->valuestring;
+        }
     }
 
     actuator_hal_emergency_stop();
 
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "commandId", "estop-active");
+    cJSON_AddStringToObject(root, "commandId", cmd_id);
     cJSON_AddStringToObject(root, "status", "COMPLETED");
-    cJSON_AddStringToObject(root, "message", reason);
-    if (req_id) {
-        cJSON_AddStringToObject(root, "requestId", req_id);
-    }
 
     if (body) cJSON_Delete(body);
-    return http_send_json_response(req, 202, root);
+    return http_send_enveloped_response(req, 202, req_id, root);
 }
 
 esp_err_t handler_post_command(httpd_req_t *req)
@@ -50,12 +53,21 @@ esp_err_t handler_post_command(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid command JSON payload", NULL);
     }
 
-    cJSON *cmd_id = cJSON_GetObjectItem(body, "commandId");
-    cJSON *type = cJSON_GetObjectItem(body, "type");
+    cJSON *rq = cJSON_GetObjectItem(body, "requestId");
+    const char *req_id = (rq && cJSON_IsString(rq)) ? rq->valuestring : NULL;
+
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    if (!payload) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Missing payload envelope", req_id);
+    }
+
+    cJSON *cmd_id = cJSON_GetObjectItem(payload, "commandId");
+    cJSON *type = cJSON_GetObjectItem(payload, "type");
 
     if (!cmd_id || !cJSON_IsString(cmd_id) || !type || !cJSON_IsString(type)) {
         cJSON_Delete(body);
-        return http_send_error(req, 422, "VALIDATION_FAILED", "commandId and type are required", NULL);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "commandId and type are required in payload", req_id);
     }
 
     command_item_t cmd = {0};
@@ -73,17 +85,17 @@ esp_err_t handler_post_command(httpd_req_t *req)
         cmd.param_duration_sec = 0; /* Stop immediately */
     } else {
         cJSON_Delete(body);
-        return http_send_error(req, 400, "VALIDATION_FAILED", "Unsupported command type", NULL);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Unsupported command type", NULL);
     }
     
-    cJSON *dur = cJSON_GetObjectItem(body, "durationSeconds");
+    cJSON *dur = cJSON_GetObjectItem(payload, "durationSeconds");
     if (dur && cJSON_IsNumber(dur)) {
         cmd.param_duration_sec = dur->valueint;
     }
     err = command_mgr_submit(&cmd, NULL);
     if (err != ESP_OK) {
         cJSON_Delete(body);
-        return http_send_error(req, 503, "QUEUE_FULL", "Command queue is full", NULL);
+        return http_send_error(req, 503, "QUEUE_FULL", "Command queue is full", req_id);
     }
 
     cJSON *root = cJSON_CreateObject();
@@ -92,7 +104,7 @@ esp_err_t handler_post_command(httpd_req_t *req)
     cJSON_AddStringToObject(root, "message", "Command accepted for processing");
 
     cJSON_Delete(body);
-    return http_send_json_response(req, 202, root);
+    return http_send_enveloped_response(req, 202, req_id, root); 
 }
 
 esp_err_t handler_get_command(httpd_req_t *req)
@@ -102,7 +114,7 @@ esp_err_t handler_get_command(httpd_req_t *req)
     cJSON_AddStringToObject(root, "status", "COMPLETED");
     cJSON_AddStringToObject(root, "message", "Operation finished");
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_delete_command(httpd_req_t *req)
@@ -117,7 +129,7 @@ esp_err_t handler_delete_command(httpd_req_t *req)
     const char *cmd_id = strstr(uri, prefix);
     
     if (!cmd_id) {
-        return http_send_error(req, 400, "VALIDATION_FAILED", "Missing command ID", NULL);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Missing command ID", NULL);
     }
     cmd_id += strlen(prefix);
     
@@ -142,5 +154,5 @@ esp_err_t handler_delete_command(httpd_req_t *req)
     cJSON_AddStringToObject(root, "status", "CANCELLED");
     cJSON_AddStringToObject(root, "message", "Command cancellation requested");
 
-    return http_send_json_response(req, 200, root);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
