@@ -33,7 +33,8 @@ The following table accounts for every piece of physical hardware in the AgroTec
 | **FAN** | Exhaust Cooling Fan | 12V DC Brushless Fan | 1 | 12V DC Auxiliary | Switched via MOSFET #3 (GPIO 7) | **VERIFIED ARCHITECTURE** | Enclosure thermal management and ventilation. |
 | **LAMP** | Error Indicator Lamp | Red Beacon Pilot Lamp 12V/5V | 1 | 12V DC (or 5V DC) | Switched via 4-Ch Relay Board Ch 2 (GPIO 18) | **VERIFIED ARCHITECTURE** | Visual alarm and hardware interlock status beacon. |
 | **ETH** | W5500 SPI Ethernet Module | W5500 Hardwired TCP/IP | 1 | 3.3V DC Supply | Shared SPI (CS: GPIO 10) | **NOT USED IN CURRENT COMMISSIONING** | Wired LAN interface. Deferred to future commissioning phase. |
-| **RTC_OLD**| DS1302 3-Wire RTC Module | DS1302 Bitbang Breakout | 0 | 3.3V DC Supply | 3-Wire Bus (CLK: 8, DAT: 9, RST: 47)| **OBSOLETE / NOT USED** | Replaced by DS3231 I2C RTC. GPIO 47 liberated. |
+| **SEC_LOOP**| Anti-Theft Tamper Loop Wire | Continuous closed wire loop (conduit/chassis) | 1 | 3.3V Logic (GND_LV) | Digital In (GPIO 47 + internal pull-up) | **VERIFIED READY (SECURITY)** | Physical security interlock against pump theft / wire cutting. |
+| **RTC_OLD**| DS1302 3-Wire RTC Module | DS1302 Bitbang Breakout | 0 | 3.3V DC Supply | 3-Wire Bus (CLK: 8, DAT: 9, RST: 47)| **OBSOLETE / NOT USED** | Replaced by DS3231 I2C RTC. GPIO 47 reassigned to Anti-Theft Tamper Loop. |
 | **FLOAT_U**| Upper Float Switch | High Level Reed Switch | 0 | N/A | Digital In | **OBSOLETE / NOT USED** | Tank volume bounded strictly by software capacity validation. |
 
 ---

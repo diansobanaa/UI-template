@@ -109,10 +109,33 @@ To avoid ground loop noise while ensuring proper logic return:
 
 1. **Common DC Ground (GND_LV):**
    - The negative output of the LM2596 buck converter (`OUT-`) connects directly to the ESP32 `GND` pins.
-   - All 3.3V and 5V sensor grounds (DS18B20, DS3231 RTC, TFT, Flow Meters, Lower Float, Buttons) return to `GND_LV`.
+   - All 3.3V and 5V sensor grounds (DS18B20, DS3231 RTC, TFT, Flow Meters, Lower Float, Buttons, Anti-Theft Tamper Loop) return to `GND_LV`.
 2. **Auxiliary 12V Power Ground (GND_12V):**
    - On standard LM2596 modules, `IN-` and `OUT-` share a common copper ground plane on the PCB. Therefore, `GND_12V` and `GND_LV` are tied at a single point inside the LM2596.
    - High-current return paths from 12V DC pumps (dosing pumps, fan, submersible) must return directly to the 12V PSU negative terminal, **NEVER through the ESP32 breadboard jumpers**.
 3. **Protective Earth Ground (PE):**
    - AC Earth (Green/Yellow wire) connects to the metal DIN rail, cabinet chassis ground stud, and metallic pump bodies.
    - **NEVER connect PE or AC Neutral to DC Ground (`GND_LV` or `GND_12V`).**
+   - **Anti-Theft Tamper Isolation:** The physical closed loop for pump security (`PIN_IN_TAMPER_LOOP 47`) must return exclusively to `GND_LV`. Do not attempt to use the AC earth conductor (PE) as the signal return, as ground potential differentials or AC leakage will damage the ESP32-S3 SoC.
+
+---
+
+## 6. AC Power Loss & WLAN Heartbeat Monitoring (Anti-Sabotage Architecture)
+
+### 6.1. Operating Principle & Threat Model
+In greenhouse operations, malicious intruders or power sabotage often cut the main 220V AC utility power before attempting equipment or pump theft. If mains AC is severed:
+1. The 12V 5A PSU ceases output.
+2. The LM2596 drops out, causing immediate ESP32-S3 shutdown.
+3. Because the ESP32 has lost power, it cannot transmit an outbound Wi-Fi alert independently without an expensive dedicated battery subsystem.
+
+### 6.2. Autonomous Client-Side Heartbeat Watchdog (`ConnectionMonitor`)
+To detect power loss without requiring cloud dependencies or cellular modems:
+- The operator monitors the greenhouse via a mobile phone, tablet, or wall-mounted dashboard tablet (which has its own battery/UPS).
+- The web application executes a background watchdog timer (`src/components/ConnectionMonitor.tsx`) polling the controller's `/api/v1/health` endpoint every 5,000 ms.
+- **Fail Threshold:** 3 consecutive missed responses (15-second grace window). This filter guarantees that transient Wi-Fi packet drops do not cause false alarms.
+- **Audible & Visual Alarm:**
+  - When the threshold is breached, the client triggers a synthesized pulsing audio siren using the HTML5 Web Audio API (oscillator sweep: 880 Hz $\leftrightarrow$ 1760 Hz).
+  - Fires an operating-system level desktop/mobile push alert using the HTML5 Notification API.
+  - Displays a high-contrast modal alert banner: *"PERINGATAN: KONEKSI / LISTRIK ESP32 TERPUTUS!"*.
+- **Local Network Resilience:** This architecture operates entirely on the local WLAN router without requiring external internet or third-party cloud brokers, completely eliminating false alarms due to ISP/internet downtime.
+

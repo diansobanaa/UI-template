@@ -74,7 +74,7 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 40** | Physical Button: MANUAL RUN B | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 41** | Physical Button: DISTRIBUTION | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
-| **GPIO 47** | UNASSIGNED / CLEAN SPARE | I/O | 3.3V Logic | Liberated clean GPIO (Former DS1302 RST removed) |
+| **GPIO 47** | Anti-Theft Tamper Loop (Pump Security) | INPUT | 3.3V Logic (Internal pullup) | Closed loop to GND = OK (0), Cut/Open = TAMPER TRIP (1) |
 | **GPIO 48** | MicroSD Card Slot Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (Onboard RGB LED line caveat) |
 
 > **RESERVED PINS (DO NOT WIRE / DO NOT REASSIGN):**

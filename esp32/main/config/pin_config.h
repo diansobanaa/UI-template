@@ -92,9 +92,11 @@ extern "C" {
 #define PIN_IN_FLOW_FS400A          16   /* Flow pulse input 2 */
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
 #define PIN_IN_FLOAT_LOWER          38   /* Digital Lower Float Switch (Safety Interlock) */
+#define PIN_IN_TAMPER_LOOP          47   /* Anti-Theft Pump Security Loop */
 
 #define FLOAT_LEVEL_DRY             0    /* 0 = Dry / Min Tank Stop Point (Trip) */
 #define FLOAT_LEVEL_OK              1    /* 1 = Water OK / Sufficient Level */
+#define TAMPER_LOOP_OK              0    /* 0 = Intact (Closed to GND), 1 = Cut (Pulled High) */
 
 /* ========================================================================== */
 /* PHYSICAL OPERATOR BUTTONS                                                  */

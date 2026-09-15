@@ -50,7 +50,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-3** | **44** | *RESERVED: UART0 RXD* | USB-UART Bridge | Console UART | Input | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
 | **Right-15** | **45** | *RESERVED: Strapping VDD* | SoC Internal | Strapping (VDD_SPI)| N/A | **FATAL (DO NOT USE)** | Pulling HIGH drops Flash voltage to 1.8V, bricking boot. |
 | **Left-14** | **46** | *RESERVED: Strapping ROM* | SoC Internal | Strapping (ROM Log)| N/A | **HIGH RISK (DO NOT USE)** | Pulling HIGH alters ROM bootloader debug logging. |
-| **Right-17** | **47** | **UNASSIGNED / CLEAN SPARE**| None (Former DS1302)| General I/O | Spare Bi-directional | **LIBERATED / SAFE** | Former DS1302 RST. Now completely free and safe for future use. |
+| **Right-17** | **47** | **Anti-Theft Tamper Loop** | Physical Pump Chassis / Cable Loop | Digital Input | Input (Active-HIGH trip) | **VERIFIED SAFE (SECURITY)** | Closed loop to GND through pump cable/chassis. Cut/open = 1, triggers Rule 4 Emergency Stop. |
 | **Right-16** | **48** | MicroSD Chip Select | Built-in SD Card Slot | SPI Chip Select | Output (Active-LOW) | ACCEPTABLE WITH CAVEAT | Dedicated SD CS line. Caveat: Drives onboard WS2812 DIN line. |
 
 ---
@@ -101,7 +101,7 @@ Pin 13: GPIO35 -> [FATAL DO NOT TOUCH: Octal PSRAM IO6]
 Pin 14: GPIO0  -> Push Button: MODE (BOOT Strapping Caveat)
 Pin 15: GPIO45 -> [FATAL DO NOT TOUCH: Strapping VDD_SPI]
 Pin 16: GPIO48 -> MicroSD Card CS (WS2812 RGB LED Caveat)
-Pin 17: GPIO47 -> UNASSIGNED CLEAN SPARE (Liberated from DS1302)
+Pin 17: GPIO47 -> Anti-Theft Tamper Loop (Pump Security Interlock)
 Pin 18: GPIO21 -> TFT Display DC / A0
 Pin 19: GPIO20 -> [RESERVED: Native USB D+]
 Pin 20: GPIO19 -> [RESERVED: Native USB D-]

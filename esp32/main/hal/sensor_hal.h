@@ -30,6 +30,7 @@ typedef struct {
     float total_liters_fs400a;
 
     bool float_lower_ok;
+    bool tamper_loop_ok;
     int64_t last_sample_timestamp;
 } sensor_readings_t;
 

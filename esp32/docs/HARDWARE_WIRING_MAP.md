@@ -49,7 +49,7 @@
 | **W-22** | **GPIO 40** | Right-8 | Manual B Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Dosing Pump B Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Momentary NO tactile switch. | **VERIFIED SAFE** |
 | **W-23** | **GPIO 41** | Right-7 | Distribution Button| Pin 1 | Stranded Wire | 3.3V Logic | Manual Distribution Pump Toggle | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Momentary NO tactile switch. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
-| **W-25** | **GPIO 47** | Right-17 | **UNASSIGNED** | *NC* | None | 3.3V Logic | **CLEAN SPARE GPIO** | Bi-directional | Spare | Former DS1302 RST. Now liberated; wire disconnected. | **LIBERATED / SAFE** |
+| **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | **GPIO 48** | Right-16 | MicroSD Card Slot | **SD_CS** | Dedicated SPI CS | 3.3V Logic | Integrated SD Slot Chip Select | Output | Active-LOW (0=Select)| Drives SD CS on back of TFT. Caveat: Onboard WS2812 DIN. | **UNVERIFIED** |
 | **W-27** | **5V (Vin)**| Left-21 | LM2596 Regulator | **OUT+** | Power Conductor | 5.05V DC | ESP32 Board Main DC Power Input | Power In | 5.05V DC Regulated | **MANDATORY:** Pre-calibrate trimpot with DMM before connecting! | **VERIFY DMM** |
 | **W-28** | **3V3 Rail**| Left-1 / 2 | Sensors & Display | **VCC / LED** | Power Conductor | 3.3V DC | 3.3V Sensor & Peripheral Supply Rail | Power Out | 3.30V DC Regulated | Supplies DS3231, DS18B20, ST7735 VCC/LED, pull-up resistors. | **VERIFIED RAIL** |
@@ -163,6 +163,29 @@ ESP32 GPIO 39 (Right-9)  ──────────── [ MANUAL A Button 
 ESP32 GPIO 40 (Right-8)  ──────────── [ MANUAL B Button  ] ──────────┤
 ESP32 GPIO 41 (Right-7)  ──────────── [ DISTRIBUTION Btn ] ──────────┘
 ```
+
+---
+
+### 3.7. Anti-Theft Pump Security Tamper Loop (Physical Closed-Loop Interlock)
+The anti-theft loop physically runs through the pump chassis mounting bracket or inside the motor power cable conduit back to the control panel.
+The ESP32 internal pull-up holds GPIO 47 HIGH (3.3V) if the loop is severed. Under normal conditions, the continuous closed loop holds GPIO 47 at 0V (`GND_LV`).
+Cutting the wire or disconnecting the pump opens the circuit, immediately pulling GPIO 47 HIGH and tripping Rule 4 Emergency Stop (all pumps locked OFF, red beacon energized).
+
+```text
+ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
+          │
+          │ (Closed-loop wire through pump conduit / bracket)
+          ▼
+    ┌───────────────────────────┐
+    │ Pump Body / Conduit Loop  │ (Normally Closed physical loop)
+    └─────────────┬─────────────┘
+                  │ (Return conductor)
+                  ▼
+         ESP32 GND (Signal GND_LV)
+```
+* **Logic:** Normal (Intact) = `0` (LOW), Tampered (Cut/Severed) = `1` (HIGH).
+* **Ground Isolation:** The return wire MUST terminate at DC Signal Ground (`GND_LV`), NEVER at AC Protective Earth (PE) or AC Neutral.
+* **Safety Authority Action:** Immediate Emergency Stop of all actuators + Red Alarm Beacon ON (`safety_monitor.c`).
 
 ---
 
@@ -308,7 +331,7 @@ Switched Return (-) from OUT- ────────────────�
 | **W-22** | Manual B Button| ESP32 GPIO 40 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_MANUAL_B = 40` | **VERIFIED SAFE** |
 | **W-23** | Dist Button | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_DISTRIBUTION = 41`| **VERIFIED SAFE** |
 | **W-24** | TFT RESET | ESP32 GPIO 42 | No conflict. Dedicated control line.| Active-LOW hardware reset for ST7735. | `PIN_TFT_RST = 42` | **VERIFIED** |
-| **W-25** | Liberated Spare| ESP32 GPIO 47 | No conflict. Clean general GPIO.| Former DS1302 RST. Wire disconnected. | Removed from pin_config.h | **LIBERATED / SAFE** |
+| **W-25** | Anti-Theft Loop | ESP32 GPIO 47 | No conflict. Clean dedicated GPIO. | Closed loop to GND_LV. Internal pull-up. | `PIN_IN_TAMPER_LOOP = 47` | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | MicroSD CS | ESP32 GPIO 48 | Caveat: Drives onboard RGB LED. | Active-LOW SD chip select. Safe for CS output. | `PIN_SD_CS = 48` | **UNVERIFIED** |
 
 ---
@@ -343,10 +366,11 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **40** | `PIN_BTN_MANUAL_B` | 40 | Manual B Button | **MATCH** | 100% Consistent. |
 | **41** | `PIN_BTN_DISTRIBUTION` | 41 | Distribution Button | **MATCH** | 100% Consistent. |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
-| **47** | *(Unassigned / Spare)* | - | UNASSIGNED / CLEAN SPARE | **MATCH** | 100% Consistent. Legacy DS1302 define removed from firmware. Clean spare. |
+| **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up (SP-HW-008). |
 | **48** | `PIN_SD_CS` / `PIN_MICROSD_CS` | 48 | Integrated SD Card Slot CS | **MATCH** | 100% Consistent. |
 
 ### Summary of Firmware Audit:
-- **25 out of 25 pins** match 100% identically between firmware (`pin_config.h`) and this hardware wiring contract.
+- **26 out of 26 pins** match 100% identically between firmware (`pin_config.h`) and this hardware wiring contract.
 - **0 discrepancies or driver mismatches remain.**
 - DS3231 I2C driver integration and DS1302 retirement completed and verified in SP-HW-006.
+- Anti-Theft Tamper Loop on GPIO 47 completed and verified in SP-HW-008.

@@ -161,8 +161,21 @@ This document specifies the exact mapping from the physical pins of each discret
 
 *Note: Pulse signals are scaled via 2.2kΩ / 3.3kΩ resistive voltage dividers to ensure maximum voltage into GPIO 15 and 16 does not exceed 3.3V.*
 
+### 2.10. Anti-Theft Pump Security Loop (Tamper Wire)
+
+| Component | Physical Wire | Wire Function | ESP32 GPIO / Power Rail | Interface | Direction | Electrical Domain | Status |
+|:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
+| **Tamper Loop** | **Signal Lead** | Closed-Loop Sense | **ESP32 GPIO 47** (Right-17) | Digital Input | Input (to MCU) | 3.3V Logic (Internal Pull-Up) | **VERIFIED SAFE (SECURITY)** |
+| **Tamper Loop** | **Return Wire** | Ground Return | **ESP32 GND** (Signal GND_LV) | DC Ground | Return Path | 0V Reference | **VERIFIED SAFE (SECURITY)** |
+
+*Notes:*
+- *Physical loop passes through the AC pump chassis bracket or inside the power cable sheath.*
+- *Closed loop to GND holds GPIO 47 at 0V (Normal).*
+- *If severed or disconnected, internal pull-up brings GPIO 47 to 3.3V (Trip = 1), triggering Rule 4 Emergency Stop.*
+- *Return wire MUST connect to DC Signal Ground (`GND_LV`), NEVER to AC Protective Earth (PE) or AC Neutral.*
+
 ---
 
-### 2.10. Obsolete Hardware (Do Not Connect)
-- **DS1302 RTC Module:** 3-wire bitbang (`CLK: 8`, `DAT: 9`, `RST: 47`) is **OBSOLETE**. Hardware is replaced by DS3231 I2C RTC.
+### 2.11. Obsolete Hardware (Do Not Connect)
+- **DS1302 RTC Module:** 3-wire bitbang (`CLK: 8`, `DAT: 9`, `RST: 47`) is **OBSOLETE**. Hardware is replaced by DS3231 I2C RTC (`SDA: 8`, `SCL: 9`). GPIO 47 has been reassigned to the Anti-Theft Tamper Loop.
 - **Upper Float Switch:** Tank full sensor is **NOT USED / REMOVED** (tank capacity boundary enforced in software).

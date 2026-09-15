@@ -131,6 +131,7 @@ esp_err_t sensor_hal_init(void)
     s_current_readings.flow_rate_fs400a_lpm = 0.0f;
     s_current_readings.total_liters_yfb1 = 0.0f;
     s_current_readings.total_liters_fs400a = 0.0f;
+    s_current_readings.tamper_loop_ok = true;
     s_current_readings.last_sample_timestamp = esp_timer_get_time() / 1000ULL;
 
     ESP_LOGW(TAG, "Sensor HAL DISABLED_FOR_BRINGUP (FEATURE_SENSORS_ENABLED=0). Operating in degraded mode.");
@@ -165,8 +166,18 @@ esp_err_t sensor_hal_init(void)
     gpio_set_direction(PIN_IN_TEMP_DS18B20, GPIO_MODE_INPUT);
     gpio_set_pull_mode(PIN_IN_TEMP_DS18B20, GPIO_PULLUP_ENABLE);
 
-    ESP_LOGI(TAG, "Sensor HAL initialized: YF-B1 (GPIO %d), FS400A (GPIO %d), DS18B20 (GPIO %d), Float (GPIO %d)",
-             PIN_IN_FLOW_YFB1, PIN_IN_FLOW_FS400A, PIN_IN_TEMP_DS18B20, PIN_IN_FLOAT_LOWER);
+    /* 4. Configure Tamper Loop Security Pin */
+    gpio_config_t tamper_conf = {
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1ULL << PIN_IN_TAMPER_LOOP)
+    };
+    ESP_ERROR_CHECK(gpio_config(&tamper_conf));
+
+    ESP_LOGI(TAG, "Sensor HAL initialized: YF-B1 (GPIO %d), FS400A (GPIO %d), DS18B20 (GPIO %d), Float (GPIO %d), Tamper (GPIO %d)",
+             PIN_IN_FLOW_YFB1, PIN_IN_FLOW_FS400A, PIN_IN_TEMP_DS18B20, PIN_IN_FLOAT_LOWER, PIN_IN_TAMPER_LOOP);
 
     return ESP_OK;
 #endif
@@ -187,6 +198,9 @@ esp_err_t sensor_hal_poll(void)
 
     /* Float Switch: Level 1 = OK (float floating), Level 0 = LOW (tank low) */
     s_current_readings.float_lower_ok = (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_OK);
+
+    /* Tamper Loop: Level 0 = OK (closed to GND), Level 1 = LOW (tampered/cut, pulled high) */
+    s_current_readings.tamper_loop_ok = (gpio_get_level(PIN_IN_TAMPER_LOOP) == TAMPER_LOOP_OK);
 
     /* DS18B20 Temperature Reading */
     float temp_val = 0.0f;

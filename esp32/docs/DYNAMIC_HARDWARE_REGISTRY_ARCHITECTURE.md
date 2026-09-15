@@ -121,18 +121,18 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
 
 When adding new hardware components to the system, follow one of two physical pathways:
 
-### Pathway A: Adding Actuators on Free ESP32 Direct GPIOs (1 to 2 Extra Actuators)
-Use this pathway when adding only 1 or 2 actuators and direct clean pins are available.
-* **Available Clean Spare:** **GPIO 47** (Liberated from obsolete DS1302).
-* **Wiring Step-by-Step:**
+### Pathway A: Adding Actuators on Free ESP32 Direct GPIOs / Relay Spare Channels
+Use this pathway when adding 1 or 2 extra actuators and spare channels are available.
+* **Pin Allocation Note:** GPIO 47, previously a clean spare, is now dedicated to the **Anti-Theft Tamper Loop (`PIN_IN_TAMPER_LOOP`)** in SP-HW-008. Direct actuator expansion can utilize 4-Channel Relay board spare channels (IN3 / IN4) or Pathway B below.
+* **Wiring Step-by-Step (Example using Spare Channel / Expander):**
   1. Power OFF panel MCB.
-  2. Connect ESP32 **GPIO 47** to new MOSFET Module #4 `TRIG-PWM`.
-  3. Connect MOSFET Module #4 `GND` to ESP32 Signal GND.
-  4. Connect 12V DC auxiliary power to MOSFET Module #4 `VIN+` and `VIN-`.
-  5. Connect Actuator (e.g. Pump C) to `OUT+` and `OUT-`.
+  2. Connect actuator signal terminal to assigned spare channel.
+  3. Connect Ground return to ESP32 Signal GND / PSU Ground.
+  4. Connect 12V DC auxiliary power to actuator driver board.
+  5. Connect Actuator (e.g. Dosing Pump C) to output terminals.
   6. In `components.json`, add:
      ```json
-     { "componentId": "pump_dosing_c", "name": "Dosing Pump C", "type": "PUMP", "role": "DOSING_C", "interface": "GPIO", "pin": 47, "activeLevel": "ACTIVE_LOW", "safetyClass": "NORMAL", "status": "AVAILABLE" }
+     { "componentId": "pump_dosing_c", "name": "Dosing Pump C", "type": "PUMP", "role": "DOSING_C", "interface": "GPIO", "pin": 4, "channel": 3, "activeLevel": "ACTIVE_LOW", "safetyClass": "NORMAL", "status": "AVAILABLE" }
      ```
   7. Upload `components.json` to ESP32 via API or restart device.
 

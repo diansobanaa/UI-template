@@ -1,17 +1,74 @@
 # AI PROGRESS
 
 ## Status
-DYNAMIC HARDWARE REGISTRY & SCALABLE EXPANSION ARCHITECTURE IMPLEMENTED (SP-HW-007: SPIFFS components.json, Dynamic HAL Parser, & Live React UI Dynamic Binding)
+ANTI-THEFT PUMP SECURITY & NETWORK ALARM IMPLEMENTED (SP-HW-008: GPIO 47 Tamper Loop, Web UI Heartbeat Monitor)
 
 ### Latest Safe Point
-SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
+SP-HW-008 Anti-Theft Pump Security & Network Loss Alarm
 
 ## Safe Point Index
+- [x] SP-HW-008 Anti-Theft Pump Security (GPIO 47) & Web UI Network Loss Alarm
 - [x] SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
 - [x] SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-008
+- **ID**: SP-HW-008
+- **Objective**: Implement closed-loop Anti-Theft Pump Security on GPIO 47 and a resilient Web UI-based local heartbeat network alarm for ESP32 connection/power loss detection.
+- **Completed Work**:
+  1. Updated `esp32/main/config/pin_config.h` to define `PIN_IN_TAMPER_LOOP` on GPIO 47.
+  2. Updated `esp32/main/hal/sensor_hal.c` and `.h` to initialize GPIO 47 with internal pull-up and read `tamper_loop_ok`.
+  3. Added Rule 4 to `esp32/main/services/safety_monitor.c` to trigger `actuator_hal_emergency_stop()` and log `SAFETY_PUMP_THEFT_TAMPER` if the tamper loop is cut.
+  4. Created global UI component `src/components/ConnectionMonitor.tsx` to poll `/api/v1/health` every 5 seconds.
+  5. Mounted `ConnectionMonitor` in `src/app/layout.tsx`.
+  6. Configured UI heartbeat monitor to trigger synthesized audio siren via Web Audio API and system Notification on 3 consecutive failures.
+  7. Updated all canonical documentation files in `docs/` and mirrored them identically to `esp32/docs/`:
+     - `docs/ESP32_GPIO_PIN_MAP.md` & `esp32/docs/ESP32_GPIO_PIN_MAP.md`: Registered GPIO 47 as Anti-Theft Tamper Loop.
+     - `docs/HARDWARE_WIRING_MAP.md` & `esp32/docs/HARDWARE_WIRING_MAP.md`: Registered W-25, Section 3.7 schematic, and Section 7 audit table (26/26 pins match 100%).
+     - `docs/COMPONENT_PIN_MAP.md` & `esp32/docs/COMPONENT_PIN_MAP.md`: Added Section 2.10 for Tamper Loop.
+     - `docs/HARDWARE_INVENTORY.md` & `esp32/docs/HARDWARE_INVENTORY.md`: Added `SEC_LOOP` inventory item.
+     - `docs/HARDWARE_WIRING_CHECKLIST.md` & `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`: Added tamper loop checklist items.
+     - `docs/POWER_MAP.md` & `esp32/docs/POWER_MAP.md`: Documented Signal Ground (`GND_LV`) return isolation and Section 6 AC power loss / heartbeat architecture.
+     - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` & `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`: Clarified GPIO 47 dedicated role.
+     - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`: Updated Pin 47 row.
+- **Verification Result**:
+  - Firmware Build: PASS (ESP-IDF v5.5 toolchain, `agrotech_esp32.bin` 988,880 bytes / 0xf16d0, 0 errors, binary fits partition with 69% free headroom).
+  - Pin Consistency Matrix: PASS (26/26 pins match 100% between `pin_config.h` and `HARDWARE_WIRING_MAP.md`).
+  - Documentation Integrity: PASS (All documents updated and identically mirrored between `docs/` and `esp32/docs/`).
+  - Frontend Build: PASS (`dist/index.html` 854 KB bundle).
+- **Git Commit Hash**: TBD
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/sensor_hal.h`
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/services/safety_monitor.c`
+  - `src/components/ConnectionMonitor.tsx` (NEW)
+  - `src/app/layout.tsx`
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `docs/POWER_MAP.md`
+  - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`
+  - `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `esp32/docs/HARDWARE_INVENTORY.md`
+  - `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `esp32/docs/POWER_MAP.md`
+  - `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**:
+  - Hardware flashing pending.
+- **Next Safe Point / Next Action**:
+  - Flash firmware and physically test loop wire and UI alarm.
 
 ---
 

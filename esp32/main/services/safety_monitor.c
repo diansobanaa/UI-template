@@ -67,6 +67,15 @@ static void safety_monitor_task(void *pvParameters)
                 storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY\",\"level\":\"CRITICAL\",\"message\":\"Dist flow detected while pump is OFF\"}");
             }
         }
+
+        /* Rule 4: Anti-Theft Tamper Loop */
+        if (!sensors.tamper_loop_ok && !s_has_fault) {
+            ESP_LOGE(TAG, "SAFETY TRIP: Tamper loop cut! Possible theft detected.");
+            actuator_hal_emergency_stop();
+            s_has_fault = true;
+            storage_mgr_append_event_log("{\"code\":\"SAFETY_PUMP_THEFT_TAMPER\",\"level\":\"CRITICAL\",\"message\":\"Tamper security wire cut (GPIO 47). Emergency stop engaged.\"}");
+        }
+
         s_last_yfb1 = sensors.total_pulses_yfb1;
         s_last_fs400a = sensors.total_pulses_fs400a;
 
