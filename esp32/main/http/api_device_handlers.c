@@ -84,6 +84,7 @@ esp_err_t handler_get_inventory(httpd_req_t *req)
             cJSON_AddStringToObject(item, "name", info.name);
             cJSON_AddStringToObject(item, "type", info.type);
             cJSON_AddStringToObject(item, "role", info.role);
+            cJSON_AddStringToObject(item, "interface", info.interface);
             cJSON_AddNumberToObject(item, "pin", info.pin);
             cJSON_AddStringToObject(item, "safetyClass", info.safety_class);
             cJSON_AddStringToObject(item, "status", info.status);

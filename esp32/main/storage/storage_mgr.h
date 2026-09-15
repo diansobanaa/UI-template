@@ -70,6 +70,20 @@ esp_err_t storage_mgr_set_estop(bool latched);
  */
 bool storage_mgr_get_estop(void);
 
+/**
+ * @brief Load components.json from SPIFFS (or NVS fallback).
+ * @param out_buf Target buffer
+ * @param max_len Maximum buffer capacity
+ * @param out_len Pointer to receive actual string length
+ */
+esp_err_t storage_mgr_load_components_json(char *out_buf, size_t max_len, size_t *out_len);
+
+/**
+ * @brief Save components.json to SPIFFS and NVS backup.
+ * @param json_str Components JSON string to save
+ */
+esp_err_t storage_mgr_save_components_json(const char *json_str);
+
 #ifdef __cplusplus
 }
 #endif

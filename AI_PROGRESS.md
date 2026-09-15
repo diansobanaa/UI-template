@@ -1,16 +1,54 @@
 # AI PROGRESS
 
 ## Status
-DS3231 I2C RTC DRIVER INTEGRATED & MOSFET PINS VERIFIED (SP-HW-006: 100% FIRMWARE ↔ HARDWARE CONTRACT CONSISTENCY)
+DYNAMIC HARDWARE REGISTRY & SCALABLE EXPANSION ARCHITECTURE IMPLEMENTED (SP-HW-007: SPIFFS components.json, Dynamic HAL Parser, & Live React UI Dynamic Binding)
 
 ### Latest Safe Point
-SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
+SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
 
 ## Safe Point Index
+- [x] SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
 - [x] SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-007
+- **ID**: SP-HW-007
+- **Objective**: Implement Self-Describing Dynamic Hardware Registry: author authoritative specification (`docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`), implement SPIFFS/NVS `components.json` loader/saver and dynamic HAL parser in firmware (`hardware_registry.c`, `storage_mgr.c`), and connect live React UI dynamic data-binding (`fertigationService.getDynamicDosingPumps()`, `pumps.map`) with graceful offline fallback.
+- **Completed Work**:
+  1. Authored comprehensive specification `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` (mirrored to `esp32/docs/`) with complete JSON Schema, hardware expansion guide (direct GPIO vs. I2C PCA9685 16-ch for 10-16 pumps), power calculations, and dynamic UI lifecycle.
+  2. Extended `storage_mgr.h` / `storage_mgr.c`: mounted SPIFFS filesystem at `/spiffs`, implemented `storage_mgr_load_components_json()` and `storage_mgr_save_components_json()` with NVS dual-backup.
+  3. Extended `hardware_registry.h` / `hardware_registry.c`: defined dynamic component buffer (up to 32 components), implemented `hardware_registry_load_from_json()` using cJSON, added auto-provisioning of `DEFAULT_COMPONENTS_JSON` on initial boot, and maintained safe fallback to compiled defaults.
+  4. Extended `api_device_handlers.c`: added `interface` field to `GET /api/v1/inventory` response.
+  5. Built firmware cleanly: `agrotech_esp32.bin` (0xf15e0 bytes, 0 errors).
+  6. Updated `src/lib/services.ts`: implemented `getDynamicDosingPumps()` with live `esp32Client.getInventory()` lookup and offline fallback.
+  7. Updated `src/app/fertigation/page.tsx`: converted static `pumps` list to dynamic React state hook with `useEffect`, rendering any number of dosing pumps dynamically via `.map()` while strictly preserving existing UI styling and dark theme aesthetics.
+  8. Built frontend cleanly with Vite/TypeScript: `dist/index.html` (852 KB singlefile bundle, 0 errors).
+- **Verification Result**:
+  - Firmware Build: PASS (ESP-IDF v5.5, `agrotech_esp32.bin` size 0xf15e0 bytes, 0 errors).
+  - Frontend Build: PASS (TypeScript `tsc -b` + Vite singlefile, 0 errors).
+  - Architecture Documentation: PASS (`docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` mirrored with identical content).
+- **Git Commit Hash**: `4e8fe53`
+- **Changed Files**:
+  - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` (NEW)
+  - `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` (NEW)
+  - `esp32/main/storage/storage_mgr.h`
+  - `esp32/main/storage/storage_mgr.c`
+  - `esp32/main/hal/hardware_registry.h`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `src/lib/services.ts`
+  - `src/app/fertigation/page.tsx`
+  - `dist/index.html`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**:
+  - Physical flash and bench test on COM3 pending hardware USB connection.
+- **Next Safe Point / Next Action**:
+  - Physical flash to ESP32-S3 and verification of dynamic inventory via browser / REST API.
 
 ---
 

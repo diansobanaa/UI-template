@@ -578,6 +578,32 @@ export const fertigationService = {
   dosingPumps() {
     return dosingPumps;
   },
+  async getDynamicDosingPumps() {
+    try {
+      const inv = await esp32Client.getInventory();
+      if (inv && Array.isArray(inv.components)) {
+        const dynamicPumps = inv.components.filter(
+          (c) =>
+            c.type === "PUMP" &&
+            (c.role?.includes("DOSING") ||
+              c.componentId?.includes("dosing") ||
+              c.name?.toLowerCase().includes("dosing") ||
+              c.componentId?.startsWith("dp-"))
+        );
+        if (dynamicPumps.length > 0) {
+          return dynamicPumps.map((c) => ({
+            id: c.componentId,
+            name: c.name,
+            state: (c.status === "AVAILABLE" ? "Ready" : "Not Used") as "Ready" | "Not Used",
+            rate: "0 ml/min",
+          }));
+        }
+      }
+    } catch {
+      // Graceful fallback to default dosingPumps if offline
+    }
+    return dosingPumps;
+  },
   dosingLastCalibration() {
     return dosingLastCalibration;
   },

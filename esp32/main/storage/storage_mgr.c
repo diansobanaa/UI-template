@@ -4,6 +4,7 @@
 #include "esp_random.h"
 #include "nvs.h"
 #include "esp_rom_crc.h"
+#include "esp_spiffs.h"
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -13,6 +14,7 @@
 static const char *TAG = "STORAGE_MGR";
 static const char *NVS_NAMESPACE = "agrotech";
 static const char *EVENT_LOG_FILE = "/sdcard/events.log";
+static const char *COMPONENTS_JSON_FILE = "/spiffs/components.json";
 
 #define MAX_EVENT_LOG_BYTES (128 * 1024)
 
@@ -80,10 +82,24 @@ esp_err_t storage_mgr_init(void)
     nvs_commit(handle);
     nvs_close(handle);
 
+    /* 5. Initialize & Mount SPIFFS storage */
+    esp_vfs_spiffs_conf_t spiffs_conf = {
+        .base_path = "/spiffs",
+        .partition_label = "storage",
+        .max_files = 8,
+        .format_if_mount_failed = true
+    };
+    esp_err_t spiffs_ret = esp_vfs_spiffs_register(&spiffs_conf);
+    if (spiffs_ret != ESP_OK) {
+        ESP_LOGW(TAG, "SPIFFS mount failed (%s), will rely on NVS for components", esp_err_to_name(spiffs_ret));
+    } else {
+        ESP_LOGI(TAG, "SPIFFS mounted successfully at /spiffs");
+    }
+
     s_state.safe_boot_active = true;
     s_initialized = true;
 
-    ESP_LOGI(TAG, "Storage manager ready (NVS persistent): Device='%s', Complex='%s', BootId='%s', Boots=%lu, ConfigVer=%lu",
+    ESP_LOGI(TAG, "Storage manager ready (NVS & SPIFFS persistent): Device='%s', Complex='%s', BootId='%s', Boots=%lu, ConfigVer=%lu",
              s_state.device_id, s_state.complex_id, s_state.boot_id,
              (unsigned long)s_state.boot_count, (unsigned long)s_state.config_version);
 
@@ -237,4 +253,63 @@ esp_err_t storage_mgr_set_estop(bool latched)
 bool storage_mgr_get_estop(void)
 {
     return s_state.e_stop_latched;
+}
+
+esp_err_t storage_mgr_load_components_json(char *out_buf, size_t max_len, size_t *out_len)
+{
+    if (!out_buf || max_len == 0) return ESP_ERR_INVALID_ARG;
+
+    /* 1. Try reading from SPIFFS */
+    FILE *f = fopen(COMPONENTS_JSON_FILE, "r");
+    if (f) {
+        size_t read_bytes = fread(out_buf, 1, max_len - 1, f);
+        out_buf[read_bytes] = '\0';
+        fclose(f);
+        if (read_bytes > 0) {
+            if (out_len) *out_len = read_bytes;
+            ESP_LOGI(TAG, "Loaded components.json from SPIFFS (%u bytes)", (unsigned)read_bytes);
+            return ESP_OK;
+        }
+    }
+
+    /* 2. Fallback to NVS */
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        size_t len = max_len;
+        esp_err_t err = nvs_get_str(handle, "comp_json", out_buf, &len);
+        nvs_close(handle);
+        if (err == ESP_OK) {
+            if (out_len) *out_len = len;
+            ESP_LOGI(TAG, "Loaded components.json from NVS (%u bytes)", (unsigned)len);
+            return ESP_OK;
+        }
+    }
+
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t storage_mgr_save_components_json(const char *json_str)
+{
+    if (!json_str) return ESP_ERR_INVALID_ARG;
+
+    /* 1. Write to SPIFFS */
+    FILE *f = fopen(COMPONENTS_JSON_FILE, "w");
+    if (f) {
+        fputs(json_str, f);
+        fclose(f);
+        ESP_LOGI(TAG, "Saved components.json to SPIFFS");
+    } else {
+        ESP_LOGW(TAG, "Could not open %s for write", COMPONENTS_JSON_FILE);
+    }
+
+    /* 2. Also persist to NVS as durable backup */
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_str(handle, "comp_json", json_str);
+        nvs_commit(handle);
+        nvs_close(handle);
+        ESP_LOGI(TAG, "Saved components.json to NVS backup");
+    }
+
+    return ESP_OK;
 }

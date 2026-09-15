@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -68,7 +68,20 @@ function FertigationContent() {
   const manualGh = greenhouseService.get(manualGhId) ?? gh;
 
   const queue = fertigationService.mixingQueue();
-  const pumps = fertigationService.dosingPumps();
+  const [pumps, setPumps] = useState(() => fertigationService.dosingPumps());
+
+  useEffect(() => {
+    let active = true;
+    fertigationService.getDynamicDosingPumps().then((dynPumps) => {
+      if (active && dynPumps && dynPumps.length > 0) {
+        setPumps(dynPumps);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const history = fertigationService.history();
   const sys = fertigationService.systemStatus();
   const run = gh.currentRun;
