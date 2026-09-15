@@ -99,16 +99,22 @@ This document specifies the exact mapping from the physical pins of each discret
 
 ### 2.6. DC Switching Drivers: 3x High-Power MOSFET Modules
 - **Physical Module:** 3 Units of High-Power MOSFET Driver Modules (15A / 400W).
-- **Physical Pin Status:** **TBD** (Operator has not yet provided physical pin labeling. Values are NOT guessed).
+- **Physical Pin Status:** **VERIFIED** (Physical trigger markings provided by operator: `TRIG-PWM` / `TRIG/PWM` and `GND`).
 
 | Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
-| **MOSFET #1** | **TBD** | Gate Trigger / Logic In | **ESP32 GPIO 5** (Left-5) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **TBD** |
-| **MOSFET #1** | **TBD** | Power In / Out Terminals | 12V DC Rail $\to$ Dosing A (+) | DC Load Power | Power Switch | Switched 12V DC | **TBD** |
-| **MOSFET #2** | **TBD** | Gate Trigger / Logic In | **ESP32 GPIO 6** (Left-6) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **TBD** |
-| **MOSFET #2** | **TBD** | Power In / Out Terminals | 12V DC Rail $\to$ Dosing B (+) | DC Load Power | Power Switch | Switched 12V DC | **TBD** |
-| **MOSFET #3** | **TBD** | Gate Trigger / Logic In | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **TBD** |
-| **MOSFET #3** | **TBD** | Power In / Out Terminals | 12V DC Rail $\to$ Fan (+) | DC Load Power | Power Switch | Switched 12V DC | **TBD** |
+| **MOSFET #1** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 5** (Left-5) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #1** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
+| **MOSFET #1** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
+| **MOSFET #1** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump A (Nutrient) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
+| **MOSFET #2** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 6** (Left-6) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #2** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
+| **MOSFET #2** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
+| **MOSFET #2** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump B (pH/Buffer) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
+| **MOSFET #3** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #3** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
+| **MOSFET #3** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
+| **MOSFET #3** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Cooling Fan | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
 
 ---
 

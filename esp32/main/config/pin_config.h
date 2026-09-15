@@ -51,12 +51,13 @@ extern "C" {
 #define PIN_TFT_RST                 42
 
 /* ========================================================================== */
-/* RTC: DS1302 3-WIRE SYNCHRONOUS BUS                                         */
-/* Pins: CLK (GPIO 8), DAT (GPIO 9), RST/CE (GPIO 47)                         */
+/* RTC: DS3231 HIGH-PRECISION I2C BUS                                         */
+/* Pins: SDA (GPIO 8), SCL (GPIO 9), 32K/SQW (NC). GPIO 47 is LIBERATED.      */
 /* ========================================================================== */
-#define PIN_DS1302_CLK              8
-#define PIN_DS1302_DAT              9
-#define PIN_DS1302_RST              47
+#define PIN_I2C_SDA                 8
+#define PIN_I2C_SCL                 9
+#define I2C_PORT_NUM                0   /* I2C_NUM_0 */
+#define I2C_FREQ_HZ                 100000
 
 /* ========================================================================== */
 /* OUTPUT ACTUATORS (RELAYS & SWITCHES)                                       */

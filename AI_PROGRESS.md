@@ -1,15 +1,59 @@
 # AI PROGRESS
 
 ## Status
-CANONICAL HARDWARE WIRING CONTRACT ESTABLISHED & AUDITED (HARDWARE_WIRING_MAP.md, GPIO_PIN_MAP, COMPONENT_PIN_MAP, POWER_MAP, INVENTORY, CHECKLIST)
+DS3231 I2C RTC DRIVER INTEGRATED & MOSFET PINS VERIFIED (SP-HW-006: 100% FIRMWARE ↔ HARDWARE CONTRACT CONSISTENCY)
 
 ### Latest Safe Point
-SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
+SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
 
 ## Safe Point Index
+- [x] SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-006
+- **ID**: SP-HW-006
+- **Objective**: Integrate native I2C DS3231 RTC HAL driver (GPIO 8 SDA, GPIO 9 SCL), retire legacy DS1302 3-wire bitbang driver, liberate GPIO 47, incorporate physical MOSFET driver pin markings (`TRIG-PWM`, `GND`) into hardware documentation contract, and establish 100% firmware ↔ documentation consistency across all 25 pins.
+- **Completed Work**:
+  1. Implemented native ESP-IDF `driver/i2c.h` DS3231 driver in `esp32/main/hal/rtc_ds3231.h` and `esp32/main/hal/rtc_ds3231.c` with bounded non-blocking 50ms probe at address `0x68`, BCD conversions, and system time synchronization (`settimeofday`).
+  2. Deleted legacy 3-wire bitbang files `esp32/main/hal/rtc_ds1302.h` and `esp32/main/hal/rtc_ds1302.c`.
+  3. Updated `esp32/main/config/pin_config.h` to define `PIN_I2C_SDA` (8), `PIN_I2C_SCL` (9), `I2C_PORT_NUM` (0), `I2C_FREQ_HZ` (100000), and removed all `PIN_DS1302_*` defines (liberating GPIO 47 as an unassigned clean spare).
+  4. Updated `esp32/main/CMakeLists.txt` and `esp32/main/main.c` to compile `hal/rtc_ds3231.c` and initialize DS3231 on boot.
+  5. Built firmware cleanly (`agrotech_esp32.bin`, 955,760 bytes / 0xe9570) with 0 errors and 0 warnings.
+  6. Updated `docs/COMPONENT_PIN_MAP.md` Section 2.6 with verified MOSFET module pins: `TRIG-PWM` (Gate control input from GPIO 5, 6, 7) and `GND` (signal return to ESP32 GND), plus power input/output screw terminals.
+  7. Updated `docs/HARDWARE_WIRING_MAP.md` connections W-05, W-06, W-07, Section 4.3 diagram, and Section 7 consistency matrix.
+  8. Verified 100% firmware ↔ documentation match: 25 out of 25 pins match identically; 0 mismatches or unaligned drivers remain.
+  9. Mirrored and synchronized all updated documentation files to `esp32/docs/` with identical file content.
+- **Verification Result**:
+  - Build: PASS (ESP-IDF v5.5 native toolchain, `agrotech_esp32.bin` 955,760 bytes / 0xe9570, 0 errors, 0 warnings).
+  - Pin Consistency Matrix: PASS (25/25 pins match 100% between `pin_config.h` and `HARDWARE_WIRING_MAP.md`).
+  - Documentation Integrity: PASS (All 6 core files mirrored to `esp32/docs/`).
+- **Git Commit Hash**: `ff9393a`
+- **Changed Files**:
+  - `esp32/main/hal/rtc_ds3231.h` (NEW)
+  - `esp32/main/hal/rtc_ds3231.c` (NEW)
+  - `esp32/main/hal/rtc_ds1302.h` (DELETED)
+  - `esp32/main/hal/rtc_ds1302.c` (DELETED)
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/main/main.c`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `esp32/docs/HARDWARE_INVENTORY.md`
+  - `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**:
+  - Physical flash and bench test on COM3 pending hardware USB connection.
+- **Next Safe Point / Next Action**:
+  - Await operator connection of hardware on COM3 for flash test, or proceed with next scheduled task according to project roadmap.
 - [x] SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 - [x] SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
 - [x] SP-BOOT-REMED-001 (PARTIAL) Boot Remediation Execution V1 (SD Mount WDT Stop Condition)

@@ -6,7 +6,7 @@ idf_component_register(
         "hal/button_hal.c"
         "hal/hardware_registry.c"
         "hal/sdcard_hal.c"
-        "hal/rtc_ds1302.c"
+        "hal/rtc_ds3231.c"
         "hal/tft_hal.c"
         "network/network_mgr.c"
         "storage/storage_mgr.c"

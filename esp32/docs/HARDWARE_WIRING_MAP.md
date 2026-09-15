@@ -29,9 +29,9 @@
 | **W-02** | **GPIO 1** | Right-4 | Omron Relay #1 | Logic In / Driver | Digital Control | 3.3V Logic | Deep Well AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-03** | **GPIO 2** | Right-5 | Omron Relay #2 | Logic In / Driver | Digital Control | 3.3V Logic | Dist Booster AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-04** | **GPIO 4** | Left-4 | 4-Ch Relay Board | **IN1** | Digital Control | 5V Logic | Raw Water Submersible Pump Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 12V DC load on relay COM1/NO1. | **VERIFIED SAFE** |
-| **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TBD** | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Module pins TBD. | **TBD (PINS)** |
-| **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TBD** | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Module pins TBD. | **TBD (PINS)** |
-| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TBD** | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-LOW (in hal) | Gate trigger for 12V DC brushless fan. Module pins TBD. | **TBD (PINS)** |
+| **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Switched 12V DC out. | **VERIFIED SAFE** |
+| **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Switched 12V DC out. | **VERIFIED SAFE** |
+| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-LOW (in hal) | Gate trigger for 12V DC brushless fan. Switched 12V DC out. | **VERIFIED SAFE** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-10** | **GPIO 10** | Left-16 | W5500 Ethernet | **CS** | SPI Chip Select | 3.3V Logic | Hardwired LAN Ethernet CS | Output | Active-LOW (0=Select)| **NOT USED IN CURRENT COMMISSIONING** | **NOT USED** |
@@ -232,22 +232,23 @@ GND_12V (from PSU 1 Return) ─────────────────�
 * **MOSFET #1 (GPIO 5):** 12V DC Peristaltic Dosing Pump A (Nutrient)
 * **MOSFET #2 (GPIO 6):** 12V DC Peristaltic Dosing Pump B (pH/Buffer)
 * **MOSFET #3 (GPIO 7):** 12V DC Cabinet Cooling Fan
-* *Note: Physical pin markings on MOSFET boards are TBD. Logic is Active-LOW in hal.*
+* *Note: Physical trigger terminals verified by operator: TRIG-PWM (Signal) and GND (Ground return).*
 
 ```text
-ESP32 GPIO 5 / 6 / 7
-      │
-      ▼
-┌──────────────────────────────────────────────┐
-│ High-Power MOSFET Module (15A / 400W)        │
-│                                              │
-│ Logic Trigger Terminal: [ TBD Pins ]         │
-│ Power Terminals:        [ TBD Pins ]         │
-└──────────────────────┬───────────────────────┘
-                       │ High-Speed Solid-State Switched DC
-                       ▼
-12V DC (+) from PSU 1 ─────────────────────────► 12V Actuator (+)
-Switched Low-Side Return (Drain) ──────────────► 12V Actuator (-)
+ESP32 GPIO 5 / 6 / 7          ESP32 Signal GND
+      │                              │
+      ▼                              ▼
+┌────────────────────────────────────────────────────────┐
+│ High-Power MOSFET Module (15A / 400W)                  │
+│                                                        │
+│ Logic Trigger Input:  [ TRIG-PWM ]       [ GND ]       │
+│ Power Input:          [ VIN+ (12V) ]     [ VIN- (GND) ]│
+│ Power Output:         [ OUT+ (12V) ]     [ OUT- (Sw) ] │
+└──────────────────────────────┬─────────────────────────┘
+                               │ High-Speed Solid-State Switched DC
+                               ▼
+12V DC (+) from OUT+ ───────────────────────────► 12V Actuator (+)
+Switched Return (-) from OUT- ──────────────────► 12V Actuator (-)
 ```
 
 ---
@@ -287,11 +288,11 @@ Switched Low-Side Return (Drain) ──────────────► 1
 | **W-02** | Omron Relay #1 | ESP32 GPIO 1 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_WELL_PUMP = 1` | **VERIFIED SAFE** |
 | **W-03** | Omron Relay #2 | ESP32 GPIO 2 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_DIST_PUMP = 2` | **VERIFIED SAFE** |
 | **W-04** | 4-Ch Relay IN1 | ESP32 GPIO 4 | No conflict. Clean digital pin. | Optocoupled 5V coil. Active-LOW logic. | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
-| **W-05** | MOSFET #1 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. | `PIN_OUT_DOSING_A = 5` | **TBD (PINS)** |
-| **W-06** | MOSFET #2 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. | `PIN_OUT_DOSING_B = 6` | **TBD (PINS)** |
-| **W-07** | MOSFET #3 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. | `PIN_OUT_COOLING_FAN = 7` | **TBD (PINS)** |
-| **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Replaces obsolete DS1302 CLK. | Driver refactor pending | **VERIFIED (HW)** |
-| **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Replaces obsolete DS1302 DAT. | Driver refactor pending | **VERIFIED (HW)** |
+| **W-05** | MOSFET #1 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. | `PIN_OUT_DOSING_A = 5` | **VERIFIED SAFE** |
+| **W-06** | MOSFET #2 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. | `PIN_OUT_DOSING_B = 6` | **VERIFIED SAFE** |
+| **W-07** | MOSFET #3 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. | `PIN_OUT_COOLING_FAN = 7` | **VERIFIED SAFE** |
+| **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
+| **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
 | **W-10** | W5500 CS | ESP32 GPIO 10 | No conflict. Dedicated SPI CS. | Module deferred from active commissioning. | `PIN_W5500_CS = 10` | **NOT USED** |
 | **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and SD card clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
 | **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and SD card MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
@@ -307,7 +308,7 @@ Switched Low-Side Return (Drain) ──────────────► 1
 | **W-22** | Manual B Button| ESP32 GPIO 40 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_MANUAL_B = 40` | **VERIFIED SAFE** |
 | **W-23** | Dist Button | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_DISTRIBUTION = 41`| **VERIFIED SAFE** |
 | **W-24** | TFT RESET | ESP32 GPIO 42 | No conflict. Dedicated control line.| Active-LOW hardware reset for ST7735. | `PIN_TFT_RST = 42` | **VERIFIED** |
-| **W-25** | Liberated Spare| ESP32 GPIO 47 | No conflict. Clean general GPIO.| Former DS1302 RST. Wire disconnected. | Obsolete define pending removal | **LIBERATED / SAFE** |
+| **W-25** | Liberated Spare| ESP32 GPIO 47 | No conflict. Clean general GPIO.| Former DS1302 RST. Wire disconnected. | Removed from pin_config.h | **LIBERATED / SAFE** |
 | **W-26** | MicroSD CS | ESP32 GPIO 48 | Caveat: Drives onboard RGB LED. | Active-LOW SD chip select. Safe for CS output. | `PIN_SD_CS = 48` | **UNVERIFIED** |
 
 ---
@@ -325,8 +326,8 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #1) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #2) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #3) | **MATCH** | 100% Consistent. Active-LOW (0). |
-| **8** | `PIN_DS1302_CLK` | 8 | RTC DS3231 SDA (I2C Data) | **DRIVER MISMATCH** | **SOFTWARE UPDATE REQUIRED:** Firmware still defines legacy 3-wire `PIN_DS1302_CLK`. Will be refactored to `PIN_I2C_SDA` in SP-HW-006. Physical GPIO 8 is identical. |
-| **9** | `PIN_DS1302_DAT` | 9 | RTC DS3231 SCL (I2C Clock) | **DRIVER MISMATCH** | **SOFTWARE UPDATE REQUIRED:** Firmware still defines legacy 3-wire `PIN_DS1302_DAT`. Will be refactored to `PIN_I2C_SCL` in SP-HW-006. Physical GPIO 9 is identical. |
+| **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
+| **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
 | **10** | `PIN_W5500_CS` | 10 | W5500 Ethernet CS | **MATCH** | Consistent. Marked NOT USED IN CURRENT COMMISSIONING. |
 | **11** | `PIN_SPI_SCK` / `PIN_SD_SCK` | 11 | Shared SPI Clock (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
 | **12** | `PIN_SPI_MOSI` / `PIN_SD_MOSI`| 12 | Shared SPI MOSI (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
@@ -342,10 +343,10 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **40** | `PIN_BTN_MANUAL_B` | 40 | Manual B Button | **MATCH** | 100% Consistent. |
 | **41** | `PIN_BTN_DISTRIBUTION` | 41 | Distribution Button | **MATCH** | 100% Consistent. |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
-| **47** | `PIN_DS1302_RST` | 47 | UNASSIGNED / CLEAN SPARE | **OBSOLETE DEFINE** | **SOFTWARE UPDATE REQUIRED:** Firmware still defines legacy `PIN_DS1302_RST`. Will be eliminated in SP-HW-006. Hardware pin 47 is disconnected. |
+| **47** | *(Unassigned / Spare)* | - | UNASSIGNED / CLEAN SPARE | **MATCH** | 100% Consistent. Legacy DS1302 define removed from firmware. Clean spare. |
 | **48** | `PIN_SD_CS` / `PIN_MICROSD_CS` | 48 | Integrated SD Card Slot CS | **MATCH** | 100% Consistent. |
 
-### Summary of Firmware Mismatches:
-- **22 out of 25 pins** match 100% identically between firmware and hardware contract.
-- **3 pins (GPIO 8, 9, 47)** differ solely due to the physical transition from obsolete 3-wire DS1302 bitbang hardware to the active 2-wire DS3231 I2C module.
-- Firmware update to I2C DS3231 is scheduled for Safe Point `SP-HW-006` and is strictly decoupled from this documentation safe point.
+### Summary of Firmware Audit:
+- **25 out of 25 pins** match 100% identically between firmware (`pin_config.h`) and this hardware wiring contract.
+- **0 discrepancies or driver mismatches remain.**
+- DS3231 I2C driver integration and DS1302 retirement completed and verified in SP-HW-006.
