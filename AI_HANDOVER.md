@@ -2,41 +2,37 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-15
-- **Safe Point**: SP-HW-003 — Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration Complete.
-- **Goal**: Resolve Mode Button vs Lower Float GPIO38 conflict and replace DS3231 I2C driver with DS1302 3-wire synchronous serial driver without impacting TFT SPI, SPI bus, or canonical API contracts.
+- **Safe Point**: SP-HW-004 (PARTIAL) — TFT Onboard SD Card Slot Shared SPI Integration.
+- **Goal**: Re-architect SD card interface to utilize the physical SD Card Slot built into the back of the 1.8" TFT ST7735 module on shared SPI2_HOST bus (SCK: 11, MOSI: 12, MISO: 13, SD_CS: 48) without an external microSD reader.
 
 ### What was just completed
-- **SP-HW-003**:
-  1. Audited codebase for `PIN_BTN_MODE`, `PIN_IN_FLOAT_LOWER`, and `RTC_DS3231`.
-  2. Fixed pin mappings in `esp32/main/config/pin_config.h`:
-     - Mode Button: GPIO 0 (BOOT button / external NO button)
-     - Lower Float (Safety Interlock): GPIO 38
-     - RTC DS1302 (3-Wire Interface): CLK=GPIO 8, DAT=GPIO 9, RST/CE=GPIO 47
-  3. Implemented robust DS1302 3-wire synchronous serial HAL driver (`rtc_ds1302.h`, `rtc_ds1302.c`):
-     - Active-high CE (RST), LSB-first bit timing, bidirectional DAT pin handling.
-     - Non-destructive RAM probe for connection detection.
-     - Full bounded timeout preventing boot hanging or watchdog resets if RTC is disconnected.
-     - Compatibility with existing `rtc_ds1302_sync_system_time()` and system clock API.
-  4. Removed legacy `rtc_ds3231.c` and `rtc_ds3231.h` from build and git tree.
-  5. Built firmware (`agrotech_esp32.bin`, 939,264 bytes) with 0 errors.
-  6. Flashed to ESP32-S3-WROOM-1-N16R8 on COM3 at 460800 baud (hash verified).
-  7. Captured serial boot log confirming:
-     - `BUTTON_HAL: Button HAL initialized: Mode(0), ManA(39), ManB(40), Dist(41) pulled HIGH.`
-     - Zero GPIO 38 conflict.
-     - `RTC_DS1302: Initializing 3-wire interface for DS1302 RTC (CLK=8, DAT=9, RST=47)...`
-     - `TFT_HAL: Initializing ST7735 1.8" TFT SPI display (CS=14, DC=21, RST=42)...`
-     - Zero boot hangs, zero watchdog resets, zero panics.
-     - HTTP Server and Wi-Fi active.
+- **SP-HW-004 (PARTIAL)**:
+  1. Audited codebase: verified all references to `SDCARD_HAL`, `PIN_MICROSD_CS`, `GPIO27`, and `FEATURE_SDCARD_ENABLED`. Completely removed external reader assumptions.
+  2. Updated `esp32/main/config/pin_config.h`:
+     - Explicit defines: `PIN_SD_SCK` (11), `PIN_SD_MOSI` (12), `PIN_SD_MISO` (13), `PIN_SD_CS` (48), with alias `PIN_MICROSD_CS`.
+     - Preserved all validated peripheral mappings: TFT (11/12/14/21/42), RTC DS1302 (8/9/47), Buttons (0/39/40/41), Lower Float (38), DS18B20 (17), Flow (15/16), Actuators (1/2/4/5/6/7/18).
+  3. Updated `esp32/main/hal/sdcard_hal.h` and `esp32/main/hal/sdcard_hal.c`:
+     - Initialized `PIN_SD_CS` (GPIO 48) as output driven HIGH (1) at boot to guarantee unselected state during TFT transactions.
+     - Pulled up SPI lines (`MISO`, `MOSI`, `SCK`) for clean bus idle state.
+     - Bound SDSPI to `SPI2_HOST` with bounded timeout (100 ms) and fail-safe degraded mode fallback when card is uninserted.
+     - Guarded `s_card` to ensure 0 compiler warnings under `FEATURE_SDCARD_ENABLED=0`.
+  4. Updated master documentation in `docs/ESP32_GPIO_PIN_MAP.md` and `esp32/docs/ESP32_GPIO_PIN_MAP.md`:
+     - Added Section 15 "Shared SPI Bus & Component-to-GPIO Mapping" explicitly separating physical pin breakouts from component mappings.
+  5. Built firmware cleanly (`agrotech_esp32.bin`, 939,728 bytes, 0 errors, 0 warnings).
+  6. Attempted flashing to COM3: detected USB-to-UART adapter is physically disconnected from host PC.
 
 ## Repository Status
-- Firmware builds cleanly (939,264 bytes, 0 errors, 0 warnings).
+- Firmware builds cleanly (939,728 bytes, 0 errors, 0 warnings).
 - Target Hardware: ESP32-S3-WROOM-1-N16R8 on COM3.
-- Network status: Connected to LAN at `192.168.0.129` + SoftAP `AGROTECH-SETUP` at `192.168.4.1`.
+- Flash & Boot Status: **PENDING PHYSICAL USB CONNECTION**.
 - Actuator status: **100% SAFE OFF**.
-- REST API status: **VERIFIED PASS**.
 
 ## Next Action for Next Agent / Operator
-1. Read `AI_PROGRESS.md` and `AI_HANDOVER.md`.
-2. Do not change pin mapping without explicit audit.
-3. Hardware wiring is currently pending operator instructions (DO NOT wire before authorization).
+1. Reconnect the USB-to-UART cable (FTDI COM3) to the host PC.
+2. Flash firmware:
+   `& "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe" -m esptool --chip esp32s3 -p COM3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0xf000 build/ota_data_initial.bin 0x20000 build/agrotech_esp32.bin`
+3. Capture serial boot log:
+   `& "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe" "C:\Users\rumah\.gemini\antigravity-ide\brain\6c1389ac-b0da-47f3-b257-36c8d3d44827\scratch\read_serial.py" COM3`
+4. Verify boot log and promote SP-HW-004 from PARTIAL to PASS.
+
 

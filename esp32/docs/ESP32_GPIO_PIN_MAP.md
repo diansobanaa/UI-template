@@ -320,13 +320,57 @@ By applying the resource reallocation rule:
 
 ---
 
-## 14. Verification Status
+## 15. Shared SPI Bus & Component-to-GPIO Mapping
 
-### Status: **VERIFIED**
+Dokumentasi ini secara eksplisit membedakan antara pin fisik ESP32 dan pemetaan per komponen:
 
-**Summary of Verification:**
-1. **Safety Interlock Integrity:** The Lower Float switch is assigned to **GPIO 38**, completely isolating dry-run safety from USB, memory, and strapping pins.
-2. **Memory Bus Protection:** No peripheral touches GPIO 26-37. Octal PSRAM stability is 100% guaranteed.
-3. **USB Reliability:** GPIO 19 and 20 remain unused, eliminating any USB-Serial-JTAG conflict.
-4. **Boot Reliability:** GPIO 0 is used only as an operator push button that remains open (HIGH) during system power-up.
-5. **No Code Modified Yet:** This document represents the architectural specification and audit baseline. Implementation in firmware will follow upon user approval.
+### A. Shared SPI Bus (SPI2_HOST)
+- **SPI SCK:** ESP32 GPIO 11
+- **SPI MOSI:** ESP32 GPIO 12
+- **SPI MISO:** ESP32 GPIO 13
+
+### B. TFT ST7735 1.8" Display (8 Physical Pins)
+Hanya memiliki 8 pin fisik (TIDAK memiliki pin MISO):
+1. **LED:** Backlight (Direct supply / 3.3V)
+2. **SCK:** ESP32 **GPIO 11**
+3. **SDA (MOSI):** ESP32 **GPIO 12**
+4. **A0 (DC):** ESP32 **GPIO 21**
+5. **RESET:** ESP32 **GPIO 42**
+6. **CS:** ESP32 **GPIO 14**
+7. **GND:** Ground
+8. **VCC:** Power (3.3V / 5V)
+
+### C. SD CARD SLOT BAWAAN TFT (Di Belakang PCB TFT)
+Slot SD card terintegrasi pada modul TFT (TIDAK menggunakan external microSD reader):
+- **SD_CS:** ESP32 **GPIO 48** (Dedicated Chip Select)
+- **SD_MOSI:** ESP32 **GPIO 12** (Shared SPI MOSI)
+- **SD_MISO:** ESP32 **GPIO 13** (Shared SPI MISO)
+- **SD_SCK:** ESP32 **GPIO 11** (Shared SPI Clock)
+
+### D. RTC DS1302 (3-Wire Interface — BUKAN I2C)
+- **CLK:** ESP32 **GPIO 8**
+- **DAT:** ESP32 **GPIO 9** (Bidirectional)
+- **RST/CE:** ESP32 **GPIO 47** (Active-High Chip Enable)
+- **VCC:** 3.3V
+- **GND:** Ground
+
+### E. Operator Buttons & Sensors
+- **Mode Button:** ESP32 **GPIO 0** (Active-Low / BOOT)
+- **Manual A Button:** ESP32 **GPIO 39** (Active-Low)
+- **Manual B Button:** ESP32 **GPIO 40** (Active-Low)
+- **Distribution Button:** ESP32 **GPIO 41** (Active-Low)
+- **Lower Float Switch:** ESP32 **GPIO 38** (Safety Interlock)
+- **DS18B20 Temp Sensor:** ESP32 **GPIO 17** (1-Wire + 4.7kΩ pull-up ke 3.3V)
+- **YF-B1 Flow Meter:** ESP32 **GPIO 15**
+- **FS400A Flow Meter:** ESP32 **GPIO 16**
+- **Upper Float Switch:** **REMOVED / TIDAK DIGUNAKAN**
+
+### F. Actuator Relays (Active-LOW)
+- **Well Pump:** ESP32 **GPIO 1**
+- **Distribution Pump:** ESP32 **GPIO 2**
+- **Raw Submersible Pump:** ESP32 **GPIO 4**
+- **Dosing Pump A:** ESP32 **GPIO 5**
+- **Dosing Pump B:** ESP32 **GPIO 6**
+- **Cooling Fan:** ESP32 **GPIO 7**
+- **Error Lamp:** ESP32 **GPIO 18**
+

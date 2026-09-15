@@ -19,13 +19,24 @@ extern "C" {
 
 /* ========================================================================== */
 /* SPI BUS & CHIP SELECT PIN DEFINITIONS                                     */
+/* Shared SPI2_HOST Bus: SCK (11), MOSI (12), MISO (13)                      */
+/* Peripherals:                                                               */
+/*  - TFT ST7735 Display: CS = GPIO 14                                        */
+/*  - SD Card Slot (Built-in on back of TFT ST7735): CS = GPIO 48            */
+/*  - W5500 Ethernet: CS = GPIO 10 (Unused / Pending phase)                   */
 /* ========================================================================== */
 #define PIN_SPI_SCK                 11
 #define PIN_SPI_MOSI                12
 #define PIN_SPI_MISO                13
 
+/* SD Card Slot Signals (Built-in on back of TFT ST7735 Module) */
+#define PIN_SD_SCK                  PIN_SPI_SCK
+#define PIN_SD_MOSI                 PIN_SPI_MOSI
+#define PIN_SD_MISO                 PIN_SPI_MISO
+#define PIN_SD_CS                   48
+#define PIN_MICROSD_CS              PIN_SD_CS   /* Backward compatibility alias */
+
 #define PIN_W5500_CS                10
-#define PIN_MICROSD_CS              48
 
 /* ========================================================================== */
 /* DISPLAY: ST7735 1.8" TFT SPI (128x160)                                    */

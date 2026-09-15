@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-BUTTON CONFLICT RESOLVED & DS1302 RTC IMPLEMENTED (FLASH & BOOT VERIFIED)
+SD CARD SLOT BAWAAN TFT IMPLEMENTED & COMPILED (BUILD PASS, FLASH PENDING USB CONNECTION)
 
 ### Latest Safe Point
-SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 
 ## Safe Point Index
+- [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
 - [x] SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
 - [x] SP-BOOT-001 First Bring-Up Boot to SYSTEM READY Complete
@@ -66,6 +67,44 @@ SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-HW-004 (PARTIAL)
+- **ID**: SP-HW-004 (PARTIAL)
+- **Objective**: Re-architect SD card interface to use the physical SD Card Slot built into the back of the 1.8" TFT ST7735 module on the shared SPI2_HOST bus (SCK: 11, MOSI: 12, MISO: 13, SD_CS: 48) without an external microSD reader, ensuring fail-safe degraded mode behavior without watchdog timeouts or boot hangs.
+- **Completed Work**:
+  1. Audited codebase for all SD card, SPI bus, and pin references.
+  2. Updated `esp32/main/config/pin_config.h`:
+     - Added explicit SD card slot signals: `PIN_SD_SCK` (11), `PIN_SD_MOSI` (12), `PIN_SD_MISO` (13), `PIN_SD_CS` (48).
+     - Retained legacy alias `PIN_MICROSD_CS = PIN_SD_CS`.
+     - Preserved all protected mappings (TFT 11/12/14/21/42, RTC DS1302 8/9/47, Buttons 0/39/40/41, Float 38, DS18B20 17, Flow 15/16, Actuators 1/2/4/5/6/7/18).
+  3. Updated `esp32/main/hal/sdcard_hal.h` and `esp32/main/hal/sdcard_hal.c`:
+     - Configured `PIN_SD_CS` (GPIO 48) as output driven HIGH (1) at boot to guarantee unselected bus state during TFT transactions.
+     - Added SPI line pull-ups (`MISO`, `MOSI`, `SCK`) for clean bus idle state.
+     - Bound SDSPI device to `SPI2_HOST` with bounded timeout (100 ms) and fail-safe degraded mode fallback on absent card.
+     - Guarded `s_card` to eliminate unused variable compiler warning under `FEATURE_SDCARD_ENABLED=0`.
+  4. Synchronized Master GPIO documentation in `docs/ESP32_GPIO_PIN_MAP.md` and `esp32/docs/ESP32_GPIO_PIN_MAP.md`:
+     - Added Section 15 "Shared SPI Bus & Component-to-GPIO Mapping" explicitly distinguishing ESP32 physical pins and component mapping.
+  5. Built firmware (`agrotech_esp32.bin`, 939,728 bytes) with **0 compile errors** and **0 compile warnings**.
+- **Incomplete / Pending Work**:
+  - Firmware flashing to COM3: Pending physical USB reconnection of ESP32 board to host PC (COM3 port currently not present).
+  - Serial boot log capture: Pending flashing and reboot.
+- **Verification Result**:
+  - Build: PASS (agrotech_esp32.bin, 939,728 bytes, 0 errors, 0 warnings).
+  - Flash: PENDING (USB cable disconnected by operator, COM3 offline).
+  - Boot: PENDING.
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/sdcard_hal.h`
+  - `esp32/main/hal/sdcard_hal.c`
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+- **Known Issues**:
+  - COM3 USB-to-UART adapter is physically unplugged from host PC.
+- **Next Action**:
+  - Operator reconnects USB-to-UART adapter to PC.
+  - Flash firmware to COM3 and capture serial boot log to finalize SP-HW-004.
 
 ---
 

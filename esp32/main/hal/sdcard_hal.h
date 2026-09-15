@@ -8,8 +8,19 @@ extern "C" {
 #endif
 
 /**
- * @brief Initialize microSD SPI driver on CS GPIO 27 (PIN_MICROSD_CS).
- * Returns ESP_OK if mounted, or ESP_ERR_NOT_FOUND if card not inserted.
+ * @file sdcard_hal.h
+ * @brief Hardware Abstraction Layer for SD Card Slot on the back of TFT ST7735 display.
+ *
+ * Signal Mapping (Shared SPI2_HOST Bus):
+ *  - SD_SCK  -> GPIO 11 (Shared with TFT SCK)
+ *  - SD_MOSI -> GPIO 12 (Shared with TFT MOSI/SDA)
+ *  - SD_MISO -> GPIO 13 (Dedicated SPI MISO)
+ *  - SD_CS   -> GPIO 48 (Dedicated Chip Select)
+ */
+
+/**
+ * @brief Initialize SD card SPI driver on TFT onboard slot (CS GPIO 48).
+ * Non-blocking / fail-safe: if SD card is not present, falls back gracefully to degraded mode.
  */
 esp_err_t sdcard_hal_init(void);
 
