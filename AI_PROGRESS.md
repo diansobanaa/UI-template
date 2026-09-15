@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-SD CARD SLOT BAWAAN TFT IMPLEMENTED & COMPILED (BUILD PASS, FLASH PENDING USB CONNECTION)
+CANONICAL COMPONENT MAPPING SYNCHRONIZED (DS3231 I2C REPLACES DS1302, GPIO 47 LIBERATED, RELAY & LM2596 AUDITED)
 
 ### Latest Safe Point
-SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
+SP-HW-005 Canonical Hardware Component & Pin Mapping Synchronization
 
 ## Safe Point Index
+- [x] SP-HW-005 Canonical Hardware Component & Pin Mapping Synchronization
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
 - [x] SP-API-001 ESP32 Canonical REST API Reachability and Verification Complete
@@ -67,6 +68,44 @@ SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] FIRST-BUILD-BLOCKER-http-server-literal-newline Resolve literal \n corruption in HTTP server files
 - [x] FIRST-BUILD-BLOCKER-command-redefinition Resolve variable redefinition and finalize build
 - [x] POST-BUILD-AUDIT-001 Cropcycle dead validation, auth, and command HTTP status mapping
+
+---
+
+## Safe Point Record: SP-HW-005
+- **ID**: SP-HW-005
+- **Objective**: Establish single authoritative Master Hardware & Component Pin Map documentation based on operator's actual physical inventory, replacing obsolete DS1302 3-wire mapping with active DS3231 I2C RTC (`32K`, `SQW`, `SCL`, `SDA`, `VCC`, `GND`), liberating GPIO 47, auditing 4-channel relay module and LM2596 buck converter, and recording 3x MOSFET modules with TBD pins without guessing.
+- **Completed Work**:
+  1. Identified active RTC module as standard DS3231 I2C RTC (ZS-042 breakout).
+  2. Mapped DS3231 I2C pins: SCL $\to$ GPIO 9, SDA $\to$ GPIO 8, VCC $\to$ 3.3V DC, GND $\to$ ESP32 GND; marked 32K and SQW as NOT USED (NC).
+  3. Obsoleted legacy DS1302 3-wire mapping and liberated GPIO 47 as clean unassigned spare GPIO.
+  4. Flagged firmware HAL driver state (`hal/rtc_ds1302.c`, `hal/rtc_ds1302.h`) as `SOFTWARE UPDATE REQUIRED: DS3231 I2C DRIVER INTEGRATION` for subsequent firmware safe point.
+  5. Audited 4-Channel 5V Relay Module: verified active-LOW logic, `VCC-JDVCC` jumper closed implication (shared 5V supply, mandatory common ground with ESP32), and noted 3.3V logic high cutoff test caution. Mapped IN1 $\to$ GPIO 4 (Raw Submersible), IN2 $\to$ GPIO 18 (Error Lamp), IN3/IN4 $\to$ TBD/Spare.
+  6. Audited LM2596 DC-DC Buck Converter as POWER COMPONENT: 12V DC input from PSU 1 $\to$ 5.05V DC output for ESP32 5V rail; noted common ground plane and mandatory pre-power DMM voltage calibration requirement.
+  7. Audited DS18B20: VCC $\to$ 3.3V DC, GND $\to$ ESP32 GND, DATA $\to$ GPIO 17 with 4.7kΩ pull-up resistor.
+  8. Audited 3x MOSFET Modules: recorded physical pins as TBD and actuator assignments as TBD without guessing.
+  9. Audited TFT + SD Module: confirmed TFT canonical pins (SCK: 11, MOSI: 12, CS: 14, DC: 21, RST: 42), confirmed SD slot shared SPI (SCK: 11, MOSI: 12, MISO: 13, SD_CS: 48 with WS2812 DIN caveat) and classified SD hardware verification as UNVERIFIED / PENDING PHYSICAL VERIFICATION.
+  10. Updated `docs/ESP32_GPIO_PIN_MAP.md` as authoritative Single Source of Truth with all sections (A: GPIO Pin Map, B: Component Pin Map, C: Power Map, D: Hardware Status, E: Conflict Matrix, F: Firmware Status).
+  11. Synchronized `esp32/docs/ESP32_GPIO_PIN_MAP.md` to identical hash.
+  12. Synchronized `esp32/docs/ESP32_ASSEMBLY_GUIDE.md` to eliminate stale GPIO references.
+  13. Marked `esp32/docs/AI_DS1302_PIN_MAPPING_AUDIT_V1.md` as SUPERSEDED & OBSOLETE.
+- **Verification Result**:
+  - Documentation Authority: PASS (`docs/ESP32_GPIO_PIN_MAP.md` and `esp32/docs/ESP32_GPIO_PIN_MAP.md` SHA256 hashes identical).
+  - Conflict Check: PASS (Zero GPIO overlaps, zero memory bus violations, zero strapping conflicts).
+  - Firmware Build / Hardware: Unaltered in this documentation task.
+- **Git Commit Hash**: `df9adec4ef82dd7a08938b7e39be944d70675290`
+- **Changed Files**:
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `esp32/docs/AI_DS1302_PIN_MAPPING_AUDIT_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**:
+  - Firmware HAL still contains DS1302 bitbang driver; will be refactored to DS3231 I2C in next firmware safe point.
+  - Physical pins for 3x MOSFET modules remain TBD pending operator markings.
+  - Physical USB flashing and boot verification on COM3 remains pending hardware reconnection.
+- **Next Safe Point / Next Action**:
+  - Implement DS3231 I2C HAL driver in firmware (`i2c_master` on GPIO 8 SDA, GPIO 9 SCL) and update `pin_config.h` (SP-HW-006).
 
 ---
 

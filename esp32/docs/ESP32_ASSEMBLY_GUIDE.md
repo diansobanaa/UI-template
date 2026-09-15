@@ -17,19 +17,19 @@
 | **BREADBOARD**| 400-Point Breadboard + Wiring Accessories | 1 kit | N/A | Prototyping | **READY**: Workbench prototyping & sensor interconnect |
 | **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | SPI (CS: GPIO 10) | **READY**: Hardwired local LAN interface |
 | **WIFI-ANT** | External 2.4GHz 5dBi Antenna + U.FL to SMA Pigtail | 1 | Passive RF | U.FL / SMA | **READY**: External high-gain wireless network antenna |
-| **RTC** | DS3231M High-Precision I2C RTC Module | 1 | 3.3V DC | I2C (SDA: 8, SCL: 9) | **READY**: Battery-backed real-time clock authority |
-| **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
-| **STORAGE** | MicroSD SPI Card Socket Module + MicroSD Card | 1 | 3.3V DC | SPI (CS: GPIO 27) | **PENDING / NOT AVAILABLE**: Not required for first flash |
+| **RTC** | DS3231 High-Precision I2C RTC Module (6-pin: 32K, SQW, SCL, SDA, VCC, GND) | 1 | 3.3V DC | I2C (SDA: GPIO 8, SCL: GPIO 9) | **READY**: Battery-backed I2C RTC (32K & SQW NC; driver update pending) |
+| **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42, SCK: 11, MOSI: 12) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
+| **STORAGE** | MicroSD Card Slot (Built-in on back of TFT ST7735 module) | 1 | 3.3V DC | Shared SPI (CS: GPIO 48, SCK: 11, MOSI: 12, MISO: 13) | **UNVERIFIED**: Hardware slot present on TFT module; flash/boot pending |
 | **FRAM** | Ferroelectric RAM | 0 | N/A | N/A | **NOT USED / NOT REQUIRED**: NVS & SPIFFS used for persistence |
-| **RELAY-4CH** | 4-Channel Optocoupled Relay Board | 1 | 5V Coil | Active-LOW inputs | **READY**: Galvanic isolation for intermediate loads |
-| **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts | **READY**: Switches 220V AC Deep Well Pump |
-| **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
-| **MOSFET-15A**| High-Power MOSFET Driver Module 15A / 400W | 3 | 3.3V/5V Logic in, 12V out | PWM / Logic | **READY**: High-speed DC switching (Dosing A, Dosing B, Fan/Pump) |
+| **RELAY-4CH** | 4-Channel Optocoupled Relay Board (VCC-JDVCC jumper installed) | 1 | 5V Coil | Active-LOW (IN1: GPIO 4, IN2: GPIO 18, IN3/IN4: TBD) | **READY**: Galvanic isolation for intermediate loads |
+| **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 1) | **READY**: Switches 220V AC Deep Well Pump |
+| **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 2) | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
+| **MOSFET-15A**| High-Power MOSFET Driver Module 15A / 400W | 3 | 3.3V/5V Logic in, 12V out | Physical Pins TBD (GPIO 5, 6, 7) | **READY**: High-speed DC switching (Physical pins TBD) |
 | **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | **READY**: Main fertigation loop flow meter |
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
-| **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 26) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
-| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 38-41) | **READY**: MODE, MANUAL A, MANUAL B, DISTRIBUTION |
+| **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 38) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
+| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 40, 41) | **READY**: MODE (0), MANUAL A (39), MANUAL B (40), DISTRIBUTION (41) |
 | **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
 | **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
 | **AC-IN** | 3-in-1 AC Power Inlet Socket with Fuse & Switch | 1 | 250V AC 10A | Mains Power Entry | **READY**: Master power disconnect and fuse protection |
@@ -67,17 +67,19 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 16** | FS400A Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 17** | DS18B20 1-Wire Temperature Data | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 18** | System Status / Error Beacon Lamp | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Lamp ON, 1 = OFF) |
+| **GPIO 0** | Physical Button: MODE Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0). Boot strap caveat. |
 | **GPIO 21** | TFT Display Data / Command (DC) | OUTPUT | 3.3V Logic | High = Data, Low = Command |
-| **GPIO 26** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal |
-| **GPIO 27** | MicroSD Card Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (SPI Bus) |
-| **GPIO 38** | Physical Button: MODE Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
+| **GPIO 38** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal (SAFETY AUTHORITY) |
 | **GPIO 39** | Physical Button: MANUAL RUN A | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 40** | Physical Button: MANUAL RUN B | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 41** | Physical Button: DISTRIBUTION | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
+| **GPIO 47** | UNASSIGNED / CLEAN SPARE | I/O | 3.3V Logic | Liberated clean GPIO (Former DS1302 RST removed) |
+| **GPIO 48** | MicroSD Card Slot Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (Onboard RGB LED line caveat) |
 
 > **RESERVED PINS (DO NOT WIRE / DO NOT REASSIGN):**
-> GPIO 0 (Boot strap), GPIO 3 (JTAG), GPIO 19 (Native USB D-), GPIO 20 (Native USB D+), GPIO 33–37 (Octal PSRAM / SPI Flash), GPIO 43–44 (UART0 TX/RX console), GPIO 45–46 (VDD_SPI), GPIO 47 (Octal PSRAM CS), GPIO 48 (RGB WS2812).
+> GPIO 3 (Strapping JTAG), GPIO 19 (Native USB D-), GPIO 20 (Native USB D+), GPIO 26–37 (Internal Octal Flash / Octal PSRAM — GPIO 35–37 broken out on header are FATAL if touched), GPIO 43–44 (UART0 TX/RX console), GPIO 45–46 (Strapping VDD_SPI / ROM).
+> GPIO 22–25 do not exist in ESP32-S3 silicon.
 
 ---
 
@@ -159,7 +161,7 @@ The controller enclosure contains three strictly segregated power domains:
   - Black wire (GND): Connect to GND_LV.
   - Yellow/White wire (Data): Connect to GPIO 17. Solder a 4.7kΩ pull-up resistor between Data and 3.3V.
 - **Lower Float Switch (Safety STOP POINT / Dry-Run Interlock):**
-  - Terminal A: Connect to GPIO 26.
+  - Terminal A: Connect to GPIO 38.
   - Terminal B: Connect to GND_LV.
   - Switch is oriented such that when water level is sufficient, float is raised (open contact with internal pull-up = 3.3V HIGH). When water drops to minimum safety level, float drops (closes contact to GND_LV = 0V LOW).
   - Firmware / Safety layer behavior: Lower float acts as the mandatory hardware safety STOP POINT for distribution/fertigation and feed pumps. Both manual commands and scheduler execution are immediately blocked/stopped when float is LOW.
@@ -169,16 +171,16 @@ The controller enclosure contains three strictly segregated power domains:
 
 ### 4.4. Physical Operator Buttons
 All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`. The internal pull-up resistor on the ESP32 holds the line at 3.3V when open; depressing the button pulls the line to 0V:
-- **MODE:** GPIO 38 to Button Pin 1; Button Pin 2 to GND_LV.
+- **MODE:** GPIO 0 to Button Pin 1; Button Pin 2 to GND_LV (Onboard BOOT switch or external NO button; must be released during boot).
 - **MANUAL RUN A:** GPIO 39 to Button Pin 1; Button Pin 2 to GND_LV.
 - **MANUAL RUN B:** GPIO 40 to Button Pin 1; Button Pin 2 to GND_LV.
 - **DISTRIBUTION:** GPIO 41 to Button Pin 1; Button Pin 2 to GND_LV.
 
 ### 4.5. SPI Peripheral Bus Wiring
-The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared across W5500, TFT Display, and MicroSD card. Keep wire lengths under 15 cm:
+The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared across W5500, TFT Display, and built-in MicroSD card slot. Keep wire lengths under 15 cm:
 - **W5500 Ethernet:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 10, RST → 3.3V (or NC), VCC → 3.3V, GND → GND_LV.
 - **TFT Display (ST7735 1.8" 128×160 SPI):** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV. (Hardware controller: ST7735. Do NOT substitute with 2.4" or 2.8" or ILI9341/ST7789).
-- **MicroSD Module:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 27, VCC → 3.3V, GND → GND_LV. (*Pending procurement; card reader not required for first flash*).
+- **MicroSD Slot (Built-in on back of TFT ST7735 Module):** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 48, VCC → 3.3V, GND → GND_LV. (*Card slot on TFT PCB; flash/boot verification pending*).
 
 ---
 

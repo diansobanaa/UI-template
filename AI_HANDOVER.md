@@ -2,37 +2,34 @@
 
 ## Current Status
 - **Date/Time**: 2026-09-15
-- **Safe Point**: SP-HW-004 (PARTIAL) — TFT Onboard SD Card Slot Shared SPI Integration.
-- **Goal**: Re-architect SD card interface to utilize the physical SD Card Slot built into the back of the 1.8" TFT ST7735 module on shared SPI2_HOST bus (SCK: 11, MOSI: 12, MISO: 13, SD_CS: 48) without an external microSD reader.
+- **Safe Point**: SP-HW-005 — Canonical Hardware Component & Pin Mapping Synchronization.
+- **Goal**: Synchronize master documentation to reflect actual physical hardware inventory: replace legacy DS1302 3-wire mapping with active DS3231 I2C RTC (`32K`, `SQW`, `SCL`, `SDA`, `VCC`, `GND`), liberate GPIO 47, audit 4-channel relay module and LM2596 buck converter, and record 3x MOSFET modules with TBD pins.
 
 ### What was just completed
-- **SP-HW-004 (PARTIAL)**:
-  1. Audited codebase: verified all references to `SDCARD_HAL`, `PIN_MICROSD_CS`, `GPIO27`, and `FEATURE_SDCARD_ENABLED`. Completely removed external reader assumptions.
-  2. Updated `esp32/main/config/pin_config.h`:
-     - Explicit defines: `PIN_SD_SCK` (11), `PIN_SD_MOSI` (12), `PIN_SD_MISO` (13), `PIN_SD_CS` (48), with alias `PIN_MICROSD_CS`.
-     - Preserved all validated peripheral mappings: TFT (11/12/14/21/42), RTC DS1302 (8/9/47), Buttons (0/39/40/41), Lower Float (38), DS18B20 (17), Flow (15/16), Actuators (1/2/4/5/6/7/18).
-  3. Updated `esp32/main/hal/sdcard_hal.h` and `esp32/main/hal/sdcard_hal.c`:
-     - Initialized `PIN_SD_CS` (GPIO 48) as output driven HIGH (1) at boot to guarantee unselected state during TFT transactions.
-     - Pulled up SPI lines (`MISO`, `MOSI`, `SCK`) for clean bus idle state.
-     - Bound SDSPI to `SPI2_HOST` with bounded timeout (100 ms) and fail-safe degraded mode fallback when card is uninserted.
-     - Guarded `s_card` to ensure 0 compiler warnings under `FEATURE_SDCARD_ENABLED=0`.
-  4. Updated master documentation in `docs/ESP32_GPIO_PIN_MAP.md` and `esp32/docs/ESP32_GPIO_PIN_MAP.md`:
-     - Added Section 15 "Shared SPI Bus & Component-to-GPIO Mapping" explicitly separating physical pin breakouts from component mappings.
-  5. Built firmware cleanly (`agrotech_esp32.bin`, 939,728 bytes, 0 errors, 0 warnings).
-  6. Attempted flashing to COM3: detected USB-to-UART adapter is physically disconnected from host PC.
+- **SP-HW-005**:
+  1. Identified active RTC module as standard **DS3231 I2C RTC** (`32K`, `SQW`, `SCL`, `SDA`, `VCC`, `GND`).
+  2. Mapped DS3231 I2C pins: `SCL` $\to$ **GPIO 9**, `SDA` $\to$ **GPIO 8**, `VCC` $\to$ **3.3V DC**, `GND` $\to$ **ESP32 GND**; marked `32K` and `SQW` as **NOT USED (NC)**.
+  3. Obsoleted legacy DS1302 3-wire mapping and **liberated GPIO 47** as clean unassigned spare GPIO.
+  4. Flagged firmware HAL driver state (`hal/rtc_ds1302.c`, `hal/rtc_ds1302.h`, `pin_config.h`) as **`SOFTWARE UPDATE REQUIRED: DS3231 I2C DRIVER INTEGRATION`** for subsequent firmware safe point.
+  5. Audited 4-Channel 5V Relay Module: verified active-LOW logic (`ACTUATOR_ACTIVE_LEVEL = 0`), `VCC ↔ JD-VCC` jumper closed configuration (shared 5V supply, mandatory common ground with ESP32), and noted 3.3V logic high cutoff test caution. Mapped IN1 $\to$ GPIO 4 (Raw Submersible), IN2 $\to$ GPIO 18 (Error Lamp), IN3/IN4 $\to$ TBD/Spare.
+  6. Audited LM2596 DC-DC Buck Converter as **POWER COMPONENT**: 12V DC input from PSU 1 $\to$ 5.05V DC output for ESP32 5V rail; noted common ground plane and mandatory pre-power DMM voltage calibration requirement.
+  7. Audited DS18B20: `VCC` $\to$ 3.3V DC, `GND` $\to$ ESP32 GND, `DATA` $\to$ GPIO 17 with 4.7kΩ pull-up resistor.
+  8. Audited 3x MOSFET Modules: recorded physical pins as **TBD** and actuator assignments as **TBD** without guessing.
+  9. Audited TFT + SD Module: confirmed TFT canonical pins (SCK: 11, MOSI: 12, CS: 14, DC: 21, RST: 42), confirmed SD slot shared SPI (SCK: 11, MOSI: 12, MISO: 13, SD_CS: 48 with WS2812 DIN caveat) and classified SD hardware verification as **UNVERIFIED / PENDING PHYSICAL VERIFICATION**.
+  10. Updated [ESP32_GPIO_PIN_MAP.md](file:///d:/template/docs/ESP32_GPIO_PIN_MAP.md) as authoritative Single Source of Truth with all required sections (A: GPIO Pin Map, B: Component Pin Map, C: Power Map, D: Hardware Status, E: Conflict Matrix, F: Firmware Status).
+  11. Synchronized `esp32/docs/ESP32_GPIO_PIN_MAP.md` to identical hash.
+  12. Synchronized `esp32/docs/ESP32_ASSEMBLY_GUIDE.md` to eliminate stale GPIO references.
+  13. Marked `esp32/docs/AI_DS1302_PIN_MAPPING_AUDIT_V1.md` as SUPERSEDED & OBSOLETE.
 
 ## Repository Status
-- Firmware builds cleanly (939,728 bytes, 0 errors, 0 warnings).
-- Target Hardware: ESP32-S3-WROOM-1-N16R8 on COM3.
+- Master Documentation: **SYNCHRONIZED & CONFLICT-FREE**.
+- Target Hardware: ESP32-S3-WROOM-1-N16R8.
+- Firmware HAL RTC Status: `rtc_ds1302` legacy bitbang driver present (**SOFTWARE UPDATE REQUIRED**).
 - Flash & Boot Status: **PENDING PHYSICAL USB CONNECTION**.
 - Actuator status: **100% SAFE OFF**.
 
 ## Next Action for Next Agent / Operator
-1. Reconnect the USB-to-UART cable (FTDI COM3) to the host PC.
-2. Flash firmware:
+1. **Firmware Task (SP-HW-006)**: Refactor RTC HAL driver in `esp32/main/hal/` from bitbang DS1302 to I2C DS3231 driver using ESP-IDF `driver/i2c.h` on GPIO 8 (SDA) and GPIO 9 (SCL), and remove `PIN_DS1302_RST` from `esp32/main/config/pin_config.h`.
+2. **Physical Flashing / Hardware Bring-up (when USB COM3 reconnected)**:
+   Flash firmware:
    `& "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe" -m esptool --chip esp32s3 -p COM3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0xf000 build/ota_data_initial.bin 0x20000 build/agrotech_esp32.bin`
-3. Capture serial boot log:
-   `& "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe" "C:\Users\rumah\.gemini\antigravity-ide\brain\6c1389ac-b0da-47f3-b257-36c8d3d44827\scratch\read_serial.py" COM3`
-4. Verify boot log and promote SP-HW-004 from PARTIAL to PASS.
-
-

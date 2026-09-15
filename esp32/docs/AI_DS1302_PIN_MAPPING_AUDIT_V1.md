@@ -1,8 +1,14 @@
 # FULL GPIO REMAPPING AUDIT (ESP32-S3-WROOM-1-N16R8)
 
+> [!WARNING]
+> **SUPERSEDED & OBSOLETE DOCUMENT — HISTORICAL RECORD ONLY**  
+> The DS1302 3-wire RTC hardware has been physically replaced by the **DS3231 I2C RTC Module** (pins: `32K`, `SQW`, `SCL`, `SDA`, `VCC`, `GND`).  
+> The single authoritative hardware mapping is documented in [ESP32_GPIO_PIN_MAP.md](file:///d:/template/docs/ESP32_GPIO_PIN_MAP.md).  
+> **GPIO 47 is LIBERATED / UNASSIGNED**. Do NOT reference this document for active wiring.
+
 **Date:** 2026-09-15  
 **Hardware:** ESP32-S3-WROOM-1-N16R8 (USB Serial COM3)  
-**Status:** **AUDIT ONLY — NO CODE CHANGE — NO BUILD — NO FLASH**
+**Status:** **OBSOLETE HISTORICAL AUDIT**
 
 Berdasarkan data pin fisik aktual (header kiri 22 pin, kanan 22 pin) dan konfigurasi memori N16R8 (Octal Flash 16MB + Octal PSRAM 8MB), berikut adalah hasil audit elektrikal penuh:
 
