@@ -23,11 +23,48 @@ Before substantial work:
 
 Before stopping:
 1. Build/test the work.
-2. Update `AI_PROGRESS.md`.
-3. Update `AI_HANDOVER.md`.
-4. Record changed files and reasons.
-5. Record known issues and exact next action.
-6. Create a Git commit at a stable safe point whenever the repository is in a buildable/testable state.
+2. Update ALL affected and related technical documentation files (.md) across `docs/` and `esp32/docs/` (Zero-Drift Documentation Rule).
+3. Update `AI_PROGRESS.md`.
+4. Update `AI_HANDOVER.md`.
+5. Record changed files and reasons.
+6. Record known issues and exact next action.
+7. Create a Git commit at a stable safe point whenever the repository is in a buildable/testable state.
+
+## Mandatory Documentation Synchronization Rule (Zero-Drift Policy)
+
+**CRITICAL MANDATE FOR ALL AI AGENTS:**
+Whenever ANY event, modification, feature, bug fix, architectural decision, pin reassignment, security interlock, or wiring change occurs that is worthy of documentation, the AI agent is **STRICTLY PROHIBITED** from finishing the task by only updating code. The AI agent MUST proactively identify and update **EVERY SINGLE RELATED DOCUMENT** across the entire repository.
+
+### 1. Triggers that Require Immediate Documentation Updates
+If any of the following occur:
+1. **GPIO / Pin / Wiring Changes:**
+   - Any pin added, moved, freed, or repurposed in firmware (`pin_config.h`, HAL drivers).
+   - *Mandatory updates:* `docs/ESP32_GPIO_PIN_MAP.md`, `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/HARDWARE_INVENTORY.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`, `docs/POWER_MAP.md`, `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`.
+2. **Safety, Security & Interlock Changes:**
+   - Any emergency stop rule, dry-run protection, tamper loop, or sensor trip condition added or modified.
+   - *Mandatory updates:* `docs/POWER_MAP.md`, `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`.
+3. **Power, Electrical & Grounding Changes:**
+   - Voltage levels, buck converter tuning, relay active levels, or ground domain isolation changes.
+   - *Mandatory updates:* `docs/POWER_MAP.md`, `docs/HARDWARE_WIRING_MAP.md`.
+4. **API, Endpoints & Contract Changes:**
+   - Any REST endpoint, request/response field, payload structure, or enum modified or added.
+   - *Mandatory updates:* `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, relevant service/handler files.
+5. **Component Registry & Architecture Changes:**
+   - Any change to `components.json`, dynamic hardware loading, expansion pathways (I2C PCA9685, MOSFETs, relays).
+   - *Mandatory updates:* `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`.
+6. **Network, Power-Loss & Watchdog Features:**
+   - Heartbeat intervals, timeout thresholds, sirens, notifications, or offline fallback handling.
+   - *Mandatory updates:* `docs/POWER_MAP.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+
+### 2. Mandatory Dual-Location Mirroring Rule
+Any file modified under `docs/*.md` MUST be copied identically to `esp32/docs/*.md` (exact character-for-character match). Never allow the firmware copy to diverge from the canonical `docs/` copy.
+
+### 3. Verification & Handover Rule
+Before declaring a safe point or finishing a turn:
+1. Check `git status` to verify that all corresponding `.md` files were modified alongside the code.
+2. Update `AI_PROGRESS.md` and `AI_HANDOVER.md` detailing every changed file, reason, and verification result.
+3. If code is changed without updating all corresponding documentation, the task is **STRICTLY INCOMPLETE (FAIL)**.
+
 
 ## Safe-point rules
 A safe point is a verified repository state, not merely a completed thought or partial edit.
