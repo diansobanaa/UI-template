@@ -40,7 +40,7 @@ SP-HW-008 Anti-Theft Pump Security & Network Loss Alarm
   - Pin Consistency Matrix: PASS (26/26 pins match 100% between `pin_config.h` and `HARDWARE_WIRING_MAP.md`).
   - Documentation Integrity: PASS (All documents updated and identically mirrored between `docs/` and `esp32/docs/`).
   - Frontend Build: PASS (`dist/index.html` 854 KB bundle).
-- **Git Commit Hash**: TBD
+- **Git Commit Hash**: `220a53d`
 - **Changed Files**:
   - `esp32/main/config/pin_config.h`
   - `esp32/main/hal/sensor_hal.h`
