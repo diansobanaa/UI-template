@@ -24,10 +24,10 @@ static const hw_component_info_t s_default_components[] = {
     { "flow_fs400a",      "FS400A Flow Meter",     "FLOW_METER",  "FLOW_DIST",        "PULSE",    PIN_IN_FLOW_FS400A,      0, "MONITORING", "AVAILABLE" },
     { "temp_ds18b20",     "DS18B20 Temp Sensor",   "SENSOR",      "WATER_TEMP",       "ONE_WIRE", PIN_IN_TEMP_DS18B20,     0, "MONITORING", "AVAILABLE" },
     { "float_lower",      "Lower Float Switch",    "SENSOR",      "TANK_LEVEL_LOW",   "GPIO",     PIN_IN_FLOAT_LOWER,      0, "CRITICAL",   "AVAILABLE" },
-    { "btn_mode",         "Mode Button",           "INPUT",       "BTN_MODE",         "GPIO",     PIN_BTN_MODE,            0, "NORMAL",     "AVAILABLE" },
-    { "btn_manual_a",     "Manual A Button",       "INPUT",       "BTN_MAN_A",        "GPIO",     PIN_BTN_MANUAL_A,        0, "NORMAL",     "AVAILABLE" },
-    { "btn_manual_b",     "Manual B Button",       "INPUT",       "BTN_MAN_B",        "GPIO",     PIN_BTN_MANUAL_B,        0, "NORMAL",     "AVAILABLE" },
-    { "btn_dist",         "Distribution Button",   "INPUT",       "BTN_DIST",         "GPIO",     PIN_BTN_DISTRIBUTION,    0, "NORMAL",     "AVAILABLE" },
+    { "btn_mode",         "TFT Display Switch",    "INPUT",       "TFT_SWITCH",       "GPIO",     PIN_BTN_MODE,            0, "NORMAL",     "AVAILABLE" },
+    { "btn_manual_a",     "Well Pump Toggle",      "INPUT",       "WELL_PUMP_TOGGLE", "GPIO",     PIN_BTN_MANUAL_A,        0, "NORMAL",     "AVAILABLE" },
+    { "btn_manual_b",     "Reserved Button 3",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_MANUAL_B,        0, "NORMAL",     "AVAILABLE" },
+    { "btn_dist",         "Reserved Button 4",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_DISTRIBUTION,    0, "NORMAL",     "AVAILABLE" },
 };
 
 static hw_component_info_t s_active_components[MAX_HW_COMPONENTS];
@@ -49,21 +49,16 @@ static const char DEFAULT_COMPONENTS_JSON[] =
 "    { \"componentId\": \"flow_fs400a\",      \"name\": \"FS400A Flow Meter\",    \"type\": \"FLOW_METER\", \"role\": \"FLOW_DIST\",       \"interface\": \"PULSE\",\"pin\": 16, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"temp_ds18b20\",     \"name\": \"DS18B20 Temp Sensor\",  \"type\": \"SENSOR\",     \"role\": \"WATER_TEMP\",      \"interface\": \"ONE_WIRE\", \"pin\": 17, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"float_lower\",      \"name\": \"Lower Float Switch\",   \"type\": \"SENSOR\",     \"role\": \"TANK_LEVEL_LOW\",  \"interface\": \"GPIO\", \"pin\": 38, \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_mode\",         \"name\": \"Mode Button\",          \"type\": \"INPUT\",      \"role\": \"BTN_MODE\",        \"interface\": \"GPIO\", \"pin\": 0,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_manual_a\",     \"name\": \"Manual A Button\",      \"type\": \"INPUT\",      \"role\": \"BTN_MAN_A\",       \"interface\": \"GPIO\", \"pin\": 39, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_manual_b\",     \"name\": \"Manual B Button\",      \"type\": \"INPUT\",      \"role\": \"BTN_MAN_B\",       \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_dist\",         \"name\": \"Distribution Button\",  \"type\": \"INPUT\",      \"role\": \"BTN_DIST\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" }\n"
+"    { \"componentId\": \"btn_mode\",         \"name\": \"TFT Display Switch\",   \"type\": \"INPUT\",      \"role\": \"TFT_SWITCH\",      \"interface\": \"GPIO\", \"pin\": 0,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"btn_manual_a\",     \"name\": \"Well Pump Toggle\",     \"type\": \"INPUT\",      \"role\": \"WELL_PUMP_TOGGLE\",\"interface\": \"GPIO\", \"pin\": 39, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"btn_manual_b\",     \"name\": \"Reserved Button 3\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"btn_dist\",         \"name\": \"Reserved Button 4\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" }\n"
 "  ]\n"
 "}";
 
 const char *hardware_registry_get_default_json(void)
 {
     return DEFAULT_COMPONENTS_JSON;
-}
-
-static void on_button_event(button_id_t btn, bool pressed)
-{
-    ESP_LOGI(TAG, "Hardware Button %d event: %s", btn, pressed ? "PRESSED" : "RELEASED");
 }
 
 static void safe_copy_str(char *dst, size_t dst_size, const char *src, const char *fallback)
@@ -191,7 +186,7 @@ esp_err_t hardware_hal_init_all(void)
 
     ESP_ERROR_CHECK(actuator_hal_init());
     ESP_ERROR_CHECK(sensor_hal_init());
-    ESP_ERROR_CHECK(button_hal_init(on_button_event));
+    ESP_ERROR_CHECK(button_hal_init(NULL));
 
     ESP_LOGI(TAG, "Hardware HAL initialization complete. Total active components: %u", (unsigned)s_active_count);
     return ESP_OK;

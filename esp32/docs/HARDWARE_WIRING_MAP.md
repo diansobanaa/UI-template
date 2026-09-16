@@ -6,7 +6,7 @@
 **Status:** **ACTIVE BINDING CONTRACT (AUDITED & SYNCHRONIZED)**
 
 > [!TIP]
-> **Visual Architecture Diagram:** Untuk peta visual flowchart (Mermaid) interaktif yang merender blok ESP32 dan seluruh periferal, buka [ESP32_PERIPHERAL_VISUAL_MAP.md](file:///d:/template/esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md).
+> **Visual Architecture Diagram:** Untuk peta visual flowchart (Mermaid) interaktif yang merender blok ESP32 dan seluruh periferal, buka [ESP32_PERIPHERAL_VISUAL_MAP.md](file:///d:/template/docs/ESP32_PERIPHERAL_VISUAL_MAP.md).
 
 ---
 
@@ -28,7 +28,7 @@
 
 | ID | ESP32 Pin | Header Pin | Component | Component Pin | Wire / Interface | Power Domain | Purpose | Direction | Active Level | Electrical / Interface Notes | Verification Status |
 |:---:|:---:|:---:|:---|:---:|:---|:---:|:---|:---:|:---:|:---|:---:|
-| **W-01** | **GPIO 0** | Right-14 | Mode Push Button | Pin 1 | Stranded Wire | 3.3V Logic | System Mode Toggle (Auto/Manual) | Input | Active-LOW (0=Push) | Onboard BOOT button / Ext NO switch. Must be HIGH at boot. | **ACCEPTABLE CAVEAT** |
+| **W-01** | **GPIO 0** | Right-14 | Mode Push Button | Pin 1 | Stranded Wire | 3.3V Logic | TFT Display Screen Switch (cycles screens) | Input | Active-LOW (0=Push) | Onboard BOOT button / Ext NO switch. Must be HIGH at boot. | **ACCEPTABLE CAVEAT** |
 | **W-02** | **GPIO 1** | Right-4 | Omron Relay #1 | Logic In / Driver | Digital Control | 3.3V Logic | Deep Well AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-03** | **GPIO 2** | Right-5 | Omron Relay #2 | Logic In / Driver | Digital Control | 3.3V Logic | Dist Booster AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-04** | **GPIO 4** | Left-4 | 4-Ch Relay Board | **IN1** | Digital Control | 5V Logic | Raw Water Submersible Pump Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 12V DC load on relay COM1/NO1. | **VERIFIED SAFE** |
@@ -48,9 +48,9 @@
 | **W-18** | **GPIO 18** | Left-11 | 4-Ch Relay Board | **IN2** | Digital Control | 5V Logic | Red System Error / Alarm Beacon | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched load on relay COM2/NO2. | **VERIFIED SAFE** |
 | **W-19** | **GPIO 21** | Right-18 | TFT ST7735 Display| **A0 (DC)** | Control Line | 3.3V Logic | Display Command / Data Selector | Output | High=Data, Low=Cmd | Dedicated control line for ST7735. | **VERIFIED** |
 | **W-20** | **GPIO 38** | Right-10 | Lower Float Switch | Terminal A | Dry Contact | 3.3V Logic | **MANDATORY SAFETY DRY-RUN INTERLOCK** | Input | Active-LOW (0=DRY) | Internal pull-up to 3.3V. Dedicated clean safety pin. | **VERIFIED SAFE (SAFETY)**|
-| **W-21** | **GPIO 39** | Right-9 | Manual A Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Dosing Pump A Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Momentary NO tactile switch. | **VERIFIED SAFE** |
-| **W-22** | **GPIO 40** | Right-8 | Manual B Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Dosing Pump B Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Momentary NO tactile switch. | **VERIFIED SAFE** |
-| **W-23** | **GPIO 41** | Right-7 | Distribution Button| Pin 1 | Stranded Wire | 3.3V Logic | Manual Distribution Pump Toggle | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Momentary NO tactile switch. | **VERIFIED SAFE** |
+| **W-21** | **GPIO 39** | Right-9 | Manual A Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Well Pump 5-Min Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. State 1: ON + 5-min timer; State 2: Immediate OFF. Dry-run interlocked. | **VERIFIED SAFE** |
+| **W-22** | **GPIO 40** | Right-8 | Manual B Button | Pin 1 | Stranded Wire | 3.3V Logic | Reserved Button 3 (TBD / Spare) | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Debounced, reserved for future use. | **VERIFIED SAFE** |
+| **W-23** | **GPIO 41** | Right-7 | Distribution Button| Pin 1 | Stranded Wire | 3.3V Logic | Reserved Button 4 (TBD / Spare) | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Debounced, reserved for future use. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
 | **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | **GPIO 48** | Right-16 | MicroSD Card Slot | **SD_CS** | Dedicated SPI CS | 3.3V Logic | Integrated SD Slot Chip Select | Output | Active-LOW (0=Select)| Drives SD CS on back of TFT. Caveat: Onboard WS2812 DIN. | **UNVERIFIED** |
@@ -192,6 +192,17 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 
 ---
 
+### 3.7. Physical Panel Buttons & Operational Roles
+
+| Button Designation | ESP32 GPIO | Active Logic | Operational Role & Behavior | Interlocks & Safety Rules |
+|---|:---:|:---:|---|---|
+| **Button 1 (`PIN_BTN_MODE`)** | **GPIO 0** | Active-LOW (0=Pressed) | **TFT Display Screen Switch**: Each press cycles forward through ST7735 diagnostic screens (Diagnostics $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle. | Must remain OPEN/HIGH during chip boot to prevent entering ROM download mode. |
+| **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Active-LOW (0=Pressed) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)**:<br>• *State 1 (Pump OFF):* Manual press turns Well Pump ON and starts a non-blocking 5-minute software timer.<br>• *State 2 (Pump ON via button):* Manual press turns Well Pump OFF immediately and cancels the 5-minute timer.<br>• *Timer Expiry:* If 5 minutes elapses without button press, pump is automatically turned OFF. | **STRICT INTERLOCK:** Operation is strictly blocked if Lower Float Switch indicates LOW/DRY (`PIN_IN_FLOAT_LOWER`, GPIO 38) or Emergency Stop is active (`s_emergency_stop_latched`). |
+| **Button 3 (`PIN_BTN_MANUAL_B`)** | **GPIO 40** | Active-LOW (0=Pressed) | **RESERVED / TBD**: Pin retained with 40ms software debounce. No action currently assigned. | Safe input pull-up state maintained. |
+| **Button 4 (`PIN_BTN_DISTRIBUTION`)** | **GPIO 41** | Active-LOW (0=Pressed) | **RESERVED / TBD**: Pin retained with 40ms software debounce. No action currently assigned. | Safe input pull-up state maintained. |
+
+---
+
 ## 4. Complete Actuator Control Paths
 
 > [!CAUTION]
@@ -310,7 +321,7 @@ Switched Return (-) from OUT- ────────────────�
 
 | Connection ID | Signal Source | Destination Pin | Conflict Assessment | Electrical Consideration | Firmware Support | Verification Status |
 |:---:|:---|:---|:---|:---|:---|:---:|
-| **W-01** | Mode Button | ESP32 GPIO 0 | No conflict. Boot strap caveat. | Pull-up onboard; must be open during reset. | `PIN_BTN_MODE = 0` | **ACCEPTABLE CAVEAT** |
+| **W-01** | Mode Button (TFT Switch) | ESP32 GPIO 0 | No conflict. Boot strap caveat. | Pull-up onboard; must be open during reset. Cycles ST7735 screen. | `PIN_BTN_MODE = 0` | **ACCEPTABLE CAVEAT** |
 | **W-02** | Omron Relay #1 | ESP32 GPIO 1 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_WELL_PUMP = 1` | **VERIFIED SAFE** |
 | **W-03** | Omron Relay #2 | ESP32 GPIO 2 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_DIST_PUMP = 2` | **VERIFIED SAFE** |
 | **W-04** | 4-Ch Relay IN1 | ESP32 GPIO 4 | No conflict. Clean digital pin. | Optocoupled 5V coil. Active-LOW logic. | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
@@ -330,9 +341,9 @@ Switched Return (-) from OUT- ────────────────�
 | **W-18** | 4-Ch Relay IN2 | ESP32 GPIO 18 | No conflict. Clean digital pin. | Optocoupled 5V coil. Controls Red Alarm Beacon. | `PIN_OUT_ERROR_LAMP = 18` | **VERIFIED SAFE** |
 | **W-19** | TFT DC / A0 | ESP32 GPIO 21 | No conflict. Dedicated control line.| High = Data, Low = Command for ST7735. | `PIN_TFT_DC = 21` | **VERIFIED** |
 | **W-20** | Lower Float | ESP32 GPIO 38 | No conflict. Dedicated clean GPIO.| Mandatory Safety Interlock. Internal pull-up to 3.3V. | `PIN_IN_FLOAT_LOWER = 38` | **VERIFIED SAFE (SAFETY)**|
-| **W-21** | Manual A Button| ESP32 GPIO 39 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_MANUAL_A = 39` | **VERIFIED SAFE** |
-| **W-22** | Manual B Button| ESP32 GPIO 40 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_MANUAL_B = 40` | **VERIFIED SAFE** |
-| **W-23** | Dist Button | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. | `PIN_BTN_DISTRIBUTION = 41`| **VERIFIED SAFE** |
+| **W-21** | Manual A (Well Pump)| ESP32 GPIO 39 | No conflict. Dedicated clean GPIO.| Active-LOW push button. 5-min auto-off timer & float interlock. | `PIN_BTN_MANUAL_A = 39` | **VERIFIED SAFE** |
+| **W-22** | Button 3 (Reserved) | ESP32 GPIO 40 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. Reserved / TBD. | `PIN_BTN_MANUAL_B = 40` | **VERIFIED SAFE** |
+| **W-23** | Button 4 (Reserved) | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. Reserved / TBD. | `PIN_BTN_DISTRIBUTION = 41`| **VERIFIED SAFE** |
 | **W-24** | TFT RESET | ESP32 GPIO 42 | No conflict. Dedicated control line.| Active-LOW hardware reset for ST7735. | `PIN_TFT_RST = 42` | **VERIFIED** |
 | **W-25** | Anti-Theft Loop | ESP32 GPIO 47 | No conflict. Clean dedicated GPIO. | Closed loop to GND_LV. Internal pull-up. | `PIN_IN_TAMPER_LOOP = 47` | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | MicroSD CS | ESP32 GPIO 48 | Caveat: Drives onboard RGB LED. | Active-LOW SD chip select. Safe for CS output. | `PIN_SD_CS = 48` | **UNVERIFIED** |
@@ -345,7 +356,7 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 
 | GPIO | Firmware Macro Symbol | Value in Firmware | Contract Role / Assignment | Match Status | Technical Evaluation & Next Action |
 |:---:|:---|:---:|:---|:---:|:---|
-| **0** | `PIN_BTN_MODE` | 0 | Mode Push Button / BOOT | **MATCH** | 100% Consistent. |
+| **0** | `PIN_BTN_MODE` | 0 | TFT Display Screen Switch | **MATCH** | 100% Consistent. Cycles ST7735 screen on press. |
 | **1** | `PIN_OUT_WELL_PUMP` | 1 | Well Pump AC (Omron #1) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **2** | `PIN_OUT_DIST_PUMP` | 2 | Dist Pump AC (Omron #2) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **4** | `PIN_OUT_RAW_SUBMERSIBLE` | 4 | Raw Submersible Pump (Relay IN1)| **MATCH** | 100% Consistent. Active-LOW (0). |
@@ -365,9 +376,9 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **18** | `PIN_OUT_ERROR_LAMP` | 18 | Error Beacon Lamp (Relay IN2) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **21** | `PIN_TFT_DC` | 21 | TFT Display Command/Data | **MATCH** | 100% Consistent. |
 | **38** | `PIN_IN_FLOAT_LOWER` | 38 | Lower Float Switch (Safety) | **MATCH** | 100% Consistent. Clean safety interlock. |
-| **39** | `PIN_BTN_MANUAL_A` | 39 | Manual A Button | **MATCH** | 100% Consistent. |
-| **40** | `PIN_BTN_MANUAL_B` | 40 | Manual B Button | **MATCH** | 100% Consistent. |
-| **41** | `PIN_BTN_DISTRIBUTION` | 41 | Distribution Button | **MATCH** | 100% Consistent. |
+| **39** | `PIN_BTN_MANUAL_A` | 39 | Well Pump Manual 5-Min Toggle | **MATCH** | 100% Consistent. Auto-shutoff + dry-run interlock. |
+| **40** | `PIN_BTN_MANUAL_B` | 40 | Reserved Button 3 (TBD) | **MATCH** | 100% Consistent. Debounced, reserved. |
+| **41** | `PIN_BTN_DISTRIBUTION` | 41 | Reserved Button 4 (TBD) | **MATCH** | 100% Consistent. Debounced, reserved. |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
 | **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up (SP-HW-008). |
 | **48** | `PIN_SD_CS` / `PIN_MICROSD_CS` | 48 | Integrated SD Card Slot CS | **MATCH** | 100% Consistent. |

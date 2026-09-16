@@ -26,6 +26,7 @@
 #include "services/event_mgr.h"
 #include "hal/sdcard_hal.h"
 #include "hal/tft_hal.h"
+#include "services/panel_button_mgr.h"
 
 static const char *TAG = "AGROTECH_MAIN";
 
@@ -150,6 +151,7 @@ void app_main(void)
     ESP_ERROR_CHECK(command_mgr_init());
     ESP_ERROR_CHECK(safety_monitor_init());
     ESP_ERROR_CHECK(scheduler_init());
+    ESP_ERROR_CHECK(panel_button_mgr_init());
 
     /* 7. Initialize Crop Cycle Engine & Persistence (SP-007) */
     ESP_ERROR_CHECK(crop_cycle_mgr_init());

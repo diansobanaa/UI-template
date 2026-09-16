@@ -133,18 +133,23 @@ This document specifies the exact mapping from the physical pins of each discret
 
 ### 2.8. Safety Interlock & Operator Push-Buttons
 
-| Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
+| Component | Physical Pin | Pin Function / Operational Role | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
-| **Lower Float** | Terminal A | Reed Switch Contact A | **ESP32 GPIO 38** (Right-10) | Dry Contact In | Input | Low=DRY, High=OK | **VERIFIED SAFE** |
+| **Lower Float** | Terminal A | Reed Switch Contact A (Safety Interlock) | **ESP32 GPIO 38** (Right-10) | Dry Contact In | Input | Low=DRY, High=OK | **VERIFIED SAFE** |
 | **Lower Float** | Terminal B | Reed Switch Contact B | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED SAFE** |
-| **Button MODE** | Terminal 1 | Switch Contact A | **ESP32 GPIO 0** (Right-14) | Tactile Switch | Input | Active-LOW (0=Push) | **ACCEPTABLE CAVEAT** |
-| **Button MODE** | Terminal 2 | Switch Contact B | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **Button MAN A** | Terminal 1 | Switch Contact A | **ESP32 GPIO 39** (Right-9) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
-| **Button MAN A** | Terminal 2 | Switch Contact B | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **Button MAN B** | Terminal 1 | Switch Contact A | **ESP32 GPIO 40** (Right-8) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
-| **Button MAN B** | Terminal 2 | Switch Contact B | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **Button DIST** | Terminal 1 | Switch Contact A | **ESP32 GPIO 41** (Right-7) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
-| **Button DIST** | Terminal 2 | Switch Contact B | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button 1 (MODE)** | Terminal 1 | **TFT Display Screen Switch** (Cycles Screens)| **ESP32 GPIO 0** (Right-14) | Tactile Switch | Input | Active-LOW (0=Push) | **ACCEPTABLE CAVEAT** |
+| **Button 1 (MODE)** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button 2 (MAN A)**| Terminal 1 | **Manual Well Pump Toggle** (5-Min Auto-Off)  | **ESP32 GPIO 39** (Right-9) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
+| **Button 2 (MAN A)**| Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button 3 (MAN B)**| Terminal 1 | **Reserved Button 3** (TBD / Unassigned)     | **ESP32 GPIO 40** (Right-8) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
+| **Button 3 (MAN B)**| Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button 4 (DIST)** | Terminal 1 | **Reserved Button 4** (TBD / Unassigned)     | **ESP32 GPIO 41** (Right-7) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
+| **Button 4 (DIST)** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+
+*Button Functional Rules:*
+- **Button 1 (GPIO 0):** Advances ST7735 display to the next diagnostic view on each press (Diagnostic $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle.
+- **Button 2 (GPIO 39):** Manual toggle for Deep Well Pump. State 1 (OFF $\to$ ON) starts a non-blocking 5-minute software timer. State 2 (ON $\to$ OFF) shuts down immediately and cancels the timer. If 5 minutes elapses, automatically turns OFF. Strictly blocked if Lower Float is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched.
+- **Buttons 3 & 4 (GPIO 40, 41):** Maintained with internal pull-up and 40ms software debounce. Reserved for future assignment.
 
 ---
 

@@ -84,6 +84,31 @@ void tft_draw_string(uint16_t x, uint16_t y, const char *str, uint16_t color, ui
  */
 void tft_show_diagnostic_screen(const char *device_id, const char *fw_version);
 
+typedef enum {
+    TFT_SCREEN_DIAGNOSTIC = 0,
+    TFT_SCREEN_SENSORS,
+    TFT_SCREEN_ACTUATORS,
+    TFT_SCREEN_NETWORK,
+    TFT_SCREEN_COUNT
+} tft_screen_id_t;
+
+/**
+ * @brief Switch and render the next display screen (cyclic 0 -> 1 -> 2 -> 3 -> 0).
+ */
+void tft_show_next_screen(void);
+
+/**
+ * @brief Render a specific screen by ID.
+ *
+ * @param screen_id Screen identifier from tft_screen_id_t.
+ */
+void tft_show_screen(tft_screen_id_t screen_id);
+
+/**
+ * @brief Get the currently active screen ID.
+ */
+tft_screen_id_t tft_get_current_screen(void);
+
 #ifdef __cplusplus
 }
 #endif

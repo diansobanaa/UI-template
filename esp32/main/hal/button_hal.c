@@ -2,6 +2,8 @@
 #include "config/pin_config.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "BUTTON_HAL";
 
@@ -20,6 +22,16 @@ static button_state_t s_buttons[BUTTON_MAX_COUNT] = {
 };
 
 static button_event_cb_t s_callback = NULL;
+static bool s_task_started = false;
+
+static void button_poll_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "Button polling task active on Core %d (20ms interval).", xPortGetCoreID());
+    while (1) {
+        button_hal_poll();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
 
 esp_err_t button_hal_init(button_event_cb_t cb)
 {
@@ -40,6 +52,23 @@ esp_err_t button_hal_init(button_event_cb_t cb)
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Button HAL initialized: Mode(%d), ManA(%d), ManB(%d), Dist(%d) pulled HIGH.",
                  PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_MANUAL_B, PIN_BTN_DISTRIBUTION);
+
+        if (!s_task_started) {
+            BaseType_t r = xTaskCreatePinnedToCore(
+                button_poll_task,
+                "btn_poll_task",
+                3072,
+                NULL,
+                5,
+                NULL,
+                1 /* Pin to Core 1 (Control/Safety Core) */
+            );
+            if (r == pdPASS) {
+                s_task_started = true;
+            } else {
+                ESP_LOGE(TAG, "Failed to create button_poll_task");
+            }
+        }
     }
     return err;
 }

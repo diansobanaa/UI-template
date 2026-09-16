@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-DUAL-CORE ARCHITECTURE REFACTOR IMPLEMENTED (SP-HW-009)
+PANEL BUTTON FUNCTION REFACTOR & WELL PUMP TIMER IMPLEMENTED (SP-HW-010)
 
 ### Latest Safe Point
-SP-HW-009 Dual-Core Firmware Refactor
+SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
 
 ## Safe Point Index
+- [x] SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
 - [x] SP-HW-009 Dual-Core Firmware Refactor
 - [x] SP-HW-008 Anti-Theft Pump Security (GPIO 47) & Web UI Network Loss Alarm
 - [x] SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
@@ -14,6 +15,59 @@ SP-HW-009 Dual-Core Firmware Refactor
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-010
+- **ID**: SP-HW-010
+- **Objective**: Refactor physical panel buttons without modifying GPIO mappings: Button 1 (GPIO 0) dedicated to TFT display screen cycling; Button 2 (GPIO 39) dedicated to manual toggle of Well Pump with a non-blocking 5-minute auto-shutoff timer and strict Lower Float Switch / E-Stop interlocks; Buttons 3 & 4 (GPIO 40, 41) preserved with 40ms debounce and reserved for future assignment (TBD).
+- **Completed Work**:
+  1. Updated `esp32/main/hal/button_hal.c` and `.h` with background polling task `button_poll_task` (20ms poll / 40ms debounce) pinned to Core 1.
+  2. Implemented `esp32/main/services/panel_button_mgr.c` and `.h` handling button event dispatch, FreeRTOS software timer `s_well_pump_timer` (5 minutes = 300,000ms), Lower Float interlock checking (`PIN_IN_FLOAT_LOWER` on GPIO 38), and emergency stop state enforcement.
+  3. Expanded `esp32/main/hal/tft_hal.c` and `.h` with 4 complete display screens (Diagnostics, Sensors, Actuators, Network/Time) and page-cycling API (`tft_show_screen`, `tft_show_next_screen`, `tft_get_current_screen`) using 16-bit RGB565 graphics.
+  4. Updated hardware registry baseline (`s_default_components` & `DEFAULT_COMPONENTS_JSON` in `hardware_registry.c`) with new button roles (`TFT_SWITCH`, `WELL_PUMP_TOGGLE`, `RESERVED`, `RESERVED`).
+  5. Mounted `panel_button_mgr_init()` in `esp32/main/main.c`.
+  6. Added `services/panel_button_mgr.c` to `esp32/main/CMakeLists.txt`.
+  7. Built firmware cleanly via ESP-IDF v5.5 (0 errors, 0 warnings; binary size: 0xf2960 bytes, 68% free partition space).
+  8. Synchronized all documentation files across `docs/` and `esp32/docs/` under Zero-Drift Policy:
+     - `docs/HARDWARE_WIRING_MAP.md` & `esp32/docs/HARDWARE_WIRING_MAP.md`
+     - `docs/ESP32_GPIO_PIN_MAP.md` & `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+     - `docs/COMPONENT_PIN_MAP.md` & `esp32/docs/COMPONENT_PIN_MAP.md`
+     - `docs/HARDWARE_INVENTORY.md` & `esp32/docs/HARDWARE_INVENTORY.md`
+     - `docs/HARDWARE_WIRING_CHECKLIST.md` & `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+     - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md` & `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+     - `docs/ESP32_PERIPHERAL_MAP.mmd` & `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`
+     - `docs/ESP32_PERIPHERAL_MAP.html` & `esp32/docs/ESP32_PERIPHERAL_MAP.html`
+     - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  9. Validated Mermaid flowchart syntax via `@mermaid-js/mermaid-cli`.
+- **Verification Result**:
+  - Firmware Build: PASS (`agrotech_esp32.bin` built successfully)
+  - Interlock Safety: PASS (Actuator HAL and Button Manager strictly prevent Well Pump start if dry-run detected or E-Stop latched)
+  - Dual-Core Affinity: PASS (`button_poll_task` pinned to Core 1)
+  - Zero-Drift Documentation: PASS (All dual copies mirrored character-for-character)
+- **Changed Files**:
+  - `esp32/main/hal/button_hal.h`
+  - `esp32/main/hal/button_hal.c`
+  - `esp32/main/hal/tft_hal.h`
+  - `esp32/main/hal/tft_hal.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/services/panel_button_mgr.h`
+  - `esp32/main/services/panel_button_mgr.c`
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/main/main.c`
+  - `docs/HARDWARE_WIRING_MAP.md` & `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `docs/ESP32_GPIO_PIN_MAP.md` & `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md` & `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md` & `esp32/docs/HARDWARE_INVENTORY.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md` & `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md` & `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `docs/ESP32_PERIPHERAL_MAP.mmd` & `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`
+  - `docs/ESP32_PERIPHERAL_MAP.html` & `esp32/docs/ESP32_PERIPHERAL_MAP.html`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Physical flashing and hardware bench testing.
 
 ---
 

@@ -1,4 +1,8 @@
 #include "hal/tft_hal.h"
+#include "hal/sensor_hal.h"
+#include "hal/actuator_hal.h"
+#include "network/network_mgr.h"
+#include "storage/storage_mgr.h"
 #include "config/pin_config.h"
 #include "config/system_config.h"
 #include "esp_log.h"
@@ -7,11 +11,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "TFT_HAL";
 
 static spi_device_handle_t s_spi_dev = NULL;
 static bool s_tft_available = false;
+static tft_screen_id_t s_current_screen = TFT_SCREEN_DIAGNOSTIC;
 
 /* Standard 5x7 ASCII Font (ASCII 0x20 ' ' to 0x7E '~') */
 static const uint8_t s_font5x7[][5] = {
@@ -289,7 +295,165 @@ void tft_show_diagnostic_screen(const char *device_id, const char *fw_version)
     tft_draw_string(8, 126, fw_str, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
 
     // Bottom decorative bar
-    tft_fill_rect(0, 156, TFT_WIDTH_PX, 4, TFT_COLOR_DARKGREEN);
+    tft_fill_rect(0, 140, TFT_WIDTH_PX, 20, TFT_COLOR_DARKGRAY);
+    tft_draw_string(8, 146, "[BTN1] SCREEN 1/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
+}
+
+static void tft_show_sensors_screen(void)
+{
+    if (!s_tft_available) return;
+
+    tft_fill_screen(TFT_COLOR_BLACK);
+    tft_fill_rect(0, 0, TFT_WIDTH_PX, 24, TFT_COLOR_DARKGREEN);
+    tft_draw_string(16, 6, "SENSORS", TFT_COLOR_WHITE, TFT_COLOR_DARKGREEN, 2);
+    tft_fill_rect(0, 24, TFT_WIDTH_PX, 1, TFT_COLOR_GREEN);
+
+    sensor_readings_t sensors;
+    sensor_hal_get_readings(&sensors);
+
+    char buf[32];
+    tft_draw_string(8, 30, "WATER TEMP:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    if (sensors.temp_state == SENSOR_STATE_VALID) {
+        snprintf(buf, sizeof(buf), "%.1f C", sensors.temperature_c);
+        tft_draw_string(8, 42, buf, TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    } else {
+        tft_draw_string(8, 42, "DISCONNECTED", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
+    }
+
+    tft_draw_string(8, 56, "FERT FLOW (YF-B1):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_yfb1_lpm, (unsigned long)sensors.total_pulses_yfb1);
+    tft_draw_string(8, 68, buf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+
+    tft_draw_string(8, 82, "RAW FLOW (FS400A):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_fs400a_lpm, (unsigned long)sensors.total_pulses_fs400a);
+    tft_draw_string(8, 94, buf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+
+    tft_draw_string(8, 108, "FLOAT LEVEL:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    if (sensors.float_lower_ok) {
+        tft_draw_string(84, 108, "OK", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    } else {
+        tft_draw_string(84, 108, "DRY/ALERT", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
+    }
+
+    tft_draw_string(8, 122, "TAMPER LOOP:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    if (sensors.tamper_loop_ok) {
+        tft_draw_string(84, 122, "INTACT", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    } else {
+        tft_draw_string(84, 122, "CUT/TRIP", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
+    }
+
+    tft_fill_rect(0, 140, TFT_WIDTH_PX, 20, TFT_COLOR_DARKGRAY);
+    tft_draw_string(8, 146, "[BTN1] SCREEN 2/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
+}
+
+static void tft_show_actuators_screen(void)
+{
+    if (!s_tft_available) return;
+
+    tft_fill_screen(TFT_COLOR_BLACK);
+    tft_fill_rect(0, 0, TFT_WIDTH_PX, 24, 0x0438);
+    tft_draw_string(10, 6, "ACTUATORS", TFT_COLOR_WHITE, 0x0438, 2);
+    tft_fill_rect(0, 24, TFT_WIDTH_PX, 1, 0x3DF7);
+
+    const struct {
+        const char *name;
+        actuator_id_t id;
+    } acts[] = {
+        { "Well Pump:",     ACTUATOR_WELL_PUMP },
+        { "Dist Pump:",     ACTUATOR_DIST_PUMP },
+        { "Raw Subm:",      ACTUATOR_RAW_SUBMERSIBLE },
+        { "Dosing A:",      ACTUATOR_DOSING_A },
+        { "Dosing B:",      ACTUATOR_DOSING_B },
+        { "Exh Fan:",       ACTUATOR_COOLING_FAN },
+        { "Error Lamp:",    ACTUATOR_ERROR_LAMP }
+    };
+
+    uint16_t y = 30;
+    for (size_t i = 0; i < sizeof(acts)/sizeof(acts[0]); i++) {
+        tft_draw_string(8, y, acts[i].name, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+        bool is_on = actuator_hal_get_state(acts[i].id);
+        if (is_on) {
+            tft_draw_string(96, y, "ON", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+        } else {
+            tft_draw_string(96, y, "OFF", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+        }
+        y += 14;
+    }
+
+    tft_fill_rect(0, 140, TFT_WIDTH_PX, 20, TFT_COLOR_DARKGRAY);
+    tft_draw_string(8, 146, "[BTN1] SCREEN 3/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
+}
+
+static void tft_show_network_screen(void)
+{
+    if (!s_tft_available) return;
+
+    tft_fill_screen(TFT_COLOR_BLACK);
+    tft_fill_rect(0, 0, TFT_WIDTH_PX, 24, 0x79DD);
+    tft_draw_string(8, 6, "SYSTEM/NET", TFT_COLOR_WHITE, 0x79DD, 2);
+    tft_fill_rect(0, 24, TFT_WIDTH_PX, 1, 0xA45F);
+
+    tft_draw_string(8, 32, "WIFI STATUS:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    bool net_ok = network_mgr_is_connected();
+    if (net_ok) {
+        tft_draw_string(8, 44, "CONNECTED (STA)", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    } else {
+        tft_draw_string(8, 44, "AP/OFFLINE", TFT_COLOR_YELLOW, TFT_COLOR_BLACK, 1);
+    }
+
+    tft_draw_string(8, 64, "SYSTEM TIME:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    time_t now;
+    time(&now);
+    struct tm ti;
+    localtime_r(&now, &ti);
+    char tbuf[32];
+    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d", &ti);
+    tft_draw_string(8, 76, tbuf, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+    strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &ti);
+    tft_draw_string(8, 88, tbuf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+
+    tft_draw_string(8, 108, "INTERLOCK STATE:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    if (actuator_hal_is_emergency_stopped()) {
+        tft_draw_string(8, 120, "EMERGENCY STOP!", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
+    } else {
+        tft_draw_string(8, 120, "SYSTEM RUNNING", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    }
+
+    tft_fill_rect(0, 140, TFT_WIDTH_PX, 20, TFT_COLOR_DARKGRAY);
+    tft_draw_string(8, 146, "[BTN1] SCREEN 4/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
+}
+
+void tft_show_screen(tft_screen_id_t screen_id)
+{
+    if (!s_tft_available) return;
+    s_current_screen = screen_id % TFT_SCREEN_COUNT;
+
+    switch (s_current_screen) {
+        case TFT_SCREEN_DIAGNOSTIC:
+            tft_show_diagnostic_screen(DEFAULT_DEVICE_ID, FIRMWARE_VERSION);
+            break;
+        case TFT_SCREEN_SENSORS:
+            tft_show_sensors_screen();
+            break;
+        case TFT_SCREEN_ACTUATORS:
+            tft_show_actuators_screen();
+            break;
+        case TFT_SCREEN_NETWORK:
+            tft_show_network_screen();
+            break;
+        default:
+            break;
+    }
+}
+
+void tft_show_next_screen(void)
+{
+    tft_show_screen((s_current_screen + 1) % TFT_SCREEN_COUNT);
+}
+
+tft_screen_id_t tft_get_current_screen(void)
+{
+    return s_current_screen;
 }
 
 esp_err_t tft_hal_init(void)

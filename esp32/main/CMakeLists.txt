@@ -16,6 +16,7 @@ idf_component_register(
         "services/crop_cycle_mgr.c"
         "services/telemetry_mgr.c"
         "services/event_mgr.c"
+        "services/panel_button_mgr.c"
         "http/http_server.c"
         "http/api_device_handlers.c"
         "http/api_config_handlers.c"

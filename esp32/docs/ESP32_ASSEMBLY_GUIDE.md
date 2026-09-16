@@ -29,7 +29,7 @@
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
 | **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 38) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
-| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 40, 41) | **READY**: MODE (0), MANUAL A (39), MANUAL B (40), DISTRIBUTION (41) |
+| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 40, 41) | **READY**: Button 1 (GPIO 0: TFT switch), Button 2 (GPIO 39: Well Pump 5-min toggle & float interlock), Button 3 (GPIO 40: Reserved), Button 4 (GPIO 41: Reserved) |
 | **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
 | **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
 | **AC-IN** | 3-in-1 AC Power Inlet Socket with Fuse & Switch | 1 | 250V AC 10A | Mains Power Entry | **READY**: Master power disconnect and fuse protection |
@@ -67,12 +67,12 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 16** | FS400A Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 17** | DS18B20 1-Wire Temperature Data | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 18** | System Status / Error Beacon Lamp | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Lamp ON, 1 = OFF) |
-| **GPIO 0** | Physical Button: MODE Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0). Boot strap caveat. |
+| **GPIO 0** | Button 1: TFT Display Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0). Cycles ST7735 screen. Boot strap caveat. |
 | **GPIO 21** | TFT Display Data / Command (DC) | OUTPUT | 3.3V Logic | High = Data, Low = Command |
 | **GPIO 38** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal (SAFETY AUTHORITY) |
-| **GPIO 39** | Physical Button: MANUAL RUN A | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
-| **GPIO 40** | Physical Button: MANUAL RUN B | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
-| **GPIO 41** | Physical Button: DISTRIBUTION | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0) |
+| **GPIO 39** | Button 2: Well Pump Manual Toggle | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). State 1: ON (5-min timer), State 2: OFF. Float interlocked. |
+| **GPIO 40** | Button 3: Reserved / TBD | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). Software debounced, no action assigned. |
+| **GPIO 41** | Button 4: Reserved / TBD | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). Software debounced, no action assigned. |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
 | **GPIO 47** | Anti-Theft Tamper Loop (Pump Security) | INPUT | 3.3V Logic (Internal pullup) | Closed loop to GND = OK (0), Cut/Open = TAMPER TRIP (1) |
 | **GPIO 48** | MicroSD Card Slot Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (Onboard RGB LED line caveat) |

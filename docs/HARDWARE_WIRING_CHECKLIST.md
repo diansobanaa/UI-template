@@ -22,5 +22,6 @@
 - [x] **Active level diketahui:** Seluruh relay dan tombol operator berstatus Active-LOW (`0` = Aktif). Interlock safety lower float berstatus Active-LOW (`0` = DRY / Trip). Tamper Loop berstatus Active-HIGH (`0` = OK / Intact, `1` = Cut / Theft Trip).
 - [x] **Driver/interface diketahui:** Jalur aktuator didokumentasikan secara berjenjang (GPIO $\to$ Driver/Optocoupler/MOSFET $\to$ Load Power). Tidak ada beban induktif yang digerakkan langsung oleh GPIO.
 - [x] **Firmware mapping sama dengan documentation:** 26 dari 26 pin cocok 100% dengan `pin_config.h` (termasuk `PIN_IN_TAMPER_LOOP` pada GPIO 47 diselesaikan di SP-HW-008).
-- [x] **Semua TBD diberi label:** Parameter yang belum memiliki peruntukan fisik (kanal relay IN3/IN4) diberi label TBD / Spare.
+- [x] **Panel buttons terverifikasi:** Button 1 (GPIO 0) switch layar TFT, Button 2 (GPIO 39) manual toggle Well Pump dengan auto-off timer 5 menit dan safety float interlock, Button 3 (GPIO 40) dan Button 4 (GPIO 41) berstatus Reserved/TBD dengan software debounce 40ms.
+- [x] **Semua TBD diberi label:** Parameter yang belum memiliki peruntukan fisik (kanal relay IN3/IN4, Button 3/4) diberi label TBD / Spare.
 - [x] **Semua obsolete mapping dihapus dari active mapping:** DS1302 3-wire mapping, Upper Float switch, dan microSD CS lama (GPIO 26/27) telah dihapus dari mapping aktif dan ditandai OBSOLETE.

@@ -14,7 +14,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 
 | ESP32 Header | GPIO | Function | Component | Interface | Direction / Logic | Electrical Status | Notes & Constraints |
 |:---|:---:|:---|:---|:---|:---:|:---:|:---|
-| **Right-14** | **0** | Mode Switch | Push Button / BOOT | GPIO Digital In | Input (Active-LOW) | ACCEPTABLE WITH CAVEAT | Strapping pin. Has onboard pull-up. Must be HIGH (released) at boot. |
+| **Right-14** | **0** | TFT Display Switch | Push Button / BOOT | GPIO Digital In | Input (Active-LOW) | ACCEPTABLE WITH CAVEAT | Cycles ST7735 display screen. Strapping pin: must be HIGH (released) at boot. |
 | **Right-4** | **1** | Well Pump AC Trigger | Omron Relay #1 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Deep Well Pump. |
 | **Right-5** | **2** | Distribution Pump AC Trigger | Omron Relay #2 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Booster Pump GH-1. |
 | **Left-13** | **3** | *RESERVED: JTAG / Boot* | SoC Internal | JTAG / Strapping | N/A | **DO NOT USE (STRAPPING)** | Strapping pin. Interferes with JTAG & boot if connected. |
@@ -42,9 +42,9 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-12** | **36** | *RESERVED: Octal PSRAM IO7*| Internal PSRAM | Octal Bus IO7 | N/A | **FATAL (DO NOT TOUCH)** | Exposed on pin header, but touching crashes Octal PSRAM! |
 | **Right-11** | **37** | *RESERVED: Octal PSRAM DQS*| Internal PSRAM | Octal Bus DQS | N/A | **FATAL (DO NOT TOUCH)** | Exposed on pin header, but touching crashes Octal PSRAM! |
 | **Right-10** | **38** | Lower Float Switch | Stainless Float Switch | Digital Input | Input (Active-LOW dry) | **VERIFIED SAFE (SAFETY)** | **SAFETY AUTHORITY:** Dedicated clean pin for dry-run protection. |
-| **Right-9** | **39** | Manual A Button | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual operator toggle for Dosing Pump A (internal pull-up). |
-| **Right-8** | **40** | Manual B Button | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual operator toggle for Dosing Pump B (internal pull-up). |
-| **Right-7** | **41** | Distribution Button | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual operator toggle for Distribution Pump (internal pull-up).|
+| **Right-9** | **39** | Manual Well Pump Toggle | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual toggle for Well Pump with 5-minute auto-off timer & float switch interlock. |
+| **Right-8** | **40** | Reserved Button 3 | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Reserved / TBD. Internal pull-up and 40ms debounce maintained. |
+| **Right-7** | **41** | Reserved Button 4 | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Reserved / TBD. Internal pull-up and 40ms debounce maintained. |
 | **Right-6** | **42** | TFT Hardware Reset | TFT ST7735 Display | Control Signal | Output (Active-LOW) | VERIFIED SAFE | Dedicated reset line for ST7735 display controller. |
 | **Right-2** | **43** | *RESERVED: UART0 TXD* | USB-UART Bridge | Console UART | Output | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
 | **Right-3** | **44** | *RESERVED: UART0 RXD* | USB-UART Bridge | Console UART | Input | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
@@ -91,14 +91,14 @@ Pin 3 : GPIO44 / RXD0 -> [RESERVED: UART0 Console RX]
 Pin 4 : GPIO1  -> Well Pump AC Trigger (Omron #1)
 Pin 5 : GPIO2  -> Distribution Pump AC Trigger (Omron #2)
 Pin 6 : GPIO42 -> TFT Display RESET
-Pin 7 : GPIO41 -> Push Button: DISTRIBUTION
-Pin 8 : GPIO40 -> Push Button: MANUAL B
-Pin 9 : GPIO39 -> Push Button: MANUAL A
+Pin 7 : GPIO41 -> Reserved Button 4 (TBD / Spare)
+Pin 8 : GPIO40 -> Reserved Button 3 (TBD / Spare)
+Pin 9 : GPIO39 -> Manual Well Pump Toggle (5-Min Auto-Shutoff)
 Pin 10: GPIO38 -> Lower Float Switch (Dry-Run Safety Interlock)
 Pin 11: GPIO37 -> [FATAL DO NOT TOUCH: Octal PSRAM DQS]
 Pin 12: GPIO36 -> [FATAL DO NOT TOUCH: Octal PSRAM IO7]
 Pin 13: GPIO35 -> [FATAL DO NOT TOUCH: Octal PSRAM IO6]
-Pin 14: GPIO0  -> Push Button: MODE (BOOT Strapping Caveat)
+Pin 14: GPIO0  -> TFT Display Screen Switch (BOOT Strapping Caveat)
 Pin 15: GPIO45 -> [FATAL DO NOT TOUCH: Strapping VDD_SPI]
 Pin 16: GPIO48 -> MicroSD Card CS (WS2812 RGB LED Caveat)
 Pin 17: GPIO47 -> Anti-Theft Tamper Loop (Pump Security Interlock)
@@ -124,3 +124,14 @@ Pin 22: GND (Common Signal Ground)
    - GPIO 43 & 44: Hardwired to onboard CP2102/CH340 USB-to-UART bridge (COM port).
 4. **Silicon Non-Existent Pins (GPIO 22, 23, 24, 25):**
    - Do not exist in ESP32-S3 silicon architecture.
+
+---
+
+## 4. Physical Panel Push Button Specifications
+
+| Button Designation | ESP32 GPIO | Direction & Logic | Current Operational Role | Interlock & Timer Constraints |
+|---|:---:|:---:|---|---|
+| **Button 1 (`PIN_BTN_MODE`)** | **GPIO 0** | Input (Active-LOW, 0=Press) | **TFT Display Screen Switch**: Press cycles forward through ST7735 diagnostic screens (Diagnostics $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle. | Must remain OPEN/HIGH during chip reset/boot. |
+| **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Input (Active-LOW, 0=Press) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)**:<br>• *State 1 (OFF):* Turns Well Pump ON + starts 5-min non-blocking FreeRTOS timer.<br>• *State 2 (ON via button):* Turns Well Pump OFF immediately + cancels 5-min timer.<br>• *Timer Expiry:* Auto-turns Well Pump OFF after 5 minutes. | **SAFETY INTERLOCK:** Strictly blocked if Lower Float Switch is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched. |
+| **Button 3 (`PIN_BTN_MANUAL_B`)** | **GPIO 40** | Input (Active-LOW, 0=Press) | **RESERVED / TBD**: Dedicated clean input pin with 40ms software debounce. No action currently assigned. | Pull-up enabled. Reserved for future expansion. |
+| **Button 4 (`PIN_BTN_DISTRIBUTION`)** | **GPIO 41** | Input (Active-LOW, 0=Press) | **RESERVED / TBD**: Dedicated clean input pin with 40ms software debounce. No action currently assigned. | Pull-up enabled. Reserved for future expansion. |

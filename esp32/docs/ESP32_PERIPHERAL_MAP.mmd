@@ -123,14 +123,14 @@ flowchart TD
         TAMPER -->|GPIO 47 Right-17 Active-HIGH Tamper Stop| ESP
     end
 
-    subgraph BUTTONS ["Tombol Kontrol Manual Panel"]
-        BTN_MODE["Tombol Mode Auto-Manual<br/>Paralel BOOT Button"]:::btn
-        BTN_DOS_A["Tombol Manual Dosing A"]:::btn
-        BTN_DOS_B["Tombol Manual Dosing B"]:::btn
-        BTN_DIST["Tombol Manual Distribusi"]:::btn
+    subgraph BUTTONS ["Tombol Panel Fisik"]
+        BTN_MODE["Button 1: Switch Layar TFT<br/>Paralel BOOT Button"]:::btn
+        BTN_WELL["Button 2: Manual Well Pump<br/>Toggle 5-Min Auto-Off"]:::btn
+        BTN_RES3["Button 3: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
+        BTN_RES4["Button 4: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
 
-        BTN_MODE -->|GPIO 0 Right-14 Active-LOW| ESP
-        BTN_DOS_A -->|GPIO 39 Right-9 Active-LOW| ESP
-        BTN_DOS_B -->|GPIO 40 Right-8 Active-LOW| ESP
-        BTN_DIST -->|GPIO 41 Right-7 Active-LOW| ESP
+        BTN_MODE -->|GPIO 0 Right-14 Active-LOW Switch Screen| ESP
+        BTN_WELL -->|GPIO 39 Right-9 Active-LOW 5-Min Timer| ESP
+        BTN_RES3 -->|GPIO 40 Right-8 Active-LOW Reserved| ESP
+        BTN_RES4 -->|GPIO 41 Right-7 Active-LOW Reserved| ESP
     end

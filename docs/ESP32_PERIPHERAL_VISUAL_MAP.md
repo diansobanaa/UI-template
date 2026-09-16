@@ -140,16 +140,16 @@ flowchart TD
         TAMPER -->|GPIO 47 Right-17 Active-HIGH Tamper Stop| ESP
     end
 
-    subgraph BUTTONS ["Tombol Kontrol Manual Panel"]
-        BTN_MODE["Tombol Mode Auto-Manual<br/>Paralel BOOT Button"]:::btn
-        BTN_DOS_A["Tombol Manual Dosing A"]:::btn
-        BTN_DOS_B["Tombol Manual Dosing B"]:::btn
-        BTN_DIST["Tombol Manual Distribusi"]:::btn
+    subgraph BUTTONS ["Tombol Panel Fisik"]
+        BTN_MODE["Button 1: Switch Layar TFT<br/>Paralel BOOT Button"]:::btn
+        BTN_WELL["Button 2: Manual Well Pump<br/>Toggle 5-Min Auto-Off"]:::btn
+        BTN_RES3["Button 3: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
+        BTN_RES4["Button 4: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
 
-        BTN_MODE -->|GPIO 0 Right-14 Active-LOW| ESP
-        BTN_DOS_A -->|GPIO 39 Right-9 Active-LOW| ESP
-        BTN_DOS_B -->|GPIO 40 Right-8 Active-LOW| ESP
-        BTN_DIST -->|GPIO 41 Right-7 Active-LOW| ESP
+        BTN_MODE -->|GPIO 0 Right-14 Active-LOW Switch Screen| ESP
+        BTN_WELL -->|GPIO 39 Right-9 Active-LOW 5-Min Timer| ESP
+        BTN_RES3 -->|GPIO 40 Right-8 Active-LOW Reserved| ESP
+        BTN_RES4 -->|GPIO 41 Right-7 Active-LOW Reserved| ESP
     end
 ```
 
@@ -182,7 +182,7 @@ flowchart TD
 | **Sensor Aliran** | Flow FS400A | **GPIO 16** | Left-9 | Pulse Interrupt | Melewati divider 2.2k/3.3k dari sinyal 5V |
 | **Safety Interlock**| Lower Float Switch| **GPIO 38** | Right-10 | Digital Input | Active-LOW (0 = Tanki Kering, Stop Pompa)|
 | **Security Loop** | Anti-Theft Loop | **GPIO 47** | Right-17 | Digital Input | Active-HIGH (1 = Putus / Dicuri, E-Stop) |
-| **Tombol Manual** | Mode / BOOT | **GPIO 0** | Right-14 | Digital Input | Active-LOW (Harus HIGH saat booting) |
-| **Tombol Manual** | Tombol Manual A | **GPIO 39** | Right-9 | Digital Input | Active-LOW (Internal Pull-Up) |
-| **Tombol Manual** | Tombol Manual B | **GPIO 40** | Right-8 | Digital Input | Active-LOW (Internal Pull-Up) |
-| **Tombol Manual** | Tombol Distribusi| **GPIO 41** | Right-7 | Digital Input | Active-LOW (Internal Pull-Up) |
+| **Tombol Panel** | Button 1 (TFT Switch) | **GPIO 0** | Right-14 | Digital Input | Active-LOW (Switch layar TFT, BOOT caveat) |
+| **Tombol Panel** | Button 2 (Well Pump)  | **GPIO 39** | Right-9 | Digital Input | Active-LOW (Toggle Pompa Sumur 5-menit timer & dry-run interlock) |
+| **Tombol Panel** | Button 3 (Reserved)   | **GPIO 40** | Right-8 | Digital Input | Active-LOW (Reserved / TBD, Debounce 40ms) |
+| **Tombol Panel** | Button 4 (Reserved)   | **GPIO 41** | Right-7 | Digital Input | Active-LOW (Reserved / TBD, Debounce 40ms) |
