@@ -55,6 +55,9 @@ flowchart TD
         RLY_BOARD --> PUMP_RAW
         ESP -->|GPIO 18 Left-11 IN2 Active-LOW| RLY_BOARD
         RLY_BOARD --> ALARM_BEACON
+        ESP -->|GPIO 10 Left-16 IN3 Active-LOW| RLY_BOARD
+        RLY_BOARD -.->|Trigger Koil A1-A2| CONTACTOR_BLOWER["Kontaktor Magnetik AC<br/>Blower Trigger"]:::ac
+        CONTACTOR_BLOWER --> BLOWER_FANS["2x Kipas Blower Greenhouse<br/>220V AC Paralel"]:::ac
 
         ESP -->|GPIO 5 Left-5 PWM Gate| MOS1
         MOS1 --> PUMP_DOS_A

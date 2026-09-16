@@ -72,6 +72,9 @@ flowchart TD
         RLY_BOARD --> PUMP_RAW
         ESP -->|GPIO 18 Left-11 IN2 Active-LOW| RLY_BOARD
         RLY_BOARD --> ALARM_BEACON
+        ESP -->|GPIO 10 Left-16 IN3 Active-LOW| RLY_BOARD
+        RLY_BOARD -.->|Trigger Koil A1-A2| CONTACTOR_BLOWER["Kontaktor Magnetik AC<br/>Blower Trigger"]:::ac
+        CONTACTOR_BLOWER --> BLOWER_FANS["2x Kipas Blower Greenhouse<br/>220V AC Paralel"]:::ac
 
         ESP -->|GPIO 5 Left-5 PWM Gate| MOS1
         MOS1 --> PUMP_DOS_A
@@ -165,6 +168,7 @@ flowchart TD
 | **Beban AC 220V** | Omron Relay 2 | **GPIO 2** | Right-5 | Digital Output | Active-LOW (Pompa Booster Distribusi) |
 | **Beban DC 12V** | 4-Ch Relay IN1 | **GPIO 4** | Left-4 | Digital Output | Active-LOW (Pompa Air Baku Celup) |
 | **Beban DC 12V** | 4-Ch Relay IN2 | **GPIO 18** | Left-11 | Digital Output | Active-LOW (Lampu Alarm Sistem) |
+| **Beban AC 220V** | 4-Ch Relay IN3 | **GPIO 10** | Left-16 | Digital Output | Active-LOW (Trigger Kontaktor Magnetik 2x Kipas Blower Greenhouse - Booked/Standby) |
 | **Beban DC 12V** | MOSFET Modul 1 | **GPIO 5** | Left-5 | PWM / Digital Out | Active-LOW Gate (Dosing Pump A Nutrisi) |
 | **Beban DC 12V** | MOSFET Modul 2 | **GPIO 6** | Left-6 | PWM / Digital Out | Active-LOW Gate (Dosing Pump B pH) |
 | **Beban DC 12V** | MOSFET Modul 3 | **GPIO 7** | Left-7 | PWM / Digital Out | Active-LOW Gate (Kipas Exhaust Box) |

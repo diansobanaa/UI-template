@@ -24,7 +24,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-7** | **7** | Cooling Fan Trigger | MOSFET Module #3 | GPIO Digital Out | Output (Active-LOW in hal) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Cabinet Exhaust Fan. |
 | **Left-12** | **8** | I2C SDA (Data) | RTC DS3231 | I2C Bus | Bi-directional | VERIFIED SAFE | Dedicated I2C Data line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-15** | **9** | I2C SCL (Clock) | RTC DS3231 | I2C Bus | Output | VERIFIED SAFE | Dedicated I2C Clock line (+ 4.7kΩ pull-up to 3.3V). |
-| **Left-16** | **10** | Ethernet CS | W5500 SPI Module | SPI Chip Select | Output (Active-LOW) | VERIFIED SAFE | Dedicated SPI CS. **NOT USED IN CURRENT COMMISSIONING**. |
+| **Left-16** | **10** | Greenhouse Blower Fan Contactor Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE (BOOKED) | Standard clean GPIO. Pemicu koil kontaktor magnetik / Omron AC untuk 2x Kipas Blower Greenhouse (Investasi terencana / standby). |
 | **Left-17** | **11** | Shared SPI SCK | TFT ST7735 & SD Slot | SPI Clock | Output | VERIFIED SAFE | Shared SPI2_HOST clock for TFT display and built-in SD slot. |
 | **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & SD Slot | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and built-in SD slot. |
 | **Left-19** | **13** | Shared SPI MISO | MicroSD Card Slot | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from built-in SD slot. |
@@ -74,7 +74,7 @@ Pin 12: GPIO8  -> RTC DS3231 SDA (I2C Data)
 Pin 13: GPIO3  -> [FORBIDDEN: Strapping JTAG]
 Pin 14: GPIO46 -> [FORBIDDEN: Strapping ROM]
 Pin 15: GPIO9  -> RTC DS3231 SCL (I2C Clock)
-Pin 16: GPIO10 -> W5500 Ethernet CS (Not used in commissioning)
+Pin 16: GPIO10 -> Greenhouse Blower Fans Contactor Trigger (Relay IN3 - Booked / Standby)
 Pin 17: GPIO11 -> Shared SPI SCK (TFT & SD)
 Pin 18: GPIO12 -> Shared SPI MOSI (TFT & SD)
 Pin 19: GPIO13 -> Shared SPI MISO (SD Card)

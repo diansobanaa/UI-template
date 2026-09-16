@@ -25,6 +25,7 @@ static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
     [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
     [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
     [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
     [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
 };
 
@@ -65,7 +66,7 @@ esp_err_t actuator_hal_init(void)
     }
 
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Actuator HAL initialized with 7 channels in safe OFF state.");
+        ESP_LOGI(TAG, "Actuator HAL initialized with %d channels in safe OFF state.", ACTUATOR_MAX_COUNT);
     } else {
         ESP_LOGE(TAG, "Actuator HAL initialization failed (0x%x)", err);
     }

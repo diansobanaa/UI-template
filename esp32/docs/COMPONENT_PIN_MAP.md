@@ -88,7 +88,7 @@ This document specifies the exact mapping from the physical pins of each discret
 | **4-Ch Relay** | **GND** | Module Ground | **ESP32 GND & 5V PSU GND** | Common Ground | Ground Return | 0V Reference | **VERIFIED** |
 | **4-Ch Relay** | **IN1** | Channel 1 Opto Trigger | **ESP32 GPIO 4** (Left-4) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED** |
 | **4-Ch Relay** | **IN2** | Channel 2 Opto Trigger | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED** |
-| **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger | *TBD / Unassigned Spare* | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **TBD** |
+| **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger | **ESP32 GPIO 10** (Left-16) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **BOOKED (STANDBY)** |
 | **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | *TBD / Unassigned Spare* | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **TBD** |
 | **4-Ch Relay** | **VCC** | Optocoupler Anode Supply| **+5V DC Rail** | DC Power | Power Input | 5.0V DC Nominal | **VERIFIED** |
 | **4-Ch Relay** | **JD-VCC** | Relay Coil Power | *Bridged to VCC via Jumper* | DC Power | Power Input | 5.0V DC (via Jumper)| **VERIFIED** |

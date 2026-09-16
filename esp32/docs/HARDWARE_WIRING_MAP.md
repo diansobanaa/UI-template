@@ -37,7 +37,7 @@
 | **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-LOW (in hal) | Gate trigger for 12V DC brushless fan. Switched 12V DC out. | **VERIFIED SAFE** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
-| **W-10** | **GPIO 10** | Left-16 | W5500 Ethernet | **CS** | SPI Chip Select | 3.3V Logic | Hardwired LAN Ethernet CS | Output | Active-LOW (0=Select)| **NOT USED IN CURRENT COMMISSIONING** | **NOT USED** |
+| **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 220V AC coil on external Magnetic Contactor (or Omron relay) driving 2x Blower Fans in parallel. | **BOOKED (STANDBY)** |
 | **W-11** | **GPIO 11** | Left-17 | TFT Display & SD | **SCK / SD_SCK** | Shared SPI Clock | 3.3V Logic | Master SPI Clock (SPI2_HOST) | Output | Mode 0 (Rising) | Bus shared between ST7735 TFT and integrated SD slot. | **VERIFIED** |
 | **W-12** | **GPIO 12** | Left-18 | TFT Display & SD | **SDA / SD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and integrated SD slot. | **VERIFIED** |
 | **W-13** | **GPIO 13** | Left-19 | MicroSD Card Slot | **SD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from SD) | Input | Serial Data | Dedicated return line from SD card slot on back of TFT. | **UNVERIFIED** |
@@ -238,10 +238,11 @@ AC Protective Earth (PE) ──────────────────�
 
 ---
 
-### 4.2. 12V DC Loads via 4-Channel Optocoupled Relay Board
+### 4.2. Loads via 4-Channel Optocoupled Relay Board
 * **Channel 1 (GPIO 4):** 12V DC Raw Water Submersible Pump
 * **Channel 2 (GPIO 18):** 12V DC Red Error / System Beacon Lamp
-* **Channel 3 / 4:** Unassigned / Spare
+* **Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans via External Magnetic Contactor / Omron Relay (Booked / Standby)
+* **Channel 4:** Unassigned / Spare
 
 ```text
 ESP32 GPIO 4 / 18 (Active-LOW: 0V = ON)
@@ -330,7 +331,7 @@ Switched Return (-) from OUT- ────────────────�
 | **W-07** | MOSFET #3 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. | `PIN_OUT_COOLING_FAN = 7` | **VERIFIED SAFE** |
 | **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
 | **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
-| **W-10** | W5500 CS | ESP32 GPIO 10 | No conflict. Dedicated SPI CS. | Module deferred from active commissioning. | `PIN_W5500_CS = 10` | **NOT USED** |
+| **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers external Magnetic Contactor / Omron AC relay for 2x Greenhouse Blower Fans. | `PIN_OUT_BLOWER_FAN = 10` | **BOOKED (STANDBY)** |
 | **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and SD card clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
 | **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and SD card MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
 | **W-13** | MicroSD MISO | ESP32 GPIO 13 | No conflict. Shared bus MISO. | Dedicated return data from SD card slot. | `PIN_SPI_MISO = 13` | **UNVERIFIED** |
@@ -365,7 +366,7 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #3) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
 | **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
-| **10** | `PIN_W5500_CS` | 10 | W5500 Ethernet CS | **MATCH** | Consistent. Marked NOT USED IN CURRENT COMMISSIONING. |
+| **10** | `PIN_OUT_BLOWER_FAN` | 10 | Greenhouse Blower Fans (Relay IN3) | **MATCH** | 100% Consistent. Active-LOW (0). Booked / Standby. |
 | **11** | `PIN_SPI_SCK` / `PIN_SD_SCK` | 11 | Shared SPI Clock (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
 | **12** | `PIN_SPI_MOSI` / `PIN_SD_MOSI`| 12 | Shared SPI MOSI (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
 | **13** | `PIN_SPI_MISO` / `PIN_SD_MISO`| 13 | Shared SPI MISO (SD Slot) | **MATCH** | 100% Consistent. Dedicated to SD card return. |

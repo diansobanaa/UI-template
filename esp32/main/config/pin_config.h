@@ -36,7 +36,8 @@ extern "C" {
 #define PIN_SD_CS                   48
 #define PIN_MICROSD_CS              PIN_SD_CS   /* Backward compatibility alias */
 
-#define PIN_W5500_CS                10
+/* GPIO 10 previously held provisional PIN_W5500_CS; now dedicated to PIN_OUT_BLOWER_FAN (Relay IN3) */
+/* #define PIN_W5500_CS             10 */
 
 /* ========================================================================== */
 /* DISPLAY: ST7735 1.8" TFT SPI (128x160)                                    */
@@ -72,6 +73,7 @@ extern "C" {
 #define PIN_OUT_DOSING_A            5
 #define PIN_OUT_DOSING_B            6
 #define PIN_OUT_COOLING_FAN         7
+#define PIN_OUT_BLOWER_FAN          10  /* 4-Ch Relay IN3 -> Triggers External Contactor/Omron for 2x Blower Fans */
 #define PIN_OUT_ERROR_LAMP          18
 
 #define ACTUATOR_ACTIVE_LEVEL       0   /* 0 = Active-LOW (standard relay boards), 1 = Active-HIGH (VERIFY DATASHEET) */

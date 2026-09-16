@@ -53,8 +53,21 @@ static const char DEFAULT_COMPONENTS_JSON[] =
 "    { \"componentId\": \"btn_manual_a\",     \"name\": \"Well Pump Toggle\",     \"type\": \"INPUT\",      \"role\": \"WELL_PUMP_TOGGLE\",\"interface\": \"GPIO\", \"pin\": 39, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"btn_manual_b\",     \"name\": \"Reserved Button 3\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"btn_dist\",         \"name\": \"Reserved Button 4\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" }\n"
+    /* =========================================================================
+     * BOOKED / DEFERRED COMPONENT: Dual Greenhouse Exhaust Blower Fans
+     * Status: BOOKED / PROVISIONED (Investasi Menyusul / Belum Terpasang Fisik)
+     * Hardware Channel: 4-Channel Relay Board Channel 3 (IN3) via ESP32 GPIO 10
+     * Control Logic: Active-LOW (0 = Active / Energize Contactor Coil, 1 = Safe OFF)
+     * Physical Switching: Relay IN3 triggers 220V AC coil of an external Magnetic
+     *                     Contactor (or Heavy-Duty Omron Relay), which switches
+     *                     2x Blower Fans simultaneously in parallel.
+     * Note: Aktifkan baris JSON di bawah ke dalam array "components" ketika fisik
+     *       kontaktor dan blower fan sudah diinvestasikan dan terpasang.
+     *
+     * ,{ "componentId": "fan_blower", "name": "Greenhouse Blower Fans", "type": "ACTUATOR", "role": "BLOWER_FAN", "interface": "GPIO", "pin": 10, "safetyClass": "NORMAL", "status": "DEFERRED" }
+     * ========================================================================= */
 "  ]\n"
-"}";
+"}\n";
 
 const char *hardware_registry_get_default_json(void)
 {

@@ -1,12 +1,13 @@
 # AI PROGRESS
 
 ## Status
-PANEL BUTTON FUNCTION REFACTOR & WELL PUMP TIMER IMPLEMENTED (SP-HW-010)
+RELAY K3 PROVISIONED FOR DUAL BLOWER FANS VIA CONTACTOR (SP-HW-011)
 
 ### Latest Safe Point
-SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
+SP-HW-011 4-Channel Relay Channel 3 (GPIO 10) Provisioning for Dual Greenhouse Blower Fans via External Contactor
 
 ## Safe Point Index
+- [x] SP-HW-011 4-Channel Relay Channel 3 (GPIO 10) Provisioning for Dual Greenhouse Blower Fans via External Contactor
 - [x] SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
 - [x] SP-HW-009 Dual-Core Firmware Refactor
 - [x] SP-HW-008 Anti-Theft Pump Security (GPIO 47) & Web UI Network Loss Alarm
@@ -15,6 +16,53 @@ SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-011
+- **ID**: SP-HW-011
+- **Objective**: Officially provision and book 4-Channel Relay Board Channel 3 (IN3 / GPIO 10) for future Dual Greenhouse Exhaust Blower Fans via external Magnetic Contactor / Omron AC relay; prepare HAL driver in safe standby state (OFF level); register commented component specification with explanatory remarks in `components.json` dynamic registry and firmware baseline; synchronize all documentation across repository under Zero-Drift Policy.
+- **Completed Work**:
+  1. Updated `esp32/main/config/pin_config.h`: defined `PIN_OUT_BLOWER_FAN = 10` for Relay IN3; reassigned GPIO 10 from deferred W5500 SPI Ethernet CS to Blower Fan Contactor Trigger.
+  2. Updated `esp32/main/hal/actuator_hal.h` and `.c`: added `ACTUATOR_BLOWER_FAN` enum to `actuator_id_t`; added actuator descriptor in `s_actuators` array; initialized to safe OFF state (`1` / Active-LOW) during boot.
+  3. Updated `esp32/main/hal/hardware_registry.c`: added commented-out component definition block for `fan_blower` with status `DEFERRED` and detailed operational notes inside `DEFAULT_COMPONENTS_JSON` without compromising strict `cJSON_Parse` syntax.
+  4. Built firmware cleanly via ESP-IDF v5.5 (`ninja all`; binary size: 0xf2980 bytes, 68% free partition space; 0 errors).
+  5. Synchronized all documentation files across `docs/` and `esp32/docs/` under Zero-Drift Policy (100% character-for-character match verified via `fc.exe`):
+     - `docs/HARDWARE_WIRING_MAP.md` & `esp32/docs/HARDWARE_WIRING_MAP.md`
+     - `docs/ESP32_GPIO_PIN_MAP.md` & `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+     - `docs/COMPONENT_PIN_MAP.md` & `esp32/docs/COMPONENT_PIN_MAP.md`
+     - `docs/HARDWARE_INVENTORY.md` & `esp32/docs/HARDWARE_INVENTORY.md`
+     - `docs/HARDWARE_WIRING_CHECKLIST.md` & `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+     - `docs/POWER_MAP.md` & `esp32/docs/POWER_MAP.md`
+     - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` & `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`
+     - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md` & `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+     - `docs/ESP32_PERIPHERAL_MAP.mmd` & `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`
+     - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  6. Validated Mermaid flowchart syntax via `@mermaid-js/mermaid-cli`.
+- **Verification Result**:
+  - Firmware Build: PASS (`agrotech_esp32.bin` built successfully, size: 0xf2980 bytes)
+  - Actuator HAL Safety: PASS (GPIO 10 configured as output initialized to HIGH/OFF; zero active triggering on boot)
+  - Zero-Drift Documentation: PASS (`fc.exe` confirmed 0 differences across all 9 dual document pairs)
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/actuator_hal.h`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `docs/HARDWARE_WIRING_MAP.md` & `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `docs/ESP32_GPIO_PIN_MAP.md` & `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md` & `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md` & `esp32/docs/HARDWARE_INVENTORY.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md` & `esp32/docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `docs/POWER_MAP.md` & `esp32/docs/POWER_MAP.md`
+  - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md` & `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md` & `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `docs/ESP32_PERIPHERAL_MAP.mmd` & `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Git Commit Hash**: `c3a89d6`
+- **Next Safe Point / Action**: Physical flashing and hardware bench testing.
 
 ---
 

@@ -21,7 +21,8 @@
 | **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42, SCK: 11, MOSI: 12) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
 | **STORAGE** | MicroSD Card Slot (Built-in on back of TFT ST7735 module) | 1 | 3.3V DC | Shared SPI (CS: GPIO 48, SCK: 11, MOSI: 12, MISO: 13) | **UNVERIFIED**: Hardware slot present on TFT module; flash/boot pending |
 | **FRAM** | Ferroelectric RAM | 0 | N/A | N/A | **NOT USED / NOT REQUIRED**: NVS & SPIFFS used for persistence |
-| **RELAY-4CH** | 4-Channel Optocoupled Relay Board (VCC-JDVCC jumper installed) | 1 | 5V Coil | Active-LOW (IN1: GPIO 4, IN2: GPIO 18, IN3/IN4: TBD) | **READY**: Galvanic isolation for intermediate loads |
+| **RELAY-4CH** | 4-Channel Optocoupled Relay Board (VCC-JDVCC jumper installed) | 1 | 5V Coil | Active-LOW (IN1: GPIO 4, IN2: GPIO 18, IN3: GPIO 10 Booked, IN4: TBD) | **READY**: Galvanic isolation for intermediate loads; IN3 booked for Dual Blower Contactor Trigger |
+| **ACT-BLOWER**| Greenhouse Exhaust Blower Fans (Dual Unit) | 2 | 220V AC Mains | Switched via External Contactor / Omron (Relay IN3 / GPIO 10) | **DEFERRED**: Planned future greenhouse ventilation investment |
 | **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 1) | **READY**: Switches 220V AC Deep Well Pump |
 | **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 2) | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
 | **MOSFET-15A**| High-Power MOSFET Driver Module 15A / 400W | 3 | 3.3V/5V Logic in, 12V out | Physical Pins TBD (GPIO 5, 6, 7) | **READY**: High-speed DC switching (Physical pins TBD) |
@@ -58,7 +59,7 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 7** | Cabinet Cooling Fan Relay / MOSFET | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Fan ON, 1 = Safe OFF) |
 | **GPIO 8** | I2C SDA (DS3231 RTC / Sensors) | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 9** | I2C SCL (DS3231 RTC / Sensors) | OUTPUT | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
-| **GPIO 10** | W5500 SPI Ethernet Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (SPI Bus) |
+| **GPIO 10** | Greenhouse Blower Fans Contactor Trigger (Relay IN3) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Contactor ON, 1 = Safe OFF) Booked / Standby |
 | **GPIO 11** | SPI SCK (Shared SPI Clock) | OUTPUT | 3.3V Logic | W5500, TFT, MicroSD |
 | **GPIO 12** | SPI MOSI (Master Out Slave In) | OUTPUT | 3.3V Logic | W5500, TFT, MicroSD |
 | **GPIO 13** | SPI MISO (Master In Slave Out) | INPUT | 3.3V Logic | W5500, MicroSD |

@@ -111,6 +111,17 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
     { "componentId": "btn_manual_a",     "name": "Manual A Button",      "type": "INPUT",      "role": "BTN_MAN_A",       "interface": "GPIO", "pin": 39, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
     { "componentId": "btn_manual_b",     "name": "Manual B Button",      "type": "INPUT",      "role": "BTN_MAN_B",       "interface": "GPIO", "pin": 40, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
     { "componentId": "btn_dist",         "name": "Distribution Button",  "type": "INPUT",      "role": "BTN_DIST",        "interface": "GPIO", "pin": 41, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" }
+    /* =========================================================================
+     * BOOKED / DEFERRED COMPONENT: Dual Greenhouse Exhaust Blower Fans
+     * Status: BOOKED / PROVISIONED (Investasi Menyusul / Belum Terpasang Fisik)
+     * Hardware Channel: 4-Channel Relay Board Channel 3 (IN3) via ESP32 GPIO 10
+     * Control Logic: Active-LOW (0 = Active / Energize Contactor Coil, 1 = Safe OFF)
+     * Physical Switching: Relay IN3 triggers 220V AC coil of an external Magnetic
+     *                     Contactor (or Heavy-Duty Omron Relay), which switches
+     *                     2x Blower Fans simultaneously in parallel.
+     * Note: Aktifkan baris JSON di bawah saat kontaktor & blower fisik terpasang:
+     * ,{ "componentId": "fan_blower", "name": "Greenhouse Blower Fans", "type": "ACTUATOR", "role": "BLOWER_FAN", "interface": "GPIO", "pin": 10, "activeLevel": "ACTIVE_LOW", "safetyClass": "NORMAL", "status": "DEFERRED" }
+     * ========================================================================= */
   ]
 }
 ```
@@ -122,8 +133,11 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
 When adding new hardware components to the system, follow one of two physical pathways:
 
 ### Pathway A: Adding Actuators on Free ESP32 Direct GPIOs / Relay Spare Channels
-Use this pathway when adding 1 or 2 extra actuators and spare channels are available.
-* **Pin Allocation Note:** GPIO 47, previously a clean spare, is now dedicated to the **Anti-Theft Tamper Loop (`PIN_IN_TAMPER_LOOP`)** in SP-HW-008. Direct actuator expansion can utilize 4-Channel Relay board spare channels (IN3 / IN4) or Pathway B below.
+Use this pathway when adding extra actuators and spare channels are available.
+* **Pin Allocation Note:** 
+  - GPIO 47 is dedicated to the **Anti-Theft Tamper Loop (`PIN_IN_TAMPER_LOOP`)**.
+  - 4-Channel Relay Board **IN3 (GPIO 10)** is **BOOKED** for **Greenhouse Blower Fans Contactor Trigger** (standby safe OFF).
+  - 4-Channel Relay Board **IN4** remains an unassigned spare channel. Direct actuator expansion can utilize IN4 or Pathway B (I2C Expansion).
 * **Wiring Step-by-Step (Example using Spare Channel / Expander):**
   1. Power OFF panel MCB.
   2. Connect actuator signal terminal to assigned spare channel.
