@@ -85,7 +85,7 @@ static void safety_monitor_task(void *pvParameters)
 
 esp_err_t safety_monitor_init(void)
 {
-    xTaskCreate(safety_monitor_task, "safety_mon", TASK_SAFETY_MONITOR_STACK, NULL, TASK_SAFETY_MONITOR_PRIO, NULL);
+    xTaskCreatePinnedToCore(safety_monitor_task, "safety_mon", TASK_SAFETY_MONITOR_STACK, NULL, TASK_SAFETY_MONITOR_PRIO, NULL, 1);
     ESP_LOGI(TAG, "Safety monitor task launched.");
     return ESP_OK;
 }

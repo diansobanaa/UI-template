@@ -5,6 +5,9 @@
 **Target Hardware:** ESP32-S3-WROOM-1-N16R8 (16MB Octal Flash, 8MB Octal PSRAM)  
 **Status:** **ACTIVE BINDING CONTRACT (AUDITED & SYNCHRONIZED)**
 
+> [!TIP]
+> **Visual Architecture Diagram:** Untuk peta visual flowchart (Mermaid) interaktif yang merender blok ESP32 dan seluruh periferal, buka [ESP32_PERIPHERAL_VISUAL_MAP.md](file:///d:/template/esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md).
+
 ---
 
 ## 1. Contract Overview & Guiding Rules

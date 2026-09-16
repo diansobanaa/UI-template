@@ -260,6 +260,6 @@ esp_err_t scheduler_init(void)
         s_schedules[i].current_command_id[0] = '\0';
     }
     
-    xTaskCreate(scheduler_task, "scheduler", 4096, NULL, 3, NULL);
+    xTaskCreatePinnedToCore(scheduler_task, "scheduler", 4096, NULL, 3, NULL, 1);
     return ESP_OK;
 }

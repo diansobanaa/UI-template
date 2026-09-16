@@ -148,7 +148,7 @@ esp_err_t command_mgr_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    xTaskCreate(command_worker_task, "cmd_worker", TASK_COMMAND_MGR_STACK, NULL, TASK_COMMAND_MGR_PRIO, NULL);
+    xTaskCreatePinnedToCore(command_worker_task, "cmd_worker", TASK_COMMAND_MGR_STACK, NULL, TASK_COMMAND_MGR_PRIO, NULL, 1);
     ESP_LOGI(TAG, "Command Manager initialized with idempotency queue.");
 
     return ESP_OK;

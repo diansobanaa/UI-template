@@ -58,7 +58,7 @@ esp_err_t telemetry_mgr_init(void)
     if (s_snap_mutex) return ESP_OK;
 
     s_snap_mutex = xSemaphoreCreateMutex();
-    xTaskCreate(telemetry_sampler_task, "telemetry_task", TASK_TELEMETRY_STACK, NULL, TASK_TELEMETRY_PRIO, NULL);
+    xTaskCreatePinnedToCore(telemetry_sampler_task, "telemetry_task", TASK_TELEMETRY_STACK, NULL, TASK_TELEMETRY_PRIO, NULL, 1);
     ESP_LOGI(TAG, "Telemetry manager initialized.");
     return ESP_OK;
 }

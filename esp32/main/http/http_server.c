@@ -201,6 +201,7 @@ esp_err_t http_server_start(void)
     config.max_uri_handlers = 32;
     config.stack_size = TASK_HTTP_SERVER_STACK;
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.core_id = 0;
 
     ESP_LOGI(TAG, "Starting HTTP Server on port %d...", config.server_port);
     esp_err_t ret = httpd_start(&s_server, &config);

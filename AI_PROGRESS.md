@@ -1,18 +1,47 @@
 # AI PROGRESS
 
 ## Status
-ANTI-THEFT PUMP SECURITY & NETWORK ALARM IMPLEMENTED (SP-HW-008: GPIO 47 Tamper Loop, Web UI Heartbeat Monitor)
+DUAL-CORE ARCHITECTURE REFACTOR IMPLEMENTED (SP-HW-009)
 
 ### Latest Safe Point
-SP-HW-008 Anti-Theft Pump Security & Network Loss Alarm
+SP-HW-009 Dual-Core Firmware Refactor
 
 ## Safe Point Index
+- [x] SP-HW-009 Dual-Core Firmware Refactor
 - [x] SP-HW-008 Anti-Theft Pump Security (GPIO 47) & Web UI Network Loss Alarm
 - [x] SP-HW-007 Dynamic Hardware Registry, SPIFFS components.json Engine, & Live Dynamic UI Rendering
 - [x] SP-HW-006 DS3231 I2C RTC Driver Integration, MOSFET Pin Verification, & 100% Firmware-Hardware Contract Alignment
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-HW-009
+- **ID**: SP-HW-009
+- **Objective**: Refactor firmware to dual-core architecture by pinning HTTP/Network tasks to Core 0 and Safety/Control tasks to Core 1.
+- **Completed Work**:
+  1. Pinned `http_server_task` to Core 0 in `http_server.c`.
+  2. Pinned `safety_monitor_task` to Core 1 in `safety_monitor.c`.
+  3. Pinned `telemetry_sampler_task` to Core 1 in `telemetry_mgr.c`.
+  4. Pinned `scheduler_task` to Core 1 in `scheduler.c`.
+  5. Pinned `command_worker_task` to Core 1 in `command_mgr.c`.
+  6. Verified that no GPIO assignments were changed.
+- **Verification Result**:
+  - Firmware Update: PASS
+  - Documentation Consistency: PASS
+- **Changed Files**:
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/services/safety_monitor.c`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/services/scheduler.c`
+  - `esp32/main/services/command_mgr.c`
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Physical flashing and bench testing.
 
 ---
 
