@@ -284,8 +284,8 @@ flowchart TD
         RTC["RTC DS3231 Module<br/>Backup CR2032"]:::sensor
         TEMP["Sensor Suhu DS18B20<br/>Probe Stainless"]:::sensor
 
-        ESP <-->|GPIO 8 SDA - GPIO 9 SCL I2C| RTC
-        ESP <-->|GPIO 17 DATA 1-Wire| TEMP
+        ESP ---|GPIO 8 SDA - GPIO 9 SCL I2C| RTC
+        ESP ---|GPIO 17 DATA 1-Wire| TEMP
         VCC33 -.->|3.3V VCC| RTC
         VCC33 -.->|3.3V VCC| TEMP
     end
@@ -300,7 +300,7 @@ flowchart TD
         ESP -->|GPIO 12 Left-18 MOSI Data| TFT
         ESP -->|GPIO 12 Left-18 MOSI Data| SD
 
-        ESP <--|GPIO 13 Left-19 MISO Data| SD
+        SD -->|GPIO 13 Left-19 MISO Data| ESP
 
         ESP -->|GPIO 14 Left-20 TFT CS| TFT
         ESP -->|GPIO 21 Right-18 A0-DC Cmd| TFT
