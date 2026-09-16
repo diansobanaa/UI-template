@@ -15,6 +15,8 @@
 2. **Master Hardware Documentation Synchronization (100% Match)**:
    - Zero GPIO changes were made. All GPIO mappings remain identical.
    - Created renderable visual peripheral flowchart: `docs/ESP32_PERIPHERAL_VISUAL_MAP.md` & `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`.
+   - Created pure Mermaid file: `docs/ESP32_PERIPHERAL_MAP.mmd` & `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`.
+   - Created standalone interactive HTML with Pan/Zoom: `docs/ESP32_PERIPHERAL_MAP.html` & `esp32/docs/ESP32_PERIPHERAL_MAP.html`.
 
 ## Repository Status
 - Firmware Pin Matrix: **26/26 pins match identically** with `pin_config.h` (No changes in SP-HW-009).

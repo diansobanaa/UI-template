@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-S3 & Peripheral Interactive Wiring Map</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #0b0f19;
+            --bg-card: #111827;
+            --border-color: #1f2937;
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --accent-blue: #38bdf8;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button {
+            background-color: #1f2937;
+            color: #e5e7eb;
+            border: 1px solid #374151;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+
+        button:hover {
+            background-color: #374151;
+            color: #fff;
+            border-color: #4b5563;
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
+        .btn-primary {
+            background: #0284c7;
+            border-color: #0369a1;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #0369a1;
+        }
+
+        #diagram-viewport {
+            flex: 1;
+            width: 100%;
+            height: calc(100vh - 65px);
+            position: relative;
+            background: radial-gradient(#1f2937 1px, transparent 1px);
+            background-size: 24px 24px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #mermaid-output {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #mermaid-output svg {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(17, 24, 39, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border-color);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px 16px;
+            z-index: 5;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .hint {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(17, 24, 39, 0.8);
+            border: 1px solid var(--border-color);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            pointer-events: none;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-title">
+            <span class="badge">ESP32-S3</span>
+            <div>
+                <h1>Hardware & Peripheral Interactive Wiring Map</h1>
+                <div class="subtitle">AgroTech Greenhouse Controller (Dual-Core LX7, 16MB Flash, 8MB Octal PSRAM)</div>
+            </div>
+        </div>
+        <div class="controls">
+            <button onclick="zoomIn()" title="Zoom In">🔍 +</button>
+            <button onclick="zoomOut()" title="Zoom Out">🔍 -</button>
+            <button onclick="resetZoom()" title="Reset Zoom">🔄 Reset</button>
+            <button class="btn-primary" onclick="window.print()" title="Cetak / Simpan PDF">🖨️ Cetak / PDF</button>
+        </div>
+    </header>
+
+    <div id="diagram-viewport">
+        <div id="mermaid-output" class="mermaid">
+flowchart TD
+    %% Styling
+    classDef esp fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef power fill:#b45309,stroke:#f59e0b,stroke-width:1.5px,color:#fff;
+    classDef ac fill:#dc2626,stroke:#ef4444,stroke-width:1.5px,color:#fff;
+    classDef dc fill:#0369a1,stroke:#0ea5e9,stroke-width:1.5px,color:#fff;
+    classDef sensor fill:#15803d,stroke:#22c55e,stroke-width:1.5px,color:#fff;
+    classDef spi fill:#6d28d9,stroke:#a855f7,stroke-width:1.5px,color:#fff;
+    classDef safety fill:#991b1b,stroke:#f87171,stroke-width:2px,color:#fff;
+    classDef btn fill:#475569,stroke:#94a3b8,stroke-width:1.5px,color:#fff;
+
+    subgraph ESP32_CORE ["ESP32-S3-WROOM-1-N16R8 (Central Controller)"]
+        ESP["ESP32-S3 Core Controller<br/>Dual-Core LX7 @ 240MHz<br/>16MB Flash | 8MB Octal PSRAM"]:::esp
+    end
+
+    subgraph PWR ["Sistem Distribusi Daya (Power Supply Network)"]
+        AC_IN["PLN AC 220V Input"]:::power
+        PSU["PSU Switching S-250-12<br/>(12V DC 20A)"]:::power
+        BUCK["LM2596 Step-Down Buck<br/>(Output Dikunci 5.05V DC)"]:::power
+        VCC33["ESP32 Internal LDO (3.3V Rail)"]:::power
+
+        AC_IN --> PSU
+        PSU -->|"12V DC Rail"| BUCK
+        BUCK -->|"5.05V ke Pin Vin (Left-21)"| ESP
+        ESP -->|"3.3V Sensor Rail (Left-1/2)"| VCC33
+    end
+
+    subgraph ACT_AC ["Beban AC 220V (High Voltage Actuators)"]
+        RLY_AC1["Omron Relay Module 1<br/>(Koil Driver 3.3V/5V)"]:::ac
+        RLY_AC2["Omron Relay Module 2<br/>(Koil Driver 3.3V/5V)"]:::ac
+        PUMP_WELL["Pompa Celup Sumur Dalam<br/>(Deep Well 220V AC)"]:::ac
+        PUMP_BOOST["Pompa Distribusi Booster GH-1<br/>(220V AC)"]:::ac
+
+        ESP -->|"GPIO 1 (Right-4)<br/>Active-LOW (0 = ON)"| RLY_AC1 --> PUMP_WELL
+        ESP -->|"GPIO 2 (Right-5)<br/>Active-LOW (0 = ON)"| RLY_AC2 --> PUMP_BOOST
+        AC_IN -.->|"Line 220V AC"| RLY_AC1
+        AC_IN -.->|"Line 220V AC"| RLY_AC2
+    end
+
+    subgraph ACT_DC ["Aktuator DC 12V (Low Voltage Relays & MOSFETs)"]
+        RLY_BOARD["4-Channel Relay Board (Optocoupler 5V)"]:::dc
+        PUMP_RAW["Pompa Air Baku Celup<br/>(Submersible 12V DC)"]:::dc
+        ALARM_BEACON["Lampu Alarm Sistem / Beacon Merah<br/>(Indikator Error 12V DC)"]:::dc
+
+        MOS1["MOSFET Module 1 (LR7843)<br/>Optocoupler Isolated"]:::dc
+        MOS2["MOSFET Module 2 (LR7843)<br/>Optocoupler Isolated"]:::dc
+        MOS3["MOSFET Module 3 (LR7843)<br/>Optocoupler Isolated"]:::dc
+        PUMP_DOS_A["Dosing Pump A Peristaltik<br/>(Nutrisi A - 12V DC)"]:::dc
+        PUMP_DOS_B["Dosing Pump B Peristaltik<br/>(pH / Buffer - 12V DC)"]:::dc
+        FAN_EXH["Kipas Pembuang Udara Panel<br/>(Exhaust Fan 12V DC)"]:::dc
+
+        ESP -->|"GPIO 4 (Left-4) / IN1<br/>Active-LOW (0 = ON)"| RLY_BOARD --> PUMP_RAW
+        ESP -->|"GPIO 18 (Left-11) / IN2<br/>Active-LOW (0 = ALARM)"| RLY_BOARD --> ALARM_BEACON
+
+        ESP -->|"GPIO 5 (Left-5) / PWM<br/>Active-LOW Gate"| MOS1 --> PUMP_DOS_A
+        ESP -->|"GPIO 6 (Left-6) / PWM<br/>Active-LOW Gate"| MOS2 --> PUMP_DOS_B
+        ESP -->|"GPIO 7 (Left-7) / PWM<br/>Active-LOW Gate"| MOS3 --> FAN_EXH
+
+        PSU -.->|"12V DC Load Supply"| RLY_BOARD
+        PSU -.->|"12V DC Load Supply"| MOS1
+        PSU -.->|"12V DC Load Supply"| MOS2
+        PSU -.->|"12V DC Load Supply"| MOS3
+    end
+
+    subgraph BUS_COMM ["Bus Komunikasi & Sensor Presisi (I2C & 1-Wire)"]
+        RTC["RTC DS3231 Module<br/>(Baterai Cadangan CR2032)"]:::sensor
+        TEMP["Sensor Suhu DS18B20<br/>(Probe Tabung Stainless)"]:::sensor
+
+        ESP <-->|"GPIO 8 (Left-12): SDA<br/>GPIO 9 (Left-15): SCL<br/>(I2C + 4.7k Pullup)"| RTC
+        ESP <-->|"GPIO 17 (Left-10): DATA<br/>(1-Wire + 4.7k Pullup ke 3.3V)"| TEMP
+        VCC33 -.->|"3.3V VCC"| RTC
+        VCC33 -.->|"3.3V VCC"| TEMP
+    end
+
+    subgraph SPI_PERIPH ["Display & Logging Eksternal (Shared SPI2 Bus)"]
+        TFT["Display 1.8 inch TFT ST7735<br/>(Resolusi 128x160 SPI)"]:::spi
+        SD["Slot MicroSD Terintegrasi<br/>(Header Belakang PCB TFT)"]:::spi
+
+        ESP -->|"GPIO 11 (Left-17): SCK (Shared SPI Clock)"| TFT
+        ESP -->|"GPIO 11 (Left-17): SCK (Shared SPI Clock)"| SD
+
+        ESP -->|"GPIO 12 (Left-18): MOSI (Shared Data Out)"| TFT
+        ESP -->|"GPIO 12 (Left-18): MOSI (Shared Data Out)"| SD
+
+        ESP <--|"GPIO 13 (Left-19): MISO (Data Masuk)"| SD
+
+        ESP -->|"GPIO 14 (Left-20): TFT CS (Active-LOW)"| TFT
+        ESP -->|"GPIO 21 (Right-18): A0 / DC (Data/Cmd)"| TFT
+        ESP -->|"GPIO 42 (Right-6): RESET (Active-LOW)"| TFT
+        ESP -->|"GPIO 48 (Right-16): SD CS (Active-LOW)"| SD
+
+        VCC33 -.->|"3.3V VCC & LED Backlight"| TFT
+        VCC33 -.->|"3.3V VCC"| SD
+    end
+
+    subgraph SENS_FLOW ["Sensor Aliran Air (Pulse Counter 5V -> 3.3V Divider)"]
+        DIV1["Resistor Divider R1=2.2k / R2=3.3k<br/>(Peredam 5V ke 3.0V)" ]:::sensor
+        DIV2["Resistor Divider R1=2.2k / R2=3.3k<br/>(Peredam 5V ke 3.0V)" ]:::sensor
+        FLOW1["Sensor Flow YF-B1 (DN15)<br/>(Jalur Sirkulasi Fertigasi)"]:::sensor
+        FLOW2["Sensor Flow FS400A (G1 inch)<br/>(Jalur Pasokan Air Baku)"]:::sensor
+
+        FLOW1 --> DIV1 -->|"GPIO 15 (Left-8)<br/>Pulse Interrupt Counter"| ESP
+        FLOW2 --> DIV2 -->|"GPIO 16 (Left-9)<br/>Pulse Interrupt Counter"| ESP
+
+        BUCK -.->|"5V Power Hall Sensor"| FLOW1
+        BUCK -.->|"5V Power Hall Sensor"| FLOW2
+    end
+
+    subgraph INTERLOCKS ["Sistem Keamanan & Proteksi Fisik (Mandatory Interlocks)"]
+        FLOAT["Pelampung Stainless (Lower Float Switch)<br/>(Dasar Tangki Pencampur)"]:::safety
+        TAMPER["Loop Proteksi Anti-Theft<br/>(Kawat Loop Fisik Pompa ke Ground)"]:::safety
+
+        FLOAT -->|"GPIO 38 (Right-10)<br/>Active-LOW (0 = KERING / BAHAYA)<br/>Hardware Dry-Run Protection"| ESP
+        TAMPER -->|"GPIO 47 (Right-17)<br/>Active-HIGH (1 = KAWAT PUTUS)<br/>Rule 4 Instant Emergency Stop"| ESP
+    end
+
+    subgraph BUTTONS ["Tombol Kontrol Manual Panel (Tactile Push Buttons)"]
+        BTN_MODE["Tombol Mode (Auto/Manual)<br/>(Paralel Tombol BOOT Onboard)"]:::btn
+        BTN_DOS_A["Tombol Manual Dosing A<br/>(Trigger Manual Pompa Nutrisi)"]:::btn
+        BTN_DOS_B["Tombol Manual Dosing B<br/>(Trigger Manual Pompa Asam/pH)"]:::btn
+        BTN_DIST["Tombol Manual Distribusi<br/>(Trigger Pompa Distribusi)"]:::btn
+
+        BTN_MODE -->|"GPIO 0 (Right-14)<br/>Active-LOW (Tekan = 0)"| ESP
+        BTN_DOS_A -->|"GPIO 39 (Right-9)<br/>Active-LOW (Internal Pullup)"| ESP
+        BTN_DOS_B -->|"GPIO 40 (Right-8)<br/>Active-LOW (Internal Pullup)"| ESP
+        BTN_DIST -->|"GPIO 41 (Right-7)<br/>Active-LOW (Internal Pullup)"| ESP
+    end
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="color-dot" style="background:#38bdf8;"></div><span>ESP32-S3 Core Controller</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#f59e0b;"></div><span>Jaringan Daya (12V / 5V / 3.3V)</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#ef4444;"></div><span>Beban AC 220V (Omron Relay)</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#0ea5e9;"></div><span>Beban DC 12V (Relai & MOSFET)</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#22c55e;"></div><span>Sensor (I2C, 1-Wire, Flow)</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#a855f7;"></div><span>Display TFT & MicroSD (SPI)</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#f87171;"></div><span>Safety Interlock & Alarm</span></div>
+        <div class="legend-item"><div class="color-dot" style="background:#94a3b8;"></div><span>Tombol Manual Panel</span></div>
+    </div>
+
+    <div class="hint">💡 Tip: Geser (drag) mouse untuk memindahkan diagram, gunakan scroll mouse untuk zoom in/out.</div>
+
+    <script>
+        let panZoomInstance = null;
+
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                darkMode: true,
+                background: '#0b0f19',
+                primaryColor: '#1e293b',
+                primaryTextColor: '#f8fafc',
+                lineColor: '#64748b'
+            }
+        });
+
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                const svgElement = document.querySelector('#mermaid-output svg');
+                if (svgElement && typeof svgPanZoom !== 'undefined') {
+                    panZoomInstance = svgPanZoom(svgElement, {
+                        zoomEnabled: true,
+                        controlIconsEnabled: false,
+                        fit: true,
+                        center: true,
+                        minZoom: 0.3,
+                        maxZoom: 10
+                    });
+                }
+            }, 800);
+        });
+
+        function zoomIn() {
+            if (panZoomInstance) panZoomInstance.zoomIn();
+        }
+
+        function zoomOut() {
+            if (panZoomInstance) panZoomInstance.zoomOut();
+        }
+
+        function resetZoom() {
+            if (panZoomInstance) {
+                panZoomInstance.resetZoom();
+                panZoomInstance.center();
+            }
+        }
+    </script>
+</body>
+</html>

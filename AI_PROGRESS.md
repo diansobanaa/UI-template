@@ -38,6 +38,10 @@ SP-HW-009 Dual-Core Firmware Refactor
   - `esp32/main/services/command_mgr.c`
   - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
   - `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `docs/ESP32_PERIPHERAL_MAP.mmd`
+  - `esp32/docs/ESP32_PERIPHERAL_MAP.mmd`
+  - `docs/ESP32_PERIPHERAL_MAP.html`
+  - `esp32/docs/ESP32_PERIPHERAL_MAP.html`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
 - **Known Issues / Blockers**: None.
