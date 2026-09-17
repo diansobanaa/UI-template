@@ -1,12 +1,34 @@
 # AI PROGRESS
 
 ## Status
-RELAY K3 PROVISIONED FOR DUAL BLOWER FANS VIA CONTACTOR (SP-HW-011)
+- [x] **MANUAL_ACTUATOR_PROTOCOL (Tahap 1)**
+  - Mengisolasi logika pengontrolan aktuator secara non-blocking di `manual_actuator_mgr.c` agar tidak memblokir antrean perintah utama.
+- [x] **TANK_TRANSFER_PROTOCOL (Tahap 2)**
+  - Implementasi *state machine* di `transfer_mgr.c` untuk mengelola proses pengisian (*filling*) cairan antar tangki secara aman dan asinkron.
+- [x] **CALIBRATION_PROTOCOL (Tahap 3)**
+  - Integrasi API endpoint `/api/v1/calibration` untuk mengeksekusi tes volumetrik pompa (berjalan otomatis 30 detik lalu berhenti).
+- [x] **MOCK_REMOVAL_PRODUCTION_HARDENING (Tahap 5)**
+  - Menghapus seluruh mock, dummy, fake timers, dan simulasi dari jalur eksekusi produksi di firmware ESP32 dan frontend React/TypeScript.
+  - Mengganti seluruh simulasi dengan pemanggilan API nyata ke ESP32 (`/api/v1/schedules`, `/api/v1/calibration/rate`, `/api/v1/commands`, `/api/v1/events`).
+- [x] **FLOW_METER_SPECIFICATION_ALIGNMENT (SP-FLOW-001)**
+  - Mengoreksi seluruh pemetaan sensor aliran: ZJ-B1 untuk Air Baku (Raw Water) pada GPIO 15 dan FS400A G1" untuk Fertigasi pada GPIO 16.
+  - Menetapkan status kalibrasi ZJ-B1 sebagai UNVERIFIED / CALIBRATION REQUIRED tanpa mengarang pulsa.
+  - Menurunkan konstanta FS400A secara matematis (F = 4.5 * Q -> 270.0 pulsa/L).
+  - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-HW-011 4-Channel Relay Channel 3 (GPIO 10) Provisioning for Dual Greenhouse Blower Fans via External Contactor
+SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains distribution
 
 ## Safe Point Index
+- [x] SP-PRD-001 Full Reverse Engineering PRD Generation
+- [x] SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains distribution
+- [x] SP-FLOW-002 Default Calibration Constants: ZJ-B1 (660 P/L) & FS400A (288 P/L) initialized and documented
+- [x] SP-FLOW-001 Flow Meter Specification Alignment: ZJ-B1 (Raw Water) & FS400A G1" (Fertigation) Calibration & Semantic Decoupling
+- [x] SP-MOCK-REMOVAL-001 Mock Removal & Production Hardening: Full transition to live hardware execution and honest telemetry
+- [x] SP-API-003 Volume & Protocol Compliance: Enforced mL scaling across API, Frontend, and State Machine
+- [x] SP-HW-013 Consistency Check: GPIO41 Unassignment & FERTIGATION_BATCH Water Routing Audit
+- [x] SP-API-002 FERTIGATION_BATCH REST API Integration
+- [x] SP-HW-012 FERTIGATION_BATCH State Machine Implementation
 - [x] SP-HW-011 4-Channel Relay Channel 3 (GPIO 10) Provisioning for Dual Greenhouse Blower Fans via External Contactor
 - [x] SP-HW-010 Physical Panel Button Functional Role Refactor & Well Pump Timer
 - [x] SP-HW-009 Dual-Core Firmware Refactor
@@ -16,6 +38,275 @@ SP-HW-011 4-Channel Relay Channel 3 (GPIO 10) Provisioning for Dual Greenhouse B
 - [x] SP-HW-005 Canonical Hardware Wiring Contract & Modular Pin Documentation Suite
 - [ ] SP-HW-004 (PARTIAL) TFT Onboard SD Card Slot Shared SPI Integration
 - [x] SP-HW-003 Button Conflict Resolution (Mode GPIO0, Lower Float GPIO38) and DS1302 3-Wire RTC Driver Integration
+
+---
+
+## Safe Point Record: SP-PRD-001
+- **ID**: SP-PRD-001
+- **Objective**: Perform full reverse engineering of the React/Vite UI and ESP32 Firmware to generate a factual Product Requirements Document (PRD).
+- **Completed Work**:
+  1. Analyzed `UI_ESP32_OPENAPI.yaml`, `types.ts`, `services.ts`, `page.tsx`, and `main.c`.
+  2. Verified implemented features across frontend UI mock states and ESP32 services.
+  3. Created `ACTUAL_PRD.md` and mirrored it to `esp32/docs/` following the Zero-Drift Documentation Rule.
+- **Verification Result**:
+  - Documentation Integrity: PASS (PRD accurately reflects codebase).
+- **Changed Files**:
+  - `docs/ACTUAL_PRD.md` (NEW)
+  - `esp32/docs/ACTUAL_PRD.md` (NEW)
+  - `AI_PROGRESS.md`, `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Proceed with hardware execution testing.
+
+---
+
+## Safe Point Record: SP-HW-014
+- **ID**: SP-HW-014
+- **Objective**: Provision and document the physical TB-1506L (15A, 6-Position) Terminal Block as the primary AC Mains distribution hub to ensure robust and safe high-voltage wiring.
+- **Completed Work**:
+  1. Updated `HARDWARE_INVENTORY.md` with `TERM` (Terminal Block TB-1506L).
+  2. Updated `POWER_MAP.md` by inserting a new Section 3 (`AC Mains Distribution (Terminal Block TB-1506L)`) documenting the jumping scheme for L, N, and PE.
+  3. Mirrored all changes to `esp32/docs/` to maintain the Zero-Drift Policy.
+- **Verification Result**:
+  - Documentation Integrity: PASS (All matching files updated and mirrored).
+- **Changed Files**:
+  - `docs/HARDWARE_INVENTORY.md`, `esp32/docs/HARDWARE_INVENTORY.md`
+  - `docs/POWER_MAP.md`, `esp32/docs/POWER_MAP.md`
+  - `AI_PROGRESS.md`, `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Hardware bench testing.
+
+---
+
+## Safe Point Record: SP-FLOW-002
+- **ID**: SP-FLOW-002
+- **Objective**: Enter preliminary flow meter specifications based on manufacturer specs to allow functionality prior to field calibration, and update all system documentation.
+- **Completed Work**:
+  1. Updated `calibration_mgr.c` and `calibration_mgr.h` to use default values: 660.0 pulses/L for ZJ-B1 (F=11*Q) and 288.0 pulses/L for FS400A (F=4.8*Q).
+  2. Mass-replaced `F=4.5*Q` and `270 pulses/L` with `F=4.8*Q` and `288 pulses/L` across all documentation files in `docs/` and `esp32/docs/` using an automated script.
+- **Verification Result**:
+  - Documentation Integrity: PASS (All matching files updated systematically).
+- **Changed Files**:
+  - `esp32/main/services/calibration_mgr.c`, `esp32/main/services/calibration_mgr.h`
+  - All Markdown files in `docs/` and `esp32/docs/` mentioning the flow meter constants.
+  - `AI_PROGRESS.md`, `AI_HANDOVER.md`
+- **Known Issues**: Physical field calibration for ZJ-B1 is still pending hardware testbed.
+- **Next Safe Point / Action**: Hardware bench testing and physical calibration.
+
+---
+
+## Safe Point Record: SP-FLOW-001
+- **ID**: SP-FLOW-001
+- **Objective**: Hardware & Software Assumption Alignment: ZJ-B1 for Raw Water (GPIO 15) and FS400A G1" for Fertigation (GPIO 16) with strict calibration separation and zero-drift documentation.
+- **Completed Work**:
+  1. Flow Meter Semantic Mapping:
+     - Model `ZJ-B1`: Dedicated Raw Water Flow Meter (1–25 L/min, $\le$ 1.75 MPa). Process: Raw Water $\to$ Mixing Tank. Pin: GPIO 15. Pulse constant marked `UNVERIFIED / CALIBRATION REQUIRED` (default 0.0 pulses/L). Volumetric conversion deferred until field calibration; pulse accumulation is active. Completion criterion: `actualVolumeMl >= targetVolumeMl`.
+     - Model `FS400A G1"`: Dedicated Fertigation Flow Meter (1–60 L/min, $\le$ 1.75 MPa, DC 5–24V). Process: Fertigation distribution and delivery monitoring. Formula: $F = 4.5 \times Q \implies Q = F / 4.5$; volume calculation factor $270.0\text{ pulses/L}$ ($0.27\text{ pulses/mL}$). Pin: GPIO 16.
+  2. HAL & Driver Refactoring:
+     - `pin_config.h`: Declared `PIN_IN_FLOW_RAW_ZJB1 15` and `PIN_IN_FLOW_FERT_FS400A 16` with backward-compatible aliases.
+     - `sensor_hal.h` & `sensor_hal.c`: Updated readings to export `flow_rate_raw_zjb1_lpm`, `total_pulses_raw_zjb1`, `total_liters_raw_zjb1`, `total_ml_raw_zjb1`, `raw_zjb1_calibrated`, `flow_rate_fert_fs400a_lpm`, `total_pulses_fert_fs400a`, `total_liters_fert_fs400a`.
+  3. Calibration Storage:
+     - `calibration_mgr.h` & `calibration_mgr.c`: Added separate persistent NVS parameters: `flowRawPulsesPerL` (default 0.0f) and `flowFertPulsesPerL` (default 270.0f).
+  4. State Machine & Safety Interlock Updates:
+     - `fertigation_mgr.c`: `FERT_STATE_FILLING` uses ZJ-B1 pulses and calibrated volume to evaluate completion; added 30s zero-pulse safety diagnostic alert.
+     - `safety_monitor.c`: Evaluates ZJ-B1 flow while raw pumps are OFF, and FS400A flow while distribution pump is OFF.
+  5. UI Display & Telemetry:
+     - `tft_hal.c`: Fixed swapped LCD display strings to `RAW (ZJ-B1):` (GPIO 15) and `FERT (FS400A):` (GPIO 16).
+     - `api_device_handlers.c` & `store.ts`: Exposed and consumed explicit flow telemetry.
+     - `contracts/UI_ESP32_OPENAPI.yaml`: Added flow calibration factors to calibration schema.
+  6. Documentation & Zero-Drift Mirroring:
+     - Updated `HARDWARE_INVENTORY.md`, `COMPONENT_PIN_MAP.md`, `HARDWARE_WIRING_MAP.md`, `ESP32_GPIO_PIN_MAP.md`, `ESP32_PERIPHERAL_VISUAL_MAP.md`, `DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`, `ESP32_ASSEMBLY_GUIDE.md`.
+     - Marked `YF-B1` as obsolete across active documents and marked historical reports as superseded.
+     - Mirrored all docs to `esp32/docs/`.
+- **Verification Results**:
+  - Firmware Build: PASS (ESP-IDF v5.5, `agrotech_esp32.bin` 0xf6ac0 bytes, 68% free flash headroom, 0 compilation errors).
+  - Frontend Build: PASS (`tsc -b && vite build`, `dist/index.html` 858.68 kB, 0 errors).
+  - Contract Adherence: PASS (`verify_e2e_contracts.mjs` 25/25 OpenAPI endpoints, 26 firmware handlers).
+  - Physical Hardware: UNVERIFIED (Awaiting bench flashing and physical testing).
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/sensor_hal.h`, `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/hal/tft_hal.c`
+  - `esp32/main/services/calibration_mgr.h`, `esp32/main/services/calibration_mgr.c`
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/safety_monitor.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `src/lib/store.ts`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `docs/HARDWARE_INVENTORY.md`, `esp32/docs/HARDWARE_INVENTORY.md`
+  - `docs/COMPONENT_PIN_MAP.md`, `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_WIRING_MAP.md`, `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `docs/ESP32_GPIO_PIN_MAP.md`, `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`, `esp32/docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`, `esp32/docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`
+  - `docs/ESP32_ASSEMBLY_GUIDE.md`, `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `docs/AI_HARDWARE_INVENTORY_AND_FIRST_FLASH_V1.md`, `esp32/docs/AI_HARDWARE_INVENTORY_AND_FIRST_FLASH_V1.md`
+  - `docs/AI_BLINDSPOT_AUDIT_REPORT_V1.md`, `esp32/docs/AI_BLINDSPOT_AUDIT_REPORT_V1.md`
+  - `docs/AI_FIRST_FLASH_READINESS_REPORT_V1.md`, `esp32/docs/AI_FIRST_FLASH_READINESS_REPORT_V1.md`
+  - `docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md`, `esp32/docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Proceed to physical flashing and hardware bench testing by workbench operator.
+
+---
+
+## Safe Point Record: SP-MOCK-REMOVAL-001
+- **ID**: SP-MOCK-REMOVAL-001
+- **Objective**: Complete Mock Removal & Production Hardening across ESP32 Firmware and React Frontend.
+- **Completed Work**:
+  1. Firmware Sensor Configuration: Set `FEATURE_SENSORS_ENABLED 1` in `system_config.h`.
+  2. Honest Sensor Reporting: In `telemetry_mgr.c`, removed fake humidity (`68.5%`) and lux (`45000 lux`) fallbacks. Sensors absent from `HARDWARE_INVENTORY.md` are honestly marked invalid/null.
+  3. Real Actuator Status: Added `rawSubmersible` and `mixingPump` relay states to JSON telemetry in `telemetry_mgr.c`.
+  4. Command Execution Realism: Refactored `command_mgr.c` so asynchronous jobs (`FERTIGATION_BATCH`, `TANK_TRANSFER`, `WELL_PUMP`, `DIST_PUMP`, `DOSING_RUN`) start as `CMD_STATUS_RUNNING` instead of prematurely returning `CMD_STATUS_COMPLETED`. Added dynamic subsystem completion checking in `command_mgr_get()`.
+  5. Schedule REST API: Implemented `GET /api/v1/schedules`, `POST /api/v1/schedules`, and `DELETE /api/v1/schedules/*` backed by `scheduler.c` and NVS in `api_schedule_handlers.c`.
+  6. Calibration Rate REST API: Implemented `POST /api/v1/calibration/rate` and `GET /api/v1/calibration/rate` in `api_calibration_handlers.c` with NVS persistence.
+  7. OpenAPI & Client Alignment: Updated `contracts/UI_ESP32_OPENAPI.yaml`, `contracts.ts`, and `esp32-client.ts` to include schedules and calibration rate endpoints. Defaulted `directEsp32Enabled` to `true`.
+  8. Real System Clock: In `src/lib/format.ts`, replaced `SIMULATION_START` (Sep 2, 2026) and simulation clock with real system clock `Date()` (`SYSTEM_NOW`).
+  9. Store Simulation Removal: Removed `startRealtimeMock()` sine-wave timer from `StoreHydrator.tsx` and `store.ts`. Added `updateFromEsp32()` to apply live ESP32 status.
+  10. Service Layer Hardening: In `src/lib/services.ts`, replaced `delay(350)` with 0ms no-op; connected `scheduleService`, `fertigationService`, `calibrationService`, and `eventService` directly to `esp32Client`; removed fake `advanceManualRun()` `setTimeout` progress simulation.
+  11. Frontend Live Polling: In `ConnectionMonitor.tsx`, added live status sync via `esp32Client.getStatus()` feeding `updateFromEsp32()` and `eventService.syncLogsFromEsp32()`.
+  12. Zero-Drift Mirroring: Mirrored all documentation to `esp32/docs/`.
+- **Verification Results**:
+  - Build Result: PASS (`npm run build` Vite bundle `dist/index.html` 858.52 kB; ESP-IDF v5.5 `agrotech_esp32.bin` 0xf6460 bytes, 68% flash headroom).
+  - Automated Test Result: PASS (`node scripts/verify_e2e_contracts.mjs --mock` 25/25 OpenAPI endpoints, 26 firmware handlers).
+  - Contract Adherence: PASS (All schema definitions matched).
+  - Physical Hardware: UNVERIFIED (Awaiting bench flashing and physical testing).
+- **Changed Files**:
+  - `esp32/main/config/system_config.h`
+  - `esp32/main/services/telemetry_mgr.h`, `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `esp32/main/http/api_schedule_handlers.h`, `esp32/main/http/api_schedule_handlers.c`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/CMakeLists.txt`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/lib/api/backend-client.ts`
+  - `src/lib/format.ts`
+  - `src/lib/store.ts`
+  - `src/lib/services.ts`
+  - `src/app/schedule/page.tsx`
+  - `src/components/ConnectionMonitor.tsx`
+  - `src/components/StoreHydrator.tsx`
+  - `esp32/docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md`
+- **Known Issues**: None in software; physical sensors (humidity, lux) absent from BOM and reported as null.
+- **Next Action**: Physical hardware bench testing and flashing.
+
+---
+
+## Safe Point Record: SP-API-003
+- **ID**: SP-API-003
+- **Objective**: Enforce unit unit `mL` across API, Client, and state machine logic (Flow-based & Time-based derived rates) replacing hardcoded dummy durations.
+- **Completed Work**:
+  1. Updated `command_mgr.h` / `command_mgr.c` to accept `param_raw_volume_ml`, `param_dosing_a_ml`, `param_dosing_b_ml` instead of singular `durationSeconds`.
+  2. Updated `api_command_handlers.c` to parse volumes from HTTP requests to `/api/v1/commands`.
+  3. Refactored `fertigation_mgr.c`:
+     - **FILLING**: now acts flow-meter based, reading active `total_ml_yfb1` to hit `target_raw_ml` before stopping `RAW_SUBMERSIBLE`.
+     - **DOSING**: now time-based dynamically calculated from `mL` via newly created pump rate functions in `calibration_mgr.c`.
+  4. Expanded `calibration_mgr.h` / `.c` to retrieve calibration mL rates for logic mapping, and implemented JSON-based persistence functions `storage_mgr_save_calibration`/`load_calibration` in `storage_mgr.c` stored on NVS.
+  5. Updated `esp32-client.ts` to accept parameter properties in `postCommand()` signature.
+  6. Updated `UI_ESP32_OPENAPI.yaml` contract to expect `rawWaterVolumeMl`, `dosingAVolumeMl`, `dosingBVolumeMl` in `CommandRequest`.
+- **Verification Result**:
+  - Logical structure and compile feasibility confirmed; actual firmware physical compilation skipped per limits on setup availability.
+- **Changed Files**:
+  - `esp32/main/services/command_mgr.h`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/services/fertigation_mgr.h`
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/storage/storage_mgr.h`
+  - `esp32/main/storage/storage_mgr.c`
+  - `esp32/main/services/calibration_mgr.h`
+  - `esp32/main/services/calibration_mgr.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `src/lib/api/esp32-client.ts`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Implement frontend form to trigger command.
+
+---
+
+## Safe Point Record: SP-HW-013
+- **ID**: SP-HW-013
+- **Objective**: Consistency check & audit: remove DISTRIBUTION semantic from GPIO 41 (Button 4 is unassigned reserved input), correct FERTIGATION_BATCH filling sequence to use RAW_SUBMERSIBLE into mixing tank instead of WELL_PUMP, and align component registry baselines.
+- **Completed Work**:
+  1. Renamed `PIN_BTN_DISTRIBUTION` / `BUTTON_DISTRIBUTION` on GPIO 41 to `PIN_BTN_RESERVED` / `BUTTON_RESERVED` across `pin_config.h`, `button_hal.h`, `button_hal.c`, `panel_button_mgr.c`, and `hardware_registry.c`. GPIO 41 has no distribution function and no operational behavior.
+  2. Updated `hardware_registry.c` baseline `DEFAULT_COMPONENTS_JSON` to include `pump_mixing` (GPIO 40) and `btn_reserved` (GPIO 41).
+  3. Audited and corrected `fertigation_mgr.c`: `FERT_STATE_FILLING` activates `ACTUATOR_RAW_SUBMERSIBLE` (transferring from raw water tank to mixing tank) and `ACTUATOR_MIXING_PUMP` (circulation). Removed incorrect `ACTUATOR_WELL_PUMP`.
+  4. Verified mixing rules: FILLING -> MIXING_PUMP ON; DOSING -> MIXING_PUMP ON; FINAL_MIXING -> MIXING_PUMP ON for 180s (3 minutes); DELIVERY -> MIXING_PUMP OFF, DISTRIBUTION_PUMP ON.
+  5. Updated technical documentation across `docs/` and `esp32/docs/` (`ESP32_GPIO_PIN_MAP.md`, `HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `ESP32_ASSEMBLY_GUIDE.md`, `AI_HARDWARE_COMMISSIONING_READINESS_V1.md`) maintaining 100% character-for-character dual-location parity.
+  6. Verified clean firmware build.
+- **Verification Result**:
+  - Firmware Build: PASS (`agrotech_esp32.bin` generated, 0 compilation errors)
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/button_hal.h`
+  - `esp32/main/hal/button_hal.c`
+  - `esp32/main/services/panel_button_mgr.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/services/fertigation_mgr.c`
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `esp32/docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `esp32/docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `esp32/docs/HARDWARE_WIRING_MAP.md`
+  - `docs/AI_HARDWARE_COMMISSIONING_READINESS_V1.md`
+  - `esp32/docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Maintain stable repository state.
+
+---
+
+## Safe Point Record: SP-API-002
+- **ID**: SP-API-002
+- **Objective**: Integrate `FERTIGATION_BATCH` state machine with the REST API command router to allow starting and stopping batches via `POST /api/v1/commands`.
+- **Completed Work**:
+  1. Added `CMD_TYPE_FERTIGATION_BATCH` to `command_mgr.h` enum.
+  2. Updated `api_command_handlers.c` to parse `"FERTIGATION_START"` command type and map it to `CMD_TYPE_FERTIGATION_BATCH`.
+  3. Hooked up `command_mgr.c` worker task to dispatch `CMD_TYPE_FERTIGATION_BATCH` to `fertigation_mgr_start_batch()`.
+  4. Added cancellation routing in `command_mgr_cancel()` to trigger `fertigation_mgr_cancel_batch()`.
+  5. Verified compilation of firmware.
+- **Verification Result**:
+  - Firmware Build: PASS
+- **Changed Files**:
+  - `esp32/main/services/command_mgr.h`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Implement robust memory constraints or proceed to further UI integrations.
+
+---
+
+## Safe Point Record: SP-HW-012
+- **ID**: SP-HW-012
+- **Objective**: Implement non-blocking `FERTIGATION_BATCH` state machine integrating `FILLING`, `DOSING`, `FINAL_MIXING` (3 minutes), and `DELIVERY`.
+- **Completed Work**:
+  1. Created `esp32/main/services/fertigation_mgr.h` and `fertigation_mgr.c` containing a FreeRTOS task with a state machine evaluated every 1000ms.
+  2. Implemented strict actuator sequences according to requirements (`RAW_SUBMERSIBLE` acting as `MIXING_PUMP` based on `HARDWARE_INVENTORY.md`).
+  3. Integrated safety interlock monitoring: shifts to `INTERRUPTED` state if E-Stop or lower float triggers.
+  4. Registered `fertigation_mgr_init()` in `esp32/main/main.c`.
+  5. Updated `esp32/main/CMakeLists.txt` to include `fertigation_mgr.c`.
+  6. Verified compilation via ESP-IDF v5.5.
+- **Verification Result**:
+  - Firmware Build: PASS
+- **Changed Files**:
+  - `esp32/main/services/fertigation_mgr.h` (NEW)
+  - `esp32/main/services/fertigation_mgr.c` (NEW)
+  - `esp32/main/main.c`
+  - `esp32/main/CMakeLists.txt`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues / Blockers**: None.
+- **Next Safe Point / Action**: Build out REST API integration to start/stop batches.
 
 ---
 
@@ -1351,4 +1642,14 @@ inja -C build -j 1).
 - **Git Commit Hash**:
   - Git commit: UNCOMMITTED
 
+
+
+### [2026-09-17] SP-HW-009: RTC DS3231 Fallback & Configuration Audit
+- **Objective**: Audit DS3231 usage, ensure SNTP fallback functionality, remove false-positive errors, and expand HTTP Max URI handlers.
+- **Changes**:
+  1. esp32/main/hal/rtc_ds3231.c: Replaced ESP_LOGW with ESP_LOGI for absent RTC. Fixed logical flaw where SNTP initialization was skipped if DS3231 probe failed.
+  2. esp32/main/main.c: Enforced unconditional tc_ds3231_sync_to_system() call to guarantee SNTP spin-up.
+  3. esp32/main/http/http_server.c: Increased config.max_uri_handlers from 32 to 48.
+  4. esp32/main/hal/hardware_registry.c and esp32/main/http/api_config_handlers.c: Converted 4096-byte local stack buffers to heap allocations to prevent boot stack overflow.
+- **Verification**: Clean build passed. Flashed to COM3. Hardware initialized smoothly. HTTP registered 35+ routes without dropping slots. Fallback to SNTP verified via INFO log.
 
