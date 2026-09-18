@@ -245,11 +245,37 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_cfg_get = { .uri = "/api/v1/configuration", .method = HTTP_GET, .handler = handler_get_configuration, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cfg_get);
 
-    httpd_uri_t uri_cfg_put = { .uri = "/api/v1/configuration", .method = HTTP_PUT, .handler = handler_put_configuration, .user_ctx = NULL };
-    httpd_register_uri_handler(s_server, &uri_cfg_put);
+    httpd_uri_t config_put = {
+        .uri       = "/api/v1/configuration",
+        .method    = HTTP_PUT,
+        .handler   = handler_put_configuration,
+        .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(s_server, &config_put);
 
-    httpd_uri_t uri_cfg_val = { .uri = "/api/v1/configuration/validate", .method = HTTP_POST, .handler = handler_validate_configuration, .user_ctx = NULL };
-    httpd_register_uri_handler(s_server, &uri_cfg_val);
+    httpd_uri_t config_validate = {
+        .uri       = "/api/v1/configuration/validate",
+        .method    = HTTP_POST,
+        .handler   = handler_validate_configuration,
+        .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(s_server, &config_validate);
+    
+    httpd_uri_t config_commit = {
+        .uri       = "/api/v1/configuration/commit",
+        .method    = HTTP_POST,
+        .handler   = handler_commit_configuration,
+        .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(s_server, &config_commit);
+    
+    httpd_uri_t config_rollback = {
+        .uri       = "/api/v1/configuration/rollback",
+        .method    = HTTP_POST,
+        .handler   = handler_rollback_configuration,
+        .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(s_server, &config_rollback);
 
     /* Commands */
     httpd_uri_t uri_cmd_post = { .uri = "/api/v1/commands", .method = HTTP_POST, .handler = handler_post_command, .user_ctx = NULL };

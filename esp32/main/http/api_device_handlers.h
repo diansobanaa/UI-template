@@ -19,6 +19,8 @@ esp_err_t handler_post_clock_sync(httpd_req_t *req);
 esp_err_t handler_get_configuration(httpd_req_t *req);
 esp_err_t handler_put_configuration(httpd_req_t *req);
 esp_err_t handler_validate_configuration(httpd_req_t *req);
+esp_err_t handler_commit_configuration(httpd_req_t *req);
+esp_err_t handler_rollback_configuration(httpd_req_t *req);
 
 esp_err_t handler_post_command(httpd_req_t *req);
 esp_err_t handler_get_command(httpd_req_t *req);

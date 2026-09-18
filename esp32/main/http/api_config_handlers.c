@@ -341,10 +341,8 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
     char *json_text = cJSON_PrintUnformatted(payload);
     if (json_text) {
         if (configuration_mgr_parse_candidate(json_text) == ESP_OK) {
-            configuration_mgr_apply_candidate();
-            storage_mgr_save_config(json_text, new_version);
-            /* M2.20 & M2.26: Synchronize active hardware registry with persisted active configuration */
-            hardware_registry_load_from_json(json_text);
+            /* M4.1: Stage configuration instead of activating it */
+            storage_mgr_save_staged_config(json_text, new_version);
         } else {
             free(json_text);
             cJSON_Delete(body);
@@ -430,4 +428,75 @@ esp_err_t handler_validate_configuration(httpd_req_t *req)
 
     cJSON_Delete(body);
     return http_send_enveloped_response(req, 200, req_id, root);
+}
+
+esp_err_t handler_commit_configuration(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    
+    // In M4, commit reads the staged config, saves it as active, and applies it
+    esp_err_t err = storage_mgr_commit_config();
+    if (err != ESP_OK) {
+        return http_send_error(req, 404, "NOT_FOUND", "No staged configuration found", NULL);
+    }
+    
+    // We need to reload the active configuration from storage to memory
+    err = configuration_mgr_load_active();
+    if (err != ESP_OK) {
+        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to load active configuration after commit", NULL);
+    }
+    
+    // Sync hardware registry
+    char *json_text = malloc(16384);
+    if (json_text) {
+        size_t len = 0;
+        if (storage_mgr_load_config(json_text, 16384, &len) == ESP_OK) {
+            hardware_registry_load_from_json(json_text);
+        }
+        free(json_text);
+    }
+    
+    // Send response
+    const system_storage_state_t *st = storage_mgr_get_state();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "version", (double)st->config_version);
+    cJSON_AddStringToObject(root, "complexId", st->complex_id);
+    cJSON_AddStringToObject(root, "status", "APPLIED");
+    
+    return http_send_enveloped_response(req, 200, NULL, root);
+}
+
+esp_err_t handler_rollback_configuration(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    
+    esp_err_t err = storage_mgr_rollback_config();
+    if (err != ESP_OK) {
+        return http_send_error(req, 404, "NOT_FOUND", "No backup configuration found to rollback to", NULL);
+    }
+    
+    // Reload active configuration from storage to memory
+    err = configuration_mgr_load_active();
+    if (err != ESP_OK) {
+        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to load active configuration after rollback", NULL);
+    }
+    
+    // Sync hardware registry
+    char *json_text = malloc(16384);
+    if (json_text) {
+        size_t len = 0;
+        if (storage_mgr_load_config(json_text, 16384, &len) == ESP_OK) {
+            hardware_registry_load_from_json(json_text);
+        }
+        free(json_text);
+    }
+    
+    // Send response
+    const system_storage_state_t *st = storage_mgr_get_state();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "version", (double)st->config_version);
+    cJSON_AddStringToObject(root, "complexId", st->complex_id);
+    cJSON_AddStringToObject(root, "status", "ROLLED_BACK");
+    
+    return http_send_enveloped_response(req, 200, NULL, root);
 }

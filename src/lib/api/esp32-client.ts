@@ -118,6 +118,14 @@ export class Esp32Client {
     return this.putEnveloped<ConfigurationPayload>("/api/v1/configuration", configuration);
   }
 
+  async commitConfiguration(version: number): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/configuration/commit", { version });
+  }
+
+  async rollbackConfiguration(): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/configuration/rollback", {});
+  }
+
   /* -------------------------- Telemetry & Events -------------------------- */
 
   async getTelemetry(greenhouseId?: string): Promise<TelemetrySnapshot> {

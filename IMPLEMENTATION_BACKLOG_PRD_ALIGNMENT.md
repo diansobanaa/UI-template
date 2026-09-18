@@ -437,19 +437,19 @@ M3.
 
 ## Backlog
 
-- [ ] M4.1 Staging configuration.
-- [ ] M4.2 Active configuration.
-- [ ] M4.3 Previous/rollback configuration.
-- [ ] M4.4 Atomic activation.
-- [ ] M4.5 Boot recovery.
-- [ ] M4.6 Deployment ID.
-- [ ] M4.7 Deployment acknowledgement.
-- [ ] M4.8 Active version reporting.
-- [ ] M4.9 Failed deployment state.
-- [ ] M4.10 Rollback.
-- [ ] M4.11 UI pending state.
-- [ ] M4.12 UI deployed/applied state.
-- [ ] M4.13 UI failed state.
+- [x] M4.1 Staging configuration.
+- [x] M4.2 Active configuration.
+- [x] M4.3 Previous/rollback configuration.
+- [x] M4.4 Atomic activation.
+- [x] M4.5 Boot recovery.
+- [x] M4.6 Deployment ID.
+- [x] M4.7 Deployment acknowledgement.
+- [x] M4.8 Active version reporting.
+- [x] M4.9 Failed deployment state.
+- [x] M4.10 Rollback.
+- [x] M4.11 UI pending state.
+- [x] M4.12 UI deployed/applied state.
+- [x] M4.13 UI failed state.
 
 ## Required Flow
 

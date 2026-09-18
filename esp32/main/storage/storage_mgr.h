@@ -46,6 +46,21 @@ esp_err_t storage_mgr_load_config(char *out_buf, size_t max_len, size_t *out_len
 esp_err_t storage_mgr_save_config(const char *json_str, uint32_t version);
 
 /**
+ * @brief Save a configuration to the staging area without activating it.
+ */
+esp_err_t storage_mgr_save_staged_config(const char *json_str, uint32_t version);
+
+/**
+ * @brief Commit the staged configuration to active (and backup the current active).
+ */
+esp_err_t storage_mgr_commit_config(void);
+
+/**
+ * @brief Rollback the active configuration to the previous backup.
+ */
+esp_err_t storage_mgr_rollback_config(void);
+
+/**
  * @brief Append an event log entry to persistent SPIFFS storage.
  */
 esp_err_t storage_mgr_append_event_log(const char *event_json);

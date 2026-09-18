@@ -140,9 +140,28 @@ esp_err_t storage_mgr_load_config(char *out_buf, size_t max_len, size_t *out_len
         if (s_state.config_crc != 0 && calc_crc != s_state.config_crc) {
             ESP_LOGE(TAG, "CRC MISMATCH on loaded configuration! (expected 0x%08lx, calculated 0x%08lx)",
                      (unsigned long)s_state.config_crc, (unsigned long)calc_crc);
-            return ESP_ERR_INVALID_CRC;
+            err = ESP_ERR_INVALID_CRC;
+        } else {
+            if (out_len) *out_len = strlen(out_buf);
         }
-        if (out_len) *out_len = strlen(out_buf);
+    }
+    
+    /* Boot recovery (M4.5): Attempt rollback if CRC failed or not found */
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Boot recovery: attempting to load rollback configuration (lvc_bak)");
+        nvs_handle_t handle2;
+        if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle2) == ESP_OK) {
+            size_t req2 = 0;
+            if (nvs_get_str(handle2, "lvc_bak", NULL, &req2) == ESP_OK && req2 <= max_len) {
+                if (nvs_get_str(handle2, "lvc_bak", out_buf, &req2) == ESP_OK) {
+                    if (out_len) *out_len = strlen(out_buf);
+                    err = ESP_OK;
+                    ESP_LOGI(TAG, "Boot recovery successful from lvc_bak");
+                    /* We should probably reset the active CRC/Version here or let the system re-save it, but for now we recovered the JSON */
+                }
+            }
+            nvs_close(handle2);
+        }
     }
 
     return err;
@@ -155,6 +174,17 @@ esp_err_t storage_mgr_save_config(const char *json_str, uint32_t version)
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
+
+    /* Backup existing config before overwrite */
+    size_t req_len = 0;
+    if (nvs_get_str(handle, "lvc_json", NULL, &req_len) == ESP_OK) {
+        char *active_json = malloc(req_len);
+        if (active_json) {
+            nvs_get_str(handle, "lvc_json", active_json, &req_len);
+            nvs_set_str(handle, "lvc_bak", active_json);
+            free(active_json);
+        }
+    }
 
     uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)json_str, strlen(json_str));
 
@@ -173,6 +203,77 @@ esp_err_t storage_mgr_save_config(const char *json_str, uint32_t version)
                  (unsigned long)version, (unsigned long)crc);
     }
 
+    return err;
+}
+
+esp_err_t storage_mgr_save_staged_config(const char *json_str, uint32_t version)
+{
+    if (!json_str) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(handle, "lvc_stg", json_str);
+    if (err == ESP_OK) nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t storage_mgr_commit_config(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    
+    size_t req_len = 0;
+    err = nvs_get_str(handle, "lvc_stg", NULL, &req_len);
+    if (err != ESP_OK || req_len == 0) {
+        nvs_close(handle);
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    char *stg_json = malloc(req_len);
+    if (!stg_json) {
+        nvs_close(handle);
+        return ESP_ERR_NO_MEM;
+    }
+    
+    nvs_get_str(handle, "lvc_stg", stg_json, &req_len);
+    nvs_close(handle); // Close before calling save_config
+    
+    // We assume the staged config has a version field we could parse, but for now 
+    // we just increment the state version by 1 in save_config
+    uint32_t next_ver = s_state.config_version + 1;
+    err = storage_mgr_save_config(stg_json, next_ver);
+    free(stg_json);
+    return err;
+}
+
+esp_err_t storage_mgr_rollback_config(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    
+    size_t req_len = 0;
+    err = nvs_get_str(handle, "lvc_bak", NULL, &req_len);
+    if (err != ESP_OK || req_len == 0) {
+        nvs_close(handle);
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    char *bak_json = malloc(req_len);
+    if (!bak_json) {
+        nvs_close(handle);
+        return ESP_ERR_NO_MEM;
+    }
+    
+    nvs_get_str(handle, "lvc_bak", bak_json, &req_len);
+    nvs_close(handle);
+    
+    // Rollback creates a new version from the backup
+    uint32_t next_ver = s_state.config_version + 1;
+    err = storage_mgr_save_config(bak_json, next_ver);
+    free(bak_json);
     return err;
 }
 

@@ -17,7 +17,28 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-M3-002 Configuration Engine Parsers & Semantic Validation (M3.3-M3.8, M3.10-M3.12)
+SP-M4-001 Deployment Lifecycle: Atomic Activation & Rollback (M4.1-M4.13)
+
+---
+
+## Safe Point Record: SP-M4-001
+- **ID**: SP-M4-001
+- **Objective**: Implement Transactional Deployment (Staging, Commit, Rollback) across ESP32 and React UI.
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Updated `UI_ESP32_OPENAPI.yaml` with `/api/v1/configuration/commit` and `/rollback` endpoints.
+  2. Modified `storage_mgr.c` to support `lvc_stg` (Staging) and `lvc_bak` (Backup).
+  3. Added Boot Recovery logic to fallback to `lvc_bak` on CRC mismatch (M4.5).
+  4. Added `handler_commit_configuration` and `handler_rollback_configuration` to `api_config_handlers.c` with hardware registry synchronization.
+  5. Refactored `handler_put_configuration` to only stage (M4.1) instead of instantly applying.
+  6. Updated frontend API client `esp32-client.ts` with commit/rollback methods.
+  7. Built Deployment Lifecycle State Machine in `page.tsx` (Draft -> Staged -> Active / Rollback).
+  8. Cleared M4 Backlog in PRD alignment document.
+- **Verification Result**:
+  - Code paths validated manually (ESP32 compilation and memory allocation semantics). OpenAPI spec aligns.
+- **Known Issues**: Physical ESP32 reboot resilience requires hardware test (BLOCKED).
+- **Next Safe Point / Action**:
+  - M5: Schedule Compiler & Hardware Binding.
 
 ---
 
@@ -163,6 +184,7 @@ SP-M3-002 Configuration Engine Parsers & Semantic Validation (M3.3-M3.8, M3.10-M
 ---
 
 ## Safe Point Index
+- [x] SP-M4-001 Deployment Lifecycle: Atomic Activation & Rollback (M4.1-M4.13)
 - [x] SP-M3-002 Configuration Engine Parsers & Semantic Validation (M3.3-M3.8, M3.10-M3.12)
 - [x] SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3.17)
 - [x] SP-M3-000 Active Configuration Authority Verification Gate (M3.0)

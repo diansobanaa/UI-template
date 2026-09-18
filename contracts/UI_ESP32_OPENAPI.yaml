@@ -161,6 +161,47 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/configuration/commit:
+    post:
+      tags: [Configuration]
+      operationId: commitConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: integer
+                  description: The staging version to commit
+      responses:
+        "200":
+          description: Commit successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/configuration/rollback:
+    post:
+      tags: [Configuration]
+      operationId: rollbackConfiguration
+      responses:
+        "200":
+          description: Rollback successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
   /api/v1/commands:
     post:
       tags: [Commands]

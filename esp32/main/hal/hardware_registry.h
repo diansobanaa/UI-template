@@ -65,9 +65,7 @@ typedef struct {
     char resource_id[32];
 } hw_component_info_t;
 
-// Compatibility aliases for legacy code to compile while refactoring
-#define scope assignment.complex_id
-#define type supported_type_id
+// Removed legacy compatibility aliases to prevent namespace pollution
 
 typedef struct {
     uint32_t sequence;
