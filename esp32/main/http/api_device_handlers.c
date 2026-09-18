@@ -3,6 +3,7 @@
 #include "hal/hardware_registry.h"
 #include "services/storage_mgr.h"
 #include "services/configuration_mgr.h"
+#include "services/topology_mgr.h"
 #include "config/system_config.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -199,6 +200,52 @@ esp_err_t handler_get_inventory(httpd_req_t *req)
 
             cJSON_AddItemToArray(components, item);
         }
+    }
+
+    return http_send_enveloped_response(req, 200, NULL, root);
+}
+
+esp_err_t handler_get_topology(httpd_req_t *req)
+{
+    const active_configuration_t *cfg = configuration_mgr_get_active();
+    if (!cfg) {
+        return http_send_error_response(req, 400, "ERR_NO_CONFIG", "No active configuration");
+    }
+
+    topology_status_t status = {0};
+    esp_err_t err = topology_mgr_compute_status(cfg, &status);
+    if (err != ESP_OK) {
+        return http_send_error_response(req, 500, "ERR_TOPOLOGY", "Failed to compute topology status");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *ghs = cJSON_AddArrayToObject(root, "greenhouses");
+
+    for (size_t i = 0; i < status.count; i++) {
+        gh_topology_state_t *st = &status.gh_states[i];
+        cJSON *gh_obj = cJSON_CreateObject();
+        cJSON_AddStringToObject(gh_obj, "ghId", st->gh_id);
+        cJSON_AddBoolToObject(gh_obj, "configured", st->configured);
+        cJSON_AddBoolToObject(gh_obj, "hydraulicallyReachable", st->hydraulically_reachable);
+        cJSON_AddBoolToObject(gh_obj, "automaticallyRoutable", st->automatically_routable);
+        cJSON_AddBoolToObject(gh_obj, "manuallyRoutable", st->manually_routable);
+        cJSON_AddStringToObject(gh_obj, "currentSharedTarget", st->current_shared_target);
+        cJSON_AddStringToObject(gh_obj, "blockingReason", st->blocking_reason);
+
+        cJSON *cap = cJSON_AddObjectToObject(gh_obj, "capabilities");
+        cJSON_AddBoolToObject(cap, "CAN_DELIVER", st->capabilities.can_deliver);
+        cJSON_AddBoolToObject(cap, "CAN_AUTO_FILL", st->capabilities.can_auto_fill);
+        cJSON_AddBoolToObject(cap, "CAN_AUTO_DOSE", st->capabilities.can_auto_dose);
+        cJSON_AddBoolToObject(cap, "CAN_AUTO_MIX", st->capabilities.can_auto_mix);
+        cJSON_AddBoolToObject(cap, "CAN_AUTO_ROUTE", st->capabilities.can_auto_route);
+        cJSON_AddBoolToObject(cap, "CAN_MONITOR_FLOW", st->capabilities.can_monitor_flow);
+        cJSON_AddBoolToObject(cap, "CAN_MONITOR_LEVEL", st->capabilities.can_monitor_level);
+        cJSON_AddBoolToObject(cap, "CAN_MONITOR_EC", st->capabilities.can_monitor_ec);
+        cJSON_AddBoolToObject(cap, "CAN_MONITOR_PH", st->capabilities.can_monitor_ph);
+        cJSON_AddBoolToObject(cap, "CAN_CLIMATE_CONTROL", st->capabilities.can_climate_control);
+        cJSON_AddBoolToObject(cap, "CAN_RUN_AUTONOMOUSLY", st->capabilities.can_run_autonomously);
+
+        cJSON_AddItemToArray(ghs, gh_obj);
     }
 
     return http_send_enveloped_response(req, 200, NULL, root);

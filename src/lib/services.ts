@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Frontend service layer — the ONLY boundary UI components use to reach data.
  *
  * Today every function runs against the in-memory mock store with a small
@@ -435,6 +435,20 @@ export const scheduleService = {
     return greenhouseService.get(ghId)?.fanSchedules ?? [];
   },
 
+  /**
+   * M8 Compiler Boundary:
+   * Recompiles all ScheduleIntents into CompiledSchedules based on the latest configuration.
+   * This MUST be called whenever Topology, Resource Assignments, or Recipes change,
+   * rendering stale derived schedules invalid.
+   */
+  async recompileAllSchedules(): Promise<void> {
+    // In a real DB backend, this would iterate over all ScheduleIntents, 
+    // fetch the latest canonical Topology, Config, and Inventory,
+    // call ScheduleCompiler.compile() on each, and persist the CompiledSchedules.
+    console.log("[ScheduleCompiler] Recompiling all schedules due to configuration change.");
+    await delay();
+  },
+
   async createFertigation(input: Omit<FertigationSchedule, "id">): Promise<FertigationSchedule> {
     const gh = assertFound(greenhouseService.get(input.ghId), "Greenhouse");
     if (!gh.recipes.some((r) => r.id === input.recipeId)) {
@@ -448,22 +462,6 @@ export const scheduleService = {
     }
     await delay();
     const item = createFertigationSchedule({ ...input, name: input.name.trim() });
-    if (isDirectEsp32Enabled()) {
-      try {
-        const [hour, minute] = (item.time || "08:00").split(":").map(Number);
-        await esp32Client.saveSchedule({
-          id: item.id,
-          enabled: item.enabled,
-          type: "DAILY",
-          action: "FERTIGATION",
-          durationSec: Math.round((item.targetWaterL || 1) * 30),
-          hour: isNaN(hour) ? 8 : hour,
-          minute: isNaN(minute) ? 0 : minute,
-        });
-      } catch (err) {
-        console.warn("Failed to persist fertigation schedule to ESP32:", err);
-      }
-    }
     return item;
   },
 
@@ -493,35 +491,12 @@ export const scheduleService = {
     }
     await delay();
     const updated = assertFound(updateFertigationSchedule(id, patch), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        const [hour, minute] = (updated.time || "08:00").split(":").map(Number);
-        await esp32Client.saveSchedule({
-          id: updated.id,
-          enabled: updated.enabled,
-          type: "DAILY",
-          action: "FERTIGATION",
-          durationSec: Math.round((updated.targetWaterL || 1) * 30),
-          hour: isNaN(hour) ? 8 : hour,
-          minute: isNaN(minute) ? 0 : minute,
-        });
-      } catch (err) {
-        console.warn("Failed to update fertigation schedule on ESP32:", err);
-      }
-    }
     return updated;
   },
 
   async deleteFertigation(id: string): Promise<void> {
     await delay();
     assertFound(deleteFertigationSchedule(id), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        await esp32Client.deleteSchedule(id);
-      } catch (err) {
-        console.warn("Failed to delete fertigation schedule on ESP32:", err);
-      }
-    }
   },
 
   async createWellPump(input: Omit<WellPumpSchedule, "id">): Promise<WellPumpSchedule> {
@@ -534,22 +509,6 @@ export const scheduleService = {
     }
     await delay();
     const item = createWellPumpSchedule({ ...input, task: input.task.trim() });
-    if (isDirectEsp32Enabled()) {
-      try {
-        const [hour, minute] = (item.time || "06:00").split(":").map(Number);
-        await esp32Client.saveSchedule({
-          id: item.id,
-          enabled: item.enabled,
-          type: "DAILY",
-          action: "WATER_PUMP",
-          durationSec: (item.durationMin || 15) * 60,
-          hour: isNaN(hour) ? 6 : hour,
-          minute: isNaN(minute) ? 0 : minute,
-        });
-      } catch (err) {
-        console.warn("Failed to persist well pump schedule to ESP32:", err);
-      }
-    }
     return item;
   },
 
@@ -569,35 +528,12 @@ export const scheduleService = {
     }
     await delay();
     const updated = assertFound(updateWellPumpSchedule(id, patch), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        const [hour, minute] = (updated.time || "06:00").split(":").map(Number);
-        await esp32Client.saveSchedule({
-          id: updated.id,
-          enabled: updated.enabled,
-          type: "DAILY",
-          action: "WATER_PUMP",
-          durationSec: (updated.durationMin || 15) * 60,
-          hour: isNaN(hour) ? 6 : hour,
-          minute: isNaN(minute) ? 0 : minute,
-        });
-      } catch (err) {
-        console.warn("Failed to update well pump schedule on ESP32:", err);
-      }
-    }
     return updated;
   },
 
   async deleteWellPump(id: string): Promise<void> {
     await delay();
     assertFound(deleteWellPumpSchedule(id), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        await esp32Client.deleteSchedule(id);
-      } catch (err) {
-        console.warn("Failed to delete well pump schedule on ESP32:", err);
-      }
-    }
   },
 
   async createFan(input: Omit<FanSchedule, "id">): Promise<FanSchedule> {
@@ -609,20 +545,6 @@ export const scheduleService = {
     }
     await delay();
     const item = createFanSchedule(input);
-    if (isDirectEsp32Enabled()) {
-      try {
-        await esp32Client.saveSchedule({
-          id: item.id,
-          enabled: item.enabled,
-          type: "INTERVAL",
-          action: "FAN_TOGGLE",
-          durationSec: (item.durationMin || 15) * 60,
-          intervalMin: item.durationMin || 15,
-        });
-      } catch (err) {
-        console.warn("Failed to persist fan schedule to ESP32:", err);
-      }
-    }
     return item;
   },
 
@@ -635,33 +557,12 @@ export const scheduleService = {
     }
     await delay();
     const updated = assertFound(updateFanSchedule(id, patch), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        await esp32Client.saveSchedule({
-          id: updated.id,
-          enabled: updated.enabled,
-          type: "INTERVAL",
-          action: "FAN_TOGGLE",
-          durationSec: (updated.durationMin || 15) * 60,
-          intervalMin: updated.durationMin || 15,
-        });
-      } catch (err) {
-        console.warn("Failed to update fan schedule on ESP32:", err);
-      }
-    }
     return updated;
   },
 
   async deleteFan(id: string): Promise<void> {
     await delay();
     assertFound(deleteFanSchedule(id), "Schedule");
-    if (isDirectEsp32Enabled()) {
-      try {
-        await esp32Client.deleteSchedule(id);
-      } catch (err) {
-        console.warn("Failed to delete fan schedule on ESP32:", err);
-      }
-    }
   },
 };
 

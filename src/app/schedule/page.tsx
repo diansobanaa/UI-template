@@ -721,7 +721,8 @@ interface Row {
   lastRun: string | null;
   nextRun: string | null;
   enabled: boolean;
-  status: FertigationSchedule["status"];
+  status: string;
+  blockedReason?: { code: string; message: string; resolution?: string | null } | null;
   type?: "fertigation" | "fan" | "pump" | "water-transfer";
 }
 
@@ -840,7 +841,21 @@ function ScheduleTable({
                   <td className="py-3.5 pr-3 text-slate-300">{r.repeat}</td>
                   <td className="py-3.5 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
                   <td className="py-3.5 pr-3 font-medium text-slate-300">{r.nextRun ?? "–"}</td>
-                  <td className="py-3.5 pr-3"><StatusPill status={r.status} /></td>
+                  <td className="py-3.5 pr-3">
+                    <StatusPill status={r.status} />
+                    {r.blockedReason && (
+                      <div className="mt-1 max-w-[200px]">
+                        <p className="text-[10px] font-medium text-orange-400 leading-tight">
+                          {r.blockedReason.message}
+                        </p>
+                        {r.blockedReason.resolution && (
+                          <p className="mt-0.5 text-[9px] text-slate-400 leading-tight">
+                            Fix: {r.blockedReason.resolution}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="py-3.5 pr-3">
                     <ScheduleToggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} disabled={togglingId === r.id} />
                   </td>
@@ -899,28 +914,48 @@ function ActionButton({
   );
 }
 
-function StatusPill({ status }: { status: FertigationSchedule["status"] }) {
-  const config = {
+function StatusPill({ status }: { status: string }) {
+  const config: Record<string, string> = {
     completed: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
     scheduled: "border-blue-400/20 bg-blue-500/10 text-blue-300",
     running: "border-cyan-400/25 bg-cyan-500/10 text-cyan-300",
     missed: "border-red-400/20 bg-red-500/10 text-red-300",
     failed: "border-rose-400/20 bg-rose-500/10 text-rose-300",
     disabled: "border-slate-700 bg-slate-800/50 text-slate-500",
-  } as const;
-  const labels = { completed: "Completed", scheduled: "Scheduled", running: "Running", missed: "Missed", failed: "Failed", disabled: "Disabled" } as const;
-  const dot = {
+    blocked: "border-orange-400/20 bg-orange-500/10 text-orange-300",
+    draft: "border-slate-500/20 bg-slate-600/10 text-slate-400",
+  };
+  
+  const labels: Record<string, string> = { 
+    completed: "Completed", 
+    scheduled: "Scheduled", 
+    running: "Running", 
+    missed: "Missed", 
+    failed: "Failed", 
+    disabled: "Disabled",
+    blocked: "Blocked",
+    draft: "Draft"
+  };
+  
+  const dot: Record<string, string> = {
     completed: "bg-emerald-400",
     scheduled: "bg-blue-400",
     running: "bg-cyan-300",
     missed: "bg-red-400",
     failed: "bg-rose-400",
     disabled: "bg-slate-500",
-  } as const;
+    blocked: "bg-orange-400",
+    draft: "bg-slate-500",
+  };
+
+  const currentConfig = config[status] || config.disabled;
+  const currentLabel = labels[status] || status.toUpperCase();
+  const currentDot = dot[status] || dot.disabled;
+
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${config[status]}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dot[status]}`} />
-      {labels[status]}
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${currentConfig}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${currentDot}`} />
+      {currentLabel}
     </span>
   );
 }

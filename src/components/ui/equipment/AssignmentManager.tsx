@@ -129,12 +129,11 @@ export function AssignmentManager({ context, ghId }: AssignmentManagerProps) {
               <div className="flex items-center gap-4 mt-4 sm:mt-0">
                 <div className="text-sm">
                   {assignment ? (
-                    <StatusBadge
-                      status="ACTIVE"
-                      text={assignment.scope === "COMPLEX" ? "Assigned: Complex" : `Assigned: ${assignment.ghId}`}
-                    />
+                    <StatusBadge status="ACTIVE">
+                      {assignment.scope === "COMPLEX" ? "Assigned: Complex" : `Assigned: ${assignment.ghId}`}
+                    </StatusBadge>
                   ) : (
-                    <StatusBadge status="PENDING" text="Unassigned" />
+                    <StatusBadge status="PENDING">Unassigned</StatusBadge>
                   )}
                 </div>
                 
@@ -164,37 +163,38 @@ export function AssignmentManager({ context, ghId }: AssignmentManagerProps) {
       </div>
 
       <ConfirmDialog
-        isOpen={!!transferState}
+        open={!!transferState}
         onClose={() => setTransferState(null)}
         onConfirm={confirmTransfer}
         title="Confirm Resource Transfer"
-        confirmText="Acknowledge & Transfer"
-        isDanger={true}
-      >
-        {transferState && (
-          <div className="space-y-4">
-            <p className="text-slate-300">
-              You are about to transfer ownership of <strong>{transferState.component.name}</strong>.
-            </p>
-            {transferState.oldAssignment && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                <div className="text-sm text-red-300">
-                  <span className="font-semibold block mb-1">M6 Transfer Warning:</span>
-                  This resource is currently owned by {transferState.oldAssignment.scope === "COMPLEX" ? "the Complex" : transferState.oldAssignment.ghId}.
-                  Transferring it may invalidate schedules or capabilities in the old owner's domain.
-                  <br /><br />
-                  <strong className="text-red-200 block mt-2">Physical Move Instructions:</strong> 
-                  Please ensure the hardware is physically re-wired to the target location if necessary before confirming this transfer.
+        confirmLabel="Acknowledge & Transfer"
+        danger={true}
+        message={
+          transferState ? (
+            <div className="space-y-4">
+              <p className="text-slate-300">
+                You are about to transfer ownership of <strong>{transferState.component.name}</strong>.
+              </p>
+              {transferState.oldAssignment && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
+                  <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="text-sm text-red-300">
+                    <span className="font-semibold block mb-1">M6 Transfer Warning:</span>
+                    This resource is currently owned by {transferState.oldAssignment.scope === "COMPLEX" ? "the Complex" : transferState.oldAssignment.ghId}.
+                    Transferring it may invalidate schedules or capabilities in the old owner's domain.
+                    <br /><br />
+                    <strong className="text-red-200 block mt-2">Physical Move Instructions:</strong> 
+                    Please ensure the hardware is physically re-wired to the target location if necessary before confirming this transfer.
+                  </div>
                 </div>
-              </div>
-            )}
-            <p className="text-sm text-slate-400">
-              Transferring will create a new staged Configuration. You must commit the configuration on the ESP32 for it to take effect.
-            </p>
-          </div>
-        )}
-      </ConfirmDialog>
+              )}
+              <p className="text-sm text-slate-400">
+                Transferring will create a new staged Configuration. You must commit the configuration on the ESP32 for it to take effect.
+              </p>
+            </div>
+          ) : null
+        }
+      />
     </div>
   );
 }

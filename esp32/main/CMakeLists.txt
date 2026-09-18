@@ -22,6 +22,7 @@ idf_component_register(
         "services/calibration_mgr.c"
         "services/panel_button_mgr.c"
         "services/configuration_mgr.c"
+        "services/topology_mgr.c"
         "http/http_server.c"
         "http/api_device_handlers.c"
         "http/api_config_handlers.c"

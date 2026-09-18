@@ -23,23 +23,29 @@ typedef enum {
     SCHED_ACTION_CUSTOM
 } schedule_action_t;
 
+#define MAX_SCHED_RESOLVED_RESOURCES 16
+
 typedef struct {
-    char id[16];
-    bool enabled;
-    schedule_type_t type;
-    schedule_action_t action;
-    uint32_t duration_sec;
+    char id[32];
     char target_gh_id[32];
+    char resolved_action[32];
+    char resolved_resources[MAX_SCHED_RESOLVED_RESOURCES][32];
+    size_t resolved_resource_count;
+    char recipe_id[32];
+    uint32_t recipe_version;
+    uint32_t safety_dependencies;
+    uint32_t configuration_version;
+    uint8_t priority;
+    bool enabled;
     
-    /* Time specifiers */
-    uint8_t hour;           /* 0-23 */
-    uint8_t minute;         /* 0-59 */
-    uint8_t days_of_week;   /* Bitmask: 1<<0=Sun, 1<<1=Mon, ..., 1<<6=Sat */
+    // Recurrence/Trigger fields
+    uint8_t hour;       
+    uint8_t minute;     
+    uint8_t days_of_week; 
+    uint32_t interval_min; 
+    uint32_t duration_sec;
     
-    /* Interval specifiers */
-    uint32_t interval_min;
-    
-    /* Execution state (Runtime, not persisted) */
+    // Execution state (Runtime, not persisted)
     uint32_t last_execution_timestamp; /* Unix epoch */
     bool is_running;
     char current_command_id[40];

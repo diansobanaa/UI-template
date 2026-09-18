@@ -327,11 +327,19 @@ const STATUS_MAP: Record<string, { label: string; tone: BadgeTone; pulse?: boole
   done: { label: "Completed", tone: "green" },
 };
 
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
+export function StatusBadge({
+  status,
+  className,
+  children,
+}: {
+  status: string;
+  className?: string;
+  children?: React.ReactNode;
+}) {
   const cfg = STATUS_MAP[status] ?? { label: status, tone: "gray" as BadgeTone };
   return (
     <Badge tone={cfg.tone} pulse={cfg.pulse} className={className}>
-      {cfg.label}
+      {children ?? cfg.label}
     </Badge>
   );
 }

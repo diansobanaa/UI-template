@@ -633,19 +633,19 @@ M6.
 
 ## Backlog
 
-- [ ] M7.1 Source representation.
-- [ ] M7.2 Destination representation.
-- [ ] M7.3 Path representation.
-- [ ] M7.4 Pump relationship.
-- [ ] M7.5 Valve relationship.
-- [ ] M7.6 Tank relationship.
-- [ ] M7.7 Manual-routing condition.
-- [ ] M7.8 Automatic-routing condition.
-- [ ] M7.9 Hydraulic reachability.
-- [ ] M7.10 Automatic routability.
-- [ ] M7.11 Shared path state.
-- [ ] M7.12 Topology conflict validation.
-- [ ] M7.13 Capability calculation.
+- [x] M7.1 Source representation.
+- [x] M7.2 Destination representation.
+- [x] M7.3 Path representation.
+- [x] M7.4 Pump relationship.
+- [x] M7.5 Valve relationship.
+- [x] M7.6 Tank relationship.
+- [x] M7.7 Manual-routing condition.
+- [x] M7.8 Automatic-routing condition.
+- [x] M7.9 Hydraulic reachability.
+- [x] M7.10 Automatic routability.
+- [x] M7.11 Shared path state.
+- [x] M7.12 Topology conflict validation.
+- [x] M7.13 Capability calculation.
 
 ## Required Distinctions
 
@@ -663,9 +663,9 @@ Single-GH direct topology may omit unnecessary distribution valves.
 
 Multi-GH without routing valves must not be presented as automatically independent.
 
-- [ ] Capabilities reflect actual topology.
-- [ ] Routing conflicts are detected before activation.
-- [ ] UI clearly exposes manual-routing vs automatic-routing conditions.
+- [x] Capabilities reflect actual topology.
+- [x] Routing conflicts are detected before activation.
+- [x] UI clearly exposes manual-routing vs automatic-routing conditions.
 
 ## Output
 

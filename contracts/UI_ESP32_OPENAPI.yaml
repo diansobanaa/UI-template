@@ -53,6 +53,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/InventoryResponse"
 
+  /api/v1/topology:
+    get:
+      tags: [Device]
+      operationId: getTopology
+      responses:
+        "200":
+          description: Topology and Capability state per Greenhouse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopologyStateResponse"
+
   /api/v1/capabilities:
     get:
       tags: [Device]
@@ -641,6 +653,8 @@ paths:
     post:
       tags: [Schedule]
       operationId: saveSchedule
+      deprecated: true
+      description: DEPRECATED - Raw schedule direct submission is disabled. Schedules must be submitted via Configuration Candidate (PUT /api/v1/configuration).
       requestBody:
         required: true
         content:
@@ -648,8 +662,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ScheduleItem"
       responses:
-        "200":
-          description: Schedule saved to NVS
+        "405":
+          description: Method Not Allowed - Direct schedule creation is deprecated. Submit via Configuration Candidate.
           content:
             application/json:
               schema:
@@ -931,39 +945,109 @@ components:
         durationSec: { type: integer, nullable: true }
         volumeMl: { type: integer, nullable: true }
 
-    Schedule:
+    ScheduleItem:
       type: object
-      required: [scheduleId, ownerId, priority, type, action]
+      required: [id, enabled, type, action]
+      properties:
+        id: { type: string }
+        enabled: { type: boolean }
+        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
+        action: { type: string }
+        durationSec: { type: integer }
+        targetGhId: { type: string, nullable: true }
+        hour: { type: integer, nullable: true }
+        minute: { type: integer, nullable: true }
+        daysOfWeek: { type: integer, nullable: true }
+        intervalMin: { type: integer, nullable: true }
+
+    ScheduleIntent:
+      type: object
+      required: [scheduleId, targetGhId, action, priority, missedRunPolicy, enabled]
       properties:
         scheduleId: { type: string }
-        ownerId: { type: string }
-        priority: { type: integer }
-        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
-        action: { type: string, enum: [FERTIGATION, WATER_PUMP, FAN_TOGGLE, CUSTOM] }
-        recipeId: { type: string, nullable: true }
+        targetGhId: { type: string }
+        action: { type: string, enum: [FERTIGATION_START, WATER_PUMP_START, WATER_PUMP_STOP, FAN_START, FAN_STOP] }
+        priority: { type: integer, minimum: 1, maximum: 100 }
+        missedRunPolicy: { type: string, enum: [SKIP, RUN_ON_RECOVERY, RUN_WITHIN_WINDOW, MARK_MISSED] }
         enabled: { type: boolean }
+        recipeId: { type: string, nullable: true }
+        triggerType: { type: string, enum: [DAILY, INTERVAL, ONCE] }
         hour: { type: integer, minimum: 0, maximum: 23, nullable: true }
         minute: { type: integer, minimum: 0, maximum: 59, nullable: true }
         daysOfWeek: { type: integer, nullable: true }
         intervalMin: { type: integer, nullable: true }
         durationSec: { type: integer, nullable: true }
-        constraints:
-          type: array
-          items: { type: string }
 
     CompiledSchedule:
       type: object
-      required: [compiledId, scheduleId, status, resourceIds, startTimestamp, endTimestamp]
+      required: [scheduleId, targetComplexId, targetGhId, resolvedAction, status, configurationVersion]
       properties:
-        compiledId: { type: string }
         scheduleId: { type: string }
-        status: { type: string, enum: [ACTIVE, BLOCKED, CONFLICT, EXECUTING, COMPLETED, CANCELLED] }
-        resourceIds:
+        targetComplexId: { type: string }
+        targetGhId: { type: string }
+        resolvedAction: { type: string }
+        resolvedComponents:
+          type: array
+          maxItems: 16
+          items: { type: string }
+        resolvedResources:
+          type: array
+          maxItems: 16
+          items: { type: string }
+        safetyDependencies:
           type: array
           items: { type: string }
-        startTimestamp: { type: integer }
-        endTimestamp: { type: integer }
-        conflictReason: { type: string, nullable: true }
+        recipeVersion: { type: integer, nullable: true }
+        recipeSnapshot:
+          type: object
+          nullable: true
+          properties:
+            recipeId: { type: string }
+            recipeVersion: { type: integer }
+            name: { type: string }
+            type: { type: string }
+            targetEc: { type: number, nullable: true }
+            targetPh: { type: number, nullable: true }
+            ratioA: { type: number, nullable: true }
+            ratioB: { type: number, nullable: true }
+            durationSec: { type: integer, nullable: true }
+            volumeMl: { type: integer, nullable: true }
+        configurationVersion: { type: integer }
+        priority: { type: integer }
+        missedRunPolicy: { type: string }
+        executionPolicy: { type: string }
+        status: { type: string, enum: [DRAFT, VALIDATING, ACTIVE, BLOCKED, DISABLED, INVALID] }
+        blockedReason:
+          type: object
+          nullable: true
+          properties:
+            code:
+              type: string
+              enum:
+                - RESOURCE_UNAVAILABLE
+                - RESOURCE_MISSING
+                - RESOURCE_DISABLED
+                - RESOURCE_LIMIT_EXCEEDED
+                - TOPOLOGY_UNREACHABLE
+                - NOT_AUTOMATICALLY_ROUTABLE
+                - SAFETY_DEPENDENCY_MISSING
+                - SENSOR_REQUIRED
+                - CALIBRATION_REQUIRED
+                - RECIPE_INVALID
+                - CONFIGURATION_VERSION_MISMATCH
+                - RECURRENCE_INVALID
+                - RESOURCE_CONFLICT
+                - INVALID_GH
+                - TOPOLOGY_MISSING
+                - NOT_CONFIGURED
+                - TOPOLOGY_BLOCKED
+                - CAPABILITY_MISSING
+            message: { type: string }
+            resourceId: { type: string, nullable: true }
+            componentId: { type: string, nullable: true }
+            ghId: { type: string, nullable: true }
+            action: { type: string, nullable: true }
+            resolution: { type: string, nullable: true }
 
     ConfigurationPayload:
       type: object
@@ -980,7 +1064,10 @@ components:
           items: { $ref: "#/components/schemas/Assignment" }
         schedules:
           type: array
-          items: { $ref: "#/components/schemas/Schedule" }
+          items: { $ref: "#/components/schemas/ScheduleIntent" }
+        compiledSchedules:
+          type: array
+          items: { $ref: "#/components/schemas/CompiledSchedule" }
         recipes:
           type: array
           items: { $ref: "#/components/schemas/Recipe" }
@@ -1486,3 +1573,41 @@ components:
                 retryable: { type: boolean }
                 reconcileRequired: { type: boolean }
                 details: { type: object, additionalProperties: true }
+
+    TopologyStateResponse:
+      type: object
+      properties:
+        greenhouses:
+          type: array
+          items:
+            type: object
+            required:
+              - ghId
+              - configured
+              - hydraulicallyReachable
+              - automaticallyRoutable
+              - manuallyRoutable
+              - blockingReason
+              - capabilities
+            properties:
+              ghId: { type: string }
+              configured: { type: boolean }
+              hydraulicallyReachable: { type: boolean }
+              automaticallyRoutable: { type: boolean }
+              manuallyRoutable: { type: boolean }
+              currentSharedTarget: { type: string }
+              blockingReason: { type: string }
+              capabilities:
+                type: object
+                properties:
+                  CAN_DELIVER: { type: boolean }
+                  CAN_AUTO_FILL: { type: boolean }
+                  CAN_AUTO_DOSE: { type: boolean }
+                  CAN_AUTO_MIX: { type: boolean }
+                  CAN_AUTO_ROUTE: { type: boolean }
+                  CAN_MONITOR_FLOW: { type: boolean }
+                  CAN_MONITOR_LEVEL: { type: boolean }
+                  CAN_MONITOR_EC: { type: boolean }
+                  CAN_MONITOR_PH: { type: boolean }
+                  CAN_CLIMATE_CONTROL: { type: boolean }
+                  CAN_RUN_AUTONOMOUSLY: { type: boolean }

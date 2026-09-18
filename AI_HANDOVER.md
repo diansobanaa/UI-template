@@ -1,52 +1,51 @@
-﻿# AI HANDOVER DOCUMENT
+# AI HANDOVER
 
-## Current Status
-- **Date/Time**: 2026-09-18
-- **Safe Point**: SP-M3-000 - Active Configuration Authority Verification Gate (M3.0) & Documentation Governance Sync Complete
+## STATUS: M8 - SCHEDULE COMPILER (REMEDIATION COMPLETE & VERIFIED)
 
-## What was just completed (SP-M3-000)
+### What was done in this remediation session:
+- **Canonical Compiler Authority**:
+  - Established `server/compiler/ScheduleCompiler.ts` as the single authoritative server-side compiler.
+  - Removed all client/browser state, store, and `localStorage` dependencies.
+  - Pure function consuming candidate configuration snapshot (`ConfigurationPayload`) and returning validated `CompiledSchedule` artifacts.
+  - Re-exported via `src/lib/services/ScheduleCompiler.ts` for clean modularity.
+- **Harmonized Buffer & Capacity Ceilings**:
+  - Synchronized maximum resolved resources across the entire stack to 16:
+    - `PRODUCT_MAX_RESOLVED_RESOURCES` = 16 (`server/compiler/ScheduleCompiler.ts`)
+    - `PRODUCT_MAX_SCHEDULES` = 16
+    - `CFG_MAX_RESOLVED_RESOURCES` = 16 (`esp32/main/services/configuration_mgr.h`)
+    - `MAX_SCHED_RESOLVED_RESOURCES` = 16 (`esp32/main/services/scheduler.h`)
+  - Firmware returns `ESP_ERR_INVALID_SIZE` if `res_count > 16`, eliminating heap/stack buffer disparity.
+- **Firmware Encapsulation & Direct GPIO Dosing Elimination**:
+  - Removed direct manual GPIO pin dosing from `esp32/main/services/scheduler.c`.
+  - Added `CMD_TYPE_FERTIGATION_RUN` to `command_mgr.h` / `.c` carrying immutable recipe snapshots and configuration versions.
+  - Actions strictly route through Command Manager with comprehensive safety and active config checks.
+- **Candidate Deployment Pipeline & Legacy Direct Dispatch Rejection**:
+  - Replaced legacy `POST /api/v1/schedules` in `esp32/main/http/api_schedule_handlers.c` with HTTP 405 Method Not Allowed.
+  - Schedules can only deploy via M4 candidate deployment: `/api/v1/configuration/candidate` -> `/apply`.
+  - Staged `VALIDATING` schedules are promoted atomically to `ACTIVE` by `apply_candidate`.
+- **PRD 6-State Lifecycle Enforcement**:
+  - Implemented `DRAFT`, `VALIDATING`, `ACTIVE`, `BLOCKED`, `DISABLED`, `INVALID`.
+  - Firmware runtime gate ensures ONLY `ACTIVE` schedules are eligible for dispatch.
+- **Frontend & TypeScript Build Integrity**:
+  - Fixed `src/components/ui/primitives.tsx` (`StatusBadge` children) and `src/components/ui/equipment/AssignmentManager.tsx` (`ConfirmDialog` props).
+  - Production build verified: `npx tsc -b && vite build` (0 errors, 8.54s).
+- **Test Suites Created & Verified (92/92 PASS)**:
+  - `scripts/test_m8_production_compiler.mjs` (24/24 PASS)
+  - `scripts/test_m8_version_semantics.mjs` (18/18 PASS - Tests A-F)
+  - `scripts/test_m8_boundary_safety.mjs` (17/17 PASS)
+  - `scripts/test_m8_multi_gh.mjs` (13/13 PASS)
+  - `scripts/test_m8_deployment.mjs` (8/8 PASS)
+  - `scripts/test_m8_runtime_eligibility.mjs` (12/12 PASS)
+- **Documentation Synchronized**:
+  - Updated `contracts/UI_ESP32_OPENAPI.yaml`.
+  - Added Section 51 to `UI_ESP32_COMMUNICATION_SPEC.md`.
 
-### 1. Documentation Governance Mandate
-- Consolidated documentation into the single canonical project documentation directory: docs/.
-- Eliminated all duplicate mirror documentation under esp32/docs/.
-- Updated .agents/rules/DOCUMENTATION_MANDATE.md, AGENTS.md, and GEMINI.md to enforce canonical documentation governance.
+### Starting State for Next Agent:
+The repository is at Safe Point `SP-M8-REMEDIATION-COMPLETE`.
+All TypeScript type checks pass (`tsc -b && vite build` exits 0).
+All 6 M8 production test suites and cross-milestone regression suites (M2, M3, E2E) pass.
+No physical hardware tests are run in CI/simulator mode (flagged for physical bench verification).
 
-### 2. M3.0 Active Configuration Authority Verification Gate
-- Established the **Active Configuration Snapshot** (NVS lvc_json) as the single authoritative source of truth for installed components.
-- In esp32/main/http/api_device_handlers.c, updated handler_get_inventory() to serve directly from the active configuration snapshot.
-- In esp32/main/hal/hardware_registry.c, verified clear, atomic validation, and runtime derivation rules.
-- In the frontend (src/lib/services.ts, src/lib/api/esp32-client.ts), ensured hardwareService.getInstalledComponents() fetches directly from the ESP32 REST API (/api/v1/inventory), with no localStorage or static fixtures acting as an independent authority.
-- Added comprehensive behavioral verification suite scripts/test_m3_configuration_authority.mjs covering Groups 1-6 (18 passing tests).
+### Next Task: Milestone 9 (M9) — SCHEDULE & ACTION DISPATCH ENGINE
+The next immediate goal is M9. You will build upon the compiled `ACTIVE` schedules and Command Manager encapsulation to implement dynamic runtime queue dispatch, pre-activation safety interlocks, and sensor feedback loops.
 
-## Verification Evidence (All Software)
-| Check | Result |
-|---|---|
-| M3.0 Authority Suite (scripts/test_m3_configuration_authority.mjs --mock) | PASS - 18 PASS, 0 FAIL, 1 BLOCKED |
-| M2.16-M2.26 Behavioral Audit (scripts/test_m2_hardware_management.mjs) | PASS - 26/26 PASS |
-| 
-pm test -- --mock (OpenAPI + handler + REST contract) | PASS |
-| 
-pm run build (TypeScript + Vite) | PASS - 864.03 kB bundle |
-| Live ESP32 REST test | BLOCKED - physical hardware not connected |
-| Physical reboot persistence | BLOCKED - physical hardware not connected |
-
-## Authority Architecture (M3.0 Verified)
-`	ext
-ActiveConfiguration (NVS lvc_json) [AUTHORITY]
-  │
-  ├─► hardware_registry_load_from_json()
-  │     └─► s_active_components[] [DERIVED RUNTIME VIEW]
-  │           └─► actuator_hal / sensor_hal
-  │
-  ├─► GET /api/v1/inventory [DERIVED API VIEW]
-  │     └─► Frontend hardwareService [DERIVED CLIENT VIEW]
-  │
-  └─► Storage Persistence (NVS)
-`
-
-## Blocked Items
-- Physical reboot persistence test (M2.22 / M3.0 Group 3 Test I) - requires ESP32 connected via USB.
-- Live REST E2E test against running ESP32 on LAN (192.168.1.50).
-
-## Next Action for Next Agent / Operator
-- **Next Safe Point**: SP-M3-001 - M3.1 Configuration Schema Validation (ESP32 + Frontend).

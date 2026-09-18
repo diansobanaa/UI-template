@@ -229,6 +229,9 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_inv = { .uri = "/api/v1/inventory", .method = HTTP_GET, .handler = handler_get_inventory, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_inv);
 
+    httpd_uri_t uri_topology = { .uri = "/api/v1/topology", .method = HTTP_GET, .handler = handler_get_topology, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_topology);
+
     httpd_uri_t uri_cap = { .uri = "/api/v1/capabilities", .method = HTTP_GET, .handler = handler_get_capabilities, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cap);
 

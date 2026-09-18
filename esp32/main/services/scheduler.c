@@ -1,5 +1,7 @@
 #include "services/scheduler.h"
 #include "services/command_mgr.h"
+#include "services/configuration_mgr.h"
+#include "hal/actuator_hal.h"
 #include "config/system_config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -155,15 +157,18 @@ static void dispatch_schedule(schedule_entry_t *sched, time_t now)
     command_item_t cmd = {0};
     snprintf(cmd.command_id, sizeof(cmd.command_id), "sched-%s-%ld", sched->id, (long)now);
     
-    if (sched->action == SCHED_ACTION_FERTIGATION) {
-        cmd.type = CMD_TYPE_DOSING_RUN;
-    } else if (sched->action == SCHED_ACTION_WATER_PUMP) {
+    if (strcmp(sched->resolved_action, "FERTIGATION_START") == 0) {
+        cmd.type = CMD_TYPE_FERTIGATION_RUN;
+    } else if (strcmp(sched->resolved_action, "WATER_PUMP_START") == 0) {
         cmd.type = CMD_TYPE_WELL_PUMP;
     } else {
-        cmd.type = CMD_TYPE_CUSTOM; // simplified for Phase 1
+        cmd.type = CMD_TYPE_CUSTOM; // simplified
     }
     
     strncpy(cmd.target_gh_id, sched->target_gh_id, sizeof(cmd.target_gh_id) - 1);
+    strncpy(cmd.recipe_id, sched->recipe_id, sizeof(cmd.recipe_id) - 1);
+    cmd.recipe_version = sched->recipe_version;
+    cmd.configuration_version = sched->configuration_version;
     cmd.param_duration_sec = sched->duration_sec;
     cmd.status = CMD_STATUS_PENDING;
     cmd.submitted_at = now;
@@ -199,7 +204,21 @@ static void scheduler_task(void *pvParameters)
             
             for (size_t i = 0; i < s_schedule_count; i++) {
                 schedule_entry_t *sched = &s_schedules[i];
-                if (!sched->enabled) continue;
+                
+                // Safety check: Emergency stop halts automated schedules
+                if (actuator_hal_is_emergency_stopped()) {
+                    ESP_LOGW(TAG, "Automated schedules suspended due to active E-Stop");
+                    break;
+                }
+
+                // Configuration version check: only schedules matching active configuration are eligible
+                const active_configuration_t *act_cfg = configuration_mgr_get_active();
+                if (!act_cfg || sched->configuration_version != act_cfg->version) {
+                    ESP_LOGW(TAG, "Skipping schedule %s: version mismatch (sched v%lu != active v%lu)",
+                             sched->id, (unsigned long)sched->configuration_version,
+                             act_cfg ? (unsigned long)act_cfg->version : 0);
+                    continue;
+                }
                 
                 // Idempotency / running check
                 if (sched->is_running) {
@@ -215,7 +234,7 @@ static void scheduler_task(void *pvParameters)
                 }
                 
                 bool due = false;
-                if (sched->type == SCHED_TYPE_DAILY) {
+                if (sched->interval_min == 0) { // DAILY
                     // Check day of week
                     uint8_t today_bit = 1 << timeinfo.tm_wday;
                     if ((sched->days_of_week & today_bit) != 0) {
@@ -227,7 +246,7 @@ static void scheduler_task(void *pvParameters)
                             }
                         }
                     }
-                } else if (sched->type == SCHED_TYPE_INTERVAL) {
+                } else { // INTERVAL
                     if (sched->last_execution_timestamp == 0) {
                         due = true;
                     } else if (now - sched->last_execution_timestamp >= (sched->interval_min * 60)) {

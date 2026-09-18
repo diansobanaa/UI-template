@@ -49,20 +49,38 @@ typedef enum {
     CFG_SCHED_ACTION_CUSTOM
 } cfg_sched_action_t;
 
+// Product-level defined limit: 16 maximum resolved resources per scheduled action to fit within predictable SRAM envelopes.
+#define CFG_MAX_RESOLVED_RESOURCES 16
+
+typedef enum {
+    SCHED_STATUS_DRAFT,
+    SCHED_STATUS_VALIDATING,
+    SCHED_STATUS_ACTIVE,
+    SCHED_STATUS_BLOCKED,
+    SCHED_STATUS_DISABLED,
+    SCHED_STATUS_INVALID
+} cfg_sched_status_t;
+
 typedef struct {
     char schedule_id[32];
-    char owner_id[32];
+    char target_gh_id[32];
+    char resolved_action[32];
+    char resolved_resources[CFG_MAX_RESOLVED_RESOURCES][32];
+    size_t resolved_resource_count;
+    char recipe_id[32];
+    uint32_t recipe_version;
+    uint32_t safety_dependencies; // Bitmask: 1=ESTOP, 2=FLOW_VALID, 4=LEVEL_VALID, etc.
+    uint32_t configuration_version;
     uint8_t priority;
-    cfg_sched_type_t type;
-    cfg_sched_action_t action;
-    char recipe_id[32]; // Optional
-    bool enabled;
-    uint8_t hour;       // For DAILY
-    uint8_t minute;     // For DAILY
-    uint8_t days_of_week; // Bitmask for DAILY
-    uint32_t interval_min; // For INTERVAL
+    cfg_sched_status_t status;
+    
+    // Recurrence/Trigger fields can be added here or resolved by the runtime scheduler
+    uint8_t hour;       
+    uint8_t minute;     
+    uint8_t days_of_week; 
+    uint32_t interval_min; 
     uint32_t duration_sec;
-} cfg_schedule_t;
+} compiled_schedule_t;
 
 typedef enum {
     CFG_SCOPE_COMPLEX,
@@ -93,7 +111,7 @@ typedef struct {
     cfg_recipe_t recipes[16];
     size_t recipe_count;
     
-    cfg_schedule_t schedules[16];
+    compiled_schedule_t schedules[16];
     size_t schedule_count;
     
     cfg_assignment_t assignments[32];

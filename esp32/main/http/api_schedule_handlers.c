@@ -65,8 +65,9 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
         } else {
             cJSON_AddNullToObject(item, "targetGhId");
         }
-        cJSON_AddStringToObject(item, "type", type_to_str(entries[i].type));
-        cJSON_AddStringToObject(item, "action", action_to_str(entries[i].action));
+        cJSON_AddStringToObject(item, "type", entries[i].interval_min == 0 ? "DAILY" : "INTERVAL");
+        cJSON_AddStringToObject(item, "action", entries[i].resolved_action[0] ? entries[i].resolved_action : "UNKNOWN");
+        cJSON_AddNumberToObject(item, "configurationVersion", entries[i].configuration_version);
         cJSON_AddNumberToObject(item, "durationSec", entries[i].duration_sec);
         cJSON_AddNumberToObject(item, "hour", entries[i].hour);
         cJSON_AddNumberToObject(item, "minute", entries[i].minute);
@@ -84,61 +85,11 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
 static esp_err_t api_schedule_add_handler(httpd_req_t *req)
 {
     cJSON *json = NULL;
-    if (http_parse_json_body(req, &json) != ESP_OK || !json) {
-        return http_send_error(req, 400, "BAD_REQUEST", "Invalid JSON", NULL);
-    }
-
-    cJSON *payload = cJSON_GetObjectItem(json, "payload");
-    cJSON *target = payload ? payload : json;
-
-    cJSON *id_item = cJSON_GetObjectItem(target, "id");
-    cJSON *action_item = cJSON_GetObjectItem(target, "action");
-    cJSON *type_item = cJSON_GetObjectItem(target, "type");
-    cJSON *enabled_item = cJSON_GetObjectItem(target, "enabled");
-    cJSON *dur_item = cJSON_GetObjectItem(target, "durationSec");
-
-    if (!id_item || !cJSON_IsString(id_item)) {
+    if (http_parse_json_body(req, &json) == ESP_OK && json) {
         cJSON_Delete(json);
-        return http_send_error(req, 400, "BAD_REQUEST", "Schedule id is required", NULL);
     }
-
-    schedule_entry_t entry = {0};
-    strncpy(entry.id, id_item->valuestring, sizeof(entry.id) - 1);
-    entry.enabled = enabled_item ? cJSON_IsTrue(enabled_item) : true;
-    entry.type = type_item && cJSON_IsString(type_item) ? str_to_type(type_item->valuestring) : SCHED_TYPE_DAILY;
-    entry.action = action_item && cJSON_IsString(action_item) ? str_to_action(action_item->valuestring) : SCHED_ACTION_FERTIGATION;
-    entry.duration_sec = dur_item && cJSON_IsNumber(dur_item) ? dur_item->valueint : 60;
-
-    cJSON *target_gh = cJSON_GetObjectItem(target, "targetGhId");
-    if (!target_gh) target_gh = cJSON_GetObjectItem(target, "ghId"); // Backwards compatibility
-    if (target_gh && cJSON_IsString(target_gh)) {
-        strncpy(entry.target_gh_id, target_gh->valuestring, sizeof(entry.target_gh_id) - 1);
-    }
-
-    cJSON *hour_item = cJSON_GetObjectItem(target, "hour");
-    if (hour_item && cJSON_IsNumber(hour_item)) entry.hour = (uint8_t)hour_item->valueint;
-
-    cJSON *min_item = cJSON_GetObjectItem(target, "minute");
-    if (min_item && cJSON_IsNumber(min_item)) entry.minute = (uint8_t)min_item->valueint;
-
-    cJSON *days_item = cJSON_GetObjectItem(target, "daysOfWeek");
-    if (days_item && cJSON_IsNumber(days_item)) entry.days_of_week = (uint8_t)days_item->valueint;
-    else entry.days_of_week = 0x7F; /* Default all 7 days */
-
-    cJSON *interval_item = cJSON_GetObjectItem(target, "intervalMin");
-    if (interval_item && cJSON_IsNumber(interval_item)) entry.interval_min = interval_item->valueint;
-
-    esp_err_t err = scheduler_add_entry(&entry);
-    cJSON_Delete(json);
-
-    if (err != ESP_OK) {
-        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to save schedule to NVS", NULL);
-    }
-
-    cJSON *resp_data = cJSON_CreateObject();
-    cJSON_AddStringToObject(resp_data, "status", "ok");
-    cJSON_AddStringToObject(resp_data, "id", entry.id);
-    return http_send_enveloped_response(req, 200, NULL, resp_data);
+    return http_send_error(req, 405, "METHOD_NOT_ALLOWED", 
+                           "Direct raw schedule creation is deprecated and rejected. Schedules must be submitted as ScheduleIntents compiled within versioned Configuration Candidates (/api/v1/configuration).", NULL);
 }
 
 static esp_err_t api_schedule_delete_handler(httpd_req_t *req)

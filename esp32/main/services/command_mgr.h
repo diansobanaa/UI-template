@@ -14,6 +14,7 @@ typedef enum {
     CMD_TYPE_DOSING_RUN,
     CMD_TYPE_TANK_TRANSFER,
     CMD_TYPE_FERTIGATION_BATCH,
+    CMD_TYPE_FERTIGATION_RUN,
     CMD_TYPE_EMERGENCY_STOP,
     CMD_TYPE_RESUME,
     CMD_TYPE_TOGGLE_COMPONENT,
@@ -33,6 +34,9 @@ typedef struct {
     cmd_type_t type;
     char target_gh_id[32];
     char target_component_id[32];
+    char recipe_id[32];
+    uint32_t recipe_version;
+    uint32_t configuration_version;
     int32_t param_duration_sec;
     int32_t param_volume_ml;
     int32_t param_raw_volume_ml;

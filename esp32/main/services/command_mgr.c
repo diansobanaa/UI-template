@@ -112,6 +112,20 @@ static void command_worker_task(void *pvParameters)
                     snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Fertigation batch running" : "Failed to start fertigation batch");
                     is_async_task = true;
                     break;
+
+                case CMD_TYPE_FERTIGATION_RUN:
+                    if (actuator_hal_is_emergency_stopped()) {
+                        err = ESP_ERR_INVALID_STATE;
+                        snprintf(cmd.message, sizeof(cmd.message), "Blocked by E-Stop");
+                    } else {
+                        int32_t raw_vol = cmd.param_raw_volume_ml > 0 ? cmd.param_raw_volume_ml : 10000;
+                        int32_t dos_a = cmd.param_dosing_a_ml > 0 ? cmd.param_dosing_a_ml : 50;
+                        int32_t dos_b = cmd.param_dosing_b_ml > 0 ? cmd.param_dosing_b_ml : 50;
+                        err = fertigation_mgr_start_batch(raw_vol, dos_a, dos_b);
+                        snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Fertigation run active" : "Fertigation run blocked or failed");
+                        is_async_task = (err == ESP_OK);
+                    }
+                    break;
                     
                 case CMD_TYPE_TOGGLE_COMPONENT:
                     if (cmd.param_duration_sec > 0) {
@@ -214,7 +228,7 @@ esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt)
     }
 
     if (cached->status == CMD_STATUS_RUNNING) {
-        if (cached->type == CMD_TYPE_FERTIGATION_BATCH) {
+        if (cached->type == CMD_TYPE_FERTIGATION_BATCH || cached->type == CMD_TYPE_FERTIGATION_RUN) {
             fertigation_state_t fst = fertigation_mgr_get_state();
             if (fst == FERT_STATE_COMPLETE) {
                 cached->status = CMD_STATUS_COMPLETED;

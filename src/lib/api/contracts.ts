@@ -108,31 +108,81 @@ export interface Recipe {
   volumeMl?: number | null;
 }
 
-export interface Schedule {
-  id?: string;
-  scheduleId?: string;
-  ownerId?: string;
-  priority?: number;
-  type: "DAILY" | "INTERVAL" | "ONCE";
-  action: "FERTIGATION" | "WATER_PUMP" | "FAN_TOGGLE" | "CUSTOM";
-  recipeId?: string | null;
+export interface ScheduleIntent {
+  scheduleId: string;
+  targetGhId: string;
+  action: "FERTIGATION_START" | "WATER_PUMP_START" | "WATER_PUMP_STOP" | "FAN_START" | "FAN_STOP";
+  priority: number;
+  missedRunPolicy: "SKIP" | "RUN_ON_RECOVERY" | "RUN_WITHIN_WINDOW" | "MARK_MISSED";
   enabled: boolean;
+  recipeId?: string | null;
+  triggerType: "DAILY" | "INTERVAL" | "ONCE";
   hour?: number | null;
   minute?: number | null;
   daysOfWeek?: number | null;
   intervalMin?: number | null;
   durationSec?: number | null;
-  constraints?: string[];
+}
+
+export type BlockedReasonCode =
+  | "RESOURCE_UNAVAILABLE"
+  | "RESOURCE_MISSING"
+  | "RESOURCE_DISABLED"
+  | "RESOURCE_LIMIT_EXCEEDED"
+  | "TOPOLOGY_UNREACHABLE"
+  | "NOT_AUTOMATICALLY_ROUTABLE"
+  | "SAFETY_DEPENDENCY_MISSING"
+  | "SENSOR_REQUIRED"
+  | "CALIBRATION_REQUIRED"
+  | "RECIPE_INVALID"
+  | "CONFIGURATION_VERSION_MISMATCH"
+  | "RECURRENCE_INVALID"
+  | "RESOURCE_CONFLICT"
+  | "INVALID_GH"
+  | "TOPOLOGY_MISSING"
+  | "NOT_CONFIGURED"
+  | "TOPOLOGY_BLOCKED"
+  | "CAPABILITY_MISSING";
+
+export interface BlockedReason {
+  code: BlockedReasonCode | string;
+  message: string;
+  resourceId?: string | null;
+  componentId?: string | null;
+  ghId?: string | null;
+  action?: string | null;
+  resolution?: string | null;
+}
+
+export interface RecipeSnapshot {
+  recipeId: string;
+  recipeVersion: number;
+  name: string;
+  type: string;
+  targetEc?: number | null;
+  targetPh?: number | null;
+  ratioA?: number | null;
+  ratioB?: number | null;
+  durationSec?: number | null;
+  volumeMl?: number | null;
 }
 
 export interface CompiledSchedule {
-  compiledId: string;
   scheduleId: string;
-  status: "ACTIVE" | "BLOCKED" | "CONFLICT" | "EXECUTING" | "COMPLETED" | "CANCELLED";
-  resourceIds: string[];
-  startTimestamp: number;
-  endTimestamp: number;
-  conflictReason?: string | null;
+  targetComplexId: string;
+  targetGhId: string;
+  resolvedAction: string;
+  resolvedComponents: string[];
+  resolvedResources: string[];
+  safetyDependencies: string[];
+  recipeVersion?: number | null;
+  recipeSnapshot?: RecipeSnapshot | null;
+  configurationVersion: number;
+  priority: number;
+  missedRunPolicy: string;
+  executionPolicy: string;
+  status: "DRAFT" | "VALIDATING" | "ACTIVE" | "BLOCKED" | "DISABLED" | "INVALID";
+  blockedReason?: BlockedReason | null;
 }
 
 export interface ConfigurationPayload {
@@ -142,7 +192,8 @@ export interface ConfigurationPayload {
   greenhouses: { ghId: string; name: string }[];
   components: InstalledComponent[];
   assignments: Assignment[];
-  schedules: Schedule[];
+  schedules: ScheduleIntent[];
+  compiledSchedules: CompiledSchedule[];
   recipes: Recipe[];
   topology: Topology[];
   settings: Record<string, unknown>;
@@ -355,6 +406,35 @@ export interface Observation {
   notes?: string | null;
 }
 
+export interface GhCapabilities {
+  CAN_DELIVER: boolean;
+  CAN_AUTO_FILL: boolean;
+  CAN_AUTO_DOSE: boolean;
+  CAN_AUTO_MIX: boolean;
+  CAN_AUTO_ROUTE: boolean;
+  CAN_MONITOR_FLOW: boolean;
+  CAN_MONITOR_LEVEL: boolean;
+  CAN_MONITOR_EC: boolean;
+  CAN_MONITOR_PH: boolean;
+  CAN_CLIMATE_CONTROL: boolean;
+  CAN_RUN_AUTONOMOUSLY: boolean;
+}
+
+export interface GhTopologyState {
+  ghId: string;
+  configured: boolean;
+  hydraulicallyReachable: boolean;
+  automaticallyRoutable: boolean;
+  manuallyRoutable: boolean;
+  currentSharedTarget?: string;
+  blockingReason?: string;
+  capabilities: GhCapabilities;
+}
+
+export interface TopologyStateResponse {
+  greenhouses: GhTopologyState[];
+}
+
 export interface StartCropCycleRequest {
   tanggalTanam: string;
   variety?: string;
@@ -413,7 +493,7 @@ export interface OperationRequest {
 }
 
 export interface SchedulesResponse {
-  items: Schedule[];
+  items: ScheduleIntent[];
   total: number;
 }
 

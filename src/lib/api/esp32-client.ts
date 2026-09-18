@@ -15,7 +15,7 @@ import type {
   ImportActiveCropCycleRequest,
   OperationRequest,
   PollinationRequest,
-  Schedule,
+  ScheduleIntent,
   SchedulesResponse,
   CalibrationRates,
   StartCropCycleRequest,
@@ -90,6 +90,10 @@ export class Esp32Client {
 
   async getInventory(): Promise<InventoryResponse> {
     return this.getEnveloped<InventoryResponse>("/api/v1/inventory");
+  }
+
+  async getTopology(): Promise<import("./contracts").TopologyStateResponse> {
+    return this.getEnveloped<import("./contracts").TopologyStateResponse>("/api/v1/topology");
   }
 
   async getContext(): Promise<ContextResponse> {
@@ -252,7 +256,7 @@ export class Esp32Client {
     return this.getEnveloped<SchedulesResponse>("/api/v1/schedules");
   }
 
-  async saveSchedule(schedule: Schedule): Promise<any> {
+  async saveSchedule(schedule: ScheduleIntent): Promise<any> {
     return this.postEnveloped<any>("/api/v1/schedules", schedule);
   }
 

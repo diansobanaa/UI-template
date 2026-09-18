@@ -10,6 +10,7 @@ extern "C" {
 esp_err_t handler_get_health(httpd_req_t *req);
 esp_err_t handler_get_status(httpd_req_t *req);
 esp_err_t handler_get_inventory(httpd_req_t *req);
+esp_err_t handler_get_topology(httpd_req_t *req);
 esp_err_t handler_get_capabilities(httpd_req_t *req);
 esp_err_t handler_get_context(httpd_req_t *req);
 esp_err_t handler_get_clock(httpd_req_t *req);
