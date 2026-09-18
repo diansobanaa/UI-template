@@ -246,13 +246,6 @@ esp_err_t handler_get_context(httpd_req_t *req)
             cJSON_AddStringToObject(gh, "status", "ACTIVE");
             cJSON_AddItemToArray(ghs, gh);
         }
-    } else {
-        cJSON *gh01 = cJSON_CreateObject();
-        cJSON_AddStringToObject(gh01, "ghId", "gh-01");
-        cJSON_AddStringToObject(gh01, "complexId", st->complex_id);
-        cJSON_AddStringToObject(gh01, "name", "Greenhouse 01");
-        cJSON_AddStringToObject(gh01, "status", "ACTIVE");
-        cJSON_AddItemToArray(ghs, gh01);
     }
 
     return http_send_enveloped_response(req, 200, NULL, root);

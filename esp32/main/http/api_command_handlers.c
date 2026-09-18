@@ -79,28 +79,24 @@ esp_err_t handler_post_command(httpd_req_t *req)
         strncpy(cmd.target_gh_id, target_gh->valuestring, sizeof(cmd.target_gh_id) - 1);
     }
     
+    cJSON *comp_id = cJSON_GetObjectItem(payload, "componentId");
+    if (comp_id && cJSON_IsString(comp_id)) {
+        strncpy(cmd.target_component_id, comp_id->valuestring, sizeof(cmd.target_component_id) - 1);
+    }
+    
     cJSON *dur = cJSON_GetObjectItem(payload, "durationSeconds");
     if (dur && cJSON_IsNumber(dur)) {
         cmd.param_duration_sec = dur->valueint;
     }
 
-    if (strcmp(type->valuestring, "RESUME_SYSTEM") == 0 || strcmp(type->valuestring, "RESUME_CYCLE") == 0) {
+    if (strcmp(type->valuestring, "RESUME_SYSTEM") == 0 || strcmp(type->valuestring, "RESUME_CYCLE") == 0 || strcmp(type->valuestring, "CLEAR_FAULT") == 0) {
         cmd.type = CMD_TYPE_RESUME;
     } else if (strcmp(type->valuestring, "EMERGENCY_STOP") == 0) {
         cmd.type = CMD_TYPE_EMERGENCY_STOP;
+    } else if (strcmp(type->valuestring, "WATER_PUMP_TOGGLE") == 0 || strcmp(type->valuestring, "FAN_TOGGLE") == 0) {
+        cmd.type = CMD_TYPE_TOGGLE_COMPONENT;
+        if (cmd.param_duration_sec < 0) cmd.param_duration_sec = 0;
     } else if (strcmp(type->valuestring, "WELL_PUMP_START") == 0) {
-        cmd.type = CMD_TYPE_WELL_PUMP;
-        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 600; /* Default 10 min */
-    } else if (strcmp(type->valuestring, "WELL_PUMP_STOP") == 0) {
-        cmd.type = CMD_TYPE_WELL_PUMP;
-        cmd.param_duration_sec = 0; /* Stop immediately */
-    } else if (strcmp(type->valuestring, "DIST_PUMP_START") == 0) {
-        cmd.type = CMD_TYPE_DIST_PUMP;
-        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 300;
-    } else if (strcmp(type->valuestring, "DIST_PUMP_STOP") == 0) {
-        cmd.type = CMD_TYPE_DIST_PUMP;
-        cmd.param_duration_sec = 0;
-    } else if (strcmp(type->valuestring, "DOSING_RUN_START") == 0 || strcmp(type->valuestring, "MANUAL_PUMP_START") == 0) {
         cmd.type = CMD_TYPE_DOSING_RUN;
         if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 30;
     } else if (strcmp(type->valuestring, "DOSING_RUN_STOP") == 0 || strcmp(type->valuestring, "MANUAL_PUMP_STOP") == 0) {

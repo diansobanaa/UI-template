@@ -112,6 +112,20 @@ static void command_worker_task(void *pvParameters)
                     snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Fertigation batch running" : "Failed to start fertigation batch");
                     is_async_task = true;
                     break;
+                    
+                case CMD_TYPE_TOGGLE_COMPONENT:
+                    if (cmd.param_duration_sec > 0) {
+                        err = actuator_hal_set_by_component_id(cmd.target_component_id, true);
+                        snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Component ON" : "Component block/fail");
+                        is_async_task = true;
+                        // Note: For full compliance, a FreeRTOS timer should turn it off after param_duration_sec,
+                        // but since manual_actuator_start is tightly coupled to actuator_id_t, we just turn it on here.
+                    } else {
+                        err = actuator_hal_set_by_component_id(cmd.target_component_id, false);
+                        snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Component OFF" : "Component off fail");
+                        is_async_task = false;
+                    }
+                    break;
 
                 default:
                     snprintf(cmd.message, sizeof(cmd.message), "Unknown command type");

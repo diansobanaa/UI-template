@@ -16,6 +16,7 @@ typedef enum {
     CMD_TYPE_FERTIGATION_BATCH,
     CMD_TYPE_EMERGENCY_STOP,
     CMD_TYPE_RESUME,
+    CMD_TYPE_TOGGLE_COMPONENT,
     CMD_TYPE_CUSTOM
 } cmd_type_t;
 
@@ -31,6 +32,7 @@ typedef struct {
     char command_id[40];
     cmd_type_t type;
     char target_gh_id[32];
+    char target_component_id[32];
     int32_t param_duration_sec;
     int32_t param_volume_ml;
     int32_t param_raw_volume_ml;
