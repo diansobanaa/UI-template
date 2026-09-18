@@ -522,16 +522,16 @@ M4.
 
 ## Backlog
 
-- [ ] M5.1 Dynamic Complex identity.
-- [ ] M5.2 Dynamic GH collection.
-- [ ] M5.3 Dynamic component lookup.
-- [ ] M5.4 Dynamic resource references.
-- [ ] M5.5 Dynamic capability lookup.
-- [ ] M5.6 Runtime configuration loading.
-- [ ] M5.7 Boot from active configuration.
-- [ ] M5.8 Remove structural `GH-01` assumptions.
-- [ ] M5.9 Remove fixed semantic actuator assumptions where configuration is intended to control identity.
-- [ ] M5.10 Preserve local autonomous behavior from active configuration.
+- [x] M5.1 Dynamic Complex identity.
+- [x] M5.2 Dynamic GH collection.
+- [x] M5.3 Dynamic component lookup.
+- [x] M5.4 Dynamic resource references.
+- [x] M5.5 Dynamic capability lookup.
+- [x] M5.6 Runtime configuration loading.
+- [x] M5.7 Boot from active configuration.
+- [x] M5.8 Remove structural `GH-01` assumptions.
+- [x] M5.9 Remove fixed semantic actuator assumptions where configuration is intended to control identity.
+- [x] M5.10 Preserve local autonomous behavior from active configuration.
 
 ## Acceptance Criteria
 
@@ -546,9 +546,9 @@ Complex-A
 
 can be loaded and operated without modifying firmware source solely to add/remove GHs.
 
-- [ ] Telemetry can identify the actual GH context.
-- [ ] Crop-cycle state is not globally singleton by design.
-- [ ] Resource references come from configuration.
+- [x] Telemetry can identify the actual GH context.
+- [x] Crop-cycle state is not globally singleton by design.
+- [x] Resource references come from configuration.
 
 ## Output
 
@@ -572,18 +572,18 @@ M5.
 
 ## Backlog
 
-- [ ] M6.1 Resource identity.
-- [ ] M6.2 Resource owner.
-- [ ] M6.3 GH assignment.
-- [ ] M6.4 Shared/exclusive classification.
-- [ ] M6.5 Resource availability.
-- [ ] M6.6 Resource lock.
-- [ ] M6.7 Resource queue.
-- [ ] M6.8 Resource transfer.
-- [ ] M6.9 Resource release.
-- [ ] M6.10 Conflict detection.
-- [ ] M6.11 Affected schedule detection.
-- [ ] M6.12 Affected capability detection.
+- [x] M6.1 Resource identity.
+- [x] M6.2 Resource owner.
+- [x] M6.3 GH assignment.
+- [x] M6.4 Shared/exclusive classification.
+- [x] M6.5 Resource availability.
+- [x] M6.6 Resource lock.
+- [x] M6.7 Resource queue.
+- [x] M6.8 Resource transfer.
+- [x] M6.9 Resource release.
+- [x] M6.10 Conflict detection.
+- [x] M6.11 Affected schedule detection.
+- [x] M6.12 Affected capability detection.
 
 ## Required Transfer Workflow
 
@@ -605,11 +605,11 @@ Revalidate affected schedules
 
 ## Acceptance Criteria
 
-- [ ] An installed resource cannot silently have two exclusive owners.
-- [ ] Transfer updates ownership.
-- [ ] Old owner loses access/capability where appropriate.
-- [ ] New owner gains capability only after valid assignment.
-- [ ] Affected schedules are revalidated.
+- [x] An installed resource cannot silently have two exclusive owners.
+- [x] Transfer updates ownership.
+- [x] Old owner loses access/capability where appropriate.
+- [x] New owner gains capability only after valid assignment.
+- [x] Affected schedules are revalidated.
 
 ## Output
 
