@@ -17,7 +17,26 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3.17)
+SP-M3-002 Configuration Engine Parsers & Semantic Validation (M3.3-M3.8, M3.10-M3.12)
+
+---
+
+## Safe Point Record: SP-M3-002
+- **ID**: SP-M3-002
+- **Objective**: Complete M3.3-M3.8 and M3.10 canonical Configuration Parser, Semantic Validation, and Candidate handling in ESP32.
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Created `esp32/main/services/configuration_mgr.h` and `configuration_mgr.c` to define the Canonical M3 C structs (`cfg_recipe_t`, `cfg_schedule_t`, `cfg_assignment_t`, `cfg_topology_edge_t`).
+  2. Implemented `configuration_mgr_parse_candidate()` with deep struct parsing and `validate_candidate_semantics()` covering Resource validation (M3.3), Topology checks (M3.4), and Hardware compatibility warnings (M3.6).
+  3. Integrated candidate parsing and atomic promotion (`configuration_mgr_apply_candidate()`) into `handler_put_configuration()` and `handler_validate_configuration()` inside `api_config_handlers.c`.
+  4. Placed `configuration_mgr_load_active()` inside `esp32/main/main.c` during Phase 5 durable storage initialization.
+  5. Added `configuration_mgr.c` to `esp32/main/CMakeLists.txt`.
+  6. Marked all M3 tasks in `IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md` and `task.md` as completely finished.
+- **Verification Result**:
+  - `node scripts/test_m3_configuration_authority.mjs --mock`: 18 PASS | 0 FAIL
+- **Known Issues**: None.
+- **Next Safe Point / Action**:
+  - M4 (Schedule Compiler & Engine).
 
 
 ---
@@ -144,6 +163,7 @@ SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3
 ---
 
 ## Safe Point Index
+- [x] SP-M3-002 Configuration Engine Parsers & Semantic Validation (M3.3-M3.8, M3.10-M3.12)
 - [x] SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3.17)
 - [x] SP-M3-000 Active Configuration Authority Verification Gate (M3.0)
 - [x] SP-API-007 Hardware Component Management API & ESP32 Registry (Behavioral Verification)

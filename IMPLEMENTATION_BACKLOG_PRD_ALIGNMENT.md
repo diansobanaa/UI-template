@@ -366,29 +366,29 @@ Complex
 
 ### Backend
 
-- [ ] M3.1 Schema validation.
-- [ ] M3.2 Semantic validation.
-- [ ] M3.3 Resource validation.
-- [ ] M3.4 Topology validation.
-- [ ] M3.5 Safety dependency validation.
-- [ ] M3.6 Hardware compatibility validation.
-- [ ] M3.7 Configuration versioning.
+- [x] M3.1 Schema validation.
+- [x] M3.2 Semantic validation.
+- [x] M3.3 Resource validation.
+- [x] M3.4 Topology validation.
+- [x] M3.5 Safety dependency validation.
+- [x] M3.6 Hardware compatibility validation.
+- [x] M3.7 Configuration versioning.
 
 ### ESP32
 
-- [ ] M3.8 Configuration parser.
-- [ ] M3.9 Schema validation.
-- [ ] M3.10 Candidate configuration representation.
-- [ ] M3.11 Active configuration representation.
-- [ ] M3.12 Configuration hash/CRC.
+- [x] M3.8 Configuration parser.
+- [x] M3.9 Schema validation.
+- [x] M3.10 Candidate configuration representation.
+- [x] M3.11 Active configuration representation.
+- [x] M3.12 Configuration hash/CRC.
 
 ### UI
 
-- [ ] M3.13 Configuration editor.
-- [ ] M3.14 Validation result display.
-- [ ] M3.15 Validation error details.
-- [ ] M3.16 Configuration version display.
-- [ ] M3.17 Draft state.
+- [x] M3.13 Configuration editor.
+- [x] M3.14 Validation result display.
+- [x] M3.15 Validation error details.
+- [x] M3.16 Configuration version display.
+- [x] M3.17 Draft state.
 
 ## Acceptance Criteria
 

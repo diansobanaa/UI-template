@@ -2,6 +2,7 @@
 #include "http/http_server.h"
 #include "storage/storage_mgr.h"
 #include "hal/hardware_registry.h"
+#include "services/configuration_mgr.h"
 #include "cJSON.h"
 #include <string.h>
 
@@ -339,9 +340,16 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
     uint32_t new_version = st->config_version + 1;
     char *json_text = cJSON_PrintUnformatted(payload);
     if (json_text) {
-        storage_mgr_save_config(json_text, new_version);
-        /* M2.20 & M2.26: Synchronize active hardware registry with persisted active configuration */
-        hardware_registry_load_from_json(json_text);
+        if (configuration_mgr_parse_candidate(json_text) == ESP_OK) {
+            configuration_mgr_apply_candidate();
+            storage_mgr_save_config(json_text, new_version);
+            /* M2.20 & M2.26: Synchronize active hardware registry with persisted active configuration */
+            hardware_registry_load_from_json(json_text);
+        } else {
+            free(json_text);
+            cJSON_Delete(body);
+            return http_send_error(req, 422, "VALIDATION_FAILED", "Semantic validation failed", req_id);
+        }
         free(json_text);
     }
 
@@ -403,6 +411,21 @@ esp_err_t handler_validate_configuration(httpd_req_t *req)
     cJSON *warnings = cJSON_AddArrayToObject(root, "warnings");
 
     bool valid = validate_config_payload(payload, errors);
+    
+    if (valid) {
+        char *json_text = cJSON_PrintUnformatted(payload);
+        if (json_text) {
+            if (configuration_mgr_parse_candidate(json_text) != ESP_OK) {
+                valid = false;
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Semantic struct parsing failed"));
+            }
+            free(json_text);
+        } else {
+            valid = false;
+            cJSON_AddItemToArray(errors, cJSON_CreateString("Internal memory error formatting JSON"));
+        }
+    }
+    
     cJSON_AddBoolToObject(root, "valid", valid);
 
     cJSON_Delete(body);

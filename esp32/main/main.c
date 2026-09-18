@@ -15,6 +15,7 @@
 #include "config/system_config.h"
 #include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
+#include "services/configuration_mgr.h"
 #include "http/http_server.h"
 #include "network/network_mgr.h"
 #include "hal/rtc_ds3231.h"
@@ -141,6 +142,7 @@ void app_main(void)
 
     /* 5. Initialize Durable Storage & Recovery (SP-004) */
     ESP_ERROR_CHECK(storage_mgr_init());
+    ESP_ERROR_CHECK(configuration_mgr_load_active());
     if (tft_hal_is_available()) {
         const system_storage_state_t *st = storage_mgr_get_state();
         if (st && st->device_id[0] != '\0') {
