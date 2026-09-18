@@ -198,12 +198,12 @@ static esp_err_t validate_candidate_semantics(void) {
         }
     }
     
-    // Validate assignments exist in hardware_registry
+    // Validate assignments exist in hardware_registry (M3.3 / M3.6 strict checks)
     for (size_t i = 0; i < s_candidate_config.assignment_count; i++) {
         hw_component_info_t hw;
         if (hardware_registry_find_by_id(s_candidate_config.assignments[i].resource_id, &hw) != ESP_OK) {
-            ESP_LOGW(TAG, "Assignment refers to unknown hardware %s (it may be provisioned later)", s_candidate_config.assignments[i].resource_id);
-            // We only warn here because dynamic provisioning allows hardware to be added later or concurrently.
+            ESP_LOGE(TAG, "Validation failed: Assignment refers to unknown hardware '%s'", s_candidate_config.assignments[i].resource_id);
+            return ESP_ERR_NOT_FOUND; // Strict rejection per M3 PRD
         }
     }
     
@@ -211,7 +211,7 @@ static esp_err_t validate_candidate_semantics(void) {
     for (size_t i = 0; i < s_candidate_config.topology_count; i++) {
         cfg_topology_edge_t *e = &s_candidate_config.topology[i];
         if (strcmp(e->source_resource_id, e->target_resource_id) == 0) {
-            ESP_LOGE(TAG, "Topology edge creates self-loop on %s", e->source_resource_id);
+            ESP_LOGE(TAG, "Validation failed: Topology edge creates self-loop on '%s'", e->source_resource_id);
             return ESP_ERR_INVALID_ARG;
         }
     }

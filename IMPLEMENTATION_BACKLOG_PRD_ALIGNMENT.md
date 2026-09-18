@@ -410,10 +410,10 @@ UI
 VALID
 ```
 
-- [ ] Invalid semantic relationships are rejected.
-- [ ] Missing required resources are detected.
-- [ ] Unsupported hardware mappings are detected.
-- [ ] Validation errors identify the relevant component/GH/resource where applicable.
+- [x] Invalid semantic relationships are rejected.
+- [x] Missing required resources are detected.
+- [x] Unsupported hardware mappings are detected.
+- [x] Validation errors identify the relevant component/GH/resource where applicable.
 
 ## Output
 
@@ -495,10 +495,10 @@ Deploy v11
 v10 remains ACTIVE
 ```
 
-- [ ] UI knows v11 failed.
-- [ ] UI does not show false success.
-- [ ] ESP32 reports the actual active version.
-- [ ] A failed candidate cannot partially replace active configuration.
+- [x] UI knows v11 failed.
+- [x] UI does not show false success.
+- [x] ESP32 reports the actual active version.
+- [x] A failed candidate cannot partially replace active configuration.
 
 ## Output
 
