@@ -52,6 +52,7 @@ import { greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import type { Greenhouse } from "@/lib/types";
 import { CropCycleModals } from "@/components/ui/CropCycleModals";
+import { AssignmentManager } from "@/components/ui/equipment/AssignmentManager";
 
 const RANGE_OPTIONS: { id: RangeId; label: string }[] = [
   { id: "24H", label: "24 Hours" },
@@ -2213,6 +2214,10 @@ function GreenhouseContent() {
           ))}
         </div>
       </SectionCard>
+
+      <div className="mt-8">
+        <AssignmentManager context="GH" ghId={gh.id} />
+      </div>
 
       {/* ---------------- Add Observation modal ---------------- */}
       {typeof document !== "undefined" &&

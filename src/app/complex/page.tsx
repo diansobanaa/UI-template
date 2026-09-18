@@ -25,6 +25,7 @@ import { errorMessage } from "@/lib/errors";
 import { required } from "@/lib/validation";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
+import { AssignmentManager } from "@/components/ui/equipment/AssignmentManager";
 import type { Complex, Greenhouse } from "@/lib/types";
 
 const CROP_OPTIONS = ["Tomato", "Cucumber", "Lettuce", "Spinach", "Strawberry", "Chili", "Bell Pepper", "Broccoli"];
@@ -192,8 +193,8 @@ function ComplexOverviewContent() {
         {complexes.map((c) => {
           const ghs = greenhouseService.byComplex(c.id);
           return (
+            <div key={c.id} className="space-y-4">
             <SectionCard
-              key={c.id}
               title={c.code}
               subtitle={c.location}
               icon={Building2}
@@ -241,6 +242,11 @@ function ComplexOverviewContent() {
                 </button>
               </div>
             </SectionCard>
+            
+            <div className="mt-8">
+              <AssignmentManager context="COMPLEX" />
+            </div>
+          </div>
           );
         })}
       </div>
