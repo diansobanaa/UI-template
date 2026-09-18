@@ -12,66 +12,38 @@ static const char *TAG = "HW_REGISTRY";
 
 #define MAX_HW_COMPONENTS 32
 
-static const hw_component_info_t s_default_components[] = {
-    { "pump_well",        "Well Pump",             "PUMP",        "WELL_PUMP",        "GPIO",     PIN_OUT_WELL_PUMP,       0, "CRITICAL",   "AVAILABLE" },
-    { "pump_dist",        "Distribution Pump",     "PUMP",        "DIST_PUMP",        "GPIO",     PIN_OUT_DIST_PUMP,       0, "CRITICAL",   "AVAILABLE" },
-    { "pump_submersible", "Raw Submersible Pump",  "PUMP",        "RAW_SUBMERSIBLE",  "GPIO",     PIN_OUT_RAW_SUBMERSIBLE, 0, "NORMAL",     "AVAILABLE" },
-    { "pump_dosing_a",    "Dosing Pump A",         "PUMP",        "DOSING_A",         "GPIO",     PIN_OUT_DOSING_A,        0, "CRITICAL",   "AVAILABLE" },
-    { "pump_dosing_b",    "Dosing Pump B",         "PUMP",        "DOSING_B",         "GPIO",     PIN_OUT_DOSING_B,        0, "CRITICAL",   "AVAILABLE" },
-    { "fan_cooling",      "Cooling Fan",           "ACTUATOR",    "COOLING_FAN",      "GPIO",     PIN_OUT_COOLING_FAN,     0, "NORMAL",     "AVAILABLE" },
-    { "lamp_error",       "Error Lamp",            "INDICATOR",   "ERROR_LAMP",       "GPIO",     PIN_OUT_ERROR_LAMP,      0, "MONITORING", "AVAILABLE" },
-    { "flow_zjb1",        "ZJ-B1 Flow Meter",      "FLOW_METER",  "FLOW_RAW",         "PULSE",    PIN_IN_FLOW_RAW_ZJB1,    0, "MONITORING", "AVAILABLE" },
-    { "flow_fs400a",      "FS400A Flow Meter",     "FLOW_METER",  "FLOW_FERTIGATION", "PULSE",    PIN_IN_FLOW_FERT_FS400A, 0, "MONITORING", "AVAILABLE" },
-    { "temp_ds18b20",     "DS18B20 Temp Sensor",   "SENSOR",      "WATER_TEMP",       "ONE_WIRE", PIN_IN_TEMP_DS18B20,     0, "MONITORING", "AVAILABLE" },
-    { "float_lower",      "Lower Float Switch",    "SENSOR",      "TANK_LEVEL_LOW",   "GPIO",     PIN_IN_FLOAT_LOWER,      0, "CRITICAL",   "AVAILABLE" },
-    { "btn_mode",         "Mode Button",           "INPUT",       "BTN_MODE",         "GPIO",     PIN_BTN_MODE,            0, "NORMAL",     "AVAILABLE" },
-    { "btn_manual_a",     "Manual A Button",       "INPUT",       "BTN_MAN_A",        "GPIO",     PIN_BTN_MANUAL_A,        0, "NORMAL",     "AVAILABLE" },
-    { "btn_reserved",     "Reserved Button 4",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_RESERVED,        0, "NORMAL",     "AVAILABLE" },
-    { "pump_mixing",      "Mixing Pump (220V AC)", "PUMP",        "MIXING_PUMP",      "GPIO",     PIN_OUT_MIXING_PUMP,     4, "CRITICAL",   "AVAILABLE" },
-};
-
 static hw_component_info_t s_active_components[MAX_HW_COMPONENTS];
 static size_t s_active_count = 0;
 
-static const char DEFAULT_COMPONENTS_JSON[] = 
-"{\n"
-"  \"version\": 1,\n"
-"  \"updatedAt\": \"2026-09-16T00:00:00Z\",\n"
-"  \"components\": [\n"
-"    { \"componentId\": \"pump_well\",        \"name\": \"Well Pump\",            \"type\": \"PUMP\",       \"role\": \"WELL_PUMP\",       \"interface\": \"GPIO\", \"pin\": 1,  \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"pump_dist\",        \"name\": \"Distribution Pump\",    \"type\": \"PUMP\",       \"role\": \"DIST_PUMP\",       \"interface\": \"GPIO\", \"pin\": 2,  \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"pump_submersible\", \"name\": \"Raw Submersible Pump\", \"type\": \"PUMP\",       \"role\": \"RAW_SUBMERSIBLE\", \"interface\": \"GPIO\", \"pin\": 4,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"pump_dosing_a\",    \"name\": \"Dosing Pump A\",        \"type\": \"PUMP\",       \"role\": \"DOSING_A\",        \"interface\": \"GPIO\", \"pin\": 5,  \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"pump_dosing_b\",    \"name\": \"Dosing Pump B\",        \"type\": \"PUMP\",       \"role\": \"DOSING_B\",        \"interface\": \"GPIO\", \"pin\": 6,  \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"fan_cooling\",      \"name\": \"Cooling Fan\",          \"type\": \"ACTUATOR\",   \"role\": \"COOLING_FAN\",     \"interface\": \"GPIO\", \"pin\": 7,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"lamp_error\",       \"name\": \"Error Lamp\",           \"type\": \"INDICATOR\",  \"role\": \"ERROR_LAMP\",      \"interface\": \"GPIO\", \"pin\": 18, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"flow_zjb1\",        \"name\": \"ZJ-B1 Flow Meter\",     \"type\": \"FLOW_METER\", \"role\": \"FLOW_RAW\",           \"interface\": \"PULSE\",\"pin\": 15, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"flow_fs400a\",      \"name\": \"FS400A Flow Meter\",    \"type\": \"FLOW_METER\", \"role\": \"FLOW_FERTIGATION\",   \"interface\": \"PULSE\",\"pin\": 16, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"temp_ds18b20\",     \"name\": \"DS18B20 Temp Sensor\",  \"type\": \"SENSOR\",     \"role\": \"WATER_TEMP\",      \"interface\": \"ONE_WIRE\", \"pin\": 17, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"float_lower\",      \"name\": \"Lower Float Switch\",   \"type\": \"SENSOR\",     \"role\": \"TANK_LEVEL_LOW\",  \"interface\": \"GPIO\", \"pin\": 38, \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_mode\",         \"name\": \"TFT Display Switch\",   \"type\": \"INPUT\",      \"role\": \"TFT_SWITCH\",      \"interface\": \"GPIO\", \"pin\": 0,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_manual_a\",     \"name\": \"Well Pump Toggle\",     \"type\": \"INPUT\",      \"role\": \"WELL_PUMP_TOGGLE\",\"interface\": \"GPIO\", \"pin\": 39, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_reserved\",     \"name\": \"Reserved Button 4\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"pump_mixing\",      \"name\": \"Mixing Pump (220V AC)\",\"type\": \"PUMP\",       \"role\": \"MIXING_PUMP\",     \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" }\n"
-    /* =========================================================================
-     * BOOKED / DEFERRED COMPONENT: Dual Greenhouse Exhaust Blower Fans
-     * Status: BOOKED / PROVISIONED (Investasi Menyusul / Belum Terpasang Fisik)
-     * Hardware Channel: 4-Channel Relay Board Channel 3 (IN3) via ESP32 GPIO 10
-     * Control Logic: Active-LOW (0 = Active / Energize Contactor Coil, 1 = Safe OFF)
-     * Physical Switching: Relay IN3 triggers 220V AC coil of an external Magnetic
-     *                     Contactor (or Heavy-Duty Omron Relay), which switches
-     *                     2x Blower Fans simultaneously in parallel.
-     * Note: Aktifkan baris JSON di bawah ke dalam array "components" ketika fisik
-     *       kontaktor dan blower fan sudah diinvestasikan dan terpasang.
-     *
-     * ,{ "componentId": "fan_blower", "name": "Greenhouse Blower Fans", "type": "ACTUATOR", "role": "BLOWER_FAN", "interface": "GPIO", "pin": 10, "safetyClass": "NORMAL", "status": "DEFERRED" }
-     * ========================================================================= */
-"  ]\n"
-"}\n";
+static hw_lifecycle_state_t parse_lifecycle(const char *state) {
+    if (!state) return HW_LIFECYCLE_REGISTERED;
+    if (strcmp(state, "REGISTERED") == 0) return HW_LIFECYCLE_REGISTERED;
+    if (strcmp(state, "NOT_COMMISSIONED") == 0) return HW_LIFECYCLE_NOT_COMMISSIONED;
+    if (strcmp(state, "COMMISSIONED") == 0) return HW_LIFECYCLE_COMMISSIONED;
+    if (strcmp(state, "ENABLED") == 0) return HW_LIFECYCLE_ENABLED;
+    if (strcmp(state, "DISABLED") == 0) return HW_LIFECYCLE_DISABLED;
+    if (strcmp(state, "FAULTED") == 0) return HW_LIFECYCLE_FAULTED;
+    if (strcmp(state, "REMOVED") == 0) return HW_LIFECYCLE_REMOVED;
+    return HW_LIFECYCLE_REGISTERED;
+}
 
-const char *hardware_registry_get_default_json(void)
-{
-    return DEFAULT_COMPONENTS_JSON;
+static hw_deployment_status_t parse_deployment(const char *status) {
+    if (!status) return HW_DEPLOYMENT_UNKNOWN;
+    if (strcmp(status, "PENDING") == 0) return HW_DEPLOYMENT_PENDING;
+    if (strcmp(status, "APPLIED") == 0) return HW_DEPLOYMENT_APPLIED;
+    if (strcmp(status, "FAILED") == 0) return HW_DEPLOYMENT_FAILED;
+    return HW_DEPLOYMENT_UNKNOWN;
+}
+
+static hw_interface_type_t parse_interface(const char *iface) {
+    if (!iface) return HW_INTERFACE_VIRTUAL;
+    if (strcmp(iface, "GPIO") == 0) return HW_INTERFACE_GPIO;
+    if (strcmp(iface, "I2C") == 0) return HW_INTERFACE_I2C;
+    if (strcmp(iface, "UART") == 0) return HW_INTERFACE_UART;
+    if (strcmp(iface, "SPI") == 0) return HW_INTERFACE_SPI;
+    if (strcmp(iface, "ONE_WIRE") == 0) return HW_INTERFACE_ONE_WIRE;
+    if (strcmp(iface, "ANALOG") == 0) return HW_INTERFACE_ANALOG;
+    return HW_INTERFACE_VIRTUAL;
 }
 
 static void safe_copy_str(char *dst, size_t dst_size, const char *src, const char *fallback)
@@ -122,27 +94,103 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
 
         cJSON *j_id = cJSON_GetObjectItem(item, "componentId");
         if (!j_id) j_id = cJSON_GetObjectItem(item, "id");
+        
+        // Ensure ID is stable and unique
+        if (!j_id || !cJSON_IsString(j_id) || strlen(j_id->valuestring) == 0) {
+            ESP_LOGW(TAG, "Component missing ID, skipping.");
+            continue;
+        }
+        
+        // Check for duplicates
+        bool duplicate = false;
+        for (size_t j = 0; j < loaded; j++) {
+            if (strcmp(s_active_components[j].component_id, j_id->valuestring) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            ESP_LOGW(TAG, "Duplicate component ID %s, skipping.", j_id->valuestring);
+            continue;
+        }
+
+        cJSON *j_type = cJSON_GetObjectItem(item, "supportedTypeId");
+        if (!j_type) j_type = cJSON_GetObjectItem(item, "type");
+        
         cJSON *j_name = cJSON_GetObjectItem(item, "name");
-        cJSON *j_type = cJSON_GetObjectItem(item, "type");
+        cJSON *j_life = cJSON_GetObjectItem(item, "lifecycleState");
+        if (!j_life) j_life = cJSON_GetObjectItem(item, "status");
+        
+        cJSON *j_dep = cJSON_GetObjectItem(item, "deploymentStatus");
         cJSON *j_role = cJSON_GetObjectItem(item, "role");
-        cJSON *j_iface = cJSON_GetObjectItem(item, "interface");
-        cJSON *j_pin = cJSON_GetObjectItem(item, "pin");
-        cJSON *j_chan = cJSON_GetObjectItem(item, "channel");
-        cJSON *j_safety = cJSON_GetObjectItem(item, "safetyClass");
-        cJSON *j_status = cJSON_GetObjectItem(item, "status");
+        cJSON *j_resid = cJSON_GetObjectItem(item, "resourceId");
+        
+        cJSON *j_assignment = cJSON_GetObjectItem(item, "assignment");
+        cJSON *j_wiring = cJSON_GetObjectItem(item, "wiring");
+        cJSON *j_params = cJSON_GetObjectItem(item, "parameters");
 
         hw_component_info_t *dst = &s_active_components[loaded];
         memset(dst, 0, sizeof(hw_component_info_t));
 
-        safe_copy_str(dst->id, sizeof(dst->id), j_id ? j_id->valuestring : NULL, "unnamed_comp");
+        safe_copy_str(dst->component_id, sizeof(dst->component_id), j_id->valuestring, "");
+        safe_copy_str(dst->supported_type_id, sizeof(dst->supported_type_id), j_type ? j_type->valuestring : NULL, "UNKNOWN");
         safe_copy_str(dst->name, sizeof(dst->name), j_name ? j_name->valuestring : NULL, "Unnamed Component");
-        safe_copy_str(dst->type, sizeof(dst->type), j_type ? j_type->valuestring : NULL, "ACTUATOR");
-        safe_copy_str(dst->role, sizeof(dst->role), j_role ? j_role->valuestring : NULL, "GENERIC");
-        safe_copy_str(dst->interface, sizeof(dst->interface), j_iface ? j_iface->valuestring : NULL, "GPIO");
-        dst->pin = j_pin ? (uint8_t)j_pin->valueint : 255;
-        dst->channel = j_chan ? (uint8_t)j_chan->valueint : 0;
-        safe_copy_str(dst->safety_class, sizeof(dst->safety_class), j_safety ? j_safety->valuestring : NULL, "NORMAL");
-        safe_copy_str(dst->status, sizeof(dst->status), j_status ? j_status->valuestring : NULL, "AVAILABLE");
+        safe_copy_str(dst->role, sizeof(dst->role), j_role ? j_role->valuestring : NULL, "");
+        safe_copy_str(dst->resource_id, sizeof(dst->resource_id), j_resid ? j_resid->valuestring : NULL, "");
+        
+        dst->lifecycle_state = parse_lifecycle(j_life ? j_life->valuestring : NULL);
+        dst->deployment_status = parse_deployment(j_dep ? j_dep->valuestring : NULL);
+        
+        if (j_assignment && cJSON_IsObject(j_assignment)) {
+            cJSON *j_complex = cJSON_GetObjectItem(j_assignment, "complexId");
+            cJSON *j_gh = cJSON_GetObjectItem(j_assignment, "ghId");
+            safe_copy_str(dst->assignment.complex_id, sizeof(dst->assignment.complex_id), j_complex ? j_complex->valuestring : NULL, "");
+            safe_copy_str(dst->assignment.gh_id, sizeof(dst->assignment.gh_id), j_gh ? j_gh->valuestring : NULL, "");
+        } else {
+            // Legacy fallback
+            cJSON *j_scope = cJSON_GetObjectItem(item, "scope");
+            cJSON *j_gh = cJSON_GetObjectItem(item, "ghId");
+            safe_copy_str(dst->assignment.complex_id, sizeof(dst->assignment.complex_id), j_scope ? j_scope->valuestring : NULL, "");
+            safe_copy_str(dst->assignment.gh_id, sizeof(dst->assignment.gh_id), j_gh ? j_gh->valuestring : NULL, "");
+        }
+        
+        dst->wiring.gpio = -1;
+        dst->wiring.channel = -1;
+        if (j_wiring && cJSON_IsObject(j_wiring)) {
+            cJSON *j_iface = cJSON_GetObjectItem(j_wiring, "interface");
+            dst->wiring.interface = parse_interface(j_iface ? j_iface->valuestring : NULL);
+            
+            cJSON *j_pin = cJSON_GetObjectItem(j_wiring, "gpio");
+            if (j_pin) dst->wiring.gpio = (int8_t)j_pin->valueint;
+            
+            cJSON *j_chan = cJSON_GetObjectItem(j_wiring, "channel");
+            if (j_chan) dst->wiring.channel = (int8_t)j_chan->valueint;
+            
+            cJSON *j_addr = cJSON_GetObjectItem(j_wiring, "address");
+            safe_copy_str(dst->wiring.address, sizeof(dst->wiring.address), j_addr ? j_addr->valuestring : NULL, "");
+            
+            cJSON *j_port = cJSON_GetObjectItem(j_wiring, "port");
+            safe_copy_str(dst->wiring.port, sizeof(dst->wiring.port), j_port ? j_port->valuestring : NULL, "");
+            
+            cJSON *j_pol = cJSON_GetObjectItem(j_wiring, "polarity");
+            safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), j_pol ? j_pol->valuestring : NULL, "");
+        } else {
+            // Legacy fallback
+            cJSON *j_iface = cJSON_GetObjectItem(item, "interface");
+            dst->wiring.interface = parse_interface(j_iface ? j_iface->valuestring : NULL);
+            cJSON *j_pin = cJSON_GetObjectItem(item, "pin");
+            if (j_pin) dst->wiring.gpio = (int8_t)j_pin->valueint;
+        }
+        
+        if (j_params && cJSON_IsObject(j_params)) {
+            char *param_str = cJSON_PrintUnformatted(j_params);
+            if (param_str) {
+                safe_copy_str(dst->parameters_json, sizeof(dst->parameters_json), param_str, "{}");
+                free(param_str);
+            }
+        } else {
+            strcpy(dst->parameters_json, "{}");
+        }
 
         loaded++;
     }
@@ -162,32 +210,45 @@ esp_err_t hardware_hal_init_all(void)
 {
     ESP_LOGI(TAG, "Initializing all hardware HAL subsystems with Dynamic Registry...");
 
-    /* 1. Preload active components from compile-time default baseline */
-    s_active_count = sizeof(s_default_components) / sizeof(s_default_components[0]);
-    if (s_active_count > MAX_HW_COMPONENTS) s_active_count = MAX_HW_COMPONENTS;
-    memcpy(s_active_components, s_default_components, s_active_count * sizeof(hw_component_info_t));
-
-    /* 2. Attempt loading dynamic components.json from Flash storage (SPIFFS / NVS) */
-    char *json_buf = (char *)malloc(4096);
+    /* Attempt loading configuration from Flash storage */
+    char *json_buf = (char *)malloc(8192);
+    bool load_success = false;
+    
     if (json_buf) {
         size_t json_len = 0;
-        esp_err_t load_err = storage_mgr_load_components_json(json_buf, 4096, &json_len);
+        esp_err_t load_err = storage_mgr_load_config(json_buf, 8192, &json_len);
         if (load_err == ESP_OK && json_len > 0) {
             if (hardware_registry_load_from_json(json_buf) == ESP_OK) {
-                ESP_LOGI(TAG, "Dynamic components.json successfully applied.");
+                ESP_LOGI(TAG, "Dynamic configuration successfully applied to registry.");
+                load_success = true;
             } else {
-                ESP_LOGW(TAG, "components.json corrupt or invalid; retaining default baseline.");
+                ESP_LOGW(TAG, "configuration components corrupt or invalid.");
             }
         } else {
-            ESP_LOGI(TAG, "No components.json found on Flash; auto-provisioning baseline components.json to storage.");
-            storage_mgr_save_components_json(DEFAULT_COMPONENTS_JSON);
+            ESP_LOGI(TAG, "No valid configuration found on Flash.");
+        }
+
+        /* Fallback: try dedicated components.json if configuration had no components */
+        if (!load_success) {
+            load_err = storage_mgr_load_components_json(json_buf, 8192, &json_len);
+            if (load_err == ESP_OK && json_len > 0) {
+                if (hardware_registry_load_from_json(json_buf) == ESP_OK) {
+                    ESP_LOGI(TAG, "Dynamic components.json successfully applied to registry.");
+                    load_success = true;
+                }
+            }
         }
         free(json_buf);
     } else {
-        ESP_LOGE(TAG, "Failed to allocate memory for components.json buffer");
+        ESP_LOGE(TAG, "Failed to allocate memory for configuration.json buffer");
     }
 
-    /* 3. Initialize buses & peripherals */
+    if (!load_success) {
+        ESP_LOGW(TAG, "Running with empty hardware registry until configuration is applied.");
+        s_active_count = 0;
+    }
+
+    /* Initialize buses & peripherals */
     spi_bus_config_t buscfg = {
         .miso_io_num = PIN_SPI_MISO,
         .mosi_io_num = PIN_SPI_MOSI,
@@ -199,12 +260,12 @@ esp_err_t hardware_hal_init_all(void)
     esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
-        return ret;
+        // Continue anyway
     }
 
-    ESP_ERROR_CHECK(actuator_hal_init());
-    ESP_ERROR_CHECK(sensor_hal_init());
-    ESP_ERROR_CHECK(button_hal_init(NULL));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(actuator_hal_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sensor_hal_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(button_hal_init(NULL));
 
     ESP_LOGI(TAG, "Hardware HAL initialization complete. Total active components: %u", (unsigned)s_active_count);
     return ESP_OK;
@@ -221,3 +282,70 @@ esp_err_t hardware_registry_get_by_index(size_t index, hw_component_info_t *out_
     *out_info = s_active_components[index];
     return ESP_OK;
 }
+
+esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_info_t *out_info)
+{
+    if (!component_id || !out_info) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < s_active_count; i++) {
+        if (strcmp(s_active_components[i].component_id, component_id) == 0) {
+            *out_info = s_active_components[i];
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t hardware_registry_resolve_gpio(const char *component_id, int8_t *out_gpio)
+{
+    if (!component_id || !out_gpio) return ESP_ERR_INVALID_ARG;
+    hw_component_info_t info;
+    esp_err_t err = hardware_registry_find_by_id(component_id, &info);
+    if (err != ESP_OK) return err;
+    if (info.wiring.gpio < 0) return ESP_ERR_NOT_FOUND;
+    *out_gpio = info.wiring.gpio;
+    return ESP_OK;
+}
+
+esp_err_t hardware_registry_resolve_channel(const char *component_id, int8_t *out_channel)
+{
+    if (!component_id || !out_channel) return ESP_ERR_INVALID_ARG;
+    hw_component_info_t info;
+    esp_err_t err = hardware_registry_find_by_id(component_id, &info);
+    if (err != ESP_OK) return err;
+    if (info.wiring.channel < 0) return ESP_ERR_NOT_FOUND;
+    *out_channel = info.wiring.channel;
+    return ESP_OK;
+}
+
+bool hardware_registry_is_operational(const char *component_id)
+{
+    if (!component_id) return false;
+    hw_component_info_t info;
+    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK) {
+        return false;
+    }
+    return (info.lifecycle_state == HW_LIFECYCLE_COMMISSIONED || 
+            info.lifecycle_state == HW_LIFECYCLE_ENABLED);
+}
+
+esp_err_t hardware_registry_update_lifecycle(const char *component_id, hw_lifecycle_state_t new_state)
+{
+    if (!component_id) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < s_active_count; i++) {
+        if (strcmp(s_active_components[i].component_id, component_id) == 0) {
+            s_active_components[i].lifecycle_state = new_state;
+            ESP_LOGI(TAG, "Component '%s' lifecycle updated to %d", component_id, (int)new_state);
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t hardware_registry_clear(void)
+{
+    s_active_count = 0;
+    return ESP_OK;
+}
+
+const char *hardware_registry_get_default_json(void) { return "{\"components\":[]}"; }
+

@@ -53,6 +53,11 @@ esp_err_t actuator_hal_init(void);
 esp_err_t actuator_hal_set(actuator_id_t id, bool on);
 
 /**
+ * @brief Turn an actuator ON or OFF by logical component ID with dynamic registry resolution and lifecycle checks.
+ */
+esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on);
+
+/**
  * @brief Get current physical and logical state of an actuator.
  */
 bool actuator_hal_get_state(actuator_id_t id);

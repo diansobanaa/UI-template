@@ -754,7 +754,7 @@ export const fertigationService = {
       if (inv && Array.isArray(inv.components)) {
         const dynamicPumps = inv.components.filter(
           (c) =>
-            c.type === "PUMP" &&
+            (c.supportedTypeId?.toLowerCase().includes("pump") || c.role?.includes("DOSING")) &&
             (c.role?.includes("DOSING") ||
               c.componentId?.includes("dosing") ||
               c.name?.toLowerCase().includes("dosing") ||
@@ -764,7 +764,7 @@ export const fertigationService = {
           return dynamicPumps.map((c) => ({
             id: c.componentId,
             name: c.name,
-            state: (c.status === "AVAILABLE" ? "Ready" : "Not Used") as "Ready" | "Not Used",
+            state: ((c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "Ready" : "Not Used") as "Ready" | "Not Used",
             rate: "0 ml/min",
           }));
         }
@@ -955,3 +955,43 @@ export const fertigationService = {
     deleteObservation(id);
   },
 };
+
+/* --------------------------- hardware (M2) ----------------------- */
+import { hardwareCatalog } from './data/hardwareCatalog';
+import { initialInstalledComponents } from './data/hardwareComponents';
+import { InstalledComponent, SupportedComponentDefinition } from './types/equipment';
+
+// Mock state for now
+const _installedComponents = [...initialInstalledComponents];
+
+export const hardwareService = {
+  async getSupportedCatalog(): Promise<SupportedComponentDefinition[]> {
+    await delay();
+    return hardwareCatalog;
+  },
+
+  async getInstalledComponents(): Promise<InstalledComponent[]> {
+    await delay();
+    return _installedComponents;
+  },
+
+  async registerComponent(data: Omit<InstalledComponent, 'componentId'>): Promise<InstalledComponent> {
+    await delay();
+    const newComponent: InstalledComponent = { ...data, componentId: 'comp-' + Math.random().toString(36).substring(2, 9) };
+    _installedComponents.push(newComponent);
+    return newComponent;
+  },
+
+  async updateComponent(id: string, updates: Partial<InstalledComponent>): Promise<InstalledComponent> {
+    await delay();
+    const idx = _installedComponents.findIndex(c => c.componentId === id);
+    if (idx === -1) throw new ServiceError('NOT_FOUND', 'Component not found');
+    _installedComponents[idx] = { ..._installedComponents[idx], ...updates };
+    return _installedComponents[idx];
+  },
+
+  async decommissionComponent(id: string): Promise<InstalledComponent> {
+    return this.updateComponent(id, { lifecycleState: 'REMOVED' });
+  }
+};
+

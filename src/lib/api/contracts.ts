@@ -3,31 +3,90 @@ export type ComponentScope = "COMPLEX" | "GH";
 export type ComponentStatus = "AVAILABLE" | "OFFLINE" | "FAULT" | "DISABLED" | "UNKNOWN";
 export type SafetyClass = "CRITICAL" | "NORMAL" | "MONITORING";
 
-export interface HardwareComponent {
-  componentId: string;
-  type: ComponentType;
-  role?: string;
-  name: string;
-  scope: ComponentScope;
-  ghId?: string | null;
-  status: ComponentStatus;
-  enabled: boolean;
-  required: boolean;
-  safetyClass: SafetyClass;
-  capabilities: string[];
-  state?: "ON" | "OFF" | "OPEN" | "CLOSED" | "MOVING" | "ONLINE" | "OFFLINE" | "INVALID" | "FAULT" | "UNKNOWN";
-  units?: string[];
-  limits?: Record<string, number>;
+export interface Capability {
+  capabilityId: string;
+  type: string;
+  value?: string | null;
 }
 
-export interface Esp32Inventory {
+export interface CommandRequest {
+  commandId: string;
+  type: "FERTIGATION_START" | "FERTIGATION_STOP" | "WATER_PUMP_TOGGLE" | "FAN_TOGGLE" | "CALIBRATION_START" | "EMERGENCY_STOP" | "CLEAR_FAULT" | "REBOOT";
+  targetGhId?: string | null;
+  componentId?: string | null;
+  durationSeconds?: number | null;
+  rawWaterVolumeMl?: number | null;
+  dosingAVolumeMl?: number | null;
+  dosingBVolumeMl?: number | null;
+  parameters?: Record<string, unknown>;
+}
+
+export interface Resource {
+  resourceId: string;
+  type: string;
+  componentId: string;
+  capabilities: Capability[];
+}
+
+export interface Assignment {
+  assignmentId: string;
+  resourceId: string;
+  scope: ComponentScope;
+  ghId?: string | null;
+}
+
+export interface Ownership {
+  resourceId: string;
+  ownerId: string;
+  ownerType: "SCHEDULE" | "MANUAL" | "SYSTEM";
+}
+
+export interface Topology {
+  sourceResourceId: string;
+  targetResourceId: string;
+  connectionType: string;
+}
+
+export interface ComponentAssignment {
+  complexId: string;
+  ghId?: string | null;
+}
+
+export interface ComponentWiring {
+  interface: "GPIO" | "I2C" | "UART" | "SPI" | "ONE_WIRE" | "ANALOG" | "VIRTUAL";
+  gpio?: number | null;
+  channel?: number | null;
+  address?: string | null;
+  port?: string | null;
+  polarity?: "ACTIVE_HIGH" | "ACTIVE_LOW" | null;
+}
+
+export interface ComponentCommissioning {
+  commissionedAt?: string | null;
+  commissionedBy?: string | null;
+  result?: "PASS" | "FAIL" | null;
+  notes?: string | null;
+}
+
+export interface InstalledComponent {
+  componentId: string;
+  supportedTypeId: string;
+  name: string;
+  lifecycleState: "REGISTERED" | "NOT_COMMISSIONED" | "COMMISSIONED" | "ENABLED" | "DISABLED" | "FAULTED" | "REMOVED";
+  deploymentStatus: "PENDING" | "APPLIED" | "FAILED" | "UNKNOWN";
+  assignment?: ComponentAssignment | null;
+  wiring?: ComponentWiring | null;
+  parameters: Record<string, unknown>;
+  commissioning?: ComponentCommissioning | null;
+  role?: string | null;
+  resourceId?: string | null;
+}
+
+export interface InventoryResponse {
   deviceId: string;
   complexId: string;
-  firmwareVersion: string;
-  hardwareVersion: string;
   inventoryVersion: number;
-  reportedAt: string;
-  components: HardwareComponent[];
+  components: InstalledComponent[];
 }
 
 export interface ConfigurationValidation {
@@ -37,37 +96,114 @@ export interface ConfigurationValidation {
   warnings: Array<{ code: string; message: string; componentId?: string }>;
 }
 
-export interface Esp32Configuration {
+export interface Recipe {
+  recipeId: string;
+  name: string;
+  type: "FERTIGATION" | "IRRIGATION" | "MIXING";
+  targetEc?: number | null;
+  targetPh?: number | null;
+  ratioA?: number | null;
+  ratioB?: number | null;
+  durationSec?: number | null;
+  volumeMl?: number | null;
+}
+
+export interface Schedule {
+  id?: string;
+  scheduleId?: string;
+  ownerId?: string;
+  priority?: number;
+  type: "DAILY" | "INTERVAL" | "ONCE";
+  action: "FERTIGATION" | "WATER_PUMP" | "FAN_TOGGLE" | "CUSTOM";
+  recipeId?: string | null;
+  enabled: boolean;
+  hour?: number | null;
+  minute?: number | null;
+  daysOfWeek?: number | null;
+  intervalMin?: number | null;
+  durationSec?: number | null;
+  constraints?: string[];
+}
+
+export interface CompiledSchedule {
+  compiledId: string;
+  scheduleId: string;
+  status: "ACTIVE" | "BLOCKED" | "CONFLICT" | "EXECUTING" | "COMPLETED" | "CANCELLED";
+  resourceIds: string[];
+  startTimestamp: number;
+  endTimestamp: number;
+  conflictReason?: string | null;
+}
+
+export interface ConfigurationPayload {
   complexId: string;
   version: number;
-  inventoryVersion: number;
-  timezone: string;
   updatedAt: string;
-  assignments: Record<string, string | null>;
-  schedules: unknown[];
+  components: InstalledComponent[];
+  assignments: Assignment[];
+  schedules: Schedule[];
+  recipes: Recipe[];
+  topology: Topology[];
   settings: Record<string, unknown>;
 }
 
 export interface SyncSnapshot {
-  inventory: Esp32Inventory;
-  configuration: Esp32Configuration;
+  inventory: InventoryResponse;
+  configuration: ConfigurationPayload;
   validation: ConfigurationValidation;
   serverTime?: string;
   receivedAt: string;
 }
 
+export interface TelemetrySample {
+  sequence: number;
+  deviceTimestamp: string;
+  componentId: string;
+  value: number;
+  unit: string;
+  quality: "GOOD" | "UNCERTAIN" | "BAD";
+  measurementType: "MEASURED" | "DERIVED" | "UNAVAILABLE" | "INVALID";
+}
+
 export interface TelemetrySnapshot {
   complexId: string;
-  greenhouseId?: string;
-  recordedAt: string;
-  staleAfterSeconds: number;
-  values: Record<string, number | string | boolean | null>;
-  components: Record<string, {
-    value: number | string | boolean | null;
-    unit?: string;
-    state: string;
-    recordedAt: string;
-  }>;
+  ghId?: string | null;
+  timestamp: string;
+  samples: TelemetrySample[];
+}
+
+export interface Event {
+  eventId: string;
+  sequence: number;
+  deviceTimestamp: string;
+  eventType: string;
+  severity: "INFO" | "WARNING" | "FAULT" | "CRITICAL";
+  complexId?: string | null;
+  ghId?: string | null;
+  componentId?: string | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface EventResponse {
+  events: Event[];
+  nextSequence?: number | null;
+  hasMore: boolean;
+}
+
+export interface FertigationRun {
+  runId: string;
+  recipeId: string;
+  ghId: string;
+  status: "PENDING" | "MIXING" | "DOSING" | "DELIVERY" | "COMPLETED" | "CANCELLED" | "FAULTED";
+  targetWaterL?: number | null;
+  actualWaterL?: number | null;
+  targetDosingAMl?: number | null;
+  actualDosingAMl?: number | null;
+  targetDosingBMl?: number | null;
+  actualDosingBMl?: number | null;
+  startTimestamp?: string | null;
+  endTimestamp?: string | null;
+  progressPct?: number | null;
 }
 
 export interface Esp32EventLog {
@@ -100,43 +236,56 @@ export interface ClockResponse {
 }
 
 export interface HealthResponse {
-  status: "HEALTHY" | "DEGRADED" | "CRITICAL";
-  uptimeSeconds: number;
-  freeHeap: number;
-  minFreeHeap?: number;
-  wifiRssi?: number;
-  ethernetUp?: boolean;
-  emergencyStopped: boolean;
-  timestamp: string;
+  apiVersion: string;
+  schemaVersion: number;
+  deviceId: string;
+  complexId: string;
+  firmwareVersion: string;
+  bootId: string;
+  uptimeSec: number;
+  currentTime: string;
+  timezone: string;
+  configurationVersion: number;
+  inventoryVersion: number;
+  runtimeState: string;
+  health: string;
 }
 
 export interface StatusResponse {
-  deviceId: string;
-  complexId: string;
-  bootId: string;
-  timestamp: string;
-  health: HealthResponse;
-  configurationVersion: number;
-  emergencyStopped: boolean;
-  runtimeState: string;
-  actuators?: Record<string, boolean | string>;
-  sensors?: Record<string, number | null>;
+  device: Record<string, unknown>;
+  network: Record<string, unknown>;
+  clock: Record<string, unknown>;
+  configuration: Record<string, unknown>;
+  inventory: Record<string, unknown>;
+  runtime: Record<string, unknown>;
+  actuators: Record<string, unknown>;
+  sensors: Record<string, unknown>;
+  storage: Record<string, unknown>;
+  safety: Record<string, unknown>;
+  cropCycle?: Record<string, unknown> | null;
+  queue: Record<string, unknown>;
+  sync: Record<string, unknown>;
 }
 
 export interface CapabilitiesResponse {
   deviceId: string;
-  model: string;
-  features: string[];
-  maxSchedules: number;
-  supportedPeripherals: string[];
+  capabilitiesVersion: number;
+  capabilities: Record<string, boolean>;
 }
 
 export interface ContextResponse {
-  deviceId: string;
-  complexId: string;
-  greenhouseIds: string[];
-  hostname: string;
-  ipAddress: string;
+  complex: {
+    complexId: string;
+    name: string;
+    location: string | null;
+    status: "ACTIVE" | "INACTIVE" | "FAULTED";
+  };
+  greenhouses: Array<{
+    ghId: string;
+    complexId: string;
+    name: string;
+    status: "ACTIVE" | "INACTIVE" | "FAULTED";
+  }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,6 +319,39 @@ export interface CurrentCropCycleResponse {
   hsp?: number | null;
   version: number;
   lastHarvestSummary?: HarvestSummary | null;
+}
+
+export interface Plant {
+  plantId: string;
+  cycleId: string;
+  ghId: string;
+  plantTag: string;
+  status: "HEALTHY" | "SICK" | "DEAD" | "HARVESTED";
+  plantedAt: string;
+  mortalityDate?: string | null;
+  mortalityReason?: string | null;
+}
+
+export interface Fruit {
+  fruitId: string;
+  plantId: string;
+  cycleId: string;
+  status: "DEVELOPING" | "HARVESTED" | "DROPPED" | "CULLED";
+  taggedAt: string;
+  harvestedAt?: string | null;
+  weightG?: number | null;
+  qualityGrade?: string | null;
+}
+
+export interface Observation {
+  observationId: string;
+  plantId: string;
+  cycleId: string;
+  timestamp: string;
+  heightCm: number;
+  leafCount: number;
+  fruitCount: number;
+  notes?: string | null;
 }
 
 export interface StartCropCycleRequest {
@@ -229,28 +411,33 @@ export interface OperationRequest {
   expectedVersion?: number;
 }
 
-export interface ScheduleItem {
-  id: string;
-  enabled: boolean;
-  type: "DAILY" | "INTERVAL" | "ONCE";
-  action: "FERTIGATION" | "WATER_PUMP" | "FAN_TOGGLE" | "CUSTOM";
-  durationSec: number;
-  hour?: number;
-  minute?: number;
-  daysOfWeek?: number;
-  intervalMin?: number;
-  lastExecutionTimestamp?: number;
-  isRunning?: boolean;
-}
-
 export interface SchedulesResponse {
-  items: ScheduleItem[];
+  items: Schedule[];
   total: number;
 }
 
-export interface CalibrationRateResponse {
+export interface CalibrationRequest {
+  componentId: string;
+  type: "DOSING_A" | "DOSING_B" | "FLOW_RAW" | "FLOW_FERT" | "SENSOR_PH" | "SENSOR_EC";
+  durationSec: number;
+}
+
+export interface CalibrationStatus {
+  state: "IDLE" | "RUNNING" | "COMPLETE" | "ERROR";
+  remainingSec: number;
+  measuredValue?: number | null;
+}
+
+export interface CalibrationRates {
   rateDosingAMlSec: number;
   rateDosingBMlSec: number;
+  flowRawPulsesPerL: number;
+  flowFertPulsesPerL: number;
+}
+
+export interface SetCalibrationRateRequest {
+  componentId: string;
+  rateValue: number;
 }
 
 export interface HardwarePortConfig {

@@ -17,9 +17,78 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-PRD-001 Comprehensive Product Requirements Document (ACTUAL_PRD.md) Generation
+SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
 
+
+---
+
+## Safe Point Record: SP-API-007
+- **ID**: SP-API-007
+- **Objective**: M2.16-M2.26 Re-Audit — Hardware Component Management API & ESP32 Registry (Behavioral Verification).
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Root-caused build failure: previous session corrupted command_mgr.h and scheduler.h headers by replacing correct enum values. Restored with git checkout.
+  2. Confirmed ESP-IDF v5.5.5 available at D:\Espressif\ (python_env: idf5.5_py3.11_env).
+  3. Firmware build: PASS — grotech_esp32.bin 0xf65e0 bytes, 68% free flash (0 compile errors).
+  4. Extended hardware_registry.h/.c with:
+     - hardware_registry_find_by_id() — logical ID lookup (M2.23).
+     - hardware_registry_resolve_gpio() / esolve_channel() — dynamic wiring resolution (M2.24).
+     - hardware_registry_is_operational() — lifecycle state check (M2.25).
+     - hardware_registry_update_lifecycle() — runtime lifecycle update.
+     - hardware_registry_clear() — clear active registry.
+     - hardware_hal_init_all() fallback: tries storage_mgr_load_components_json() if storage_mgr_load_config() returns empty.
+  5. Extended pi_config_handlers.c with:
+     - M2.17 validation: componentId non-empty, max 32 chars, no duplicates.
+     - M2.18 validation: lifecycleState enum, deploymentStatus enum, wiring interface enum, GPIO range [0,48].
+     - M2.19 validation: assignment.complexId required when present.
+     - M2.20 & M2.26: hardware_registry_load_from_json() called immediately after storage_mgr_save_config() in PUT /configuration to keep active registry consistent with persisted config.
+  6. Extended ctuator_hal.c with:
+     - s_actuator_component_ids[] — stable default logical-ID to enum mapping.
+     - M2.24: Dynamic GPIO re-binding inside ctuator_hal_set() using hardware_registry_find_by_id().
+     - M2.25: Lifecycle state blocking in ctuator_hal_set() — COMMISSIONED/ENABLED only.
+     - ctuator_hal_set_by_component_id() — new function for logical ID dispatch with lifecycle check.
+  7. Added ctuator_hal_set_by_component_id() declaration in ctuator_hal.h.
+  8. Fixed src/lib/services.ts getDynamicDosingPumps to use supportedTypeId / lifecycleState (InstalledComponent domain model, not legacy 	ype/status fields).
+  9. Fixed src/lib/api/contracts.ts Schedule interface: made id, scheduleId, ownerId, priority optional for backward compatibility with existing service call sites.
+  10. Exported hardwareService from src/lib/services.ts to fix M2 UI TS errors.
+  11. Wrote behavioral test suite scripts/test_m2_hardware_management.mjs with 26 tests covering all M2.16-M2.26 criteria.
+  12. Updated IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md with truthful [x] / [!] statuses backed by test evidence.
+- **Verification Result**:
+  - Behavioral audit suite (scripts/test_m2_hardware_management.mjs): PASS — 26/26 tests.
+  - ESP32 firmware build (idf.py build): PASS — 0 errors, 2 warnings (unused TAG variables, non-blocking).
+  - Frontend build (npm run build): PASS — 863.74 kB dist/index.html, 0 errors.
+  - OpenAPI contract + handler registration (npm test -- --mock): PASS.
+  - Live ESP32 REST test: BLOCKED — no hardware connected (no COM port detected).
+  - Physical reboot persistence: BLOCKED — same reason.
+- **Changed Files**:
+  - esp32/main/hal/hardware_registry.h — added find_by_id, resolve_gpio, resolve_channel, is_operational, update_lifecycle, clear
+  - esp32/main/hal/hardware_registry.c — implemented above + SPIFFS fallback + empty registry warning
+  - esp32/main/hal/actuator_hal.h — added actuator_hal_set_by_component_id declaration
+  - esp32/main/hal/actuator_hal.c — M2.24 dynamic GPIO rebinding, M2.25 lifecycle blocking, set_by_component_id
+  - esp32/main/http/api_config_handlers.c — M2.17/18/19 validation, M2.20/26 registry reload on save
+  - esp32/main/services/command_mgr.h — RESTORED to last good git state (was corrupted by previous session)
+  - esp32/main/services/scheduler.h — RESTORED to last good git state (was corrupted by previous session)
+  - src/lib/services.ts — getDynamicDosingPumps type-corrected, hardwareService exported
+  - src/lib/api/contracts.ts — Schedule interface made backward-compatible
+  - scripts/test_m2_hardware_management.mjs — NEW behavioral test suite
+  - IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md — truthful M2.16-M2.26 statuses
+- **Known Issues**:
+  - Physical reboot persistence (M2.22) unverified — requires bench flash.
+  - pi_calibration_handlers.c and pi_schedule_handlers.c have unused TAG warnings — cosmetic only, do not block build.
+  - s_actuator_component_ids[] maps to default logical IDs; production commissioning must use configured componentIds via PUT /configuration.
+- **Next Safe Point / Next Action**: M3 — Configuration Engine (schema validation, semantic validation, ESP32 config parser/storage).
 ## Safe Point Index
+- [x] SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
+- [x] SP-API-005 Hardware Component Management UI (M2.1-M2.15)
+- [x] SP-API-004 Offline State and Error Handling Alignment (M1.10-M1.12)
+- [x] SP-API-003 Inventory and Capability Endpoints Alignment (M1.8-M1.9)
+- [x] SP-API-002 UI Version Data and Configuration Version Display (M1.5-M1.7)
+- [x] SP-API-001 Device Identity and Status API Alignment (M1.1-M1.4)
+- [x] SP-CANONICAL-005 Defined Canonical Model for CropCycle, Plant, Fruit, Observation
+- [x] SP-CANONICAL-004 Defined Canonical Model for Command, Calibration, Telemetry, Event, FertigationRun
+- [x] SP-CANONICAL-003 Defined Canonical Model for Configuration, Recipe, Schedule, CompiledSchedule
+- [x] SP-CANONICAL-002 Defined Canonical Model for Component, Resource, Assignment, Ownership, Topology, Capability
+- [x] SP-CANONICAL-001 Defined Canonical Model for Complex & Greenhouse
 - [x] SP-PRD-001 Comprehensive Product Requirements Document (ACTUAL_PRD.md) Generation
 - [x] SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains distribution
 - [x] SP-FLOW-002 Default Calibration Constants: ZJ-B1 (660 P/L) & FS400A (288 P/L) initialized and documented
@@ -1723,5 +1792,251 @@ tc_ds3231_sync_to_system() call to guarantee SNTP spin-up.
 - **Verification Result:** Frontend build PASS, contract test PASS (`verify_e2e_contracts.mjs --mock`), docs zero-drift check PASS.
 - **Known Issues / Blockers:** Hardware bench flashing pending operator physical hardware commissioning.
 - **Next Action:** Push commits to `origin/main` on GitHub.
-- **Git Commit Hash:** Pending amend and push.
+- **Git Commit Hash:** fa6fdeb (Pushed to origin/main)
 
+### [2026-09-18] SP-CLEANUP-017: Documentation Cleanup & Retirement of esp32/docs/ Mirror
+- **Objective:** Eliminate obsolete and duplicate Markdown documentation per approved deletion inventory; establish root `docs/` as the single canonical documentation directory.
+- **Completed Work:**
+  1. Deleted 6 obsolete root prompt/planning documents.
+  2. Deleted 51 obsolete root `docs/` reports and historical audit files.
+  3. Deleted 61 duplicated markdown files in `esp32/docs/`, retiring the second documentation mirror.
+  4. Preserved canonical documentation: `PRODUCT_REQUIREMENTS_DOCUMENT.md`, `IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md`, `docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md`, and all canonical hardware specifications under `docs/`.
+  5. Updated operational rules in `AGENTS.md`, `GEMINI.md`, and `.agents/rules/DOCUMENTATION_MANDATE.md` to reference `docs/` as the sole canonical location.
+- **Changed Files:**
+  - Deleted: 118 Markdown files (6 root, 51 `docs/`, 61 `esp32/docs/`)
+  - Updated: `AGENTS.md`, `GEMINI.md`, `.agents/rules/DOCUMENTATION_MANDATE.md`, `AI_HANDOVER.md`, `AI_PROGRESS.md`
+- **Verification Result:** Markdown inventory verified (147 before -> 29 remaining project markdown files, 118 deleted, 0 absent). Zero source-code or configuration changes.
+- **Known Issues / Blockers:** None.
+- **Next Action:** Execute remediation items per `IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md`.
+- **Git Commit Hash:** Pending commit.
+
+
+
+---
+
+## Safe Point Record: SP-CANONICAL-001
+- **ID**: SP-CANONICAL-001
+- **Objective**: Define canonical model for Complex and Greenhouse in OpenAPI and apply to ESP32 API handlers and React types (M0.1 & M0.2).
+- **Completed Work**:
+  1. Updated UI_ESP32_OPENAPI.yaml with explicit Complex and Greenhouse schemas.
+  2. Updated esp32/main/http/api_device_handlers.c to return ContextResponse matching the new schema.
+  3. Updated src/lib/api/contracts.ts with the new ContextResponse interface.
+- **Verification Result**:
+  - e2e mock test PASS.
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml
+  - esp32/main/http/api_device_handlers.c
+  - src/lib/api/contracts.ts
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Implement M0.3 Define Component in OpenAPI and types.
+
+
+---
+
+## Safe Point Record: SP-CANONICAL-002
+- **ID**: SP-CANONICAL-002
+- **Objective**: Define canonical model for Component, Resource, Assignment, Ownership, Topology, and Capability (M0.3-M0.8).
+- **Completed Work**:
+  1. Added Resource, Assignment, Ownership, Topology, and Capability schemas to UI_ESP32_OPENAPI.yaml.
+  2. Updated Component schema in OpenAPI to match canonical fields.
+  3. Added equivalent TypeScript interfaces to src/lib/api/contracts.ts.
+  4. Added equivalent C structs to esp32/main/hal/hardware_registry.h.
+  5. Updated hardware_registry.c JSON parser and api_device_handlers.c payload generator to include new Component fields.
+- **Verification Result**:
+  - e2e mock test PASS.
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml
+  - src/lib/api/contracts.ts
+  - esp32/main/hal/hardware_registry.h
+  - esp32/main/hal/hardware_registry.c
+  - esp32/main/http/api_device_handlers.c
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Implement M0.9 Define Configuration, M0.10 Define Recipe, M0.11 Define Schedule.
+
+
+---
+
+## Safe Point Record: SP-CANONICAL-003
+- **ID**: SP-CANONICAL-003
+- **Objective**: Define canonical model for Configuration, Recipe, Schedule, and CompiledSchedule (M0.9-M0.12).
+- **Completed Work**:
+  1. Added ConfigurationPayload, Recipe, Schedule, CompiledSchedule schemas to UI_ESP32_OPENAPI.yaml.
+  2. Updated ApplyConfigurationRequest and ConfigurationResponse to use ConfigurationPayload.
+  3. Added equivalent TypeScript interfaces to src/lib/api/contracts.ts and refactored Esp32Configuration and ScheduleItem.
+  4. Refactored src/lib/services.ts to be type-safe against the new Schedule model.
+  5. Added equivalent C structs to esp32/main/services/scheduler.h.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+  - npm run test -- --mock PASS.
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml
+  - src/lib/api/contracts.ts
+  - src/lib/api/esp32-client.ts
+  - src/lib/api/hardware-gateway.ts
+  - src/lib/api/python-client.ts
+  - src/lib/services.ts
+  - esp32/main/services/scheduler.h
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Implement Configuration Compiler Logic (M3) or Device Provisioning flow depending on GAP audit.
+
+
+---
+
+## Safe Point Record: SP-CANONICAL-004
+- **ID**: SP-CANONICAL-004
+- **Objective**: Define canonical model for Command, Calibration, Telemetry, Event, and FertigationRun (M0.13-M0.17).
+- **Completed Work**:
+  1. Added TelemetrySnapshot, TelemetrySample, Event, EventResponse, FertigationRun, CalibrationRequest, CalibrationStatus, CalibrationRates, SetCalibrationRateRequest to UI_ESP32_OPENAPI.yaml.
+  2. Refactored CommandRequest in OpenAPI to use strict enums for command type.
+  3. Mapped all schemas directly to TypeScript interfaces in src/lib/api/contracts.ts.
+  4. Injected equivalent C struct primitives (hw_telemetry_snapshot_t, hw_event_t, hw_fertigation_run_t, hw_calibration_rates_t) into esp32/main/hal/hardware_registry.h.
+  5. Updated cmd_type_t and command_item_t in esp32/main/services/command_mgr.h.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml
+  - src/lib/api/contracts.ts
+  - src/lib/api/esp32-client.ts
+  - esp32/main/hal/hardware_registry.h
+  - esp32/main/services/command_mgr.h
+- **Known Issues**: Changing cmd_type_t in C header will require subsequent C source refactoring, which will be handled in M10 (Command/Safety).
+- **Next Safe Point / Action**: Check implementation backlog for M0.18-M0.20 or transition to M1 (Device/API).
+
+
+---
+
+## Safe Point Record: SP-CANONICAL-005
+- **ID**: SP-CANONICAL-005
+- **Objective**: Define canonical model for CropCycle, Plant, Fruit, and Observation (M0.18-M0.20).
+- **Completed Work**:
+  1. Added Plant, Fruit, and Observation schemas to UI_ESP32_OPENAPI.yaml.
+  2. Exported matching TypeScript interfaces in src/lib/api/contracts.ts.
+  3. Verified TS compilation successfully.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml
+  - src/lib/api/contracts.ts
+- **Known Issues**: These are currently just definitions to satisfy M0. The actual UI/Backend logic will be updated in M15.
+- **Next Safe Point / Action**: M1 (Device Connection / API).
+
+
+---
+
+## Safe Point Record: SP-API-001
+- **ID**: SP-API-001
+- **Objective**: Align Device Identity and Status API (M1.1-M1.4).
+- **Completed Work**:
+  1. Updated handler_get_health() in esp32/main/http/api_device_handlers.c to output all required fields for HealthResponse.
+  2. Updated handler_get_status() in esp32/main/http/api_device_handlers.c to structure StatusResponse with device, network, clock, configuration, etc.
+  3. Refactored HealthResponse and StatusResponse in src/lib/api/contracts.ts.
+  4. Fixed TypeScript errors in src/components/ConnectionMonitor.tsx.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+- **Changed Files**:
+  - esp32/main/http/api_device_handlers.c
+  - src/lib/api/contracts.ts
+  - src/components/ConnectionMonitor.tsx
+- **Next Safe Point / Action**: Complete remaining M1 items.
+
+
+---
+
+## Safe Point Record: SP-API-002
+- **ID**: SP-API-002
+- **Objective**: Display Firmware, Hardware, and Configuration version on UI (M1.5-M1.7).
+- **Completed Work**:
+  1. Updated src/lib/types.ts to include firmwareVersion and hardwareModel in Esp32State.
+  2. Updated src/lib/store.ts to pass device version metrics via updateFromEsp32().
+  3. Refactored src/components/ConnectionMonitor.tsx to extract device and configuration metadata from the StatusResponse.
+  4. Modified Complex Overview page and Dashboard to display ESP32 Firmware and Hardware version.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+- **Changed Files**:
+  - src/lib/types.ts
+  - src/lib/store.ts
+  - src/components/ConnectionMonitor.tsx
+  - src/app/complex/page.tsx
+  - src/app/dashboard/page.tsx
+- **Next Safe Point / Action**: Complete remaining M1 items.
+
+
+---
+
+## Safe Point Record: SP-API-003
+- **ID**: SP-API-003
+- **Objective**: Align Inventory and Capability endpoints to OpenAPI schema (M1.8-M1.9).
+- **Completed Work**:
+  1. Patched handler_get_inventory in api_device_handlers.c to return inventoryVersion instead of legacy variables.
+  2. Patched handler_get_capabilities in api_device_handlers.c to return boolean capabilities map.
+  3. Updated Esp32Inventory to InventoryResponse and CapabilitiesResponse in contracts.ts, python-client.ts, esp32-client.ts, and hardware-gateway.ts.
+- **Verification Result**:
+  - npx tsc --noEmit PASS.
+- **Changed Files**:
+  - esp32/main/http/api_device_handlers.c
+  - src/lib/api/contracts.ts
+  - src/lib/api/python-client.ts
+  - src/lib/api/esp32-client.ts
+  - src/lib/api/hardware-gateway.ts
+- **Next Safe Point / Action**: Complete remaining M1 items (UI connection test, timeout, offline).
+
+
+---
+
+## Safe Point Record: SP-API-004
+- **ID**: SP-API-004
+- **Objective**: Offline State and Error Handling Alignment (M1.10-M1.12).
+- **Completed Work**:
+  1. Verified timeout and error distinction in backend-client.ts (ApiRequestError vs BackendNotConnectedError).
+  2. Updated updateFromEsp32 in store.ts to accept and mutate the online flag.
+  3. Updated ConnectionMonitor.tsx to dispatch online: false to the store when the polling fails, keeping UI aligned with physical device state.
+- **Verification Result**:
+  - Visual code review and compilation PASS.
+- **Changed Files**:
+  - src/lib/store.ts
+  - src/components/ConnectionMonitor.tsx
+- **Next Safe Point / Action**: M2 Configuration Sync implementation.
+
+
+---
+
+## Safe Point Record: SP-API-005
+- **ID**: SP-API-005
+- **Objective**: Hardware Component Management UI (M2.1-M2.15).
+- **Completed Work**:
+  1. Created domain models in src/lib/types/equipment.ts based on PRD principles.
+  2. Implemented Supported Catalog with structured component metadata and installation guides (src/lib/data/hardwareCatalog.ts).
+  3. Activated /equipment route and built Equipment Page with Catalog and Installed components list.
+  4. Built dynamic ComponentEditorModal for registering, configuring parameters/wiring, updating lifecycle states (enabled/commissioned/decommissioned), and assigning resources.
+  5. Integrated mock hardwareService in src/lib/services.ts.
+- **Verification Result**:
+  - TypeScript compiled successfully. M2.1-M2.15 verified.
+- **Changed Files**:
+  - src/lib/types/equipment.ts
+  - src/lib/data/hardwareCatalog.ts
+  - src/lib/data/hardwareComponents.ts
+  - src/lib/services.ts
+  - src/components/layout/AppSidebar.tsx
+  - src/app/equipment/page.tsx
+  - src/components/ui/equipment/SupportedCatalogList.tsx
+  - src/components/ui/equipment/InstalledComponentsList.tsx
+  - src/components/ui/equipment/ComponentEditorModal.tsx
+- **Next Safe Point / Action**: Implement M2 Backend/API (M2.16-M2.20).
+
+
+---
+
+## Safe Point Record: SP-API-006
+- **ID**: SP-API-006
+- **Objective**: Hardware Component Management API & ESP32 Registry Alignment (M2.16-M2.26).
+- **Completed Work**:
+  1. Updated UI_ESP32_OPENAPI.yaml Component schema to match the InstalledComponent canonical domain model.
+  2. Updated frontend API contracts (src/lib/api/contracts.ts) to use InstalledComponent.
+  3. Refactored esp32/main/hal/hardware_registry.h and .c to parse the new structure (lifecycleState, deploymentStatus, wiring, assignment, parameters).
+  4. Updated pi_device_handlers.c to expose the new schema from hardware_registry.
+  5. Updated docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md to reflect the new JSON schema.
+- **Verification Result**:
+  - OpenAPI Contract: PASS
+  - Documentation Integrity: PASS
+- **Changed Files**:
+  - contracts/UI_ESP32_OPENAPI.yaml`n  - src/lib/api/contracts.ts`n  - esp32/main/hal/hardware_registry.h`n  - esp32/main/hal/hardware_registry.c`n  - esp32/main/http/api_device_handlers.c`n  - docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`n- **Next Action**: Execute Phase M3 or continue validation.

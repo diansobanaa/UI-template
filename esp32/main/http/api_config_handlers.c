@@ -1,6 +1,7 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "storage/storage_mgr.h"
+#include "hal/hardware_registry.h"
 #include "cJSON.h"
 #include <string.h>
 
@@ -44,9 +45,129 @@ static bool validate_config_payload(cJSON *body, cJSON *errors)
             }
         }
     }
+
+    /* M2.17 - M2.19: Component Registry Validation */
+    cJSON *components = cJSON_GetObjectItem(cfg, "components");
+    if (!components) {
+        components = cJSON_GetObjectItem(body, "components");
+    }
+    if (components && cJSON_IsArray(components)) {
+        int comp_count = cJSON_GetArraySize(components);
+        if (comp_count > 32) {
+            cJSON_AddItemToArray(errors, cJSON_CreateString("Too many components (max 32)"));
+            valid = false;
+        }
+        for (int i = 0; i < comp_count; i++) {
+            cJSON *c = cJSON_GetArrayItem(components, i);
+            if (!c || !cJSON_IsObject(c)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Component item must be an object"));
+                valid = false;
+                continue;
+            }
+
+            /* M2.17: Validate stable component ID */
+            cJSON *cid = cJSON_GetObjectItem(c, "componentId");
+            if (!cid) cid = cJSON_GetObjectItem(c, "id");
+            if (!cid || !cJSON_IsString(cid) || strlen(cid->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Component missing valid 'componentId'"));
+                valid = false;
+            } else {
+                if (strlen(cid->valuestring) > 32) {
+                    cJSON_AddItemToArray(errors, cJSON_CreateString("Component ID exceeds maximum length 32"));
+                    valid = false;
+                }
+                /* Check uniqueness (stable ID collision detection) */
+                for (int j = 0; j < i; j++) {
+                    cJSON *prev = cJSON_GetArrayItem(components, j);
+                    if (prev && cJSON_IsObject(prev)) {
+                        cJSON *prev_id = cJSON_GetObjectItem(prev, "componentId");
+                        if (!prev_id) prev_id = cJSON_GetObjectItem(prev, "id");
+                        if (prev_id && cJSON_IsString(prev_id) && strcmp(prev_id->valuestring, cid->valuestring) == 0) {
+                            cJSON_AddItemToArray(errors, cJSON_CreateString("Duplicate componentId found in configuration"));
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            /* M2.18: Validate installation metadata */
+            cJSON *stype = cJSON_GetObjectItem(c, "supportedTypeId");
+            if (!stype) stype = cJSON_GetObjectItem(c, "type");
+            if (!stype || !cJSON_IsString(stype) || strlen(stype->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Component missing valid 'supportedTypeId'"));
+                valid = false;
+            }
+
+            cJSON *life = cJSON_GetObjectItem(c, "lifecycleState");
+            if (life && cJSON_IsString(life)) {
+                const char *ls = life->valuestring;
+                if (strcmp(ls, "REGISTERED") != 0 &&
+                    strcmp(ls, "NOT_COMMISSIONED") != 0 &&
+                    strcmp(ls, "COMMISSIONED") != 0 &&
+                    strcmp(ls, "ENABLED") != 0 &&
+                    strcmp(ls, "DISABLED") != 0 &&
+                    strcmp(ls, "FAULTED") != 0 &&
+                    strcmp(ls, "REMOVED") != 0) {
+                    cJSON_AddItemToArray(errors, cJSON_CreateString("Invalid component lifecycleState"));
+                    valid = false;
+                }
+            }
+
+            cJSON *dep = cJSON_GetObjectItem(c, "deploymentStatus");
+            if (dep && cJSON_IsString(dep)) {
+                const char *ds = dep->valuestring;
+                if (strcmp(ds, "PENDING") != 0 &&
+                    strcmp(ds, "APPLIED") != 0 &&
+                    strcmp(ds, "FAILED") != 0 &&
+                    strcmp(ds, "UNKNOWN") != 0) {
+                    cJSON_AddItemToArray(errors, cJSON_CreateString("Invalid component deploymentStatus"));
+                    valid = false;
+                }
+            }
+
+            cJSON *wiring = cJSON_GetObjectItem(c, "wiring");
+            if (wiring && cJSON_IsObject(wiring)) {
+                cJSON *iface = cJSON_GetObjectItem(wiring, "interface");
+                if (iface && cJSON_IsString(iface)) {
+                    const char *is = iface->valuestring;
+                    if (strcmp(is, "GPIO") != 0 &&
+                        strcmp(is, "I2C") != 0 &&
+                        strcmp(is, "UART") != 0 &&
+                        strcmp(is, "SPI") != 0 &&
+                        strcmp(is, "ONE_WIRE") != 0 &&
+                        strcmp(is, "ANALOG") != 0 &&
+                        strcmp(is, "VIRTUAL") != 0) {
+                        cJSON_AddItemToArray(errors, cJSON_CreateString("Invalid wiring interface"));
+                        valid = false;
+                    }
+                    if (strcmp(is, "GPIO") == 0) {
+                        cJSON *gpio = cJSON_GetObjectItem(wiring, "gpio");
+                        if (gpio && cJSON_IsNumber(gpio)) {
+                            if (gpio->valueint < 0 || gpio->valueint > 48) {
+                                cJSON_AddItemToArray(errors, cJSON_CreateString("Wiring GPIO pin out of range [0, 48]"));
+                                valid = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* M2.19: Validate assignment metadata */
+            cJSON *asgn = cJSON_GetObjectItem(c, "assignment");
+            if (asgn && cJSON_IsObject(asgn)) {
+                cJSON *cplx = cJSON_GetObjectItem(asgn, "complexId");
+                if (!cplx || !cJSON_IsString(cplx) || strlen(cplx->valuestring) == 0) {
+                    cJSON_AddItemToArray(errors, cJSON_CreateString("Component assignment missing valid 'complexId'"));
+                    valid = false;
+                }
+            }
+        }
+    }
     
     return valid;
 }
+
 
 esp_err_t handler_get_configuration(httpd_req_t *req)
 {
@@ -124,6 +245,8 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
     char *json_text = cJSON_PrintUnformatted(payload);
     if (json_text) {
         storage_mgr_save_config(json_text, new_version);
+        /* M2.20 & M2.26: Synchronize active hardware registry with persisted active configuration */
+        hardware_registry_load_from_json(json_text);
         free(json_text);
     }
 

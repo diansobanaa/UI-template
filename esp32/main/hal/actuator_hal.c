@@ -76,6 +76,20 @@ esp_err_t actuator_hal_init(void)
     return err;
 }
 
+#include "hal/hardware_registry.h"
+
+static const char *s_actuator_component_ids[ACTUATOR_MAX_COUNT] = {
+    [ACTUATOR_WELL_PUMP]       = "well-pump",
+    [ACTUATOR_DIST_PUMP]       = "dist-pump",
+    [ACTUATOR_RAW_SUBMERSIBLE] = "raw-submersible",
+    [ACTUATOR_DOSING_A]        = "dosing-pump-a",
+    [ACTUATOR_DOSING_B]        = "dosing-pump-b",
+    [ACTUATOR_COOLING_FAN]     = "cooling-fan",
+    [ACTUATOR_BLOWER_FAN]      = "blower-fan",
+    [ACTUATOR_MIXING_PUMP]     = "mixing-pump",
+    [ACTUATOR_ERROR_LAMP]      = "error-lamp",
+};
+
 esp_err_t actuator_hal_set(actuator_id_t id, bool on)
 {
     if (id >= ACTUATOR_MAX_COUNT) return ESP_ERR_INVALID_ARG;
@@ -100,6 +114,28 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         }
     }
 
+    /* M2.25: Lifecycle State & Dynamic Resolution Check */
+    const char *comp_id = s_actuator_component_ids[id];
+    hw_component_info_t comp_info;
+    if (comp_id && hardware_registry_find_by_id(comp_id, &comp_info) == ESP_OK) {
+        if (on && comp_info.lifecycle_state != HW_LIFECYCLE_COMMISSIONED && 
+            comp_info.lifecycle_state != HW_LIFECYCLE_ENABLED) {
+            xSemaphoreGive(s_lock);
+            ESP_LOGW(TAG, "Blocked %s ON: Component '%s' not operational (lifecycle: %d)",
+                     s_actuators[id].name, comp_id, (int)comp_info.lifecycle_state);
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        /* M2.24: Dynamic GPIO resolution from active configuration */
+        if (comp_info.wiring.gpio >= 0 && comp_info.wiring.gpio != (int8_t)s_actuators[id].gpio) {
+            gpio_num_t new_gpio = (gpio_num_t)comp_info.wiring.gpio;
+            gpio_reset_pin(new_gpio);
+            gpio_set_direction(new_gpio, GPIO_MODE_OUTPUT);
+            s_actuators[id].gpio = new_gpio;
+            ESP_LOGI(TAG, "Dynamic re-binding: %s -> GPIO %d", comp_id, new_gpio);
+        }
+    }
+
     s_actuators[id].state = on;
     uint8_t physical_level = on ? s_actuators[id].active_level : !s_actuators[id].active_level;
     gpio_set_level(s_actuators[id].gpio, physical_level);
@@ -109,6 +145,38 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
     xSemaphoreGive(s_lock);
     return ESP_OK;
 }
+
+esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
+{
+    if (!component_id) return ESP_ERR_INVALID_ARG;
+
+    for (int i = 0; i < ACTUATOR_MAX_COUNT; i++) {
+        if (s_actuator_component_ids[i] && strcmp(s_actuator_component_ids[i], component_id) == 0) {
+            return actuator_hal_set((actuator_id_t)i, on);
+        }
+    }
+
+    /* Fallback: lookup in registry directly */
+    hw_component_info_t info;
+    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (on && info.lifecycle_state != HW_LIFECYCLE_COMMISSIONED && 
+        info.lifecycle_state != HW_LIFECYCLE_ENABLED) {
+        ESP_LOGW(TAG, "Blocked %s ON: Component not commissioned (state: %d)", component_id, (int)info.lifecycle_state);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (info.wiring.gpio >= 0) {
+        gpio_set_direction((gpio_num_t)info.wiring.gpio, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)info.wiring.gpio, on ? 1 : 0);
+        return ESP_OK;
+    }
+
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 
 esp_err_t actuator_hal_acquire(actuator_id_t id, actuator_owner_t owner)
 {
