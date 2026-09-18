@@ -14,6 +14,12 @@ static bool validate_config_payload(cJSON *body, cJSON *errors)
         return false;
     }
 
+    cJSON *complexId = cJSON_GetObjectItem(cfg, "complexId");
+    if (!complexId || !cJSON_IsString(complexId) || strlen(complexId->valuestring) == 0) {
+        cJSON_AddItemToArray(errors, cJSON_CreateString("Missing or empty 'complexId'"));
+        valid = false;
+    }
+
     cJSON *tz = cJSON_GetObjectItem(cfg, "timezone");
     if (tz && cJSON_IsString(tz)) {
         if (strlen(tz->valuestring) > 64) {
@@ -31,6 +37,26 @@ static bool validate_config_payload(cJSON *body, cJSON *errors)
         }
         for (int i = 0; i < arr_size; i++) {
             cJSON *item = cJSON_GetArrayItem(schedules, i);
+            cJSON *sid = cJSON_GetObjectItem(item, "scheduleId");
+            if (!sid || !cJSON_IsString(sid) || strlen(sid->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'scheduleId'"));
+                valid = false;
+            }
+            cJSON *ownerId = cJSON_GetObjectItem(item, "ownerId");
+            if (!ownerId || !cJSON_IsString(ownerId) || strlen(ownerId->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'ownerId'"));
+                valid = false;
+            }
+            cJSON *prio = cJSON_GetObjectItem(item, "priority");
+            if (!prio || !cJSON_IsNumber(prio)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'priority'"));
+                valid = false;
+            }
+            cJSON *type = cJSON_GetObjectItem(item, "type");
+            if (!type || !cJSON_IsString(type)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'type'"));
+                valid = false;
+            }
             cJSON *action = cJSON_GetObjectItem(item, "action");
             if (!action || !cJSON_IsString(action)) {
                 cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule missing 'action'"));
@@ -42,6 +68,75 @@ static bool validate_config_payload(cJSON *body, cJSON *errors)
                     cJSON_AddItemToArray(errors, cJSON_CreateString("Schedule duration out of bounds [0, 86400]"));
                     valid = false;
                 }
+            }
+        }
+    }
+
+    cJSON *recipes = cJSON_GetObjectItem(cfg, "recipes");
+    if (recipes && cJSON_IsArray(recipes)) {
+        int arr_size = cJSON_GetArraySize(recipes);
+        for (int i = 0; i < arr_size; i++) {
+            cJSON *item = cJSON_GetArrayItem(recipes, i);
+            cJSON *rid = cJSON_GetObjectItem(item, "recipeId");
+            if (!rid || !cJSON_IsString(rid) || strlen(rid->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Recipe missing 'recipeId'"));
+                valid = false;
+            }
+            cJSON *name = cJSON_GetObjectItem(item, "name");
+            if (!name || !cJSON_IsString(name) || strlen(name->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Recipe missing 'name'"));
+                valid = false;
+            }
+            cJSON *type = cJSON_GetObjectItem(item, "type");
+            if (!type || !cJSON_IsString(type)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Recipe missing 'type'"));
+                valid = false;
+            }
+        }
+    }
+
+    cJSON *assignments = cJSON_GetObjectItem(cfg, "assignments");
+    if (assignments && cJSON_IsArray(assignments)) {
+        int arr_size = cJSON_GetArraySize(assignments);
+        for (int i = 0; i < arr_size; i++) {
+            cJSON *item = cJSON_GetArrayItem(assignments, i);
+            cJSON *aid = cJSON_GetObjectItem(item, "assignmentId");
+            if (!aid || !cJSON_IsString(aid) || strlen(aid->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Assignment missing 'assignmentId'"));
+                valid = false;
+            }
+            cJSON *rid = cJSON_GetObjectItem(item, "resourceId");
+            if (!rid || !cJSON_IsString(rid) || strlen(rid->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Assignment missing 'resourceId'"));
+                valid = false;
+            }
+            cJSON *scope = cJSON_GetObjectItem(item, "scope");
+            if (!scope || !cJSON_IsString(scope)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Assignment missing 'scope'"));
+                valid = false;
+            }
+        }
+    }
+
+    cJSON *topology = cJSON_GetObjectItem(cfg, "topology");
+    if (topology && cJSON_IsArray(topology)) {
+        int arr_size = cJSON_GetArraySize(topology);
+        for (int i = 0; i < arr_size; i++) {
+            cJSON *item = cJSON_GetArrayItem(topology, i);
+            cJSON *src = cJSON_GetObjectItem(item, "sourceResourceId");
+            if (!src || !cJSON_IsString(src) || strlen(src->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Topology missing 'sourceResourceId'"));
+                valid = false;
+            }
+            cJSON *tgt = cJSON_GetObjectItem(item, "targetResourceId");
+            if (!tgt || !cJSON_IsString(tgt) || strlen(tgt->valuestring) == 0) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Topology missing 'targetResourceId'"));
+                valid = false;
+            }
+            cJSON *conn = cJSON_GetObjectItem(item, "connectionType");
+            if (!conn || !cJSON_IsString(conn)) {
+                cJSON_AddItemToArray(errors, cJSON_CreateString("Topology missing 'connectionType'"));
+                valid = false;
             }
         }
     }

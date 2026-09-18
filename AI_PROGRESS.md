@@ -17,8 +17,28 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-M3-000 Active Configuration Authority Verification Gate (M3.0)
+SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3.17)
 
+
+---
+
+## Safe Point Record: SP-M3-001
+- **ID**: SP-M3-001
+- **Objective**: Implement comprehensive canonical configuration schema validation and Configuration Editor UI.
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Extended `validate_config_payload` in `esp32/main/http/api_config_handlers.c` to fully validate `complexId`, `schedules`, `recipes`, `assignments`, and `topology` arrays according to the canonical OpenAPI schema (M3.1, M3.2, M3.9).
+  2. Created `src/app/configuration/page.tsx` introducing the React Configuration Editor (M3.13).
+  3. Integrated active draft management via `esp32Client.getConfiguration()`, explicit Validate action with feedback (M3.14, M3.15, M3.17), and visual version/hash displays (M3.16).
+  4. Added `Configuration` navigation link to `AppSidebar.tsx` utilizing Lucide's `FileJson` icon.
+  5. Validated that all frontend and backend configuration integrity protocols remain unbroken via `test_m3_configuration_authority.mjs`.
+- **Verification Result**:
+  - `node scripts/test_m3_configuration_authority.mjs --mock`: 18 PASS | 0 FAIL | 1 BLOCKED
+  - `npm test -- --mock`: PASS (OpenAPI contracts)
+- **Known Issues**:
+  - Backend validation is robust, but the actual parsing into C struct representation (`configuration_mgr.c`) for runtime (M3.3-M3.8) remains to be implemented.
+- **Next Safe Point / Action**:
+  - Implement internal ESP32 configuration parsers (M3.3-M3.8) or proceed to the next PRD phase as directed by the user.
 
 ---
 
@@ -101,15 +121,32 @@ SP-M3-000 Active Configuration Authority Verification Gate (M3.0)
   - esp32/main/services/command_mgr.h � RESTORED to last good git state (was corrupted by previous session)
   - esp32/main/services/scheduler.h � RESTORED to last good git state (was corrupted by previous session)
   - src/lib/services.ts � getDynamicDosingPumps type-corrected, hardwareService exported
-  - src/lib/api/contracts.ts � Schedule interface made backward-compatible
-  - scripts/test_m2_hardware_management.mjs � NEW behavioral test suite
-  - IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md � truthful M2.16-M2.26 statuses
+  - Live ESP32 REST test: BLOCKED  no hardware connected (no COM port detected).
+  - Physical reboot persistence: BLOCKED  same reason.
+- **Changed Files**:
+  - esp32/main/hal/hardware_registry.h  added find_by_id, resolve_gpio, resolve_channel, is_operational, update_lifecycle, clear
+  - esp32/main/hal/hardware_registry.c  implemented above + SPIFFS fallback + empty registry warning
+  - esp32/main/hal/actuator_hal.h  added actuator_hal_set_by_component_id declaration
+  - esp32/main/hal/actuator_hal.c  M2.24 dynamic GPIO rebinding, M2.25 lifecycle blocking, set_by_component_id
+  - esp32/main/http/api_config_handlers.c  M2.17/18/19 validation, M2.20/26 registry reload on save
+  - esp32/main/services/command_mgr.h  RESTORED to last good git state (was corrupted by previous session)
+  - esp32/main/services/scheduler.h  RESTORED to last good git state (was corrupted by previous session)
+  - src/lib/services.ts  getDynamicDosingPumps type-corrected, hardwareService exported
+  - src/lib/api/contracts.ts  Schedule interface made backward-compatible
+  - scripts/test_m2_hardware_management.mjs  NEW behavioral test suite
+  - IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md  truthful M2.16-M2.26 statuses
 - **Known Issues**:
-  - Physical reboot persistence (M2.22) unverified � requires bench flash.
-  - pi_calibration_handlers.c and pi_schedule_handlers.c have unused TAG warnings � cosmetic only, do not block build.
+  - Physical reboot persistence (M2.22) unverified  requires bench flash.
+  -  pi_calibration_handlers.c and  pi_schedule_handlers.c have unused TAG warnings  cosmetic only, do not block build.
   - s_actuator_component_ids[] maps to default logical IDs; production commissioning must use configured componentIds via PUT /configuration.
-- **Next Safe Point / Next Action**: M3 � Configuration Engine (schema validation, semantic validation, ESP32 config parser/storage).
+- **Next Safe Point / Next Action**: M3  Configuration Engine (schema validation, semantic validation, ESP32 config parser/storage).
+
+---
+
 ## Safe Point Index
+- [x] SP-M3-001 Configuration Schema Validation & Editor UI (M3.1-M3.2, M3.9, M3.13-M3.17)
+- [x] SP-M3-000 Active Configuration Authority Verification Gate (M3.0)
+- [x] SP-API-007 Hardware Component Management API & ESP32 Registry (Behavioral Verification)
 - [x] SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
 - [x] SP-API-005 Hardware Component Management UI (M2.1-M2.15)
 - [x] SP-API-004 Offline State and Error Handling Alignment (M1.10-M1.12)

@@ -24,6 +24,7 @@ import {
   Sprout,
   RotateCcw,
   Wrench,
+  FileJson,
 } from "lucide-react";
 import { complexService, greenhouseService } from "@/lib/services";
 import { resetMockDb } from "@/lib/store";
@@ -129,6 +130,7 @@ function SidebarInner({
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "equipment", label: "Equipment", icon: Wrench, href: "/equipment" },
     { id: "settings", label: "Settings", icon: Settings },
+    { id: "configuration", label: "Configuration", icon: FileJson, href: "/configuration" },
     { id: "events", label: "Events & Logs", icon: ScrollText, href: "/events" },
   ];
 
