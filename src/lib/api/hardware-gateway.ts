@@ -5,9 +5,9 @@ import type {
   ClockSyncRequest,
   CommandReceipt,
   ConfigurationValidation,
-  Esp32Configuration,
+  ConfigurationPayload,
   Esp32EventLog,
-  Esp32Inventory,
+  InventoryResponse,
   HardwarePortConfig,
   SyncSnapshot,
   TelemetrySnapshot,
@@ -26,8 +26,8 @@ export interface HardwareGateway {
   sync(complexId: string): Promise<GatewayResult<SyncSnapshot>>;
   telemetry(complexId: string, greenhouseId?: string): Promise<GatewayResult<TelemetrySnapshot>>;
   logs(complexId: string, cursor?: string): Promise<GatewayResult<{ items: Esp32EventLog[]; nextCursor?: string }>>;
-  validate(complexId: string, configuration: Esp32Configuration): Promise<GatewayResult<ConfigurationValidation>>;
-  saveConfiguration(complexId: string, configuration: Esp32Configuration): Promise<GatewayResult<Esp32Configuration>>;
+  validate(complexId: string, configuration: ConfigurationPayload): Promise<GatewayResult<ConfigurationValidation>>;
+  saveConfiguration(complexId: string, configuration: ConfigurationPayload): Promise<GatewayResult<ConfigurationPayload>>;
   syncClock(complexId: string, source: "PYTHON" | "UI"): Promise<GatewayResult<{ appliedAt: string }>>;
   emergencyStop(complexId: string, reason: string): Promise<GatewayResult<CommandReceipt>>;
 }

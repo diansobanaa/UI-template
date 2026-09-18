@@ -6,18 +6,18 @@ import type {
   ContextResponse,
   CropCycleHistoryResponse,
   CurrentCropCycleResponse,
-  Esp32Configuration,
+  ConfigurationPayload,
   Esp32EventLog,
-  Esp32Inventory,
+  InventoryResponse,
   HardwarePortConfig,
   HarvestCycleRequest,
   HealthResponse,
   ImportActiveCropCycleRequest,
   OperationRequest,
   PollinationRequest,
-  ScheduleItem,
+  Schedule,
   SchedulesResponse,
-  CalibrationRateResponse,
+  CalibrationRates,
   StartCropCycleRequest,
   StatusResponse,
   TelemetrySnapshot,
@@ -88,8 +88,8 @@ export class Esp32Client {
     return this.getEnveloped<StatusResponse>("/api/v1/status");
   }
 
-  async getInventory(): Promise<Esp32Inventory> {
-    return this.getEnveloped<Esp32Inventory>("/api/v1/inventory");
+  async getInventory(): Promise<InventoryResponse> {
+    return this.getEnveloped<InventoryResponse>("/api/v1/inventory");
   }
 
   async getContext(): Promise<ContextResponse> {
@@ -106,16 +106,16 @@ export class Esp32Client {
 
   /* -------------------------- Configuration -------------------------- */
 
-  async getConfiguration(): Promise<Esp32Configuration> {
-    return this.getEnveloped<Esp32Configuration>("/api/v1/configuration");
+  async getConfiguration(): Promise<ConfigurationPayload> {
+    return this.getEnveloped<ConfigurationPayload>("/api/v1/configuration");
   }
 
-  async validateConfiguration(configuration: Esp32Configuration): Promise<ConfigurationValidation> {
+  async validateConfiguration(configuration: ConfigurationPayload): Promise<ConfigurationValidation> {
     return this.postEnveloped<ConfigurationValidation>("/api/v1/configuration/validate", { configuration });
   }
 
-  async saveConfiguration(configuration: Esp32Configuration): Promise<Esp32Configuration> {
-    return this.putEnveloped<Esp32Configuration>("/api/v1/configuration", configuration);
+  async saveConfiguration(configuration: ConfigurationPayload): Promise<ConfigurationPayload> {
+    return this.putEnveloped<ConfigurationPayload>("/api/v1/configuration", configuration);
   }
 
   /* -------------------------- Telemetry & Events -------------------------- */
@@ -230,8 +230,8 @@ export class Esp32Client {
     return this.getEnveloped<{ state: string; remaining_sec: number }>("/api/v1/calibration/status");
   }
 
-  async getCalibrationRates(): Promise<CalibrationRateResponse> {
-    return this.getEnveloped<CalibrationRateResponse>("/api/v1/calibration/rate");
+  async getCalibrationRates(): Promise<CalibrationRates> {
+    return this.getEnveloped<CalibrationRates>("/api/v1/calibration/rate");
   }
 
   async saveCalibrationRate(componentId: string, rateMlPerSec: number): Promise<any> {
@@ -244,7 +244,7 @@ export class Esp32Client {
     return this.getEnveloped<SchedulesResponse>("/api/v1/schedules");
   }
 
-  async saveSchedule(schedule: ScheduleItem): Promise<any> {
+  async saveSchedule(schedule: Schedule): Promise<any> {
     return this.postEnveloped<any>("/api/v1/schedules", schedule);
   }
 

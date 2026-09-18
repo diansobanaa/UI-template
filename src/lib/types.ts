@@ -20,6 +20,8 @@ export interface Esp32State {
   configVersion: number;
   esp32ConfigVersion: number;
   synchronized: boolean;
+  firmwareVersion?: string;
+  hardwareModel?: string;
 }
 
 export interface Complex {

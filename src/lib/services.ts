@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Frontend service layer — the ONLY boundary UI components use to reach data.
  *
  * Today every function runs against the in-memory mock store with a small
@@ -956,13 +956,27 @@ export const fertigationService = {
   },
 };
 
-/* --------------------------- hardware (M2) ----------------------- */
+/* --------------------------- hardware (M2 / M3.0) ----------------------- */
 import { hardwareCatalog } from './data/hardwareCatalog';
 import { initialInstalledComponents } from './data/hardwareComponents';
-import { InstalledComponent, SupportedComponentDefinition } from './types/equipment';
+import { SupportedComponentDefinition } from './types/equipment';
+// M3.0: Use the canonical OpenAPI-contract InstalledComponent type (from contracts.ts).
+// Esp32Client.getInventory() returns this type. types/equipment.ts InstalledComponent
+// is structurally equivalent; to be consolidated in a future cleanup milestone.
+import type { InstalledComponent } from './api/contracts';
+import { Esp32Client } from './api/esp32-client';
+import { defaultConfig, BackendNotConnectedError } from './api/backend-client';
 
-// Mock state for now
-const _installedComponents = [...initialInstalledComponents];
+// M3.0: esp32Client is the authoritative inventory source.
+// initialInstalledComponents is a development fallback ONLY.
+// Authority: ActiveConfiguration.components[] -> GET /api/v1/inventory -> hardwareService
+const _esp32 = new Esp32Client(defaultConfig);
+
+// Dev-only mutable state: used ONLY when ESP32 is offline/unreachable.
+// TODO (M3.16+): remove after full backend configuration API integration.
+let _devFallbackComponents: InstalledComponent[] = initialInstalledComponents.map(
+  c => c as unknown as InstalledComponent
+);
 
 export const hardwareService = {
   async getSupportedCatalog(): Promise<SupportedComponentDefinition[]> {
@@ -970,26 +984,48 @@ export const hardwareService = {
     return hardwareCatalog;
   },
 
+  /**
+   * M3.0 - Authority: ActiveConfiguration.components[] via GET /api/v1/inventory.
+   * Production path: ESP32 -> /api/v1/inventory -> active configuration components.
+   * Dev/offline fallback: static seed, only on BackendNotConnectedError.
+   */
   async getInstalledComponents(): Promise<InstalledComponent[]> {
-    await delay();
-    return _installedComponents;
+    try {
+      const inv = await _esp32.getInventory();
+      return inv.components ?? [];
+    } catch (err) {
+      if (err instanceof BackendNotConnectedError) {
+        console.warn(
+          '[hardwareService] ESP32 unreachable - using dev seed data (DEVELOPMENT ONLY). ' +
+          'Authority: initialInstalledComponents (fallback)'
+        );
+        return [..._devFallbackComponents];
+      }
+      throw err;
+    }
   },
 
+  /** DEV ADAPTER - pending M3.1+ config engine. Production: PUT /api/v1/configuration. */
   async registerComponent(data: Omit<InstalledComponent, 'componentId'>): Promise<InstalledComponent> {
     await delay();
-    const newComponent: InstalledComponent = { ...data, componentId: 'comp-' + Math.random().toString(36).substring(2, 9) };
-    _installedComponents.push(newComponent);
+    const newComponent: InstalledComponent = {
+      ...data,
+      componentId: 'comp-' + Math.random().toString(36).substring(2, 9)
+    };
+    _devFallbackComponents.push(newComponent);
     return newComponent;
   },
 
+  /** DEV ADAPTER - pending M3.1+ config engine. Production: PUT /api/v1/configuration. */
   async updateComponent(id: string, updates: Partial<InstalledComponent>): Promise<InstalledComponent> {
     await delay();
-    const idx = _installedComponents.findIndex(c => c.componentId === id);
+    const idx = _devFallbackComponents.findIndex(c => c.componentId === id);
     if (idx === -1) throw new ServiceError('NOT_FOUND', 'Component not found');
-    _installedComponents[idx] = { ..._installedComponents[idx], ...updates };
-    return _installedComponents[idx];
+    _devFallbackComponents[idx] = { ..._devFallbackComponents[idx], ...updates };
+    return _devFallbackComponents[idx];
   },
 
+  /** DEV ADAPTER - pending M3.1+ config engine. Production: PUT /api/v1/configuration lifecycleState=REMOVED. */
   async decommissionComponent(id: string): Promise<InstalledComponent> {
     return this.updateComponent(id, { lifecycleState: 'REMOVED' });
   }

@@ -184,7 +184,10 @@ export function startRealtimeMock(): () => void {
 
 /** Updates client cache with live ESP32 hardware status and telemetry */
 export function updateFromEsp32(data: {
+  online?: boolean;
   emergencyStopped?: boolean;
+  device?: { firmwareVersion?: string; hardwareModel?: string };
+  configuration?: { version?: number };
   actuators?: Record<string, boolean>;
   sensors?: {
     temperatureC?: number | null;
@@ -207,6 +210,13 @@ export function updateFromEsp32(data: {
 
   if (data.emergencyStopped !== undefined) {
     if (complex) complex.emergencyStopped = data.emergencyStopped;
+  }
+  
+  if (complex) {
+    if (data.online !== undefined) complex.esp32.online = data.online;
+    if (data.device?.firmwareVersion) complex.esp32.firmwareVersion = data.device.firmwareVersion;
+    if (data.device?.hardwareModel) complex.esp32.hardwareModel = data.device.hardwareModel;
+    if (data.configuration?.version !== undefined) complex.esp32.configVersion = data.configuration.version;
   }
 
   if (data.sensors && gh) {

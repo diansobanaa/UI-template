@@ -81,10 +81,14 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
     }
 
     int count = cJSON_GetArraySize(arr);
+    /* An empty components array is a VALID active configuration (decommission-all).
+     * Clear the registry and return ESP_OK so components.json fallback is NOT triggered. */
     if (count <= 0) {
-        ESP_LOGW(TAG, "Components array is empty");
+        s_active_count = 0;
+        memset(s_active_components, 0, sizeof(s_active_components));
+        ESP_LOGI(TAG, "Active configuration has 0 components — registry cleared.");
         cJSON_Delete(root);
-        return ESP_ERR_INVALID_ARG;
+        return ESP_OK;
     }
 
     size_t loaded = 0;
@@ -228,12 +232,22 @@ esp_err_t hardware_hal_init_all(void)
             ESP_LOGI(TAG, "No valid configuration found on Flash.");
         }
 
-        /* Fallback: try dedicated components.json if configuration had no components */
-        if (!load_success) {
-            load_err = storage_mgr_load_components_json(json_buf, 8192, &json_len);
-            if (load_err == ESP_OK && json_len > 0) {
+        /* Fallback: try dedicated components.json ONLY when no active configuration
+         * exists at all (NVS key absent or storage not initialized).
+         * If the active config was found and parsed successfully (even with 0 components),
+         * load_success == true and we skip this block entirely.
+         * We do NOT fall back on parse errors or corruption — that is intentional:
+         * a corrupt active config must be repaired via PUT /configuration, not silently
+         * replaced by components.json. */
+        bool no_active_config = (!load_success &&
+                                  (load_err == ESP_ERR_NOT_FOUND ||
+                                   load_err == ESP_ERR_NVS_NOT_FOUND ||
+                                   load_err == ESP_ERR_INVALID_STATE));
+        if (no_active_config) {
+            esp_err_t comp_err = storage_mgr_load_components_json(json_buf, 8192, &json_len);
+            if (comp_err == ESP_OK && json_len > 0) {
                 if (hardware_registry_load_from_json(json_buf) == ESP_OK) {
-                    ESP_LOGI(TAG, "Dynamic components.json successfully applied to registry.");
+                    ESP_LOGI(TAG, "Bootstrap: components.json applied to registry (no active config present).");
                     load_success = true;
                 }
             }

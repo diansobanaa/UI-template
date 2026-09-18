@@ -38,10 +38,18 @@ export function ConnectionMonitor() {
             }
           }
           updateFromEsp32({
-            emergencyStopped: Boolean(status.emergencyStopped),
+            online: true,
+            emergencyStopped: Boolean(status.safety?.emergencyStopped),
+            device: {
+              firmwareVersion: typeof status.device?.firmwareVersion === "string" ? status.device.firmwareVersion : undefined,
+              hardwareModel: typeof status.device?.hardwareModel === "string" ? status.device.hardwareModel : undefined,
+            },
+            configuration: {
+              version: typeof status.configuration?.version === "number" ? status.configuration.version : undefined,
+            },
             actuators,
             sensors: {
-              temperatureC: status.sensors?.["waterTemperatureC"] ?? null,
+              temperatureC: typeof status.sensors?.["waterTemperatureC"] === "number" ? status.sensors["waterTemperatureC"] : null,
             },
           });
           await eventService.syncLogsFromEsp32();
@@ -52,6 +60,7 @@ export function ConnectionMonitor() {
         failureCount.current += 1;
         if (failureCount.current >= 3 && !isOffline) {
           setIsOffline(true);
+          updateFromEsp32({ online: false });
           triggerAlarm();
         }
       }

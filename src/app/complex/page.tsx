@@ -220,7 +220,7 @@ function ComplexOverviewContent() {
                 </span>
                 <span className="h-3 w-px bg-slate-200" />
                 <span className="flex items-center gap-1.5">
-                  <Cpu className="h-3.5 w-3.5 text-slate-400" /> ESP32 {c.esp32.online ? "online" : "offline"} • v{c.esp32.configVersion}
+                  <Cpu className="h-3.5 w-3.5 text-slate-400" /> ESP32 {c.esp32.online ? "online" : "offline"} • FW: {c.esp32.firmwareVersion || "v1.0.0"} • CFG: v{c.esp32.configVersion} • {c.esp32.hardwareModel || "Unknown HW"}
                 </span>
                 <span className="h-3 w-px bg-slate-200" />
                 <span>{ghs.length} greenhouses</span>

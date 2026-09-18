@@ -506,12 +506,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [componentId, type, duration_sec]
-              properties:
-                componentId: { type: string }
-                type: { type: string }
-                duration_sec: { type: integer }
+              $ref: "#/components/schemas/CalibrationRequest"
       responses:
         "200":
           description: Calibration started
@@ -541,8 +536,7 @@ paths:
                       data:
                         type: object
                         properties:
-                          state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
-                          remaining_sec: { type: integer }
+                          status: { $ref: "#/components/schemas/CalibrationStatus" }
 
   /api/v1/calibration/rate:
     get:
@@ -561,10 +555,7 @@ paths:
                       data:
                         type: object
                         properties:
-                          rateDosingAMlSec: { type: number }
-                          rateDosingBMlSec: { type: number }
-                          flowRawPulsesPerL: { type: number, description: "Raw water flow meter (ZJ-B1) calibration factor in pulses/L (0 = UNVERIFIED / CALIBRATION REQUIRED)" }
-                          flowFertPulsesPerL: { type: number, description: "Fertigation delivery flow meter (FS400A G1) calibration factor in pulses/L (F=4.5*Q -> 270 pulses/L)" }
+                          rates: { $ref: "#/components/schemas/CalibrationRates" }
     post:
       tags: [Calibration]
       operationId: setCalibrationRate
@@ -573,11 +564,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [componentId, rateMlPerSec]
-              properties:
-                componentId: { type: string }
-                rateMlPerSec: { type: number, minimum: 0.001 }
+              $ref: "#/components/schemas/SetCalibrationRateRequest"
       responses:
         "200":
           description: Calibration rate saved to NVS
@@ -790,13 +777,29 @@ components:
               type: object
               properties:
                 complex:
-                  type: object
-                  additionalProperties: true
+                  $ref: "#/components/schemas/Complex"
                 greenhouses:
                   type: array
                   items:
-                    type: object
-                    additionalProperties: true
+                    $ref: "#/components/schemas/Greenhouse"
+
+    Complex:
+      type: object
+      required: [complexId, name]
+      properties:
+        complexId: { type: string }
+        name: { type: string }
+        location: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, INACTIVE, FAULTED] }
+
+    Greenhouse:
+      type: object
+      required: [ghId, complexId, name]
+      properties:
+        ghId: { type: string }
+        complexId: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [ACTIVE, INACTIVE, FAULTED] }
 
     ClockResponse:
       allOf:
@@ -847,7 +850,7 @@ components:
                 inventoryVersion: { type: integer }
                 schemaVersion: { type: integer }
                 updatedAt: { type: string, format: date-time }
-                payload: { type: object, additionalProperties: true }
+                payload: { $ref: "#/components/schemas/ConfigurationPayload" }
 
     ValidateConfigurationRequest:
       type: object
@@ -860,7 +863,7 @@ components:
           required: [expectedVersion, configuration]
           properties:
             expectedVersion: { type: integer }
-            configuration: { type: object, additionalProperties: true }
+            configuration: { $ref: "#/components/schemas/ConfigurationPayload" }
 
     ApplyConfigurationRequest:
       type: object
@@ -873,21 +876,79 @@ components:
           required: [expectedVersion, configuration]
           properties:
             expectedVersion: { type: integer }
-    ScheduleItem:
+    Recipe:
       type: object
-      required: [id, enabled, type, action]
+      required: [recipeId, name, type]
       properties:
-        id: { type: string }
-        enabled: { type: boolean }
+        recipeId: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [FERTIGATION, IRRIGATION, MIXING] }
+        targetEc: { type: number, nullable: true }
+        targetPh: { type: number, nullable: true }
+        ratioA: { type: number, nullable: true }
+        ratioB: { type: number, nullable: true }
+        durationSec: { type: integer, nullable: true }
+        volumeMl: { type: integer, nullable: true }
+
+    Schedule:
+      type: object
+      required: [scheduleId, ownerId, priority, type, action]
+      properties:
+        scheduleId: { type: string }
+        ownerId: { type: string }
+        priority: { type: integer }
         type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
         action: { type: string, enum: [FERTIGATION, WATER_PUMP, FAN_TOGGLE, CUSTOM] }
-        durationSec: { type: integer }
-        hour: { type: integer, minimum: 0, maximum: 23 }
-        minute: { type: integer, minimum: 0, maximum: 59 }
-        daysOfWeek: { type: integer }
-        intervalMin: { type: integer }
-        lastExecutionTimestamp: { type: integer }
-        isRunning: { type: boolean }
+        recipeId: { type: string, nullable: true }
+        enabled: { type: boolean }
+        hour: { type: integer, minimum: 0, maximum: 23, nullable: true }
+        minute: { type: integer, minimum: 0, maximum: 59, nullable: true }
+        daysOfWeek: { type: integer, nullable: true }
+        intervalMin: { type: integer, nullable: true }
+        durationSec: { type: integer, nullable: true }
+        constraints:
+          type: array
+          items: { type: string }
+
+    CompiledSchedule:
+      type: object
+      required: [compiledId, scheduleId, status, resourceIds, startTimestamp, endTimestamp]
+      properties:
+        compiledId: { type: string }
+        scheduleId: { type: string }
+        status: { type: string, enum: [ACTIVE, BLOCKED, CONFLICT, EXECUTING, COMPLETED, CANCELLED] }
+        resourceIds:
+          type: array
+          items: { type: string }
+        startTimestamp: { type: integer }
+        endTimestamp: { type: integer }
+        conflictReason: { type: string, nullable: true }
+
+    ConfigurationPayload:
+      type: object
+      required: [complexId, version, updatedAt, assignments, schedules, recipes, topology, components]
+      properties:
+        complexId: { type: string }
+        version: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        components:
+          type: array
+          items: { $ref: "#/components/schemas/Component" }
+        assignments:
+          type: array
+          items: { $ref: "#/components/schemas/Assignment" }
+        schedules:
+          type: array
+          items: { $ref: "#/components/schemas/Schedule" }
+        recipes:
+          type: array
+          items: { $ref: "#/components/schemas/Recipe" }
+        topology:
+          type: array
+          items: { $ref: "#/components/schemas/Topology" }
+        settings:
+          type: object
+          additionalProperties: true
 
     ValidationResponse:
       allOf:
@@ -916,7 +977,11 @@ components:
           required: [commandId, type]
           properties:
             commandId: { type: string }
-            type: { type: string }
+            type: 
+              type: string
+              enum: [FERTIGATION_START, FERTIGATION_STOP, WATER_PUMP_TOGGLE, FAN_TOGGLE, CALIBRATION_START, EMERGENCY_STOP, CLEAR_FAULT, REBOOT]
+            targetGhId: { type: string, nullable: true }
+            componentId: { type: string, nullable: true }
             componentId: { type: string, nullable: true }
             durationSeconds: { type: integer, nullable: true }
             rawWaterVolumeMl: { type: integer, minimum: 0, nullable: true }
@@ -1125,19 +1190,119 @@ components:
                 notes: { type: string, nullable: true }
                 expectedVersion: { type: integer }
 
-    Component:
+    Capability:
       type: object
-      required: [componentId, scope, type, role, enabled, capabilities]
+      required: [capabilityId, type]
       properties:
-        componentId: { type: string }
-        scope: { type: string, enum: [COMPLEX, GREENHOUSE] }
-        ghId: { type: string, nullable: true }
+        capabilityId: { type: string }
         type: { type: string }
-        role: { type: string }
-        enabled: { type: boolean }
+        value: { type: string, nullable: true }
+
+    Resource:
+      type: object
+      required: [resourceId, type, componentId]
+      properties:
+        resourceId: { type: string }
+        type: { type: string }
+        componentId: { type: string }
         capabilities:
           type: array
-          items: { type: string }
+          items:
+            $ref: "#/components/schemas/Capability"
+
+    Assignment:
+      type: object
+      required: [assignmentId, resourceId, scope]
+      properties:
+        assignmentId: { type: string }
+        resourceId: { type: string }
+        scope: { type: string, enum: [COMPLEX, GREENHOUSE] }
+        ghId: { type: string, nullable: true }
+
+    Ownership:
+      type: object
+      required: [resourceId, ownerId, ownerType]
+      properties:
+        resourceId: { type: string }
+        ownerId: { type: string }
+        ownerType: { type: string, enum: [SCHEDULE, MANUAL, SYSTEM] }
+
+    Topology:
+      type: object
+      required: [sourceResourceId, targetResourceId, connectionType]
+      properties:
+        sourceResourceId: { type: string }
+        targetResourceId: { type: string }
+        connectionType: { type: string }
+
+    ComponentAssignment:
+      type: object
+      required: [complexId]
+      properties:
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+
+    ComponentWiring:
+      type: object
+      required: [interface]
+      properties:
+        interface: { type: string, enum: [GPIO, I2C, UART, SPI, ONE_WIRE, ANALOG, VIRTUAL] }
+        gpio: { type: integer, nullable: true }
+        channel: { type: integer, nullable: true }
+        address: { type: string, nullable: true }
+        port: { type: string, nullable: true }
+        polarity: { type: string, enum: [ACTIVE_HIGH, ACTIVE_LOW], nullable: true }
+
+    ComponentCommissioning:
+      type: object
+      properties:
+        commissionedAt: { type: string, format: date-time, nullable: true }
+        commissionedBy: { type: string, nullable: true }
+        result: { type: string, enum: [PASS, FAIL], nullable: true }
+        notes: { type: string, nullable: true }
+
+    Component:
+      type: object
+      required: [componentId, supportedTypeId, name, lifecycleState, deploymentStatus, parameters]
+      properties:
+        componentId: { type: string }
+        supportedTypeId: { type: string }
+        name: { type: string }
+        lifecycleState: 
+          type: string
+          enum: [REGISTERED, NOT_COMMISSIONED, COMMISSIONED, ENABLED, DISABLED, FAULTED, REMOVED]
+        deploymentStatus:
+          type: string
+          enum: [PENDING, APPLIED, FAILED, UNKNOWN]
+        assignment: { $ref: "#/components/schemas/ComponentAssignment", nullable: true }
+        wiring: { $ref: "#/components/schemas/ComponentWiring", nullable: true }
+        parameters: 
+          type: object
+          additionalProperties: true
+        commissioning: { $ref: "#/components/schemas/ComponentCommissioning", nullable: true }
+        role: { type: string, nullable: true }
+        resourceId: { type: string, nullable: true }
+
+    TelemetrySnapshot:
+      type: object
+      required: [complexId, timestamp, samples]
+      properties:
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time }
+        samples:
+          type: array
+          items:
+            type: object
+            required: [sequence, deviceTimestamp, componentId, value, unit, quality, measurementType]
+            properties:
+              sequence: { type: integer }
+              deviceTimestamp: { type: string, format: date-time }
+              componentId: { type: string }
+              value: { type: number }
+              unit: { type: string }
+              quality: { type: string, enum: [GOOD, UNCERTAIN, BAD] }
+              measurementType: { type: string, enum: [MEASURED, DERIVED, UNAVAILABLE, INVALID] }
 
     TelemetryResponse:
       allOf:
@@ -1145,21 +1310,21 @@ components:
         - type: object
           properties:
             data:
-              type: object
-              properties:
-                samples:
-                  type: array
-                  items:
-                    type: object
-                    required: [sequence, deviceTimestamp, componentId, value, unit, quality, measurementType]
-                    properties:
-                      sequence: { type: integer }
-                      deviceTimestamp: { type: string, format: date-time }
-                      componentId: { type: string }
-                      value: { type: number }
-                      unit: { type: string }
-                      quality: { type: string }
-                      measurementType: { type: string, enum: [MEASURED, DERIVED, UNAVAILABLE, INVALID] }
+              $ref: "#/components/schemas/TelemetrySnapshot"
+
+    Event:
+      type: object
+      required: [eventId, sequence, deviceTimestamp, eventType, severity]
+      properties:
+        eventId: { type: string }
+        sequence: { type: integer }
+        deviceTimestamp: { type: string, format: date-time }
+        eventType: { type: string }
+        severity: { type: string, enum: [INFO, WARNING, FAULT, CRITICAL] }
+        complexId: { type: string, nullable: true }
+        ghId: { type: string, nullable: true }
+        componentId: { type: string, nullable: true }
+        payload: { type: object, additionalProperties: true }
 
     EventResponse:
       allOf:
@@ -1172,18 +1337,98 @@ components:
                 events:
                   type: array
                   items:
-                    type: object
-                    required: [eventId, sequence, deviceTimestamp, eventType, severity]
-                    properties:
-                      eventId: { type: string }
-                      sequence: { type: integer }
-                      deviceTimestamp: { type: string, format: date-time }
-                      eventType: { type: string }
-                      severity: { type: string }
-                      componentId: { type: string, nullable: true }
-                      payload: { type: object, additionalProperties: true }
+                    $ref: "#/components/schemas/Event"
                 nextSequence: { type: integer, nullable: true }
                 hasMore: { type: boolean }
+
+    FertigationRun:
+      type: object
+      required: [runId, recipeId, ghId, status]
+      properties:
+        runId: { type: string }
+        recipeId: { type: string }
+        ghId: { type: string }
+        status: { type: string, enum: [PENDING, MIXING, DOSING, DELIVERY, COMPLETED, CANCELLED, FAULTED] }
+        targetWaterL: { type: number, nullable: true }
+        actualWaterL: { type: number, nullable: true }
+        targetDosingAMl: { type: number, nullable: true }
+        actualDosingAMl: { type: number, nullable: true }
+        targetDosingBMl: { type: number, nullable: true }
+        actualDosingBMl: { type: number, nullable: true }
+        startTimestamp: { type: string, format: date-time, nullable: true }
+        endTimestamp: { type: string, format: date-time, nullable: true }
+        progressPct: { type: integer, minimum: 0, maximum: 100, nullable: true }
+
+    CalibrationRequest:
+      type: object
+      required: [componentId, type, durationSec]
+      properties:
+        componentId: { type: string }
+        type: { type: string, enum: [DOSING_A, DOSING_B, FLOW_RAW, FLOW_FERT, SENSOR_PH, SENSOR_EC] }
+        durationSec: { type: integer, minimum: 1 }
+
+    CalibrationStatus:
+      type: object
+      required: [state, remainingSec]
+      properties:
+        state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
+        remainingSec: { type: integer, minimum: 0 }
+        measuredValue: { type: number, nullable: true }
+
+    CalibrationRates:
+      type: object
+      required: [rateDosingAMlSec, rateDosingBMlSec, flowRawPulsesPerL, flowFertPulsesPerL]
+      properties:
+        rateDosingAMlSec: { type: number, minimum: 0 }
+        rateDosingBMlSec: { type: number, minimum: 0 }
+        flowRawPulsesPerL: { type: number, minimum: 0 }
+        flowFertPulsesPerL: { type: number, minimum: 0 }
+
+    SetCalibrationRateRequest:
+      type: object
+      required: [componentId, rateValue]
+      properties:
+        componentId: { type: string }
+        rateValue: { type: number, minimum: 0.001 }
+
+    Plant:
+      type: object
+      required: [plantId, cycleId, ghId, plantTag, status, plantedAt]
+      properties:
+        plantId: { type: string }
+        cycleId: { type: string }
+        ghId: { type: string }
+        plantTag: { type: string }
+        status: { type: string, enum: [HEALTHY, SICK, DEAD, HARVESTED] }
+        plantedAt: { type: string, format: date-time }
+        mortalityDate: { type: string, format: date-time, nullable: true }
+        mortalityReason: { type: string, nullable: true }
+
+    Fruit:
+      type: object
+      required: [fruitId, plantId, cycleId, status, taggedAt]
+      properties:
+        fruitId: { type: string }
+        plantId: { type: string }
+        cycleId: { type: string }
+        status: { type: string, enum: [DEVELOPING, HARVESTED, DROPPED, CULLED] }
+        taggedAt: { type: string, format: date-time }
+        harvestedAt: { type: string, format: date-time, nullable: true }
+        weightG: { type: number, nullable: true }
+        qualityGrade: { type: string, nullable: true }
+
+    Observation:
+      type: object
+      required: [observationId, plantId, cycleId, timestamp, heightCm, leafCount, fruitCount]
+      properties:
+        observationId: { type: string }
+        plantId: { type: string }
+        cycleId: { type: string }
+        timestamp: { type: string, format: date-time }
+        heightCm: { type: number }
+        leafCount: { type: integer }
+        fruitCount: { type: integer }
+        notes: { type: string, nullable: true }
 
     ErrorResponse:
       allOf:

@@ -17,25 +17,57 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
+SP-M3-000 Active Configuration Authority Verification Gate (M3.0)
+
+
+---
+
+## Safe Point Record: SP-M3-000
+- **ID**: SP-M3-000
+- **Objective**: M3.0 Active Configuration Authority Verification Gate & Documentation Governance Sync.
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Applied documentation governance mandate patch: consolidated documentation into single canonical tree docs/, eliminated duplicate mirrors under esp32/docs/, updated .agents/rules/DOCUMENTATION_MANDATE.md, AGENTS.md, and GEMINI.md.
+  2. Implemented M3.0 Active Configuration Authority verification gate:
+     - Established Active Configuration Snapshot (NVS lvc_json) as the single source of truth for installed components.
+     - Updated esp32/main/http/api_device_handlers.c so GET /api/v1/inventory directly reflects active configuration state.
+     - Updated esp32/main/hal/hardware_registry.c with robust clearing, parsing, and atomic validation isolation.
+     - Enforced frontend authority path: hardwareService queries ESP32 REST API /api/v1/inventory, keeping localStorage out of the component authority path.
+     - Updated contracts/UI_ESP32_OPENAPI.yaml and OpenAPI schema definitions.
+     - Created M3.0 behavioral test suite scripts/test_m3_configuration_authority.mjs verifying:
+       - Authority definition (active config defines inventory, component removal, unknown ID error)
+       - Logical ID resolution (multiple instances, distinct bindings)
+       - Registry integrity (idempotent rebuild, reload from persisted config, corruption recovery)
+       - Override protection (stale bootstrap config cannot override active config, empty active config valid)
+       - Candidate vs Active isolation (validate-only does not mutate runtime)
+       - Lifecycle preservation (REMOVED lifecycle retained, no silent fallback).
+- **Verification Result**:
+  - node scripts/test_m3_configuration_authority.mjs --mock: 18 PASS | 0 FAIL | 1 BLOCKED (live hardware)
+  - node scripts/test_m2_hardware_management.mjs: 26 PASS | 0 FAIL
+  - npm test -- --mock: PASS (All 25 endpoints, 26 HTTP handlers, E2E contracts)
+  - npm run build: PASS (TypeScript + Vite bundle built 864.03 kB)
+- **Known Issues**:
+  - Live hardware reboot persistence and live REST endpoints are blocked until physical ESP32 hardware is connected.
+- **Next Safe Point / Action**:
+  - M3.1 Configuration Schema Validation (ESP32 + frontend).
 
 
 ---
 
 ## Safe Point Record: SP-API-007
 - **ID**: SP-API-007
-- **Objective**: M2.16-M2.26 Re-Audit — Hardware Component Management API & ESP32 Registry (Behavioral Verification).
+- **Objective**: M2.16-M2.26 Re-Audit ï¿½ Hardware Component Management API & ESP32 Registry (Behavioral Verification).
 - **Date**: 2026-09-18
 - **Completed Work**:
   1. Root-caused build failure: previous session corrupted command_mgr.h and scheduler.h headers by replacing correct enum values. Restored with git checkout.
   2. Confirmed ESP-IDF v5.5.5 available at D:\Espressif\ (python_env: idf5.5_py3.11_env).
-  3. Firmware build: PASS — grotech_esp32.bin 0xf65e0 bytes, 68% free flash (0 compile errors).
+  3. Firmware build: PASS ï¿½ grotech_esp32.bin 0xf65e0 bytes, 68% free flash (0 compile errors).
   4. Extended hardware_registry.h/.c with:
-     - hardware_registry_find_by_id() — logical ID lookup (M2.23).
-     - hardware_registry_resolve_gpio() / esolve_channel() — dynamic wiring resolution (M2.24).
-     - hardware_registry_is_operational() — lifecycle state check (M2.25).
-     - hardware_registry_update_lifecycle() — runtime lifecycle update.
-     - hardware_registry_clear() — clear active registry.
+     - hardware_registry_find_by_id() ï¿½ logical ID lookup (M2.23).
+     - hardware_registry_resolve_gpio() / esolve_channel() ï¿½ dynamic wiring resolution (M2.24).
+     - hardware_registry_is_operational() ï¿½ lifecycle state check (M2.25).
+     - hardware_registry_update_lifecycle() ï¿½ runtime lifecycle update.
+     - hardware_registry_clear() ï¿½ clear active registry.
      - hardware_hal_init_all() fallback: tries storage_mgr_load_components_json() if storage_mgr_load_config() returns empty.
   5. Extended pi_config_handlers.c with:
      - M2.17 validation: componentId non-empty, max 32 chars, no duplicates.
@@ -43,10 +75,10 @@ SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
      - M2.19 validation: assignment.complexId required when present.
      - M2.20 & M2.26: hardware_registry_load_from_json() called immediately after storage_mgr_save_config() in PUT /configuration to keep active registry consistent with persisted config.
   6. Extended ctuator_hal.c with:
-     - s_actuator_component_ids[] — stable default logical-ID to enum mapping.
+     - s_actuator_component_ids[] ï¿½ stable default logical-ID to enum mapping.
      - M2.24: Dynamic GPIO re-binding inside ctuator_hal_set() using hardware_registry_find_by_id().
-     - M2.25: Lifecycle state blocking in ctuator_hal_set() — COMMISSIONED/ENABLED only.
-     - ctuator_hal_set_by_component_id() — new function for logical ID dispatch with lifecycle check.
+     - M2.25: Lifecycle state blocking in ctuator_hal_set() ï¿½ COMMISSIONED/ENABLED only.
+     - ctuator_hal_set_by_component_id() ï¿½ new function for logical ID dispatch with lifecycle check.
   7. Added ctuator_hal_set_by_component_id() declaration in ctuator_hal.h.
   8. Fixed src/lib/services.ts getDynamicDosingPumps to use supportedTypeId / lifecycleState (InstalledComponent domain model, not legacy 	ype/status fields).
   9. Fixed src/lib/api/contracts.ts Schedule interface: made id, scheduleId, ownerId, priority optional for backward compatibility with existing service call sites.
@@ -54,29 +86,29 @@ SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
   11. Wrote behavioral test suite scripts/test_m2_hardware_management.mjs with 26 tests covering all M2.16-M2.26 criteria.
   12. Updated IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md with truthful [x] / [!] statuses backed by test evidence.
 - **Verification Result**:
-  - Behavioral audit suite (scripts/test_m2_hardware_management.mjs): PASS — 26/26 tests.
-  - ESP32 firmware build (idf.py build): PASS — 0 errors, 2 warnings (unused TAG variables, non-blocking).
-  - Frontend build (npm run build): PASS — 863.74 kB dist/index.html, 0 errors.
+  - Behavioral audit suite (scripts/test_m2_hardware_management.mjs): PASS ï¿½ 26/26 tests.
+  - ESP32 firmware build (idf.py build): PASS ï¿½ 0 errors, 2 warnings (unused TAG variables, non-blocking).
+  - Frontend build (npm run build): PASS ï¿½ 863.74 kB dist/index.html, 0 errors.
   - OpenAPI contract + handler registration (npm test -- --mock): PASS.
-  - Live ESP32 REST test: BLOCKED — no hardware connected (no COM port detected).
-  - Physical reboot persistence: BLOCKED — same reason.
+  - Live ESP32 REST test: BLOCKED ï¿½ no hardware connected (no COM port detected).
+  - Physical reboot persistence: BLOCKED ï¿½ same reason.
 - **Changed Files**:
-  - esp32/main/hal/hardware_registry.h — added find_by_id, resolve_gpio, resolve_channel, is_operational, update_lifecycle, clear
-  - esp32/main/hal/hardware_registry.c — implemented above + SPIFFS fallback + empty registry warning
-  - esp32/main/hal/actuator_hal.h — added actuator_hal_set_by_component_id declaration
-  - esp32/main/hal/actuator_hal.c — M2.24 dynamic GPIO rebinding, M2.25 lifecycle blocking, set_by_component_id
-  - esp32/main/http/api_config_handlers.c — M2.17/18/19 validation, M2.20/26 registry reload on save
-  - esp32/main/services/command_mgr.h — RESTORED to last good git state (was corrupted by previous session)
-  - esp32/main/services/scheduler.h — RESTORED to last good git state (was corrupted by previous session)
-  - src/lib/services.ts — getDynamicDosingPumps type-corrected, hardwareService exported
-  - src/lib/api/contracts.ts — Schedule interface made backward-compatible
-  - scripts/test_m2_hardware_management.mjs — NEW behavioral test suite
-  - IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md — truthful M2.16-M2.26 statuses
+  - esp32/main/hal/hardware_registry.h ï¿½ added find_by_id, resolve_gpio, resolve_channel, is_operational, update_lifecycle, clear
+  - esp32/main/hal/hardware_registry.c ï¿½ implemented above + SPIFFS fallback + empty registry warning
+  - esp32/main/hal/actuator_hal.h ï¿½ added actuator_hal_set_by_component_id declaration
+  - esp32/main/hal/actuator_hal.c ï¿½ M2.24 dynamic GPIO rebinding, M2.25 lifecycle blocking, set_by_component_id
+  - esp32/main/http/api_config_handlers.c ï¿½ M2.17/18/19 validation, M2.20/26 registry reload on save
+  - esp32/main/services/command_mgr.h ï¿½ RESTORED to last good git state (was corrupted by previous session)
+  - esp32/main/services/scheduler.h ï¿½ RESTORED to last good git state (was corrupted by previous session)
+  - src/lib/services.ts ï¿½ getDynamicDosingPumps type-corrected, hardwareService exported
+  - src/lib/api/contracts.ts ï¿½ Schedule interface made backward-compatible
+  - scripts/test_m2_hardware_management.mjs ï¿½ NEW behavioral test suite
+  - IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md ï¿½ truthful M2.16-M2.26 statuses
 - **Known Issues**:
-  - Physical reboot persistence (M2.22) unverified — requires bench flash.
-  - pi_calibration_handlers.c and pi_schedule_handlers.c have unused TAG warnings — cosmetic only, do not block build.
+  - Physical reboot persistence (M2.22) unverified ï¿½ requires bench flash.
+  - pi_calibration_handlers.c and pi_schedule_handlers.c have unused TAG warnings ï¿½ cosmetic only, do not block build.
   - s_actuator_component_ids[] maps to default logical IDs; production commissioning must use configured componentIds via PUT /configuration.
-- **Next Safe Point / Next Action**: M3 — Configuration Engine (schema validation, semantic validation, ESP32 config parser/storage).
+- **Next Safe Point / Next Action**: M3 ï¿½ Configuration Engine (schema validation, semantic validation, ESP32 config parser/storage).
 ## Safe Point Index
 - [x] SP-API-006 Hardware Component Management API & ESP32 Registry (M2.16-M2.26)
 - [x] SP-API-005 Hardware Component Management UI (M2.1-M2.15)

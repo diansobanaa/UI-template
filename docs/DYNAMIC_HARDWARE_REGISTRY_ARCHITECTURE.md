@@ -49,7 +49,7 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "AgroTechHardwareComponents",
+  "title": "AgroTechConfiguration",
   "type": "object",
   "required": ["version", "components"],
   "properties": {
@@ -59,30 +59,38 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["componentId", "name", "type", "role", "interface", "safetyClass", "status"],
+        "required": ["componentId", "supportedTypeId", "name", "lifecycleState", "deploymentStatus"],
         "properties": {
           "componentId": { "type": "string" },
+          "supportedTypeId": { "type": "string" },
           "name": { "type": "string" },
-          "type": { 
+          "lifecycleState": { 
             "type": "string", 
-            "enum": ["PUMP", "ACTUATOR", "SENSOR", "FLOW_METER", "INDICATOR", "INPUT"] 
+            "enum": ["REGISTERED", "NOT_COMMISSIONED", "COMMISSIONED", "ENABLED", "DISABLED", "FAULTED", "REMOVED"] 
           },
-          "role": { "type": "string" },
-          "interface": { 
+          "deploymentStatus": { 
             "type": "string", 
-            "enum": ["GPIO", "I2C_PCA9685", "ONE_WIRE", "PULSE"] 
+            "enum": ["PENDING", "APPLIED", "FAILED", "UNKNOWN"] 
           },
-          "pin": { "type": "integer", "minimum": 0, "maximum": 48 },
-          "channel": { "type": "integer", "minimum": 0, "maximum": 15 },
-          "activeLevel": { "type": "string", "enum": ["ACTIVE_LOW", "ACTIVE_HIGH"] },
-          "safetyClass": { 
-            "type": "string", 
-            "enum": ["CRITICAL", "NORMAL", "MONITORING"] 
+          "wiring": {
+            "type": "object",
+            "properties": {
+              "interface": { "type": "string", "enum": ["GPIO", "I2C", "UART", "SPI", "ONE_WIRE", "ANALOG", "VIRTUAL"] },
+              "gpio": { "type": "integer" },
+              "channel": { "type": "integer" },
+              "address": { "type": "string" },
+              "port": { "type": "string" },
+              "polarity": { "type": "string", "enum": ["ACTIVE_LOW", "ACTIVE_HIGH"] }
+            }
           },
-          "status": { 
-            "type": "string", 
-            "enum": ["AVAILABLE", "OFFLINE", "DISABLED"] 
-          }
+          "assignment": {
+            "type": "object",
+            "properties": {
+              "complexId": { "type": "string" },
+              "ghId": { "type": "string" }
+            }
+          },
+          "parameters": { "type": "object" }
         }
       }
     }
@@ -96,21 +104,11 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
   "version": 1,
   "updatedAt": "2026-09-16T00:00:00Z",
   "components": [
-    { "componentId": "pump_well",        "name": "Well Pump",            "type": "PUMP",       "role": "WELL_PUMP",       "interface": "GPIO", "pin": 1,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "pump_dist",        "name": "Distribution Pump",    "type": "PUMP",       "role": "DIST_PUMP",       "interface": "GPIO", "pin": 2,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "pump_submersible", "name": "Raw Submersible Pump", "type": "PUMP",       "role": "RAW_SUBMERSIBLE", "interface": "GPIO", "pin": 4,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
-    { "componentId": "pump_dosing_a",    "name": "Dosing Pump A",        "type": "PUMP",       "role": "DOSING_A",        "interface": "GPIO", "pin": 5,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "pump_dosing_b",    "name": "Dosing Pump B",        "type": "PUMP",       "role": "DOSING_B",        "interface": "GPIO", "pin": 6,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "fan_cooling",      "name": "Cooling Fan",          "type": "ACTUATOR",   "role": "COOLING_FAN",     "interface": "GPIO", "pin": 7,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
-    { "componentId": "lamp_error",       "name": "Error Lamp",           "type": "INDICATOR",  "role": "ERROR_LAMP",      "interface": "GPIO", "pin": 18, "activeLevel": "ACTIVE_LOW",  "safetyClass": "MONITORING", "status": "AVAILABLE" },
-    { "componentId": "flow_zjb1",        "name": "ZJ-B1 Raw Flow Meter", "type": "FLOW_METER", "role": "FLOW_RAW",        "interface": "PULSE","pin": 15, "activeLevel": "ACTIVE_HIGH", "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "flow_fs400a",      "name": "FS400A Fert Flow Meter","type": "FLOW_METER", "role": "FLOW_FERTIGATION", "interface": "PULSE","pin": 16, "activeLevel": "ACTIVE_HIGH", "safetyClass": "MONITORING", "status": "AVAILABLE" },
-    { "componentId": "temp_ds18b20",     "name": "DS18B20 Temp Sensor",  "type": "SENSOR",     "role": "WATER_TEMP",      "interface": "ONE_WIRE", "pin": 17, "activeLevel": "ACTIVE_HIGH", "safetyClass": "MONITORING", "status": "AVAILABLE" },
-    { "componentId": "float_lower",      "name": "Lower Float Switch",   "type": "SENSOR",     "role": "TANK_LEVEL_LOW",  "interface": "GPIO", "pin": 38, "activeLevel": "ACTIVE_LOW",  "safetyClass": "CRITICAL",   "status": "AVAILABLE" },
-    { "componentId": "btn_mode",         "name": "Mode Button",          "type": "INPUT",      "role": "BTN_MODE",        "interface": "GPIO", "pin": 0,  "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
-    { "componentId": "btn_manual_a",     "name": "Manual A Button",      "type": "INPUT",      "role": "BTN_MAN_A",       "interface": "GPIO", "pin": 39, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
-    { "componentId": "btn_manual_b",     "name": "Manual B Button",      "type": "INPUT",      "role": "BTN_MAN_B",       "interface": "GPIO", "pin": 40, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" },
-    { "componentId": "btn_dist",         "name": "Distribution Button",  "type": "INPUT",      "role": "BTN_DIST",        "interface": "GPIO", "pin": 41, "activeLevel": "ACTIVE_LOW",  "safetyClass": "NORMAL",     "status": "AVAILABLE" }
+    { "componentId": "pump_well",        "name": "Well Pump",            "supportedTypeId": "pump-12v-dc", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "wiring": { "interface": "GPIO", "gpio": 1, "polarity": "ACTIVE_LOW" } },
+    { "componentId": "pump_dist",        "name": "Distribution Pump",    "supportedTypeId": "pump-12v-dc", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "wiring": { "interface": "GPIO", "gpio": 2, "polarity": "ACTIVE_LOW" } },
+    { "componentId": "pump_submersible", "name": "Raw Submersible Pump", "supportedTypeId": "pump-12v-dc", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "wiring": { "interface": "GPIO", "gpio": 4, "polarity": "ACTIVE_LOW" } },
+    { "componentId": "pump_dosing_a",    "name": "Dosing Pump A",        "supportedTypeId": "pump-12v-dc", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "wiring": { "interface": "GPIO", "gpio": 5, "polarity": "ACTIVE_LOW" } },
+    { "componentId": "pump_dosing_b",    "name": "Dosing Pump B",        "supportedTypeId": "pump-12v-dc", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "wiring": { "interface": "GPIO", "gpio": 6, "polarity": "ACTIVE_LOW" } }
     /* =========================================================================
      * BOOKED / DEFERRED COMPONENT: Dual Greenhouse Exhaust Blower Fans
      * Status: BOOKED / PROVISIONED (Investasi Menyusul / Belum Terpasang Fisik)
@@ -146,7 +144,7 @@ Use this pathway when adding extra actuators and spare channels are available.
   5. Connect Actuator (e.g. Dosing Pump C) to output terminals.
   6. In `components.json`, add:
      ```json
-     { "componentId": "pump_dosing_c", "name": "Dosing Pump C", "type": "PUMP", "role": "DOSING_C", "interface": "GPIO", "pin": 4, "channel": 3, "activeLevel": "ACTIVE_LOW", "safetyClass": "NORMAL", "status": "AVAILABLE" }
+     { "componentId": "pump_dosing_c", "name": "Dosing Pump C", "supportedTypeId": "pump-12v-dc", "lifecycleState": "REGISTERED", "deploymentStatus": "PENDING", "wiring": { "interface": "GPIO", "gpio": 4, "channel": 3, "polarity": "ACTIVE_LOW" } }
      ```
   7. Upload `components.json` to ESP32 via API or restart device.
 
@@ -190,13 +188,14 @@ ESP32-S3 Board                  PCA9685 16-Ch Module           MOSFET Drivers & 
 {
   "componentId": "pump_dosing_10",
   "name": "Trace Elements Micronutrient",
-  "type": "PUMP",
-  "role": "DOSING_MICRONUTRIENT",
-  "interface": "I2C_PCA9685",
-  "channel": 9,
-  "activeLevel": "ACTIVE_HIGH",
-  "safetyClass": "NORMAL",
-  "status": "AVAILABLE"
+  "supportedTypeId": "pump-12v-dc",
+  "lifecycleState": "COMMISSIONED",
+  "deploymentStatus": "APPLIED",
+  "wiring": {
+    "interface": "I2C",
+    "channel": 9,
+    "polarity": "ACTIVE_HIGH"
+  }
 }
 ```
 

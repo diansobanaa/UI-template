@@ -2,9 +2,9 @@ import type {
   ClockSyncRequest,
   CommandReceipt,
   ConfigurationValidation,
-  Esp32Configuration,
+  ConfigurationPayload,
   Esp32EventLog,
-  Esp32Inventory,
+  InventoryResponse,
   SyncSnapshot,
   TelemetrySnapshot,
   HardwarePortConfig,
@@ -23,20 +23,20 @@ export class PythonClient {
     return apiGet<SyncSnapshot>(`/complexes/${encodeURIComponent(complexId)}/sync-snapshot`, this.config);
   }
 
-  async getInventory(complexId: string): Promise<Esp32Inventory> {
-    return apiGet<Esp32Inventory>(`/complexes/${encodeURIComponent(complexId)}/esp32/inventory`, this.config);
+  async getInventory(complexId: string): Promise<InventoryResponse> {
+    return apiGet<InventoryResponse>(`/complexes/${encodeURIComponent(complexId)}/esp32/inventory`, this.config);
   }
 
-  async getConfiguration(complexId: string): Promise<Esp32Configuration> {
-    return apiGet<Esp32Configuration>(`/complexes/${encodeURIComponent(complexId)}/esp32/configuration`, this.config);
+  async getConfiguration(complexId: string): Promise<ConfigurationPayload> {
+    return apiGet<ConfigurationPayload>(`/complexes/${encodeURIComponent(complexId)}/esp32/configuration`, this.config);
   }
 
-  async validateConfiguration(complexId: string, configuration: Esp32Configuration): Promise<ConfigurationValidation> {
+  async validateConfiguration(complexId: string, configuration: ConfigurationPayload): Promise<ConfigurationValidation> {
     return apiPost<ConfigurationValidation>(`/complexes/${encodeURIComponent(complexId)}/esp32/configuration/validate`, configuration, this.config);
   }
 
-  async saveConfiguration(complexId: string, configuration: Esp32Configuration): Promise<Esp32Configuration> {
-    return apiPut<Esp32Configuration>(`/complexes/${encodeURIComponent(complexId)}/esp32/configuration`, configuration, this.config);
+  async saveConfiguration(complexId: string, configuration: ConfigurationPayload): Promise<ConfigurationPayload> {
+    return apiPut<ConfigurationPayload>(`/complexes/${encodeURIComponent(complexId)}/esp32/configuration`, configuration, this.config);
   }
 
   async getTelemetry(complexId: string, greenhouseId?: string): Promise<TelemetrySnapshot> {

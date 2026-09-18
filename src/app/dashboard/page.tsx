@@ -788,7 +788,7 @@ function ComplexDashboardContent() {
       </div>
       <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
         <MonitorCog className="h-3.5 w-3.5" />
-        Last sync {complex.esp32.lastSync} • Config v{complex.esp32.configVersion} • Local time {MOCK_NOW.time} • v0.1.0
+        Last sync {complex.esp32.lastSync} • Config v{complex.esp32.configVersion} • FW {complex.esp32.firmwareVersion || "v1.0.0"} • HW {complex.esp32.hardwareModel || "Unknown"} • Local time {MOCK_NOW.time}
       </div>
       <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-400">
         <Leaf className="h-3.5 w-3.5" />
