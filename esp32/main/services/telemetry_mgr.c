@@ -34,14 +34,20 @@ static void telemetry_sampler_task(void *pvParameters)
 
         s_snapshot.temp_valid = (sensors.temp_state == SENSOR_STATE_VALID);
         s_snapshot.temperature_c = sensors.temperature_c;
-        s_snapshot.humidity_pct = 68.5f; /* Default greenhouse humidity baseline */
-        s_snapshot.light_lux = 45000.0f; /* Daytime lux baseline */
-        s_snapshot.water_level_pct = sensors.float_lower_ok ? 82.0f : 12.0f;
+        /* No physical humidity or lux sensor in BOM (HARDWARE_INVENTORY.md) -> marked invalid/null */
+        s_snapshot.humidity_pct = 0.0f;
+        s_snapshot.humidity_valid = false;
+        s_snapshot.light_lux = 0.0f;
+        s_snapshot.light_valid = false;
+        s_snapshot.float_lower_ok = sensors.float_lower_ok;
+        s_snapshot.water_level_pct = sensors.float_lower_ok ? 100.0f : 0.0f;
         s_snapshot.flow_rate_lpm = sensors.flow_rate_fs400a_lpm;
         s_snapshot.total_liters = sensors.total_liters_fs400a;
 
         s_snapshot.well_pump_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
         s_snapshot.dist_pump_on = actuator_hal_get_state(ACTUATOR_DIST_PUMP);
+        s_snapshot.raw_submersible_on = actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE);
+        s_snapshot.mixing_pump_on = actuator_hal_get_state(ACTUATOR_MIXING_PUMP);
         s_snapshot.dosing_a_on = actuator_hal_get_state(ACTUATOR_DOSING_A);
         s_snapshot.dosing_b_on = actuator_hal_get_state(ACTUATOR_DOSING_B);
         s_snapshot.fan_on = actuator_hal_get_state(ACTUATOR_COOLING_FAN);
@@ -95,8 +101,17 @@ cJSON *telemetry_mgr_to_json(const char *greenhouse_id)
     } else {
         cJSON_AddNullToObject(vals, "temperatureC");
     }
-    cJSON_AddNumberToObject(vals, "humidityPct", snap.humidity_pct);
-    cJSON_AddNumberToObject(vals, "lightLux", snap.light_lux);
+    if (snap.humidity_valid) {
+        cJSON_AddNumberToObject(vals, "humidityPct", snap.humidity_pct);
+    } else {
+        cJSON_AddNullToObject(vals, "humidityPct");
+    }
+    if (snap.light_valid) {
+        cJSON_AddNumberToObject(vals, "lightLux", snap.light_lux);
+    } else {
+        cJSON_AddNullToObject(vals, "lightLux");
+    }
+    cJSON_AddBoolToObject(vals, "floatLowerOk", snap.float_lower_ok);
     cJSON_AddNumberToObject(vals, "waterLevelPct", snap.water_level_pct);
     cJSON_AddNumberToObject(vals, "flowRateLpm", snap.flow_rate_lpm);
     cJSON_AddNumberToObject(vals, "totalLiters", snap.total_liters);
@@ -112,6 +127,31 @@ cJSON *telemetry_mgr_to_json(const char *greenhouse_id)
     cJSON_AddBoolToObject(dp, "value", snap.dist_pump_on);
     cJSON_AddStringToObject(dp, "state", snap.dist_pump_on ? "RUNNING" : "STOPPED");
     cJSON_AddStringToObject(dp, "recordedAt", snap.timestamp);
+
+    cJSON *rs = cJSON_AddObjectToObject(comps, "rawSubmersible");
+    cJSON_AddBoolToObject(rs, "value", snap.raw_submersible_on);
+    cJSON_AddStringToObject(rs, "state", snap.raw_submersible_on ? "RUNNING" : "STOPPED");
+    cJSON_AddStringToObject(rs, "recordedAt", snap.timestamp);
+
+    cJSON *mp = cJSON_AddObjectToObject(comps, "mixingPump");
+    cJSON_AddBoolToObject(mp, "value", snap.mixing_pump_on);
+    cJSON_AddStringToObject(mp, "state", snap.mixing_pump_on ? "RUNNING" : "STOPPED");
+    cJSON_AddStringToObject(mp, "recordedAt", snap.timestamp);
+
+    cJSON *da = cJSON_AddObjectToObject(comps, "dosingA");
+    cJSON_AddBoolToObject(da, "value", snap.dosing_a_on);
+    cJSON_AddStringToObject(da, "state", snap.dosing_a_on ? "RUNNING" : "STOPPED");
+    cJSON_AddStringToObject(da, "recordedAt", snap.timestamp);
+
+    cJSON *db = cJSON_AddObjectToObject(comps, "dosingB");
+    cJSON_AddBoolToObject(db, "value", snap.dosing_b_on);
+    cJSON_AddStringToObject(db, "state", snap.dosing_b_on ? "RUNNING" : "STOPPED");
+    cJSON_AddStringToObject(db, "recordedAt", snap.timestamp);
+
+    cJSON *cf = cJSON_AddObjectToObject(comps, "coolingFan");
+    cJSON_AddBoolToObject(cf, "value", snap.fan_on);
+    cJSON_AddStringToObject(cf, "state", snap.fan_on ? "RUNNING" : "STOPPED");
+    cJSON_AddStringToObject(cf, "recordedAt", snap.timestamp);
 
     return root;
 }

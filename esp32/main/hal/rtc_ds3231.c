@@ -63,7 +63,7 @@ esp_err_t rtc_ds3231_init(void)
     i2c_cmd_link_delete(cmd);
 
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "DS3231 RTC not detected on I2C bus (probe err=0x%x). Operating in degraded time mode.", ret);
+        ESP_LOGI(TAG, "Hardware RTC (DS3231) not present on I2C bus. Operating in degraded time mode (SNTP fallback).");
         i2c_driver_delete(I2C_PORT_NUM);
         return ESP_ERR_NOT_FOUND;
     }
@@ -155,13 +155,14 @@ esp_err_t rtc_ds3231_sync_to_system(void)
         struct timeval now = { .tv_sec = t, .tv_usec = 0 };
         settimeofday(&now, NULL);
         ESP_LOGI(TAG, "System time synced from DS3231: %s", asctime(&timeinfo));
-
-        /* Configure SNTP fallback */
-        esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-        esp_sntp_setservername(0, "pool.ntp.org");
-        esp_sntp_init();
     } else {
-        ESP_LOGW(TAG, "Cannot sync system time from DS3231: %s", esp_err_to_name(err));
+        ESP_LOGI(TAG, "Hardware RTC time not available (%s); relying exclusively on SNTP.", esp_err_to_name(err));
     }
+
+    /* Configure SNTP fallback regardless of hardware RTC presence */
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+
     return err;
 }

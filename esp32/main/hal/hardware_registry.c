@@ -20,14 +20,14 @@ static const hw_component_info_t s_default_components[] = {
     { "pump_dosing_b",    "Dosing Pump B",         "PUMP",        "DOSING_B",         "GPIO",     PIN_OUT_DOSING_B,        0, "CRITICAL",   "AVAILABLE" },
     { "fan_cooling",      "Cooling Fan",           "ACTUATOR",    "COOLING_FAN",      "GPIO",     PIN_OUT_COOLING_FAN,     0, "NORMAL",     "AVAILABLE" },
     { "lamp_error",       "Error Lamp",            "INDICATOR",   "ERROR_LAMP",       "GPIO",     PIN_OUT_ERROR_LAMP,      0, "MONITORING", "AVAILABLE" },
-    { "flow_yfb1",        "YF-B1 Flow Meter",      "FLOW_METER",  "FLOW_DOSING",      "PULSE",    PIN_IN_FLOW_YFB1,        0, "MONITORING", "AVAILABLE" },
-    { "flow_fs400a",      "FS400A Flow Meter",     "FLOW_METER",  "FLOW_DIST",        "PULSE",    PIN_IN_FLOW_FS400A,      0, "MONITORING", "AVAILABLE" },
+    { "flow_zjb1",        "ZJ-B1 Flow Meter",      "FLOW_METER",  "FLOW_RAW",         "PULSE",    PIN_IN_FLOW_RAW_ZJB1,    0, "MONITORING", "AVAILABLE" },
+    { "flow_fs400a",      "FS400A Flow Meter",     "FLOW_METER",  "FLOW_FERTIGATION", "PULSE",    PIN_IN_FLOW_FERT_FS400A, 0, "MONITORING", "AVAILABLE" },
     { "temp_ds18b20",     "DS18B20 Temp Sensor",   "SENSOR",      "WATER_TEMP",       "ONE_WIRE", PIN_IN_TEMP_DS18B20,     0, "MONITORING", "AVAILABLE" },
     { "float_lower",      "Lower Float Switch",    "SENSOR",      "TANK_LEVEL_LOW",   "GPIO",     PIN_IN_FLOAT_LOWER,      0, "CRITICAL",   "AVAILABLE" },
-    { "btn_mode",         "TFT Display Switch",    "INPUT",       "TFT_SWITCH",       "GPIO",     PIN_BTN_MODE,            0, "NORMAL",     "AVAILABLE" },
-    { "btn_manual_a",     "Well Pump Toggle",      "INPUT",       "WELL_PUMP_TOGGLE", "GPIO",     PIN_BTN_MANUAL_A,        0, "NORMAL",     "AVAILABLE" },
-    { "btn_manual_b",     "Reserved Button 3",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_MANUAL_B,        0, "NORMAL",     "AVAILABLE" },
-    { "btn_dist",         "Reserved Button 4",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_DISTRIBUTION,    0, "NORMAL",     "AVAILABLE" },
+    { "btn_mode",         "Mode Button",           "INPUT",       "BTN_MODE",         "GPIO",     PIN_BTN_MODE,            0, "NORMAL",     "AVAILABLE" },
+    { "btn_manual_a",     "Manual A Button",       "INPUT",       "BTN_MAN_A",        "GPIO",     PIN_BTN_MANUAL_A,        0, "NORMAL",     "AVAILABLE" },
+    { "btn_reserved",     "Reserved Button 4",     "INPUT",       "RESERVED",         "GPIO",     PIN_BTN_RESERVED,        0, "NORMAL",     "AVAILABLE" },
+    { "pump_mixing",      "Mixing Pump (220V AC)", "PUMP",        "MIXING_PUMP",      "GPIO",     PIN_OUT_MIXING_PUMP,     4, "CRITICAL",   "AVAILABLE" },
 };
 
 static hw_component_info_t s_active_components[MAX_HW_COMPONENTS];
@@ -45,14 +45,14 @@ static const char DEFAULT_COMPONENTS_JSON[] =
 "    { \"componentId\": \"pump_dosing_b\",    \"name\": \"Dosing Pump B\",        \"type\": \"PUMP\",       \"role\": \"DOSING_B\",        \"interface\": \"GPIO\", \"pin\": 6,  \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"fan_cooling\",      \"name\": \"Cooling Fan\",          \"type\": \"ACTUATOR\",   \"role\": \"COOLING_FAN\",     \"interface\": \"GPIO\", \"pin\": 7,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"lamp_error\",       \"name\": \"Error Lamp\",           \"type\": \"INDICATOR\",  \"role\": \"ERROR_LAMP\",      \"interface\": \"GPIO\", \"pin\": 18, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"flow_yfb1\",        \"name\": \"YF-B1 Flow Meter\",     \"type\": \"FLOW_METER\", \"role\": \"FLOW_DOSING\",     \"interface\": \"PULSE\",\"pin\": 15, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"flow_fs400a\",      \"name\": \"FS400A Flow Meter\",    \"type\": \"FLOW_METER\", \"role\": \"FLOW_DIST\",       \"interface\": \"PULSE\",\"pin\": 16, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"flow_zjb1\",        \"name\": \"ZJ-B1 Flow Meter\",     \"type\": \"FLOW_METER\", \"role\": \"FLOW_RAW\",           \"interface\": \"PULSE\",\"pin\": 15, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"flow_fs400a\",      \"name\": \"FS400A Flow Meter\",    \"type\": \"FLOW_METER\", \"role\": \"FLOW_FERTIGATION\",   \"interface\": \"PULSE\",\"pin\": 16, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"temp_ds18b20\",     \"name\": \"DS18B20 Temp Sensor\",  \"type\": \"SENSOR\",     \"role\": \"WATER_TEMP\",      \"interface\": \"ONE_WIRE\", \"pin\": 17, \"safetyClass\": \"MONITORING\", \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"float_lower\",      \"name\": \"Lower Float Switch\",   \"type\": \"SENSOR\",     \"role\": \"TANK_LEVEL_LOW\",  \"interface\": \"GPIO\", \"pin\": 38, \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"btn_mode\",         \"name\": \"TFT Display Switch\",   \"type\": \"INPUT\",      \"role\": \"TFT_SWITCH\",      \"interface\": \"GPIO\", \"pin\": 0,  \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
 "    { \"componentId\": \"btn_manual_a\",     \"name\": \"Well Pump Toggle\",     \"type\": \"INPUT\",      \"role\": \"WELL_PUMP_TOGGLE\",\"interface\": \"GPIO\", \"pin\": 39, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_manual_b\",     \"name\": \"Reserved Button 3\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
-"    { \"componentId\": \"btn_dist\",         \"name\": \"Reserved Button 4\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" }\n"
+"    { \"componentId\": \"btn_reserved\",     \"name\": \"Reserved Button 4\",    \"type\": \"INPUT\",      \"role\": \"RESERVED\",        \"interface\": \"GPIO\", \"pin\": 41, \"safetyClass\": \"NORMAL\",     \"status\": \"AVAILABLE\" },\n"
+"    { \"componentId\": \"pump_mixing\",      \"name\": \"Mixing Pump (220V AC)\",\"type\": \"PUMP\",       \"role\": \"MIXING_PUMP\",     \"interface\": \"GPIO\", \"pin\": 40, \"safetyClass\": \"CRITICAL\",   \"status\": \"AVAILABLE\" }\n"
     /* =========================================================================
      * BOOKED / DEFERRED COMPONENT: Dual Greenhouse Exhaust Blower Fans
      * Status: BOOKED / PROVISIONED (Investasi Menyusul / Belum Terpasang Fisik)
@@ -168,18 +168,23 @@ esp_err_t hardware_hal_init_all(void)
     memcpy(s_active_components, s_default_components, s_active_count * sizeof(hw_component_info_t));
 
     /* 2. Attempt loading dynamic components.json from Flash storage (SPIFFS / NVS) */
-    char json_buf[4096];
-    size_t json_len = 0;
-    esp_err_t load_err = storage_mgr_load_components_json(json_buf, sizeof(json_buf), &json_len);
-    if (load_err == ESP_OK && json_len > 0) {
-        if (hardware_registry_load_from_json(json_buf) == ESP_OK) {
-            ESP_LOGI(TAG, "Dynamic components.json successfully applied.");
+    char *json_buf = (char *)malloc(4096);
+    if (json_buf) {
+        size_t json_len = 0;
+        esp_err_t load_err = storage_mgr_load_components_json(json_buf, 4096, &json_len);
+        if (load_err == ESP_OK && json_len > 0) {
+            if (hardware_registry_load_from_json(json_buf) == ESP_OK) {
+                ESP_LOGI(TAG, "Dynamic components.json successfully applied.");
+            } else {
+                ESP_LOGW(TAG, "components.json corrupt or invalid; retaining default baseline.");
+            }
         } else {
-            ESP_LOGW(TAG, "components.json corrupt or invalid; retaining default baseline.");
+            ESP_LOGI(TAG, "No components.json found on Flash; auto-provisioning baseline components.json to storage.");
+            storage_mgr_save_components_json(DEFAULT_COMPONENTS_JSON);
         }
+        free(json_buf);
     } else {
-        ESP_LOGI(TAG, "No components.json found on Flash; auto-provisioning baseline components.json to storage.");
-        storage_mgr_save_components_json(DEFAULT_COMPONENTS_JSON);
+        ESP_LOGE(TAG, "Failed to allocate memory for components.json buffer");
     }
 
     /* 3. Initialize buses & peripherals */

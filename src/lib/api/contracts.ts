@@ -199,6 +199,12 @@ export interface UpdatePollinationRequest {
   expectedVersion?: number;
 }
 
+export interface CropCycleHistoryResponse {
+  items: CurrentCropCycleResponse[];
+  nextCursor?: string | null;
+  hasMore: boolean;
+}
+
 export interface UpdatePlantingDateRequest {
   tanggalTanam: string;
   expectedVersion?: number;
@@ -223,10 +229,28 @@ export interface OperationRequest {
   expectedVersion?: number;
 }
 
-export interface CropCycleHistoryResponse {
-  items: CurrentCropCycleResponse[];
-  total?: number;
-  nextCursor?: string;
+export interface ScheduleItem {
+  id: string;
+  enabled: boolean;
+  type: "DAILY" | "INTERVAL" | "ONCE";
+  action: "FERTIGATION" | "WATER_PUMP" | "FAN_TOGGLE" | "CUSTOM";
+  durationSec: number;
+  hour?: number;
+  minute?: number;
+  daysOfWeek?: number;
+  intervalMin?: number;
+  lastExecutionTimestamp?: number;
+  isRunning?: boolean;
+}
+
+export interface SchedulesResponse {
+  items: ScheduleItem[];
+  total: number;
+}
+
+export interface CalibrationRateResponse {
+  rateDosingAMlSec: number;
+  rateDosingBMlSec: number;
 }
 
 export interface HardwarePortConfig {

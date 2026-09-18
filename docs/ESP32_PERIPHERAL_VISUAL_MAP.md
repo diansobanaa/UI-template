@@ -123,8 +123,8 @@ flowchart TD
     subgraph SENS_FLOW ["Sensor Aliran Air Hall 5V"]
         DIV1["Divider 2.2k-3.3k ke 3.0V"]:::sensor
         DIV2["Divider 2.2k-3.3k ke 3.0V"]:::sensor
-        FLOW1["Sensor Flow YF-B1 DN15<br/>Fertigasi"]:::sensor
-        FLOW2["Sensor Flow FS400A G1<br/>Air Baku"]:::sensor
+        FLOW1["Sensor Flow ZJ-B1 DN15<br/>Air Baku (Raw Water)"]:::sensor
+        FLOW2["Sensor Flow FS400A G1<br/>Fertigasi (Fertigation)"]:::sensor
 
         FLOW1 --> DIV1
         DIV1 -->|GPIO 15 Left-8 Pulse Counter| ESP
@@ -182,8 +182,8 @@ flowchart TD
 | **Display & SD** | TFT Data/Cmd (DC)| **GPIO 21** | Right-18 | Control Line | High=Data, Low=Command |
 | **Display & SD** | TFT Hardware RST | **GPIO 42** | Right-6 | Control Line | Dedicated Reset layar ST7735 |
 | **Display & SD** | SD Chip Select | **GPIO 48** | Right-16 | SPI Chip Select | Dedicated CS slot MicroSD |
-| **Sensor Aliran** | Flow YF-B1 | **GPIO 15** | Left-8 | Pulse Interrupt | Melewati divider 2.2k/3.3k dari sinyal 5V |
-| **Sensor Aliran** | Flow FS400A | **GPIO 16** | Left-9 | Pulse Interrupt | Melewati divider 2.2k/3.3k dari sinyal 5V |
+| **Sensor Aliran** | Flow ZJ-B1 (Air Baku) | **GPIO 15** | Left-8 | Pulse Interrupt | Melewati divider 2.2k/3.3k (Raw Water → Mixing Tank, Calibration Req) |
+| **Sensor Aliran** | Flow FS400A (Fertigasi)| **GPIO 16** | Left-9 | Pulse Interrupt | Melewati divider 2.2k/3.3k (Delivery loop, F=4.8*Q -> 288 pulses/L) |
 | **Safety Interlock**| Lower Float Switch| **GPIO 38** | Right-10 | Digital Input | Active-LOW (0 = Tanki Kering, Stop Pompa)|
 | **Security Loop** | Anti-Theft Loop | **GPIO 47** | Right-17 | Digital Input | Active-HIGH (1 = Putus / Dicuri, E-Stop) |
 | **Tombol Panel** | Button 1 (TFT Switch) | **GPIO 0** | Right-14 | Digital Input | Active-LOW (Switch layar TFT, BOOT caveat) |

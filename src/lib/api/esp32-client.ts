@@ -15,6 +15,9 @@ import type {
   ImportActiveCropCycleRequest,
   OperationRequest,
   PollinationRequest,
+  ScheduleItem,
+  SchedulesResponse,
+  CalibrationRateResponse,
   StartCropCycleRequest,
   StatusResponse,
   TelemetrySnapshot,
@@ -29,10 +32,11 @@ export class Esp32Client {
   constructor(private readonly config: HardwarePortConfig) {}
 
   private path(path: string): string {
-    if (!this.config.directEsp32Enabled || !this.config.esp32BaseUrl) {
-      throw new Error("Direct ESP32 communication is not configured.");
+    if (!this.config.directEsp32Enabled) {
+      throw new Error("Direct ESP32 communication is disabled.");
     }
-    return `${this.config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
+    const base = (this.config.esp32BaseUrl || "").replace(/\/$/, "");
+    return `${base}${path}`;
   }
 
   private buildRequestEnvelope(payload: unknown): { requestId: string; client: { type: string; version: string }; payload: unknown } {
@@ -137,10 +141,24 @@ export class Esp32Client {
     return this.getEnveloped<CommandReceipt>(`/api/v1/commands/${encodeURIComponent(commandId)}`);
   }
 
-  async postCommand(commandId: string, type: string, options?: { durationSeconds?: number, componentId?: string, parameters?: any }): Promise<CommandReceipt> {
+  async postCommand(
+    commandId: string, 
+    type: string, 
+    options?: { 
+      durationSeconds?: number, 
+      componentId?: string, 
+      parameters?: any,
+      rawWaterVolumeMl?: number,
+      dosingAVolumeMl?: number,
+      dosingBVolumeMl?: number
+    }
+  ): Promise<CommandReceipt> {
     const payload: any = { commandId, type };
     if (options?.durationSeconds !== undefined) payload.durationSeconds = options.durationSeconds;
     if (options?.componentId !== undefined) payload.componentId = options.componentId;
+    if (options?.rawWaterVolumeMl !== undefined) payload.rawWaterVolumeMl = options.rawWaterVolumeMl;
+    if (options?.dosingAVolumeMl !== undefined) payload.dosingAVolumeMl = options.dosingAVolumeMl;
+    if (options?.dosingBVolumeMl !== undefined) payload.dosingBVolumeMl = options.dosingBVolumeMl;
     if (options?.parameters !== undefined) payload.parameters = options.parameters;
     return this.postEnveloped<CommandReceipt>("/api/v1/commands", payload);
   }
@@ -200,6 +218,38 @@ export class Esp32Client {
 
   async harvestCropCycle(ghId: string, cycleId: string, payload: HarvestCycleRequest = {}): Promise<CurrentCropCycleResponse> {
     return this.postEnveloped<CurrentCropCycleResponse>(`/api/v1/greenhouses/${encodeURIComponent(ghId)}/crop-cycles/${encodeURIComponent(cycleId)}/harvest`, payload);
+  }
+
+  /* -------------------------- Calibration -------------------------- */
+
+  async startCalibration(componentId: string, type: string, durationSec: number): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/calibration", { componentId, type, duration_sec: durationSec });
+  }
+
+  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number }> {
+    return this.getEnveloped<{ state: string; remaining_sec: number }>("/api/v1/calibration/status");
+  }
+
+  async getCalibrationRates(): Promise<CalibrationRateResponse> {
+    return this.getEnveloped<CalibrationRateResponse>("/api/v1/calibration/rate");
+  }
+
+  async saveCalibrationRate(componentId: string, rateMlPerSec: number): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/calibration/rate", { componentId, rateMlPerSec });
+  }
+
+  /* -------------------------- Schedules (NVS) -------------------------- */
+
+  async getSchedules(): Promise<SchedulesResponse> {
+    return this.getEnveloped<SchedulesResponse>("/api/v1/schedules");
+  }
+
+  async saveSchedule(schedule: ScheduleItem): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/schedules", schedule);
+  }
+
+  async deleteSchedule(id: string): Promise<any> {
+    return this.deleteEnveloped<any>(`/api/v1/schedules/${encodeURIComponent(id)}`);
   }
 }
 

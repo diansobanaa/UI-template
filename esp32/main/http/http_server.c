@@ -9,6 +9,9 @@
 static const char *TAG = "HTTP_SERVER";
 static httpd_handle_t s_server = NULL;
 
+extern void register_api_calibration_handlers(httpd_handle_t server);
+extern void register_api_schedule_handlers(httpd_handle_t server);
+
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -198,7 +201,7 @@ esp_err_t http_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = DEFAULT_HTTP_PORT;
-    config.max_uri_handlers = 32;
+    config.max_uri_handlers = 48; // Increased from 32 to 48 to accommodate all 35+ endpoints
     config.stack_size = TASK_HTTP_SERVER_STACK;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.core_id = 0;
@@ -301,6 +304,9 @@ esp_err_t http_server_start(void)
 
     httpd_uri_t uri_cc_harvest = { .uri = "/api/v1/greenhouses/*/crop-cycles/*/harvest", .method = HTTP_POST, .handler = handler_harvest_crop_cycle, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cc_harvest);
+
+    register_api_calibration_handlers(s_server);
+    register_api_schedule_handlers(s_server);
 
     ESP_LOGI(TAG, "HTTP Server successfully started with all canonical OpenAPI routes registered.");
     return ESP_OK;

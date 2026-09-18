@@ -313,3 +313,36 @@ esp_err_t storage_mgr_save_components_json(const char *json_str)
 
     return ESP_OK;
 }
+
+esp_err_t storage_mgr_load_calibration(char *out_buf, size_t max_len, size_t *out_len)
+{
+    if (!out_buf || max_len == 0) return ESP_ERR_INVALID_ARG;
+
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+        size_t len = max_len;
+        esp_err_t err = nvs_get_str(handle, "calib_json", out_buf, &len);
+        nvs_close(handle);
+        if (err == ESP_OK) {
+            if (out_len) *out_len = len;
+            ESP_LOGI(TAG, "Loaded calib_json from NVS (%u bytes)", (unsigned)len);
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t storage_mgr_save_calibration(const char *json_str)
+{
+    if (!json_str) return ESP_ERR_INVALID_ARG;
+
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_str(handle, "calib_json", json_str);
+        nvs_commit(handle);
+        nvs_close(handle);
+        ESP_LOGI(TAG, "Saved calib_json to NVS");
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}

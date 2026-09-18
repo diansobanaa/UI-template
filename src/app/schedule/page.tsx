@@ -76,6 +76,7 @@ export function ScheduleContent({
   const fertSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fertigationForGh(greenhouse.id));
   const wellPumps = scheduleService.wellPumpForComplex(complex.id);
   const fanSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fanForGh(greenhouse.id));
+  const waterTransfers = scheduleService.waterTransferForComplex(complex.id);
 
   // Queue = pending mixing entries for this GH
   const queue = fertSchedules.filter((s) => s.status === "scheduled");
@@ -108,6 +109,18 @@ export function ScheduleContent({
         greenhouse: greenhouseService.get(s.ghId)?.code ?? "GH",
         type: "fan" as const,
         title: "Fan",
+        sub: `${s.durationMin} min`,
+        durationMin: s.durationMin,
+        status: toTimelineStatus(s.status),
+      })),
+    ...waterTransfers
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        id: `wt-${s.id}`,
+        time: s.time,
+        greenhouse: "Complex",
+        type: "water-transfer" as const,
+        title: "Water Transfer",
         sub: `${s.durationMin} min`,
         durationMin: s.durationMin,
         status: toTimelineStatus(s.status),
@@ -281,32 +294,52 @@ export function ScheduleContent({
         </DarkSectionCard>
       </div>
 
-      {/* Fertigation schedules (GH-level) */}
       <div className="mb-5">
         <DarkSectionCard
-          title={`Fertigation Schedules — ${complex.code}`}
+          title={`Fertigation & Transfer Schedules — ${complex.code}`}
           icon={Droplets}
           iconTone="blue"
-          subtitle="Greenhouse-level schedules"
+          subtitle="Greenhouse & Complex-level schedules"
           action={
-            <ActionButton tone="blue" onClick={() => { setEditFert(null); setFertOpen(true); }}>
-              <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
-            </ActionButton>
+            <div className="flex gap-2">
+              <ActionButton tone="violet" onClick={() => { toast("Form Water Transfer belum diimplementasikan", "info"); }}>
+                <Plus className="h-3.5 w-3.5" /> Add Water Transfer
+              </ActionButton>
+              <ActionButton tone="blue" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+                <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
+              </ActionButton>
+            </div>
           }
         >
           <ScheduleTable
-            rows={fertSchedules.map((s) => ({
-              id: s.id,
-              name: s.name,
-              greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
-              time: s.time,
-              repeat: s.repeat,
-              detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
-              lastRun: s.lastRun,
-              nextRun: s.nextRun,
-              enabled: s.enabled,
-              status: s.status,
-            }))}
+            rows={[
+              ...fertSchedules.map((s) => ({
+                id: s.id,
+                name: s.name,
+                greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
+                time: s.time,
+                repeat: s.repeat,
+                detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
+                lastRun: s.lastRun,
+                nextRun: s.nextRun,
+                enabled: s.enabled,
+                status: s.status,
+                type: "fertigation" as const,
+              })),
+              ...waterTransfers.map((s) => ({
+                id: s.id,
+                name: s.name,
+                greenhouse: "Complex",
+                time: s.time,
+                repeat: s.repeat,
+                detail: `Transfer: ${s.durationMin} min`,
+                lastRun: s.lastRun,
+                nextRun: s.nextRun,
+                enabled: s.enabled,
+                status: s.status,
+                type: "water-transfer" as const,
+              }))
+            ]}
             addLabel="Add Fertigation Schedule"
             onAdd={() => { setEditFert(null); setFertOpen(true); }}
             onToggle={(id, v) => handleToggle("fert", id, v, "Schedule")}
@@ -522,7 +555,7 @@ type ScheduleTimelineEvent = {
   id: string;
   time: string;
   greenhouse: string;
-  type: "fertigation" | "fan" | "pump";
+  type: "fertigation" | "fan" | "pump" | "water-transfer";
   title: string;
   sub: string;
   durationMin: number;
@@ -544,6 +577,7 @@ function statusAccent(status: ScheduleTimelineEvent["status"]) {
 function eventIcon(type: ScheduleTimelineEvent["type"]) {
   if (type === "fan") return <Fan className="h-3.5 w-3.5 text-emerald-300" />;
   if (type === "pump") return <Waves className="h-3.5 w-3.5 text-cyan-300" />;
+  if (type === "water-transfer") return <RefreshCw className="h-3.5 w-3.5 text-indigo-300" />;
   return <Droplets className="h-3.5 w-3.5 text-blue-300" />;
 }
 
@@ -688,6 +722,7 @@ interface Row {
   nextRun: string | null;
   enabled: boolean;
   status: FertigationSchedule["status"];
+  type?: "fertigation" | "fan" | "pump" | "water-transfer";
 }
 
 function ScheduleTable({
@@ -788,14 +823,17 @@ function ScheduleTable({
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={r.id} className={`border-b border-slate-800/60 last:border-0 ${r.enabled ? "" : "opacity-50"}`}>
+                <tr key={r.id} className={`border-b border-slate-800/60 last:border-0 ${r.enabled ? "" : "opacity-50"} ${r.type === 'water-transfer' ? 'bg-indigo-950/10' : ''}`}>
                   <td className="py-3.5 pr-3">
-                    <div className="font-semibold text-slate-100">{r.name}</div>
+                    <div className="font-semibold text-slate-100 flex items-center gap-1.5">
+                      {r.type === 'water-transfer' && <RefreshCw className="h-3 w-3 text-indigo-400" />}
+                      {r.name}
+                    </div>
                     <div className="mt-0.5 text-[11px] text-slate-500">{r.detail}</div>
                   </td>
                   <td className="py-3.5 pr-3 font-medium text-slate-300">{r.greenhouse}</td>
                   <td className="py-3.5 pr-3">
-                    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold ${accentClasses}`}>
+                    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold ${r.type === 'water-transfer' ? 'border-indigo-400/20 bg-indigo-500/10 text-indigo-300' : accentClasses}`}>
                       <Clock className="h-3 w-3" /> {r.time}
                     </span>
                   </td>

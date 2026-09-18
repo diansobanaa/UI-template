@@ -56,10 +56,20 @@ esp_err_t handler_get_status(httpd_req_t *req)
     } else {
         cJSON_AddNullToObject(s_obj, "temperatureC");
     }
-    cJSON_AddNumberToObject(s_obj, "flowYfb1Lpm", sensors.flow_rate_yfb1_lpm);
-    cJSON_AddNumberToObject(s_obj, "totalLitersYfb1", sensors.total_liters_yfb1);
-    cJSON_AddNumberToObject(s_obj, "flowFs400aLpm", sensors.flow_rate_fs400a_lpm);
-    cJSON_AddNumberToObject(s_obj, "totalLitersFs400a", sensors.total_liters_fs400a);
+    cJSON_AddNumberToObject(s_obj, "flowRawZjb1Lpm", sensors.flow_rate_raw_zjb1_lpm);
+    cJSON_AddNumberToObject(s_obj, "totalLitersRawZjb1", sensors.total_liters_raw_zjb1);
+    cJSON_AddNumberToObject(s_obj, "totalPulsesRawZjb1", (double)sensors.total_pulses_raw_zjb1);
+    cJSON_AddBoolToObject(s_obj, "rawZjb1Calibrated", sensors.raw_zjb1_calibrated);
+
+    cJSON_AddNumberToObject(s_obj, "flowFertFs400aLpm", sensors.flow_rate_fert_fs400a_lpm);
+    cJSON_AddNumberToObject(s_obj, "totalLitersFertFs400a", sensors.total_liters_fert_fs400a);
+    cJSON_AddNumberToObject(s_obj, "totalPulsesFertFs400a", (double)sensors.total_pulses_fert_fs400a);
+
+    /* Backward compatibility aliases */
+    cJSON_AddNumberToObject(s_obj, "flowYfb1Lpm", sensors.flow_rate_raw_zjb1_lpm);
+    cJSON_AddNumberToObject(s_obj, "totalLitersYfb1", sensors.total_liters_raw_zjb1);
+    cJSON_AddNumberToObject(s_obj, "flowFs400aLpm", sensors.flow_rate_fert_fs400a_lpm);
+    cJSON_AddNumberToObject(s_obj, "totalLitersFs400a", sensors.total_liters_fert_fs400a);
     cJSON_AddBoolToObject(s_obj, "floatLowerOk", sensors.float_lower_ok);
 
     return http_send_enveloped_response(req, 200, NULL, root);

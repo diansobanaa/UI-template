@@ -89,7 +89,7 @@ This document specifies the exact mapping from the physical pins of each discret
 | **4-Ch Relay** | **IN1** | Channel 1 Opto Trigger | **ESP32 GPIO 4** (Left-4) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED** |
 | **4-Ch Relay** | **IN2** | Channel 2 Opto Trigger | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED** |
 | **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger | **ESP32 GPIO 10** (Left-16) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **BOOKED (STANDBY)** |
-| **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | *TBD / Unassigned Spare* | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **TBD** |
+| **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | **ESP32 GPIO 40** (Right-8) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE** |
 | **4-Ch Relay** | **VCC** | Optocoupler Anode Supply| **+5V DC Rail** | DC Power | Power Input | 5.0V DC Nominal | **VERIFIED** |
 | **4-Ch Relay** | **JD-VCC** | Relay Coil Power | *Bridged to VCC via Jumper* | DC Power | Power Input | 5.0V DC (via Jumper)| **VERIFIED** |
 
@@ -141,30 +141,32 @@ This document specifies the exact mapping from the physical pins of each discret
 | **Button 1 (MODE)** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
 | **Button 2 (MAN A)**| Terminal 1 | **Manual Well Pump Toggle** (5-Min Auto-Off)  | **ESP32 GPIO 39** (Right-9) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
 | **Button 2 (MAN A)**| Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **Button 3 (MAN B)**| Terminal 1 | **Reserved Button 3** (TBD / Unassigned)     | **ESP32 GPIO 40** (Right-8) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
-| **Button 3 (MAN B)**| Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **Button 4 (DIST)** | Terminal 1 | **Reserved Button 4** (TBD / Unassigned)     | **ESP32 GPIO 41** (Right-7) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
-| **Button 4 (DIST)** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button 4 (RESERVED)**| Terminal 1 | **Reserved Button 4** (Unassigned)          | **ESP32 GPIO 41** (Right-7) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
+| **Button 4 (RESERVED)**| Terminal 2 | Ground Return                                | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
 
 *Button Functional Rules:*
 - **Button 1 (GPIO 0):** Advances ST7735 display to the next diagnostic view on each press (Diagnostic $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle.
 - **Button 2 (GPIO 39):** Manual toggle for Deep Well Pump. State 1 (OFF $\to$ ON) starts a non-blocking 5-minute software timer. State 2 (ON $\to$ OFF) shuts down immediately and cancels the timer. If 5 minutes elapses, automatically turns OFF. Strictly blocked if Lower Float is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched.
-- **Buttons 3 & 4 (GPIO 40, 41):** Maintained with internal pull-up and 40ms software debounce. Reserved for future assignment.
+- **Button 3 (GPIO 40):** RETIRED. GPIO 40 repurposed for 220V AC Mixing Pump Relay IN4 control. Physical button must be disconnected.
+- **Button 4 (GPIO 41):** Maintained with internal pull-up and 40ms software debounce. Reserved for future assignment.
 
 ---
 
-### 2.9. Pulse Flow Sensors: YF-B1 (Fertigation) & FS400A (Supply)
+### 2.9. Pulse Flow Sensors: ZJ-B1 (Raw Water) & FS400A G1" (Fertigation)
 
 | Component | Physical Wire | Wire Function | ESP32 GPIO / Power Rail | Interface | Direction | Electrical Domain | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
-| **YF-B1 (DN15)**| **Red** | Power Input (5V) | **+5V DC Rail** | DC Power | Power Input | 5V DC Nominal | **VERIFIED** |
-| **YF-B1 (DN15)**| **Black** | Sensor Ground | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **YF-B1 (DN15)**| **Yellow** | Hall Pulse Output | **ESP32 GPIO 15** (Left-8) | Pulse Counter | Output (to MCU) | 3.3V Divided Pulse | **VERIFIED** |
-| **FS400A (G1")** | **Red** | Power Input (5V) | **+5V DC Rail** | DC Power | Power Input | 5V DC Nominal | **VERIFIED** |
-| **FS400A (G1")** | **Black** | Sensor Ground | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
-| **FS400A (G1")** | **Yellow** | Hall Pulse Output | **ESP32 GPIO 16** (Left-9) | Pulse Counter | Output (to MCU) | 3.3V Divided Pulse | **VERIFIED** |
+| **ZJ-B1 (DN15)** | **Red** | Power Input (5V) | **+5V DC Rail** | DC Power | Power Input | 5V DC Nominal | **VERIFIED SAFE** |
+| **ZJ-B1 (DN15)** | **Black** | Sensor Ground | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED SAFE** |
+| **ZJ-B1 (DN15)** | **Yellow** | Hall Pulse Output | **ESP32 GPIO 15** (Left-8) | Pulse Counter | Output (to MCU) | 3.3V Divided Pulse | **UNVERIFIED (CALIBRATION REQUIRED)** |
+| **FS400A (G1")** | **Red** | Power Input (5V) | **+5V DC Rail** | DC Power | Power Input | 5V DC Nominal | **VERIFIED SAFE** |
+| **FS400A (G1")** | **Black** | Sensor Ground | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED SAFE** |
+| **FS400A (G1")** | **Yellow** | Hall Pulse Output | **ESP32 GPIO 16** (Left-9) | Pulse Counter | Output (to MCU) | 3.3V Divided Pulse | **VERIFIED READY** |
 
-*Note: Pulse signals are scaled via 2.2kΩ / 3.3kΩ resistive voltage dividers to ensure maximum voltage into GPIO 15 and 16 does not exceed 3.3V.*
+*Sensor Roles & Specifications:*
+- **ZJ-B1:** Inline raw water flow meter installed on the transfer line from Raw Water source to Mixing Tank. Range: 1–25 L/min, pressure $\le$ 1.75 MPa. Pulse calibration is currently **UNVERIFIED / CALIBRATION REQUIRED**; actual transferred volume is accumulated to evaluate `actualVolumeMl >= targetVolumeMl` once calibrated.
+- **FS400A G1":** Inline fertigation delivery flow meter on the distribution loop to greenhouse beds. Range: 1–60 L/min, pressure $\le$ 1.75 MPa. Pulse frequency follows $F = 4.5 \times Q \implies Q = F / 4.8$ ($288\\text{ pulses/L}$). Used for fertigation delivery verification, telemetry, and safety monitoring.
+- *Voltage Divider Note:* Pulse signals are scaled via 2.2kΩ / 3.3kΩ resistive voltage dividers to ensure maximum voltage into GPIO 15 and 16 does not exceed 3.3V.
 
 ### 2.10. Anti-Theft Pump Security Loop (Tamper Wire)
 
@@ -182,5 +184,6 @@ This document specifies the exact mapping from the physical pins of each discret
 ---
 
 ### 2.11. Obsolete Hardware (Do Not Connect)
+- **YF-B1 Flow Sensor:** Obsolete. Replaced by ZJ-B1 for raw water flow measurement.
 - **DS1302 RTC Module:** 3-wire bitbang (`CLK: 8`, `DAT: 9`, `RST: 47`) is **OBSOLETE**. Hardware is replaced by DS3231 I2C RTC (`SDA: 8`, `SCL: 9`). GPIO 47 has been reassigned to the Anti-Theft Tamper Loop.
 - **Upper Float Switch:** Tank full sensor is **NOT USED / REMOVED** (tank capacity boundary enforced in software).

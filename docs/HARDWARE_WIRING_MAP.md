@@ -42,14 +42,14 @@
 | **W-12** | **GPIO 12** | Left-18 | TFT Display & SD | **SDA / SD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and integrated SD slot. | **VERIFIED** |
 | **W-13** | **GPIO 13** | Left-19 | MicroSD Card Slot | **SD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from SD) | Input | Serial Data | Dedicated return line from SD card slot on back of TFT. | **UNVERIFIED** |
 | **W-14** | **GPIO 14** | Left-20 | TFT ST7735 Display| **CS** | Dedicated SPI CS | 3.3V Logic | Display Controller Chip Select | Output | Active-LOW (0=Select)| Dedicated CS for Sitronix ST7735 controller. | **VERIFIED** |
-| **W-15** | **GPIO 15** | Left-8 | Flow Sensor YF-B1 | **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Fertigation Loop Flow Meter Counter | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. | **VERIFIED** |
-| **W-16** | **GPIO 16** | Left-9 | Flow Sensor FS400A| **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Raw Supply Intake Flow Meter Counter | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. | **VERIFIED** |
+| **W-15** | **GPIO 15** | Left-8 | Flow Sensor ZJ-B1 | **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Raw Water Transfer Flow Meter (Raw Water → Mixing Tank) | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. Completion criterion. | **UNVERIFIED (CALIBRATION REQUIRED)** |
+| **W-16** | **GPIO 16** | Left-9 | Flow Sensor FS400A| **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Fertigation Delivery Flow Meter (G1" F=4.8*Q) | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. Telemetry & monitoring. | **VERIFIED READY** |
 | **W-17** | **GPIO 17** | Left-10 | DS18B20 Temp Probe| **DAT (Yellow)** | 1-Wire Bus | 3.3V Logic | Nutrient Tank Temperature Data | Bi-directional | Open-Drain | **MANDATORY:** 4.7kΩ pull-up to 3.3V (NOT in series). | **VERIFIED** |
 | **W-18** | **GPIO 18** | Left-11 | 4-Ch Relay Board | **IN2** | Digital Control | 5V Logic | Red System Error / Alarm Beacon | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched load on relay COM2/NO2. | **VERIFIED SAFE** |
 | **W-19** | **GPIO 21** | Right-18 | TFT ST7735 Display| **A0 (DC)** | Control Line | 3.3V Logic | Display Command / Data Selector | Output | High=Data, Low=Cmd | Dedicated control line for ST7735. | **VERIFIED** |
 | **W-20** | **GPIO 38** | Right-10 | Lower Float Switch | Terminal A | Dry Contact | 3.3V Logic | **MANDATORY SAFETY DRY-RUN INTERLOCK** | Input | Active-LOW (0=DRY) | Internal pull-up to 3.3V. Dedicated clean safety pin. | **VERIFIED SAFE (SAFETY)**|
 | **W-21** | **GPIO 39** | Right-9 | Manual A Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Well Pump 5-Min Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. State 1: ON + 5-min timer; State 2: Immediate OFF. Dry-run interlocked. | **VERIFIED SAFE** |
-| **W-22** | **GPIO 40** | Right-8 | Manual B Button | Pin 1 | Stranded Wire | 3.3V Logic | Reserved Button 3 (TBD / Spare) | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Debounced, reserved for future use. | **VERIFIED SAFE** |
+| **W-22** | **GPIO 40** | Right-8 | 4-Ch Relay Board | **IN4** | Digital Control | 5V Logic | Mixing Pump (220V AC Pond Pump) | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 220V AC load on relay COM4/NO4. | **VERIFIED SAFE** |
 | **W-23** | **GPIO 41** | Right-7 | Distribution Button| Pin 1 | Stranded Wire | 3.3V Logic | Reserved Button 4 (TBD / Spare) | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Debounced, reserved for future use. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
 | **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
@@ -122,14 +122,14 @@ ESP32 GPIO 48 (SD_CS)───────────────────�
 
 ---
 
-### 3.4. Water Flow Sensors (YF-B1 & FS400A Level-Shifting)
+### 3.4. Water Flow Sensors: ZJ-B1 (Raw Water) & FS400A G1" (Fertigation)
 > [!WARNING]
 > Hall-effect sensors run on 5V DC. Their pulse output must pass through a resistive voltage divider (2.2kΩ / 3.3kΩ) to protect ESP32 inputs from 5V over-voltage.
 
 ```text
 5V Rail (from LM2596) ──────────────────────── VCC (Red Wire)
                                                 │
-Sensor Pulse Out (Yellow) ─── [2.2kΩ] ──┬────── GPIO 15 (YF-B1) / GPIO 16 (FS400A)
+Sensor Pulse Out (Yellow) ─── [2.2kΩ] ──┬────── GPIO 15 (ZJ-B1 Raw Water) / GPIO 16 (FS400A Fertigation)
                                         │
                                      [3.3kΩ]
                                         │
@@ -163,7 +163,6 @@ All buttons connect between their respective GPIO and clean `GND_LV`. Internal p
 ```text
 ESP32 GPIO 0  (Right-14) ──────────── [ MODE Push-Button ] ──────────┬── ESP32 GND
 ESP32 GPIO 39 (Right-9)  ──────────── [ MANUAL A Button  ] ──────────┤
-ESP32 GPIO 40 (Right-8)  ──────────── [ MANUAL B Button  ] ──────────┤
 ESP32 GPIO 41 (Right-7)  ──────────── [ DISTRIBUTION Btn ] ──────────┘
 ```
 
@@ -197,9 +196,9 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 | Button Designation | ESP32 GPIO | Active Logic | Operational Role & Behavior | Interlocks & Safety Rules |
 |---|:---:|:---:|---|---|
 | **Button 1 (`PIN_BTN_MODE`)** | **GPIO 0** | Active-LOW (0=Pressed) | **TFT Display Screen Switch**: Each press cycles forward through ST7735 diagnostic screens (Diagnostics $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle. | Must remain OPEN/HIGH during chip boot to prevent entering ROM download mode. |
-| **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Active-LOW (0=Pressed) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)**:<br>• *State 1 (Pump OFF):* Manual press turns Well Pump ON and starts a non-blocking 5-minute software timer.<br>• *State 2 (Pump ON via button):* Manual press turns Well Pump OFF immediately and cancels the 5-minute timer.<br>• *Timer Expiry:* If 5 minutes elapses without button press, pump is automatically turned OFF. | **STRICT INTERLOCK:** Operation is strictly blocked if Lower Float Switch indicates LOW/DRY (`PIN_IN_FLOAT_LOWER`, GPIO 38) or Emergency Stop is active (`s_emergency_stop_latched`). |
-| **Button 3 (`PIN_BTN_MANUAL_B`)** | **GPIO 40** | Active-LOW (0=Pressed) | **RESERVED / TBD**: Pin retained with 40ms software debounce. No action currently assigned. | Safe input pull-up state maintained. |
-| **Button 4 (`PIN_BTN_DISTRIBUTION`)** | **GPIO 41** | Active-LOW (0=Pressed) | **RESERVED / TBD**: Pin retained with 40ms software debounce. No action currently assigned. | Safe input pull-up state maintained. |
+| **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Active-LOW (0=Pressed) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)** | Soft-timer + Safety Float Interlock. |
+| **Button 3 (RETIRED)** | **GPIO 40** | N/A | **RETIRED**: Button disconnected. GPIO 40 repurposed for 220V AC Mixing Pump Relay IN4. | Must disconnect physical wire. |
+| **Button 4 (`PIN_BTN_RESERVED`)** | **GPIO 41** | Active-LOW (0=Pressed) | **RESERVED / UNASSIGNED**: Pin retained with 40ms software debounce. No operational action assigned. | Safe input pull-up state maintained. |
 
 ---
 
@@ -225,7 +224,7 @@ ESP32 GPIO 1 / 2 (Active-LOW)
 └─────────────┬─────────────┘
               │ Coil Energize (5V/12V)
               ▼
-┌───────────────────────────┐       220V AC Live (L) from MCB
+┌───────────────────────────>       220V AC Live (L) from MCB
 │  Omron Heavy-Duty Relay   │ ────────────────┐
 │  (Air-Gap 250VAC Contacts)│                 ▼
 └─────────────┬─────────────┘         ┌───────────────┐
@@ -242,10 +241,10 @@ AC Protective Earth (PE) ──────────────────�
 * **Channel 1 (GPIO 4):** 12V DC Raw Water Submersible Pump
 * **Channel 2 (GPIO 18):** 12V DC Red Error / System Beacon Lamp
 * **Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans via External Magnetic Contactor / Omron Relay (Booked / Standby)
-* **Channel 4:** Unassigned / Spare
+* **Channel 4 (GPIO 40):** 220V AC Pond Pump for Mixing Tank (Relay IN4)
 
 ```text
-ESP32 GPIO 4 / 18 (Active-LOW: 0V = ON)
+ESP32 GPIO 4 / 18 / 40 (Active-LOW: 0V = ON)
       │ (Sinks optocoupler cathode)
       ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -258,10 +257,10 @@ ESP32 GPIO 4 / 18 (Active-LOW: 0V = ON)
                                │ Mechanical Contact Closure
                                ▼
                         ┌──────────────┐
-12V DC (+) from PSU 1 ──┤ COMx    NOx  ├───► 12V DC Load Positive (+)
+12V/220V Source ────────┤ COMx    NOx  ├───► Actuator Positive / Live
                         └──────────────┘
-                                             12V DC Load Negative (-)
-GND_12V (from PSU 1 Return) ─────────────────────────────────────────
+                                             Actuator Return / Neutral
+Return Conductor ───────────────────────────────────────────────────
 ```
 
 ---
@@ -343,8 +342,8 @@ Switched Return (-) from OUT- ────────────────�
 | **W-19** | TFT DC / A0 | ESP32 GPIO 21 | No conflict. Dedicated control line.| High = Data, Low = Command for ST7735. | `PIN_TFT_DC = 21` | **VERIFIED** |
 | **W-20** | Lower Float | ESP32 GPIO 38 | No conflict. Dedicated clean GPIO.| Mandatory Safety Interlock. Internal pull-up to 3.3V. | `PIN_IN_FLOAT_LOWER = 38` | **VERIFIED SAFE (SAFETY)**|
 | **W-21** | Manual A (Well Pump)| ESP32 GPIO 39 | No conflict. Dedicated clean GPIO.| Active-LOW push button. 5-min auto-off timer & float interlock. | `PIN_BTN_MANUAL_A = 39` | **VERIFIED SAFE** |
-| **W-22** | Button 3 (Reserved) | ESP32 GPIO 40 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. Reserved / TBD. | `PIN_BTN_MANUAL_B = 40` | **VERIFIED SAFE** |
-| **W-23** | Button 4 (Reserved) | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. Reserved / TBD. | `PIN_BTN_DISTRIBUTION = 41`| **VERIFIED SAFE** |
+| **W-22** | Mixing Pump Relay IN4 | ESP32 GPIO 40 | Physical button 3 MUST be disconnected. | Relay Output. Active-LOW. | `PIN_OUT_MIXING_PUMP = 40` | **VERIFIED SAFE** |
+| **W-23** | Button 4 (Reserved) | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Active-LOW push button. Internal pull-up. Reserved / unassigned. | `PIN_BTN_RESERVED = 41`| **VERIFIED SAFE** |
 | **W-24** | TFT RESET | ESP32 GPIO 42 | No conflict. Dedicated control line.| Active-LOW hardware reset for ST7735. | `PIN_TFT_RST = 42` | **VERIFIED** |
 | **W-25** | Anti-Theft Loop | ESP32 GPIO 47 | No conflict. Clean dedicated GPIO. | Closed loop to GND_LV. Internal pull-up. | `PIN_IN_TAMPER_LOOP = 47` | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | MicroSD CS | ESP32 GPIO 48 | Caveat: Drives onboard RGB LED. | Active-LOW SD chip select. Safe for CS output. | `PIN_SD_CS = 48` | **UNVERIFIED** |
@@ -377,9 +376,9 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **18** | `PIN_OUT_ERROR_LAMP` | 18 | Error Beacon Lamp (Relay IN2) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **21** | `PIN_TFT_DC` | 21 | TFT Display Command/Data | **MATCH** | 100% Consistent. |
 | **38** | `PIN_IN_FLOAT_LOWER` | 38 | Lower Float Switch (Safety) | **MATCH** | 100% Consistent. Clean safety interlock. |
-| **39** | `PIN_BTN_MANUAL_A` | 39 | Well Pump Manual 5-Min Toggle | **MATCH** | 100% Consistent. Auto-shutoff + dry-run interlock. |
-| **40** | `PIN_BTN_MANUAL_B` | 40 | Reserved Button 3 (TBD) | **MATCH** | 100% Consistent. Debounced, reserved. |
-| **41** | `PIN_BTN_DISTRIBUTION` | 41 | Reserved Button 4 (TBD) | **MATCH** | 100% Consistent. Debounced, reserved. |
+| **39** | `PIN_BTN_MANUAL_A` | 39 | Manual Well Pump Button | **MATCH** | 100% Consistent. Active-LOW input. |
+| **40** | `PIN_OUT_MIXING_PUMP` | 40 | Mixing Pump (220V AC) | **MATCH** | 100% Consistent. Output to Relay IN4. |
+| **41** | `PIN_BTN_RESERVED` | 41 | Reserved Button 4 (Unassigned) | **MATCH** | 100% Consistent. Debounced, unassigned. |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
 | **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up (SP-HW-008). |
 | **48** | `PIN_SD_CS` / `PIN_MICROSD_CS` | 48 | Integrated SD Card Slot CS | **MATCH** | 100% Consistent. |

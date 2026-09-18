@@ -17,10 +17,10 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains distribution
+SP-PRD-001 Comprehensive Product Requirements Document (ACTUAL_PRD.md) Generation
 
 ## Safe Point Index
-- [x] SP-PRD-001 Full Reverse Engineering PRD Generation
+- [x] SP-PRD-001 Comprehensive Product Requirements Document (ACTUAL_PRD.md) Generation
 - [x] SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains distribution
 - [x] SP-FLOW-002 Default Calibration Constants: ZJ-B1 (660 P/L) & FS400A (288 P/L) initialized and documented
 - [x] SP-FLOW-001 Flow Meter Specification Alignment: ZJ-B1 (Raw Water) & FS400A G1" (Fertigation) Calibration & Semantic Decoupling
@@ -43,19 +43,19 @@ SP-HW-014 Power Distribution Documentation: Provisioning TB-1506L for AC Mains d
 
 ## Safe Point Record: SP-PRD-001
 - **ID**: SP-PRD-001
-- **Objective**: Perform full reverse engineering of the React/Vite UI and ESP32 Firmware to generate a factual Product Requirements Document (PRD).
+- **Objective**: Perform a comprehensive codebase inspection and generate a true-to-life Product Requirements Document (PRD) detailing exactly what the system can do in the real world today.
 - **Completed Work**:
-  1. Analyzed `UI_ESP32_OPENAPI.yaml`, `types.ts`, `services.ts`, `page.tsx`, and `main.c`.
-  2. Verified implemented features across frontend UI mock states and ESP32 services.
-  3. Created `ACTUAL_PRD.md` and mirrored it to `esp32/docs/` following the Zero-Drift Documentation Rule.
+  1. Analyzed firmware services, command managers, schedule managers, and HTTP handlers.
+  2. Identified contradictions and non-obvious behaviors (e.g. 30s dry run protection, Fan scheduling UI vs Firmware capability).
+  3. Wrote the exhaustive `ACTUAL_PRD.md` covering user roles, workflows, automation, limits, and hardware integration.
+  4. Placed the PRD in both `esp32/docs/` and `docs/` as required by the Zero-Drift Mandate.
 - **Verification Result**:
-  - Documentation Integrity: PASS (PRD accurately reflects codebase).
+  - Documentation Integrity: PASS
 - **Changed Files**:
-  - `docs/ACTUAL_PRD.md` (NEW)
-  - `esp32/docs/ACTUAL_PRD.md` (NEW)
-  - `AI_PROGRESS.md`, `AI_HANDOVER.md`
+  - `esp32/docs/ACTUAL_PRD.md`, `docs/ACTUAL_PRD.md`
+  - `AI_PROGRESS.md`
 - **Known Issues**: None.
-- **Next Safe Point / Action**: Proceed with hardware execution testing.
+- **Next Safe Point / Action**: Pending user instruction.
 
 ---
 
@@ -1419,11 +1419,19 @@ inja -C build -j 1).
 - **ID**: POST-BUILD-AUDIT-002
 - **Objective**: Verification-first audit of EnvelopeBase implementation in ESP32 source code and React UI client.
 - **Completed Work**:
-  1. Identified that http_send_error was missing etryable and econcileRequired per OpenAPI contract.
-  2. Fixed http_server.c to accurately return etryable and econcileRequired fields.
+  1. Identified that http_send_error was missing 
+etryable and 
+econcileRequired per OpenAPI contract.
+  2. Fixed http_server.c to accurately return 
+etryable and 
+econcileRequired fields.
   3. Identified that UI ackend-client.ts was silently discarding ErrorResponse metadata on non-2xx codes.
-  4. Fixed ackend-client.ts and ApiRequestError to parse and retain code, etryable, econcileRequired, and equestId.
-  5. Performed source tracing of equestId provenance, discovering it is fundamentally missing for GET requests in the OpenAPI spec and ignored in mutation request payloads.
+  4. Fixed ackend-client.ts and ApiRequestError to parse and retain code, 
+etryable, 
+econcileRequired, and 
+equestId.
+  5. Performed source tracing of 
+equestId provenance, discovering it is fundamentally missing for GET requests in the OpenAPI spec and ignored in mutation request payloads.
   6. Documented all findings in docs/AI_CONTRACT_ENVELOPE_VERIFICATION_V1.md.
 - **Verification Result**:
   - Build: SUCCESS.
@@ -1435,9 +1443,11 @@ inja -C build -j 1).
   - AI_PROGRESS.md
   - AI_HANDOVER.md
 - **Known Issues / Blockers**:
-  - OpenAPI itself requires a decision on equestId for GET requests (add X-Request-ID?) and a decision on Request payload schemas (flat vs nested payload).
+  - OpenAPI itself requires a decision on 
+equestId for GET requests (add X-Request-ID?) and a decision on Request payload schemas (flat vs nested payload).
 - **Next Safe Point / Action**:
-  - Await user decision on equestId semantics and payload structure.
+  - Await user decision on 
+equestId semantics and payload structure.
 - **Git Commit Hash**:
   - Git commit: UNCOMMITTED
 
@@ -1447,8 +1457,10 @@ inja -C build -j 1).
 - **ID**: SP-REMED-011
 - **Objective**: Complete migration of mutation request handling to the canonical nested request envelope.
 - **Completed Work**:
-  1. Updated http_server.c to generate unique equestId server-side for GET requests.
-  2. Updated pi_command_handlers.c, pi_config_handlers.c, pi_cropcycle_handlers.c, and pi_device_handlers.c to unnest payload and validate equestId.
+  1. Updated http_server.c to generate unique 
+equestId server-side for GET requests.
+  2. Updated pi_command_handlers.c, pi_config_handlers.c, pi_cropcycle_handlers.c, and pi_device_handlers.c to unnest payload and validate 
+equestId.
   3. Updated UI esp32-client.ts with uildRequestEnvelope() to encapsulate outgoing payload wraps securely.
   4. Ran full verification (ESP32 build, 	sc, and E2E mock test scripts) resulting in 100% success.
   5. Detailed findings in docs/AI_CONTRACT_REQUEST_ENVELOPE_MIGRATION_V1.md.
@@ -1478,9 +1490,11 @@ inja -C build -j 1).
 - **Objective**: Finalize OpenAPI Request Envelope alignment across ESP32 and UI.
 - **Completed Work**:
   1. Fixed pi_device_handlers.c clock-sync handler field mismatches (utcNow -> 	imestamp).
-  2. Fixed pi_cropcycle_handlers.c cancel handler to parse the equestId from the POST JSON body, instead of URL parameters.
+  2. Fixed pi_cropcycle_handlers.c cancel handler to parse the 
+equestId from the POST JSON body, instead of URL parameters.
   3. Fixed pi_command_handlers.c emergency stop handler to extract commandId from the payload, matching OpenAPI specs.
-  4. Fixed pi_config_handlers.c configuration persistence to maintain the original mutation equestId in the returned envelope.
+  4. Fixed pi_config_handlers.c configuration persistence to maintain the original mutation 
+equestId in the returned envelope.
   5. Updated UI TS types (ClockSyncRequest, ClockResponse, StartCropCycleRequest, etc.) to match the expected payload signatures exactly.
   6. Tested builds and executed erify_e2e_contracts.mjs, achieving 100% test coverage against canonical OpenAPI schemas.
 - **Verification Result**:
@@ -1648,8 +1662,66 @@ inja -C build -j 1).
 - **Objective**: Audit DS3231 usage, ensure SNTP fallback functionality, remove false-positive errors, and expand HTTP Max URI handlers.
 - **Changes**:
   1. esp32/main/hal/rtc_ds3231.c: Replaced ESP_LOGW with ESP_LOGI for absent RTC. Fixed logical flaw where SNTP initialization was skipped if DS3231 probe failed.
-  2. esp32/main/main.c: Enforced unconditional tc_ds3231_sync_to_system() call to guarantee SNTP spin-up.
+  2. esp32/main/main.c: Enforced unconditional 
+tc_ds3231_sync_to_system() call to guarantee SNTP spin-up.
   3. esp32/main/http/http_server.c: Increased config.max_uri_handlers from 32 to 48.
   4. esp32/main/hal/hardware_registry.c and esp32/main/http/api_config_handlers.c: Converted 4096-byte local stack buffers to heap allocations to prevent boot stack overflow.
 - **Verification**: Clean build passed. Flashed to COM3. Hardware initialized smoothly. HTTP registered 35+ routes without dropping slots. Fallback to SNTP verified via INFO log.
+
+### [2026-09-18] SP-AUDIT-015: PRD Implementation Status & Gap Audit
+- **Objective:** Independently assess the current working tree against the authoritative `PRODUCT_REQUIREMENTS_DOCUMENT.md` without weakening product requirements to match current code.
+- **Completed Work:** Indexed 272 non-dependency/non-build repository files and traced the runtime-relevant UI, API, firmware, HAL, storage, scheduler, fertigation, safety, telemetry, crop-cycle, contract, and test paths. Produced a requirement traceability matrix and critical-gap analysis.
+- **Key Findings:** The UI has broad multi-GH/mock workflows, but the firmware remains GH-01-centric. The scheduler has no compilation, resource resolution, topology check, BLOCKED state, or GH target. Fertigation scheduling dispatches timed A/B dosing rather than a fertigation batch; fan scheduling dispatches an unsupported custom command. The audit also identifies absent seven-channel chemistry, pH/EC, routing/assignment, power-backup, durable run/telemetry history, and high-level tank interlock implementations.
+- **Changed Files:**
+  - `docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (new audit deliverable)
+  - `esp32/docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (exact SHA-256 mirror)
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Verification Result:** Read-only source audit. `npm run test -- --mock` passed; it only validates route/handler presence plus three Node-mock responses, not ESP32 execution. No code/build/flash/live-hardware test was performed in this safe point. Report mirror hash was rechecked after the test-note update.
+- **Known Issues / Blockers:** The P0/P1 findings in the report block a truthful claim of PRD-level multi-GH or precision-fertigation readiness. Existing working-tree changes were preserved and were not attributed to this audit.
+- **Next Action:** Obtain product decisions for the canonical configuration/compiler/resource model, then implement and test that foundation before adding GH-2 or claiming schedule activation correctness.
+- **Git Commit Hash:** NOT COMMITTED (pre-existing dirty worktree; audit did not create a commit).
+
+### [2026-09-18] SP-AUDIT-015-R1: Atomic PRD Audit Revision
+- **Objective:** Revise the existing Project Implementation Status & Gap Report v1 in place into an atomic requirement compliance audit.
+- **Completed Work:** Replaced the original coarse report content with the required 42-section structure and appendices: atomic traceability, feature decomposition, hardware readiness, resource assignment, schedule lifecycle, multi-GH, safety, contradictions, unknowns, and a v1-finding recheck. Each criterion distinguishes software, integration/reachability, test scope, and physical commissioning.
+- **Changed Files:**
+  - `docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (revised in place; 393 lines)
+  - `esp32/docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (exact mirror)
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Verification Result:** SHA-256 mirror match: `2B009F1ACE38C63E8B3AF8133E2B1273B72F0B4098495E64C4E83F6DCB1E96B1`. This revision is documentation-only; the previously executed `npm run test -- --mock` remains a limited Node-mock/static contract check, not firmware/physical verification.
+- **Known Issues / Blockers:** Atomic findings C-01 through C-10 in the report remain unresolved; in particular configuration-driven multi-GH and schedule compilation are missing. Existing user changes remain preserved.
+- **Next Action:** Resolve the architectural configuration/resource/compiler foundation before representing schedules or GH expansion as product-ready.
+- **Git Commit Hash:** NOT COMMITTED (pre-existing dirty worktree; no commit created).
+
+### [2026-09-18] SP-AUDIT-015-R2: Fully Atomic Requirement Continuation
+- **Objective:** Remove remaining combined audit conclusions from the existing v1 status report without creating a new report.
+- **Completed Work:** Added the canonical Appendix A.1 atomic continuation. It separately assesses Complex/GH, registry fields, installation stages, 4-GH/2-fan transfer stages, no-valve behavior, schedule recurrence/lifecycle/critical test cases, seven individual dosing-channel requirements, fertigation phases, named sensors, calibration targets, pumps, fans, safety mechanisms, telemetry, crop/research entities, and power requirements. Each row records PRD reference, one expected behavior, actual implementation, software state, integration, reachability, test scope, hardware/physical state, exact evidence, and exact gap.
+- **Changed Files:**
+  - `docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (revised in place; 620 lines)
+  - `esp32/docs/PROJECT_IMPLEMENTATION_STATUS_GAP_REPORT_V1.md` (exact mirror)
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Verification Result:** Documentation mirror SHA-256: `66E54B15731B9E72AF517ECA9DE3571D83AD4FECE9FFCFA7F8D195AE8492593D`. No implementation or test behavior changed.
+- **Known Issues / Blockers:** The expanded atomic register confirms the existing architectural blockers rather than resolving them; no new product claim is warranted.
+- **Git Commit Hash:** 4813792 (part of SP-SYNC-016 batch)
+
+### [2026-09-18] SP-SYNC-016: Repository Documentation Mirroring, Validation & GitHub Sync
+- **Objective:** Reconcile dual-location documentation mirroring (Zero-Drift policy), verify frontend builds and mock contract tests, create clean atomic safe-point commit, and push all commits to GitHub remote `origin/main`.
+- **Completed Work:**
+  1. Synchronized all markdown documentation identically between `docs/` and `esp32/docs/` with verified 0-byte drift.
+  2. Verified frontend build (`npm run build` PASS: 0 errors, singlefile bundled).
+  3. Verified mock contract conformance test (`npm test -- --mock` PASS: all 25 OpenAPI endpoints and 26 handlers verified).
+  4. Staged and committed untracked and modified firmware modules, UI services, and PRD documents.
+- **Changed Files:**
+  - `docs/*.md` & `esp32/docs/*.md` (exact character-for-character mirror)
+  - `PRODUCT_REQUIREMENTS_DOCUMENT.md`
+  - `esp32/main/services/*`, `esp32/main/http/*`, `esp32/main/hal/*`, `esp32/main/storage/*`
+  - `src/lib/*`, `src/app/*`, `contracts/UI_ESP32_OPENAPI.yaml`
+  - `AI_PROGRESS.md`, `AI_HANDOVER.md`
+- **Verification Result:** Frontend build PASS, contract test PASS (`verify_e2e_contracts.mjs --mock`), docs zero-drift check PASS.
+- **Known Issues / Blockers:** Hardware bench flashing pending operator physical hardware commissioning.
+- **Next Action:** Push commits to `origin/main` on GitHub.
+- **Git Commit Hash:** Pending amend and push.
 

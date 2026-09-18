@@ -14,6 +14,7 @@ tags:
   - name: CropCycle
   - name: Telemetry
   - name: Events
+  - name: Calibration
 
 paths:
   /api/v1/health:
@@ -496,6 +497,157 @@ paths:
               schema:
                 $ref: "#/components/schemas/EventResponse"
 
+  /api/v1/calibration:
+    post:
+      tags: [Calibration]
+      operationId: startCalibration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [componentId, type, duration_sec]
+              properties:
+                componentId: { type: string }
+                type: { type: string }
+                duration_sec: { type: integer }
+      responses:
+        "200":
+          description: Calibration started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/calibration/status:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationStatus
+      responses:
+        "200":
+          description: Current calibration status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
+                          remaining_sec: { type: integer }
+
+  /api/v1/calibration/rate:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationRate
+      responses:
+        "200":
+          description: Persistent dosing calibration rates
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          rateDosingAMlSec: { type: number }
+                          rateDosingBMlSec: { type: number }
+                          flowRawPulsesPerL: { type: number, description: "Raw water flow meter (ZJ-B1) calibration factor in pulses/L (0 = UNVERIFIED / CALIBRATION REQUIRED)" }
+                          flowFertPulsesPerL: { type: number, description: "Fertigation delivery flow meter (FS400A G1) calibration factor in pulses/L (F=4.5*Q -> 270 pulses/L)" }
+    post:
+      tags: [Calibration]
+      operationId: setCalibrationRate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [componentId, rateMlPerSec]
+              properties:
+                componentId: { type: string }
+                rateMlPerSec: { type: number, minimum: 0.001 }
+      responses:
+        "200":
+          description: Calibration rate saved to NVS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/schedules:
+    get:
+      tags: [Schedule]
+      operationId: getSchedules
+      responses:
+        "200":
+          description: List of configured schedules from NVS
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/ScheduleItem"
+                          total: { type: integer }
+    post:
+      tags: [Schedule]
+      operationId: saveSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleItem"
+      responses:
+        "200":
+          description: Schedule saved to NVS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/schedules/{id}:
+    delete:
+      tags: [Schedule]
+      operationId: deleteSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Schedule removed from NVS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
 components:
   parameters:
     GhId:
@@ -721,7 +873,21 @@ components:
           required: [expectedVersion, configuration]
           properties:
             expectedVersion: { type: integer }
-            configuration: { type: object, additionalProperties: true }
+    ScheduleItem:
+      type: object
+      required: [id, enabled, type, action]
+      properties:
+        id: { type: string }
+        enabled: { type: boolean }
+        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
+        action: { type: string, enum: [FERTIGATION, WATER_PUMP, FAN_TOGGLE, CUSTOM] }
+        durationSec: { type: integer }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        minute: { type: integer, minimum: 0, maximum: 59 }
+        daysOfWeek: { type: integer }
+        intervalMin: { type: integer }
+        lastExecutionTimestamp: { type: integer }
+        isRunning: { type: boolean }
 
     ValidationResponse:
       allOf:
@@ -752,6 +918,10 @@ components:
             commandId: { type: string }
             type: { type: string }
             componentId: { type: string, nullable: true }
+            durationSeconds: { type: integer, nullable: true }
+            rawWaterVolumeMl: { type: integer, minimum: 0, nullable: true }
+            dosingAVolumeMl: { type: integer, minimum: 0, nullable: true }
+            dosingBVolumeMl: { type: integer, minimum: 0, nullable: true }
             parameters: { type: object, additionalProperties: true }
 
     CommandResponse:

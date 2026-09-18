@@ -74,6 +74,7 @@ extern "C" {
 #define PIN_OUT_DOSING_B            6
 #define PIN_OUT_COOLING_FAN         7
 #define PIN_OUT_BLOWER_FAN          10  /* 4-Ch Relay IN3 -> Triggers External Contactor/Omron for 2x Blower Fans */
+#define PIN_OUT_MIXING_PUMP         40  /* 4-Ch Relay IN4 -> 220V AC Pond Pump */
 #define PIN_OUT_ERROR_LAMP          18
 
 #define ACTUATOR_ACTIVE_LEVEL       0   /* 0 = Active-LOW (standard relay boards), 1 = Active-HIGH (VERIFY DATASHEET) */
@@ -90,8 +91,11 @@ extern "C" {
 /* by UI target volume input with capacity boundary validation.              */
 /* NOTE: VERIFY FLOAT CONTACT ORIENTATION (NO vs NC) UPON INSTALLATION.       */
 /* ========================================================================== */
-#define PIN_IN_FLOW_YFB1            15   /* Flow pulse input 1 */
-#define PIN_IN_FLOW_FS400A          16   /* Flow pulse input 2 */
+#define PIN_IN_FLOW_RAW_ZJB1        15   /* Raw Water Flow Meter (ZJ-B1, 1-25 L/min, RAW WATER -> MIXING TANK) */
+#define PIN_IN_FLOW_FERT_FS400A     16   /* Fertigation Delivery Flow Meter (FS400A G1", 1-60 L/min, F=4.5*Q) */
+/* Backward compatibility aliases (OBSOLETE: YF-B1 replaced by ZJ-B1) */
+#define PIN_IN_FLOW_YFB1            PIN_IN_FLOW_RAW_ZJB1
+#define PIN_IN_FLOW_FS400A          PIN_IN_FLOW_FERT_FS400A
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
 #define PIN_IN_FLOAT_LOWER          38   /* Digital Lower Float Switch (Safety Interlock) */
 #define PIN_IN_TAMPER_LOOP          47   /* Anti-Theft Pump Security Loop */
@@ -106,8 +110,7 @@ extern "C" {
 /* ========================================================================== */
 #define PIN_BTN_MODE                0    /* Onboard BOOT Button / External NO Push Button */
 #define PIN_BTN_MANUAL_A            39
-#define PIN_BTN_MANUAL_B            40
-#define PIN_BTN_DISTRIBUTION        41
+#define PIN_BTN_RESERVED            41   /* Reserved unassigned physical panel button (Button 4) */
 
 #define BUTTON_LEVEL_PRESSED        0
 #define BUTTON_LEVEL_RELEASED       1

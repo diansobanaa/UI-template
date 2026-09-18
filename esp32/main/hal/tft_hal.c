@@ -320,12 +320,16 @@ static void tft_show_sensors_screen(void)
         tft_draw_string(8, 42, "DISCONNECTED", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
     }
 
-    tft_draw_string(8, 56, "FERT FLOW (YF-B1):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_yfb1_lpm, (unsigned long)sensors.total_pulses_yfb1);
+    tft_draw_string(8, 56, "RAW (ZJ-B1):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    if (sensors.raw_zjb1_calibrated) {
+        snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_raw_zjb1_lpm, (unsigned long)sensors.total_pulses_raw_zjb1);
+    } else {
+        snprintf(buf, sizeof(buf), "UNCAL (%lu p)", (unsigned long)sensors.total_pulses_raw_zjb1);
+    }
     tft_draw_string(8, 68, buf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
 
-    tft_draw_string(8, 82, "RAW FLOW (FS400A):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_fs400a_lpm, (unsigned long)sensors.total_pulses_fs400a);
+    tft_draw_string(8, 82, "FERT (FS400A):", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%.1f LPM (%lu p)", sensors.flow_rate_fert_fs400a_lpm, (unsigned long)sensors.total_pulses_fert_fs400a);
     tft_draw_string(8, 94, buf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
 
     tft_draw_string(8, 108, "FLOAT LEVEL:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);

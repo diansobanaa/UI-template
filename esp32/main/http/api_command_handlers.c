@@ -74,24 +74,61 @@ esp_err_t handler_post_command(httpd_req_t *req)
     command_item_t cmd = {0};
     strncpy(cmd.command_id, cmd_id->valuestring, sizeof(cmd.command_id) - 1);
     
-    if (strcmp(type->valuestring, "RESUME_SYSTEM") == 0) {
+    cJSON *dur = cJSON_GetObjectItem(payload, "durationSeconds");
+    if (dur && cJSON_IsNumber(dur)) {
+        cmd.param_duration_sec = dur->valueint;
+    }
+
+    if (strcmp(type->valuestring, "RESUME_SYSTEM") == 0 || strcmp(type->valuestring, "RESUME_CYCLE") == 0) {
         cmd.type = CMD_TYPE_RESUME;
     } else if (strcmp(type->valuestring, "EMERGENCY_STOP") == 0) {
         cmd.type = CMD_TYPE_EMERGENCY_STOP;
     } else if (strcmp(type->valuestring, "WELL_PUMP_START") == 0) {
         cmd.type = CMD_TYPE_WELL_PUMP;
-        cmd.param_duration_sec = 600; /* Default 10 min */
+        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 600; /* Default 10 min */
     } else if (strcmp(type->valuestring, "WELL_PUMP_STOP") == 0) {
         cmd.type = CMD_TYPE_WELL_PUMP;
         cmd.param_duration_sec = 0; /* Stop immediately */
+    } else if (strcmp(type->valuestring, "DIST_PUMP_START") == 0) {
+        cmd.type = CMD_TYPE_DIST_PUMP;
+        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 300;
+    } else if (strcmp(type->valuestring, "DIST_PUMP_STOP") == 0) {
+        cmd.type = CMD_TYPE_DIST_PUMP;
+        cmd.param_duration_sec = 0;
+    } else if (strcmp(type->valuestring, "DOSING_RUN_START") == 0 || strcmp(type->valuestring, "MANUAL_PUMP_START") == 0) {
+        cmd.type = CMD_TYPE_DOSING_RUN;
+        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 30;
+    } else if (strcmp(type->valuestring, "DOSING_RUN_STOP") == 0 || strcmp(type->valuestring, "MANUAL_PUMP_STOP") == 0) {
+        cmd.type = CMD_TYPE_DOSING_RUN;
+        cmd.param_duration_sec = 0;
+    } else if (strcmp(type->valuestring, "TANK_TRANSFER_START") == 0) {
+        cmd.type = CMD_TYPE_TANK_TRANSFER;
+        cmd.param_source_id = ACTUATOR_RAW_SUBMERSIBLE;
+        cmd.param_dest_id = ACTUATOR_MAX_COUNT;
+        if (cmd.param_duration_sec <= 0) cmd.param_duration_sec = 900; /* 15 min */
+    } else if (strcmp(type->valuestring, "TANK_TRANSFER_STOP") == 0) {
+        cmd.type = CMD_TYPE_TANK_TRANSFER;
+        cmd.param_duration_sec = 0;
+    } else if (strcmp(type->valuestring, "FERTIGATION_START") == 0 || strcmp(type->valuestring, "START_FERTIGATION") == 0) {
+        cmd.type = CMD_TYPE_FERTIGATION_BATCH;
+        cJSON *raw = cJSON_GetObjectItem(payload, "rawWaterVolumeMl");
+        if (raw && cJSON_IsNumber(raw)) cmd.param_raw_volume_ml = raw->valueint;
+        cJSON *dosA = cJSON_GetObjectItem(payload, "dosingAVolumeMl");
+        if (dosA && cJSON_IsNumber(dosA)) cmd.param_dosing_a_ml = dosA->valueint;
+        cJSON *dosB = cJSON_GetObjectItem(payload, "dosingBVolumeMl");
+        if (dosB && cJSON_IsNumber(dosB)) cmd.param_dosing_b_ml = dosB->valueint;
+
+        /* Support parameters object fallback */
+        cJSON *params = cJSON_GetObjectItem(payload, "parameters");
+        if (params && cJSON_IsObject(params)) {
+            cJSON *p_target_water = cJSON_GetObjectItem(params, "targetWaterL");
+            if (p_target_water && cJSON_IsNumber(p_target_water) && cmd.param_raw_volume_ml == 0) {
+                cmd.param_raw_volume_ml = (int32_t)(p_target_water->valuedouble * 1000.0);
+            }
+        }
     } else {
         cJSON_Delete(body);
         return http_send_error(req, 422, "VALIDATION_FAILED", "Unsupported command type", NULL);
-    }
-    
-    cJSON *dur = cJSON_GetObjectItem(payload, "durationSeconds");
-    if (dur && cJSON_IsNumber(dur)) {
-        cmd.param_duration_sec = dur->valueint;
     }
     err = command_mgr_submit(&cmd, NULL);
     if (err != ESP_OK) {

@@ -320,14 +320,19 @@ function DosingPumpCalibrationWizard({
   const deviationPct = prevRate > 0 && flowRate > 0 ? ((flowRate - prevRate) / prevRate) * 100 : null;
   const samplingComplete = clicks >= MAX_SAMPLING_CLICKS;
 
-  const handleRunPump = () => {
+  const handleRunPump = async () => {
     if (clicks >= MAX_SAMPLING_CLICKS) {
       toast(`Sampling Pompa ${channel} sudah mencapai durasi maksimal (${MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK} detik).`, "info");
       return;
     }
-    setClicks((prev) => prev + 1);
-    onStart(RUN_SECONDS_PER_CLICK);
-    toast(`Pompa Dosing ${channel} diaktifkan selama ${RUN_SECONDS_PER_CLICK} detik.`, "info");
+    try {
+      await calibrationService.runCalibrationPump(device, RUN_SECONDS_PER_CLICK);
+      setClicks((prev) => prev + 1);
+      onStart(RUN_SECONDS_PER_CLICK);
+      toast(`Pompa Dosing ${channel} diaktifkan selama ${RUN_SECONDS_PER_CLICK} detik.`, "info");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
   };
 
   const handleSaveData = async () => {

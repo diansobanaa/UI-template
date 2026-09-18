@@ -9,8 +9,10 @@
 
 static const char *TAG = "SAFETY_MONITOR";
 static bool s_has_fault = false;
-static uint32_t s_last_yfb1 = 0;
-static uint32_t s_last_fs400a = 0;
+static uint32_t s_last_raw_zjb1 = 0;
+static uint32_t s_last_fert_fs400a = 0;
+#define s_last_yfb1 s_last_raw_zjb1
+#define s_last_fs400a s_last_fert_fs400a
 
 static void safety_monitor_task(void *pvParameters)
 {
@@ -24,47 +26,50 @@ static void safety_monitor_task(void *pvParameters)
 
         /* Rule 1: Lower float safety STOP POINT for distribution and feed pumps */
         if (!sensors.float_lower_ok) {
-            if (actuator_hal_get_state(ACTUATOR_DIST_PUMP) ||
-                actuator_hal_get_state(ACTUATOR_WELL_PUMP) ||
-                actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE)) {
-                ESP_LOGE(TAG, "SAFETY TRIP: Lower float switch tripped! Stopping distribution and feed pumps immediately.");
+            bool stopped_any = false;
+            if (actuator_hal_get_state(ACTUATOR_DIST_PUMP)) {
                 actuator_hal_set(ACTUATOR_DIST_PUMP, false);
-                actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+                stopped_any = true;
+            }
+            if (actuator_hal_get_state(ACTUATOR_MIXING_PUMP)) {
+                actuator_hal_set(ACTUATOR_MIXING_PUMP, false);
+                stopped_any = true;
+            }
+            if (actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE)) {
                 actuator_hal_set(ACTUATOR_RAW_SUBMERSIBLE, false);
-                actuator_hal_set(ACTUATOR_ERROR_LAMP, true);
-                s_has_fault = true;
-
-                storage_mgr_append_event_log("{\"code\":\"SAFETY_DRY_RUN\",\"level\":\"CRITICAL\",\"message\":\"Lower float tripped: tank reached minimum level. Distribution stopped.\"}");
+                stopped_any = true;
+            }
+            if (stopped_any && !s_has_fault) {
+                ESP_LOGW(TAG, "SAFETY TRIP: Lower float switch DRY! Shutting down pumps to prevent dry-run.");
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_TANK_DRY\",\"level\":\"ERROR\",\"message\":\"Lower float switch dry. Pumps halted to prevent dry-run damage.\"}");
             }
         }
 
-        /* Rule 2: Over-temperature protection (> 45°C) */
-        if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c > 45.0f) {
-            if (!actuator_hal_get_state(ACTUATOR_COOLING_FAN)) {
-                ESP_LOGW(TAG, "High temperature detected (%.1f C). Activating cooling fan.", sensors.temperature_c);
-                actuator_hal_set(ACTUATOR_COOLING_FAN, true);
-            }
-        } else if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c < 35.0f) {
-            if (actuator_hal_get_state(ACTUATOR_COOLING_FAN)) {
-                actuator_hal_set(ACTUATOR_COOLING_FAN, false);
+        /* Rule 2: Water Temperature Safety Trip (>45C) */
+        if (sensors.temp_state == SENSOR_STATE_VALID) {
+            if (sensors.temperature_c > 45.0f && !s_has_fault) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Water temperature critical (%.1f C > 45.0 C)", sensors.temperature_c);
+                actuator_hal_emergency_stop();
+                s_has_fault = true;
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_TEMP_HIGH\",\"level\":\"CRITICAL\",\"message\":\"Water temperature exceeded 45.0 C. Emergency stop engaged.\"}");
             }
         }
 
         /* Rule 3: Stuck/Welded Relay Detection (BS-SENS-001) */
         if (!actuator_hal_get_state(ACTUATOR_WELL_PUMP) && !actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE)) {
-            if ((sensors.total_pulses_yfb1 > s_last_yfb1 + 10)) {
-                ESP_LOGE(TAG, "SAFETY TRIP: Flow detected while pump is OFF. Welded relay!");
+            if ((sensors.total_pulses_raw_zjb1 > s_last_raw_zjb1 + 10)) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Raw water flow detected while raw pumps are OFF (ZJ-B1). Welded relay or leak!");
                 actuator_hal_emergency_stop();
                 s_has_fault = true;
-                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY\",\"level\":\"CRITICAL\",\"message\":\"Flow detected while pump is OFF\"}");
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY_RAW\",\"level\":\"CRITICAL\",\"message\":\"Raw water flow detected on ZJ-B1 while pumps are OFF\"}");
             }
         }
         if (!actuator_hal_get_state(ACTUATOR_DIST_PUMP)) {
-            if ((sensors.total_pulses_fs400a > s_last_fs400a + 10)) {
-                ESP_LOGE(TAG, "SAFETY TRIP: Dist Flow detected while pump is OFF. Welded relay!");
+            if ((sensors.total_pulses_fert_fs400a > s_last_fert_fs400a + 10)) {
+                ESP_LOGE(TAG, "SAFETY TRIP: Fertigation flow detected while dist pump is OFF (FS400A). Welded relay or leak!");
                 actuator_hal_emergency_stop();
                 s_has_fault = true;
-                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY\",\"level\":\"CRITICAL\",\"message\":\"Dist flow detected while pump is OFF\"}");
+                storage_mgr_append_event_log("{\"code\":\"SAFETY_WELDED_RELAY_DIST\",\"level\":\"CRITICAL\",\"message\":\"Fertigation flow detected on FS400A while dist pump is OFF\"}");
             }
         }
 
@@ -76,8 +81,8 @@ static void safety_monitor_task(void *pvParameters)
             storage_mgr_append_event_log("{\"code\":\"SAFETY_PUMP_THEFT_TAMPER\",\"level\":\"CRITICAL\",\"message\":\"Tamper security wire cut (GPIO 47). Emergency stop engaged.\"}");
         }
 
-        s_last_yfb1 = sensors.total_pulses_yfb1;
-        s_last_fs400a = sensors.total_pulses_fs400a;
+        s_last_raw_zjb1 = sensors.total_pulses_raw_zjb1;
+        s_last_fert_fs400a = sensors.total_pulses_fert_fs400a;
 
         vTaskDelay(pdMS_TO_TICKS(500));
     }

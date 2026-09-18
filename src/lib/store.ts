@@ -21,7 +21,7 @@ import {
   calibrationDevices as seedDevices,
   calibrationHistory as seedCalHistory,
 } from "./data/calibration";
-import { MOCK_NOW } from "./format";
+import { SYSTEM_NOW, MOCK_NOW } from "./format";
 import {
   calculateDaysBetween,
   formatIndoDate,
@@ -162,7 +162,6 @@ export function resetMockDb(): void {
 
 let version = 0;
 const listeners = new Set<() => void>();
-let realtimeTimer: number | null = null;
 
 export function notify(): void {
   version += 1;
@@ -178,43 +177,65 @@ export function getDbVersion(): number {
   return version;
 }
 
-/** Advance mock runtime state so the UI behaves like a live control surface before backend integration. */
+/** No-op dummy kept for backward compatibility; replaced by live ESP32 status updates */
 export function startRealtimeMock(): () => void {
-  if (realtimeTimer !== null || typeof window === "undefined") return () => undefined;
-  realtimeTimer = window.setInterval(() => {
-    let changed = false;
-    for (const greenhouse of db.greenhouses) {
-      const phase = Date.now() / 90000 + greenhouse.id.length;
-      const temperature = greenhouse.telemetry.temperatureC;
-      if (temperature !== null) {
-        greenhouse.telemetry.temperatureC = Number((temperature + Math.sin(phase) * 0.08).toFixed(1));
-        greenhouse.telemetry.tempDeltaC = Number((Math.sin(phase) * 0.4).toFixed(1));
-      }
-      if (greenhouse.telemetry.humidityPct !== null) {
-        greenhouse.telemetry.humidityPct = Math.max(0, Math.min(100, Math.round(greenhouse.telemetry.humidityPct + Math.cos(phase) * 0.3)));
-        greenhouse.telemetry.humidityDeltaPct = Number((Math.cos(phase) * 0.8).toFixed(1));
-      }
-      if (greenhouse.currentRun) {
-        const run = greenhouse.currentRun;
-        run.progressPct = Math.min(100, run.progressPct + 5);
-        run.waterDoneL = Math.round((run.targetWaterL * run.progressPct) / 100);
-        run.dosingADoneMl = Math.round((run.dosingAml * run.progressPct) / 100);
-        run.dosingBDoneMl = Math.round((run.dosingBml * run.progressPct) / 100);
-        run.elapsedLabel = `${Math.max(1, Math.round(run.progressPct / 5))} min`;
-        greenhouse.fertigationState = run.progressPct >= 70 ? "DISTRIBUTING" : "MIXING";
-        if (run.progressPct >= 100) {
-          greenhouse.currentRun = null;
-          greenhouse.fertigationState = "IDLE";
-        }
-      }
-      changed = true;
-    }
-    if (changed) notify();
-  }, 10000);
-  return () => {
-    if (realtimeTimer !== null) window.clearInterval(realtimeTimer);
-    realtimeTimer = null;
+  return () => undefined;
+}
+
+/** Updates client cache with live ESP32 hardware status and telemetry */
+export function updateFromEsp32(data: {
+  emergencyStopped?: boolean;
+  actuators?: Record<string, boolean>;
+  sensors?: {
+    temperatureC?: number | null;
+    flowRawZjb1Lpm?: number;
+    totalLitersRawZjb1?: number;
+    totalPulsesRawZjb1?: number;
+    rawZjb1Calibrated?: boolean;
+    flowFertFs400aLpm?: number;
+    totalLitersFertFs400a?: number;
+    totalPulsesFertFs400a?: number;
+    flowYfb1Lpm?: number;
+    totalLitersYfb1?: number;
+    flowFs400aLpm?: number;
+    totalLitersFs400a?: number;
+    floatLowerOk?: boolean;
   };
+}): void {
+  const gh = db.greenhouses[0];
+  const complex = db.complexes[0];
+
+  if (data.emergencyStopped !== undefined) {
+    if (complex) complex.emergencyStopped = data.emergencyStopped;
+  }
+
+  if (data.sensors && gh) {
+    if (data.sensors.temperatureC !== undefined) {
+      gh.telemetry.temperatureC = data.sensors.temperatureC;
+    }
+    const fertTotal = data.sensors.totalLitersFertFs400a ?? data.sensors.totalLitersFs400a;
+    if (fertTotal !== undefined) {
+      gh.telemetry.waterTodayL = fertTotal;
+    }
+    if (data.sensors.floatLowerOk !== undefined) {
+      gh.telemetry.tankPct = data.sensors.floatLowerOk ? 85 : 10;
+    }
+  }
+
+  if (data.actuators && complex) {
+    complex.water.wellPumpOn = Boolean(data.actuators.wellPump);
+    if (gh) {
+      if (data.actuators.distPump) {
+        gh.fertigationState = "DISTRIBUTING";
+      } else if (data.actuators.mixingPump || data.actuators.rawSubmersible || data.actuators.dosingA || data.actuators.dosingB) {
+        gh.fertigationState = "MIXING";
+      } else {
+        gh.fertigationState = "IDLE";
+      }
+    }
+  }
+
+  notify();
 }
 
 /** Commit helper used by every mutation: persist + notify subscribers. */
@@ -765,7 +786,7 @@ export function harvestCropCycle(
     tanggalPolinasi: gh.cropCycle.tanggalPolinasi || null,
     hstAtHarvest: gh.telemetry.hstDays,
     hspAtHarvest: gh.telemetry.hspDays,
-    recordedAt: MOCK_NOW.dateTime,
+    recordedAt: SYSTEM_NOW.dateTime,
     yieldKg: options?.yieldKg,
     grade: options?.grade,
     notes: options?.notes,

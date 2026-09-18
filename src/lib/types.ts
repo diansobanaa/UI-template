@@ -203,6 +203,22 @@ export interface WellPumpSchedule {
   radar: "filling" | "full"; // binary radar behaviour — no percentage
 }
 
+export interface WaterTransferSchedule {
+  id: Id;
+  complexId: Id;
+  name: string;
+  sourcePumpId: string;
+  destValveId: string;
+  durationMin: number;
+  trigger: TriggerType;
+  time: string;
+  repeat: RepeatMode;
+  enabled: boolean;
+  status: ScheduleStatus;
+  lastRun: string | null;
+  nextRun: string | null;
+}
+
 export interface FanSchedule {
   id: Id;
   ghId: Id;

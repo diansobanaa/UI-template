@@ -15,10 +15,9 @@ typedef struct {
 } button_state_t;
 
 static button_state_t s_buttons[BUTTON_MAX_COUNT] = {
-    [BUTTON_MODE]         = { .gpio = PIN_BTN_MODE,         .current_state = false, .last_raw_state = true, .stable_count = 0 },
-    [BUTTON_MANUAL_A]     = { .gpio = PIN_BTN_MANUAL_A,     .current_state = false, .last_raw_state = true, .stable_count = 0 },
-    [BUTTON_MANUAL_B]     = { .gpio = PIN_BTN_MANUAL_B,     .current_state = false, .last_raw_state = true, .stable_count = 0 },
-    [BUTTON_DISTRIBUTION] = { .gpio = PIN_BTN_DISTRIBUTION, .current_state = false, .last_raw_state = true, .stable_count = 0 },
+    [BUTTON_MODE]     = { .gpio = PIN_BTN_MODE,     .current_state = false, .last_raw_state = true, .stable_count = 0 },
+    [BUTTON_MANUAL_A] = { .gpio = PIN_BTN_MANUAL_A, .current_state = false, .last_raw_state = true, .stable_count = 0 },
+    [BUTTON_RESERVED] = { .gpio = PIN_BTN_RESERVED, .current_state = false, .last_raw_state = true, .stable_count = 0 },
 };
 
 static button_event_cb_t s_callback = NULL;
@@ -44,14 +43,13 @@ esp_err_t button_hal_init(button_event_cb_t cb)
         .intr_type = GPIO_INTR_DISABLE,
         .pin_bit_mask = (1ULL << PIN_BTN_MODE) |
                         (1ULL << PIN_BTN_MANUAL_A) |
-                        (1ULL << PIN_BTN_MANUAL_B) |
-                        (1ULL << PIN_BTN_DISTRIBUTION)
+                        (1ULL << PIN_BTN_RESERVED)
     };
 
     esp_err_t err = gpio_config(&btn_conf);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Button HAL initialized: Mode(%d), ManA(%d), ManB(%d), Dist(%d) pulled HIGH.",
-                 PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_MANUAL_B, PIN_BTN_DISTRIBUTION);
+        ESP_LOGI(TAG, "Hardware buttons initialized (GPIO %d, %d, %d)",
+                 PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_RESERVED);
 
         if (!s_task_started) {
             BaseType_t r = xTaskCreatePinnedToCore(

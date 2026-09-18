@@ -49,7 +49,7 @@ import {
   categoryFilterMap,
 } from "./data/calibration";
 import { dosingLastCalibration, dosingPumps, fertigationSystemStatus } from "./data/greenhouses";
-import { MOCK_NOW } from "./format";
+import { SYSTEM_NOW } from "./format";
 import { ServiceError } from "./errors";
 import type {
   AlertItem,
@@ -70,8 +70,9 @@ import { isDirectEsp32Enabled } from "./api/backend-client";
 import type { CurrentCropCycleResponse } from "./api/contracts";
 
 
-/** Simulated network latency for the mock backend. */
-export function delay(ms = 350): Promise<void> {
+/** Simulated network latency removed for production hardening (defaults to 0ms). */
+export function delay(ms = 0): Promise<void> {
+  if (ms === 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -382,16 +383,40 @@ export const cropCycleService = {
 };
 
 
+let liveLogsCache: EventItem[] = [];
+
 export const eventService = {
   recent(complexId: string): EventItem[] {
+    if (liveLogsCache.length > 0) {
+      return liveLogsCache.slice(0, 10);
+    }
     return complexId === "complex-01" ? recentEvents : [];
   },
   all(): EventItem[] {
+    if (liveLogsCache.length > 0) {
+      return liveLogsCache;
+    }
     return recentEvents;
   },
   alerts(): AlertItem[] {
     return recentAlerts;
   },
+  async syncLogsFromEsp32(): Promise<void> {
+    if (!isDirectEsp32Enabled()) return;
+    try {
+      const resp = await esp32Client.getLogs();
+      if (resp && Array.isArray(resp.items)) {
+        liveLogsCache = resp.items.map((log) => ({
+          id: log.id,
+          time: log.at ? (log.at.slice(11, 16) || log.at) : "12:00",
+          text: log.message,
+          level: (log.level === "CRITICAL" || log.level === "ERROR" ? "error" : log.level === "WARNING" ? "warning" : "info") as any,
+        }));
+      }
+    } catch {
+      // offline fallback
+    }
+  }
 };
 
 /* -------------------------- schedules ---------------------------- */
@@ -402,6 +427,9 @@ export const scheduleService = {
   },
   wellPumpForComplex(complexId: string): WellPumpSchedule[] {
     return db.wellPumpSchedules.filter((s) => s.complexId === complexId);
+  },
+  waterTransferForComplex(_complexId: string): import("./types").WaterTransferSchedule[] {
+    return [];
   },
   fanForGh(ghId: string): FanSchedule[] {
     return greenhouseService.get(ghId)?.fanSchedules ?? [];
@@ -419,7 +447,24 @@ export const scheduleService = {
       throw new ServiceError("DUPLICATE_ID", `A fertigation schedule named "${input.name.trim()}" already exists in this greenhouse.`, "name");
     }
     await delay();
-    return createFertigationSchedule({ ...input, name: input.name.trim() });
+    const item = createFertigationSchedule({ ...input, name: input.name.trim() });
+    if (isDirectEsp32Enabled()) {
+      try {
+        const [hour, minute] = (item.time || "08:00").split(":").map(Number);
+        await esp32Client.saveSchedule({
+          id: item.id,
+          enabled: item.enabled,
+          type: "DAILY",
+          action: "FERTIGATION",
+          durationSec: Math.round((item.targetWaterL || 1) * 30),
+          hour: isNaN(hour) ? 8 : hour,
+          minute: isNaN(minute) ? 0 : minute,
+        });
+      } catch (err) {
+        console.warn("Failed to persist fertigation schedule to ESP32:", err);
+      }
+    }
+    return item;
   },
 
   async updateFertigation(id: string, patch: Partial<FertigationSchedule>): Promise<FertigationSchedule> {
@@ -447,13 +492,36 @@ export const scheduleService = {
       }
     }
     await delay();
-    const updated = updateFertigationSchedule(id, patch);
-    return assertFound(updated, "Schedule");
+    const updated = assertFound(updateFertigationSchedule(id, patch), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        const [hour, minute] = (updated.time || "08:00").split(":").map(Number);
+        await esp32Client.saveSchedule({
+          id: updated.id,
+          enabled: updated.enabled,
+          type: "DAILY",
+          action: "FERTIGATION",
+          durationSec: Math.round((updated.targetWaterL || 1) * 30),
+          hour: isNaN(hour) ? 8 : hour,
+          minute: isNaN(minute) ? 0 : minute,
+        });
+      } catch (err) {
+        console.warn("Failed to update fertigation schedule on ESP32:", err);
+      }
+    }
+    return updated;
   },
 
   async deleteFertigation(id: string): Promise<void> {
     await delay();
     assertFound(deleteFertigationSchedule(id), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.deleteSchedule(id);
+      } catch (err) {
+        console.warn("Failed to delete fertigation schedule on ESP32:", err);
+      }
+    }
   },
 
   async createWellPump(input: Omit<WellPumpSchedule, "id">): Promise<WellPumpSchedule> {
@@ -465,7 +533,24 @@ export const scheduleService = {
       throw new ServiceError("DUPLICATE_ID", `A well pump schedule named "${input.task.trim()}" already exists in this complex.`, "task");
     }
     await delay();
-    return createWellPumpSchedule({ ...input, task: input.task.trim() });
+    const item = createWellPumpSchedule({ ...input, task: input.task.trim() });
+    if (isDirectEsp32Enabled()) {
+      try {
+        const [hour, minute] = (item.time || "06:00").split(":").map(Number);
+        await esp32Client.saveSchedule({
+          id: item.id,
+          enabled: item.enabled,
+          type: "DAILY",
+          action: "WATER_PUMP",
+          durationSec: (item.durationMin || 15) * 60,
+          hour: isNaN(hour) ? 6 : hour,
+          minute: isNaN(minute) ? 0 : minute,
+        });
+      } catch (err) {
+        console.warn("Failed to persist well pump schedule to ESP32:", err);
+      }
+    }
+    return item;
   },
 
   async updateWellPump(id: string, patch: Partial<WellPumpSchedule>): Promise<WellPumpSchedule> {
@@ -483,13 +568,36 @@ export const scheduleService = {
       patch = { ...patch, task: patch.task.trim() };
     }
     await delay();
-    const updated = updateWellPumpSchedule(id, patch);
-    return assertFound(updated, "Schedule");
+    const updated = assertFound(updateWellPumpSchedule(id, patch), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        const [hour, minute] = (updated.time || "06:00").split(":").map(Number);
+        await esp32Client.saveSchedule({
+          id: updated.id,
+          enabled: updated.enabled,
+          type: "DAILY",
+          action: "WATER_PUMP",
+          durationSec: (updated.durationMin || 15) * 60,
+          hour: isNaN(hour) ? 6 : hour,
+          minute: isNaN(minute) ? 0 : minute,
+        });
+      } catch (err) {
+        console.warn("Failed to update well pump schedule on ESP32:", err);
+      }
+    }
+    return updated;
   },
 
   async deleteWellPump(id: string): Promise<void> {
     await delay();
     assertFound(deleteWellPumpSchedule(id), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.deleteSchedule(id);
+      } catch (err) {
+        console.warn("Failed to delete well pump schedule on ESP32:", err);
+      }
+    }
   },
 
   async createFan(input: Omit<FanSchedule, "id">): Promise<FanSchedule> {
@@ -500,7 +608,22 @@ export const scheduleService = {
       }
     }
     await delay();
-    return createFanSchedule(input);
+    const item = createFanSchedule(input);
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.saveSchedule({
+          id: item.id,
+          enabled: item.enabled,
+          type: "INTERVAL",
+          action: "FAN_TOGGLE",
+          durationSec: (item.durationMin || 15) * 60,
+          intervalMin: item.durationMin || 15,
+        });
+      } catch (err) {
+        console.warn("Failed to persist fan schedule to ESP32:", err);
+      }
+    }
+    return item;
   },
 
   async updateFan(id: string, patch: Partial<FanSchedule>): Promise<FanSchedule> {
@@ -511,13 +634,34 @@ export const scheduleService = {
       throw new ServiceError("VALIDATION_FAILED", "Fan ON threshold must be higher than the OFF threshold.", "onAboveC");
     }
     await delay();
-    const updated = updateFanSchedule(id, patch);
-    return assertFound(updated, "Schedule");
+    const updated = assertFound(updateFanSchedule(id, patch), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.saveSchedule({
+          id: updated.id,
+          enabled: updated.enabled,
+          type: "INTERVAL",
+          action: "FAN_TOGGLE",
+          durationSec: (updated.durationMin || 15) * 60,
+          intervalMin: updated.durationMin || 15,
+        });
+      } catch (err) {
+        console.warn("Failed to update fan schedule on ESP32:", err);
+      }
+    }
+    return updated;
   },
 
   async deleteFan(id: string): Promise<void> {
     await delay();
     assertFound(deleteFanSchedule(id), "Schedule");
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.deleteSchedule(id);
+      } catch (err) {
+        console.warn("Failed to delete fan schedule on ESP32:", err);
+      }
+    }
   },
 };
 
@@ -549,8 +693,21 @@ export const calibrationService = {
         : device.category === "ec"
           ? `EC (${pointCount} point)`
           : "Volume Test (30s)";
+
+    if (isDirectEsp32Enabled() && (device.category === "dosing-pump" || type.startsWith("Volume"))) {
+      try {
+        const ml = parseFloat(after);
+        if (!isNaN(ml) && ml > 0) {
+          const rateMlSec = ml / 30.0;
+          await esp32Client.saveCalibrationRate(device.id.replace("dev-", ""), rateMlSec);
+        }
+      } catch (err) {
+        console.warn("Failed to persist calibration rate to ESP32:", err);
+      }
+    }
+
     addCalibrationRecord({
-      dateTime: `${MOCK_NOW.dateTime.slice(0, 11)}${MOCK_NOW.time.slice(0, 5)}`,
+      dateTime: `${SYSTEM_NOW.dateTime.slice(0, 11)}${SYSTEM_NOW.time.slice(0, 5)}`,
       device: device.name.replace(/\s*\(.*\)$/, ""),
       type,
       before,
@@ -559,6 +716,19 @@ export const calibrationService = {
       user,
     });
     setCalibrationDeviceReading(device.id, String(parseFloat(after)));
+  },
+  async runCalibrationPump(device: CalibrationDevice, durationSec: number): Promise<void> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        const componentId = device.id.replace("dev-", "");
+        await esp32Client.startCalibration(componentId, "VOLUMETRIC", durationSec);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to run pump on ESP32.");
+      }
+    } else {
+      await delay(300);
+    }
   },
 };
 
@@ -621,7 +791,7 @@ export const fertigationService = {
     return syncStates.get(complexId) ?? "idle";
   },
 
-  /** Manual fertigation: creates a real run and advances it in mock ticks. */
+  /** Manual fertigation: triggers real ESP32 fertigation execution. */
   async startManual(ghId: string, recipeId: string, targetWaterL: number): Promise<void> {
     const gh = assertFound(greenhouseService.get(ghId), "Greenhouse");
     if (gh.complexId && this.isStopped(gh.complexId)) {
@@ -641,21 +811,9 @@ export const fertigationService = {
         const cmdId = `fert-${Date.now()}`;
         await esp32Client.postCommand(cmdId, "START_FERTIGATION", {
           componentId: ghId,
-          parameters: { recipeId, targetWaterL }
+          parameters: { recipeId, targetWaterL, rawWaterVolumeMl: Math.round(targetWaterL * 1000) }
         });
-        
-        const poll = async () => {
-          try {
-            const res = await esp32Client.getCommand(cmdId);
-            if (res.status === "COMPLETED" || res.status === "FAILED" || res.status === "REJECTED" || res.status === "CANCELLED") {
-              return;
-            }
-            setTimeout(poll, 2000);
-          } catch (e) {
-            setTimeout(poll, 2000);
-          }
-        };
-        setTimeout(poll, 2000);
+        startManualRun(ghId, recipeId, targetWaterL);
         return;
       } catch (err: unknown) {
         const errorObj = err as { message?: string };
@@ -665,12 +823,6 @@ export const fertigationService = {
 
     await delay();
     startManualRun(ghId, recipeId, targetWaterL);
-    // Mock lifecycle: advance the run in a few ticks like a backend would stream progress.
-    const tick = () => {
-      const done = advanceManualRun(ghId) === "done";
-      if (!done) setTimeout(tick, 1200);
-    };
-    setTimeout(tick, 1200);
   },
 
   /** ESP32 sync: pending → synced on success; error path preserves state (spec #26/#34). */
@@ -714,7 +866,6 @@ export const fertigationService = {
     emergencyStopComplex(complexId);
   },
 
-
   /** Latched emergency-stop state — actuators and runs stay blocked until resume() is called. */
   isStopped(complexId: string): boolean {
     return complexService.get(complexId)?.emergencyStopped ?? false;
@@ -727,22 +878,9 @@ export const fertigationService = {
     if (isDirectEsp32Enabled()) {
       try {
         const cmdId = `resume-${Date.now()}`;
-        await esp32Client.postCommand(cmdId, "RESUME_CYCLE", {
+        await esp32Client.postCommand(cmdId, "RESUME_SYSTEM", {
           componentId: complexId
         });
-        
-        const poll = async () => {
-          try {
-            const res = await esp32Client.getCommand(cmdId);
-            if (res.status === "COMPLETED" || res.status === "FAILED" || res.status === "REJECTED" || res.status === "CANCELLED") {
-              return;
-            }
-            setTimeout(poll, 2000);
-          } catch (e) {
-            setTimeout(poll, 2000);
-          }
-        };
-        setTimeout(poll, 2000);
       } catch (err: unknown) {
         const errorObj = err as { message?: string };
         throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to resume on ESP32.");
@@ -759,10 +897,18 @@ export const fertigationService = {
     if (on && complex.emergencyStopped) {
       throw new ServiceError("CONFLICT", "System is in EMERGENCY STOP — resume the system before turning the well pump ON.");
     }
-    await delay();
     const radarFull = complex.water.rawTankPct >= 95;
     if (on && radarFull) {
       throw new ServiceError("DEVICE_OFFLINE", "Raw water tank is Penuh (full) — radar interlock keeps the pump OFF. The schedule remains active.");
+    }
+    if (isDirectEsp32Enabled()) {
+      try {
+        const cmdId = `wp-${Date.now()}`;
+        await esp32Client.postCommand(cmdId, on ? "WELL_PUMP_START" : "WELL_PUMP_STOP");
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to toggle well pump on ESP32.");
+      }
     }
     setWellPumpOn(complexId, on);
   },
@@ -777,9 +923,18 @@ export const fertigationService = {
     }
     pumpTestRuns.add(pumpId);
     try {
-      await delay(1500);
+      if (isDirectEsp32Enabled()) {
+        const cmdId = `test-${pumpId}-${Date.now()}`;
+        await esp32Client.postCommand(cmdId, "DOSING_RUN_START", {
+          componentId: pumpId.replace("dev-", ""),
+          durationSeconds: 5,
+        });
+      }
+    } catch (err: unknown) {
+      const errorObj = err as { message?: string };
+      throw new ServiceError("VALIDATION_FAILED", errorObj?.message || `Failed to test pump ${pumpName} on ESP32.`);
     } finally {
-      pumpTestRuns.delete(pumpId);
+      setTimeout(() => pumpTestRuns.delete(pumpId), 5000);
     }
   },
 

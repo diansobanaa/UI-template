@@ -1,4 +1,7 @@
 #include "services/command_mgr.h"
+#include "services/manual_actuator_mgr.h"
+#include "services/transfer_mgr.h"
+#include "services/fertigation_mgr.h"
 #include "hal/actuator_hal.h"
 #include "config/system_config.h"
 #include "config/pin_config.h"
@@ -64,6 +67,8 @@ static void command_worker_task(void *pvParameters)
 
             esp_err_t err = ESP_OK;
 
+            bool is_async_task = false;
+
             switch (cmd.type) {
                 case CMD_TYPE_EMERGENCY_STOP:
                     actuator_hal_emergency_stop();
@@ -76,46 +81,36 @@ static void command_worker_task(void *pvParameters)
                     break;
 
                 case CMD_TYPE_WELL_PUMP:
-                    err = actuator_hal_set(ACTUATOR_WELL_PUMP, cmd.param_duration_sec > 0);
-                    if (err == ESP_OK && cmd.param_duration_sec > 0) {
-                        for (int s = 0; s < cmd.param_duration_sec; s++) {
-                            if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY || actuator_hal_is_emergency_stopped()) {
-                                actuator_hal_set(ACTUATOR_WELL_PUMP, false);
-                                err = ESP_ERR_INVALID_STATE;
-                                ESP_LOGW(TAG, "Well pump run stopped: Lower float reached dry state.");
-                                break;
-                            }
-                            vTaskDelay(pdMS_TO_TICKS(1000));
-                        }
-                        actuator_hal_set(ACTUATOR_WELL_PUMP, false);
-                    }
-                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Well pump run complete" : "Well pump command blocked or stopped by safety");
+                    err = manual_actuator_start(ACTUATOR_WELL_PUMP, cmd.param_duration_sec);
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Well pump running" : "Well pump command blocked or stopped by safety");
+                    is_async_task = (cmd.param_duration_sec > 0);
                     break;
 
                 case CMD_TYPE_DIST_PUMP:
-                    err = actuator_hal_set(ACTUATOR_DIST_PUMP, cmd.param_duration_sec > 0);
-                    if (err == ESP_OK && cmd.param_duration_sec > 0) {
-                        for (int s = 0; s < cmd.param_duration_sec; s++) {
-                            if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY || actuator_hal_is_emergency_stopped()) {
-                                actuator_hal_set(ACTUATOR_DIST_PUMP, false);
-                                err = ESP_ERR_INVALID_STATE;
-                                ESP_LOGW(TAG, "Distribution pump run STOPPED: Lower float reached minimum stop point.");
-                                break;
-                            }
-                            vTaskDelay(pdMS_TO_TICKS(1000));
-                        }
-                        actuator_hal_set(ACTUATOR_DIST_PUMP, false);
-                    }
-                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Dist pump run complete" : "Dist pump command blocked or stopped by safety stop point");
+                    err = manual_actuator_start(ACTUATOR_DIST_PUMP, cmd.param_duration_sec);
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Dist pump running" : "Dist pump command blocked or stopped by safety stop point");
+                    is_async_task = (cmd.param_duration_sec > 0);
                     break;
 
                 case CMD_TYPE_DOSING_RUN:
-                    actuator_hal_set(ACTUATOR_DOSING_A, true);
-                    actuator_hal_set(ACTUATOR_DOSING_B, true);
-                    vTaskDelay(pdMS_TO_TICKS(cmd.param_duration_sec > 0 ? cmd.param_duration_sec * 1000 : 2000));
-                    actuator_hal_set(ACTUATOR_DOSING_A, false);
-                    actuator_hal_set(ACTUATOR_DOSING_B, false);
-                    snprintf(cmd.message, sizeof(cmd.message), "Dosing run complete");
+                    err = manual_actuator_start(ACTUATOR_DOSING_A, cmd.param_duration_sec);
+                    if (err == ESP_OK) {
+                        err = manual_actuator_start(ACTUATOR_DOSING_B, cmd.param_duration_sec);
+                    }
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Dosing running" : "Dosing run failed to start");
+                    is_async_task = (cmd.param_duration_sec > 0);
+                    break;
+
+                case CMD_TYPE_TANK_TRANSFER:
+                    err = transfer_mgr_start((actuator_id_t)cmd.param_source_id, (actuator_id_t)cmd.param_dest_id, cmd.param_duration_sec);
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Tank transfer running" : "Transfer blocked or invalid");
+                    is_async_task = true;
+                    break;
+
+                case CMD_TYPE_FERTIGATION_BATCH:
+                    err = fertigation_mgr_start_batch(cmd.param_raw_volume_ml, cmd.param_dosing_a_ml, cmd.param_dosing_b_ml);
+                    snprintf(cmd.message, sizeof(cmd.message), err == ESP_OK ? "Fertigation batch running" : "Failed to start fertigation batch");
+                    is_async_task = true;
                     break;
 
                 default:
@@ -124,7 +119,13 @@ static void command_worker_task(void *pvParameters)
                     break;
             }
 
-            cmd.status = (err == ESP_OK) ? CMD_STATUS_COMPLETED : CMD_STATUS_FAILED;
+            if (err != ESP_OK) {
+                cmd.status = CMD_STATUS_FAILED;
+            } else if (is_async_task) {
+                cmd.status = CMD_STATUS_RUNNING;
+            } else {
+                cmd.status = CMD_STATUS_COMPLETED;
+            }
 
             xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
             cached = cache_find(cmd.command_id);
@@ -198,6 +199,45 @@ esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt)
         return ESP_ERR_NOT_FOUND;
     }
 
+    if (cached->status == CMD_STATUS_RUNNING) {
+        if (cached->type == CMD_TYPE_FERTIGATION_BATCH) {
+            fertigation_state_t fst = fertigation_mgr_get_state();
+            if (fst == FERT_STATE_COMPLETE) {
+                cached->status = CMD_STATUS_COMPLETED;
+                snprintf(cached->message, sizeof(cached->message), "Fertigation batch completed");
+            } else if (fst == FERT_STATE_INTERRUPTED) {
+                cached->status = CMD_STATUS_FAILED;
+                snprintf(cached->message, sizeof(cached->message), "Fertigation batch interrupted by safety");
+            } else if (fst == FERT_STATE_IDLE) {
+                cached->status = CMD_STATUS_COMPLETED;
+            }
+        } else if (cached->type == CMD_TYPE_TANK_TRANSFER) {
+            transfer_state_t tst = transfer_mgr_get_state();
+            if (tst == TRANSFER_STATE_COMPLETE || tst == TRANSFER_STATE_IDLE) {
+                cached->status = CMD_STATUS_COMPLETED;
+                snprintf(cached->message, sizeof(cached->message), "Tank transfer completed");
+            } else if (tst == TRANSFER_STATE_ERROR) {
+                cached->status = CMD_STATUS_FAILED;
+                snprintf(cached->message, sizeof(cached->message), "Tank transfer error");
+            }
+        } else if (cached->type == CMD_TYPE_WELL_PUMP) {
+            if (!manual_actuator_is_running(ACTUATOR_WELL_PUMP)) {
+                cached->status = CMD_STATUS_COMPLETED;
+                snprintf(cached->message, sizeof(cached->message), "Well pump run completed");
+            }
+        } else if (cached->type == CMD_TYPE_DIST_PUMP) {
+            if (!manual_actuator_is_running(ACTUATOR_DIST_PUMP)) {
+                cached->status = CMD_STATUS_COMPLETED;
+                snprintf(cached->message, sizeof(cached->message), "Dist pump run completed");
+            }
+        } else if (cached->type == CMD_TYPE_DOSING_RUN) {
+            if (!manual_actuator_is_running(ACTUATOR_DOSING_A) && !manual_actuator_is_running(ACTUATOR_DOSING_B)) {
+                cached->status = CMD_STATUS_COMPLETED;
+                snprintf(cached->message, sizeof(cached->message), "Dosing run completed");
+            }
+        }
+    }
+
     *out_receipt = *cached;
     xSemaphoreGive(s_cache_mutex);
     return ESP_OK;
@@ -221,12 +261,16 @@ esp_err_t command_mgr_cancel(const char *command_id)
         
         /* Stop actuators if it was a pump command */
         if (cached->type == CMD_TYPE_WELL_PUMP) {
-            actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+            manual_actuator_stop(ACTUATOR_WELL_PUMP);
         } else if (cached->type == CMD_TYPE_DIST_PUMP) {
-            actuator_hal_set(ACTUATOR_DIST_PUMP, false);
+            manual_actuator_stop(ACTUATOR_DIST_PUMP);
         } else if (cached->type == CMD_TYPE_DOSING_RUN) {
-            actuator_hal_set(ACTUATOR_DOSING_A, false);
-            actuator_hal_set(ACTUATOR_DOSING_B, false);
+            manual_actuator_stop(ACTUATOR_DOSING_A);
+            manual_actuator_stop(ACTUATOR_DOSING_B);
+        } else if (cached->type == CMD_TYPE_TANK_TRANSFER) {
+            transfer_mgr_stop();
+        } else if (cached->type == CMD_TYPE_FERTIGATION_BATCH) {
+            fertigation_mgr_cancel_batch();
         }
     }
     

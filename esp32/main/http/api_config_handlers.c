@@ -59,14 +59,18 @@ esp_err_t handler_get_configuration(httpd_req_t *req)
     cJSON_AddStringToObject(root, "hash", hash_str);
 
     /* Try to load stored JSON configuration or provide default baseline */
-    char buf[4096];
+    char *buf = (char *)malloc(4096);
     size_t len = 0;
-    if (storage_mgr_load_config(buf, sizeof(buf), &len) == ESP_OK) {
-        cJSON *stored = cJSON_Parse(buf);
-        if (stored) {
-            cJSON_AddItemToObject(root, "config", stored);
-            return http_send_enveloped_response(req, 200, NULL, root);
+    if (buf) {
+        if (storage_mgr_load_config(buf, 4096, &len) == ESP_OK) {
+            cJSON *stored = cJSON_Parse(buf);
+            if (stored) {
+                cJSON_AddItemToObject(root, "config", stored);
+                free(buf);
+                return http_send_enveloped_response(req, 200, NULL, root);
+            }
         }
+        free(buf);
     }
 
     /* Fallback default config object */
@@ -134,13 +138,16 @@ esp_err_t handler_put_configuration(httpd_req_t *req)
     snprintf(hash_str, sizeof(hash_str), "%08lx", (unsigned long)st2->config_crc);
     cJSON_AddStringToObject(root, "hash", hash_str);
 
-    char buf[4096];
+    char *buf = (char *)malloc(4096);
     size_t len = 0;
-    if (storage_mgr_load_config(buf, sizeof(buf), &len) == ESP_OK) {
-        cJSON *stored = cJSON_Parse(buf);
-        if (stored) {
-            cJSON_AddItemToObject(root, "config", stored);
+    if (buf) {
+        if (storage_mgr_load_config(buf, 4096, &len) == ESP_OK) {
+            cJSON *stored = cJSON_Parse(buf);
+            if (stored) {
+                cJSON_AddItemToObject(root, "config", stored);
+            }
         }
+        free(buf);
     }
     if (!cJSON_GetObjectItem(root, "config")) {
         cJSON *cfg = cJSON_AddObjectToObject(root, "config");

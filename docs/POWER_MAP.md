@@ -56,11 +56,26 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
 
 ---
 
-## 3. LM2596 Step-Down DC-DC Buck Converter
+## 3. AC Mains Distribution (Terminal Block TB-1506L)
+
+To safely distribute the incoming high-voltage 220V AC mains to the 12V DC PSU and the relay-controlled heavy pumps, a 15 Ampere, 6-position Terminal Block (TB-1506L) is utilized.
+
+| TB-1506L Pin | Designation | Source Connection | Destination / Jumpers |
+|:---:|:---|:---|:---|
+| **1** | Line (L) In | 220V AC Phase (from Plug/MCB) | Jumpered to Pin 2 |
+| **2** | Line (L) Out | Jumpered from Pin 1 | To `L` on PSU 12V 5A & `COM` on Relay Board (AC Loads) |
+| **3** | Neutral (N) In | 220V AC Neutral (from Plug) | Jumpered to Pin 4 |
+| **4** | Neutral (N) Out | Jumpered from Pin 3 | To `N` on PSU 12V 5A & direct to AC Pump Neutrals |
+| **5** | Earth (PE) In | 220V AC Earth/Ground | Jumpered to Pin 6 |
+| **6** | Earth (PE) Out | Jumpered from Pin 5 | To Chassis Ground on PSU 12V 5A & metallic pump bodies |
+
+---
+
+## 4. LM2596 Step-Down DC-DC Buck Converter
 
 The LM2596 module steps down the unregulated 12V DC auxiliary supply into a regulated 5.05V DC supply for the ESP32 and logic modules.
 
-### 3.1. Physical Terminal Pinout
+### 4.1. Physical Terminal Pinout
 
 | Terminal | Conductor | Connected Source | Planned Voltage | Ground Reference | Purpose | Status |
 |:---:|:---|:---|:---:|:---|:---|:---:|
@@ -69,7 +84,7 @@ The LM2596 module steps down the unregulated 12V DC auxiliary supply into a regu
 | **OUT+**| Wire (+5V) | ESP32 5V (Vin) & 5V Rail | **5.05V DC ± 0.05V**| GND_LV | Regulated 5V output | **VERIFY WITH MULTIMETER** |
 | **OUT-**| Wire (GND) | ESP32 GND & System GND | **0V Reference** | GND_LV | Common DC ground return | **VERIFIED** |
 
-### 3.2. Mandatory Pre-Power Calibration Protocol
+### 4.2. Mandatory Pre-Power Calibration Protocol
 > [!CAUTION]
 > **HIGH VOLTAGE HAZARD TO ESP32:**
 > Standard LM2596 modules ship with their multi-turn trimpots set to random positions, capable of outputting up to 35V DC!
@@ -82,9 +97,9 @@ The LM2596 module steps down the unregulated 12V DC auxiliary supply into a regu
 
 ---
 
-## 4. Relay Module Power & Jumper Architecture
+## 5. Relay Module Power & Jumper Architecture
 
-### 4.1. 4-Channel 5V Relay Board Power Terminals
+### 5.1. 4-Channel 5V Relay Board Power Terminals
 - **Physical Pins:** `VCC`, `JD-VCC`, `GND`
 - **Jumper Configuration:** Jumper `VCC ↔ JD-VCC` is **INSTALLED** (bridged).
 
@@ -94,7 +109,7 @@ The LM2596 module steps down the unregulated 12V DC auxiliary supply into a regu
 | **JD-VCC**| **Bridged to VCC via Jumper** | **+5.05V DC** | Powers Relay Coils | Directly shorts coil supply to 5V VCC rail. |
 | **GND** | **ESP32 GND & LM2596 OUT-** | **0V Reference** | Signal Return | **MANDATORY COMMON GROUND:** When jumper is installed, GND must be tied to ESP32 GND for optocoupler cathode return current. |
 
-### 4.2. Logic Level Compatibility & Jumper Warning
+### 5.2. Logic Level Compatibility & Jumper Warning
 > [!WARNING]
 > With the `VCC ↔ JD-VCC` jumper installed, VCC is at 5V.
 > - When ESP32 GPIO outputs LOW (0V): Optocoupler is fully energized ($\Delta V = 5\text{V} - 0\text{V} = 5\text{V}$).
@@ -103,7 +118,7 @@ The LM2596 module steps down the unregulated 12V DC auxiliary supply into a regu
 
 ---
 
-## 5. Ground Topology & Common Ground Relationships
+## 6. Ground Topology & Common Ground Relationships
 
 To avoid ground loop noise while ensuring proper logic return:
 
@@ -120,15 +135,15 @@ To avoid ground loop noise while ensuring proper logic return:
 
 ---
 
-## 6. AC Power Loss & WLAN Heartbeat Monitoring (Anti-Sabotage Architecture)
+## 7. AC Power Loss & WLAN Heartbeat Monitoring (Anti-Sabotage Architecture)
 
-### 6.1. Operating Principle & Threat Model
+### 7.1. Operating Principle & Threat Model
 In greenhouse operations, malicious intruders or power sabotage often cut the main 220V AC utility power before attempting equipment or pump theft. If mains AC is severed:
 1. The 12V 5A PSU ceases output.
 2. The LM2596 drops out, causing immediate ESP32-S3 shutdown.
 3. Because the ESP32 has lost power, it cannot transmit an outbound Wi-Fi alert independently without an expensive dedicated battery subsystem.
 
-### 6.2. Autonomous Client-Side Heartbeat Watchdog (`ConnectionMonitor`)
+### 7.2. Autonomous Client-Side Heartbeat Watchdog (`ConnectionMonitor`)
 To detect power loss without requiring cloud dependencies or cellular modems:
 - The operator monitors the greenhouse via a mobile phone, tablet, or wall-mounted dashboard tablet (which has its own battery/UPS).
 - The web application executes a background watchdog timer (`src/components/ConnectionMonitor.tsx`) polling the controller's `/api/v1/health` endpoint every 5,000 ms.

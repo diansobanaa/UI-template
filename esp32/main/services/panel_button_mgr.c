@@ -77,12 +77,8 @@ static void on_panel_button_event(button_id_t btn, bool pressed)
             toggle_well_pump_manual();
             break;
 
-        case BUTTON_MANUAL_B: /* Button 3: GPIO 40 */
-            ESP_LOGI(TAG, "Button 3 (GPIO %d) pressed: RESERVED / TBD (No action assigned).", PIN_BTN_MANUAL_B);
-            break;
-
-        case BUTTON_DISTRIBUTION: /* Button 4: GPIO 41 */
-            ESP_LOGI(TAG, "Button 4 (GPIO %d) pressed: RESERVED / TBD (No action assigned).", PIN_BTN_DISTRIBUTION);
+        case BUTTON_RESERVED: /* Button 4: GPIO 41 */
+            ESP_LOGI(TAG, "Button 4 (GPIO %d) pressed: RESERVED / UNASSIGNED (No operational action assigned).", PIN_BTN_RESERVED);
             break;
 
         default:
@@ -118,8 +114,7 @@ esp_err_t panel_button_mgr_init(void)
     ESP_LOGI(TAG, "Panel Button Manager initialized successfully.");
     ESP_LOGI(TAG, "  Button 1 (GPIO %d): TFT Display Switch", PIN_BTN_MODE);
     ESP_LOGI(TAG, "  Button 2 (GPIO %d): Well Pump Manual 5-min Toggle", PIN_BTN_MANUAL_A);
-    ESP_LOGI(TAG, "  Button 3 (GPIO %d): RESERVED", PIN_BTN_MANUAL_B);
-    ESP_LOGI(TAG, "  Button 4 (GPIO %d): RESERVED", PIN_BTN_DISTRIBUTION);
+    ESP_LOGI(TAG, "  Button 4 (GPIO %d): RESERVED / UNASSIGNED", PIN_BTN_RESERVED);
 
     return ESP_OK;
 }

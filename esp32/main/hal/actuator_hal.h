@@ -9,6 +9,16 @@ extern "C" {
 #endif
 
 typedef enum {
+    ACTUATOR_OWNER_NONE = 0,
+    ACTUATOR_OWNER_MANUAL,
+    ACTUATOR_OWNER_SCHEDULER,
+    ACTUATOR_OWNER_FERTIGATION,
+    ACTUATOR_OWNER_TRANSFER,
+    ACTUATOR_OWNER_CALIBRATION,
+    ACTUATOR_OWNER_SAFETY
+} actuator_owner_t;
+
+typedef enum {
     ACTUATOR_WELL_PUMP = 0,
     ACTUATOR_DIST_PUMP,
     ACTUATOR_RAW_SUBMERSIBLE,
@@ -16,6 +26,7 @@ typedef enum {
     ACTUATOR_DOSING_B,
     ACTUATOR_COOLING_FAN,
     ACTUATOR_BLOWER_FAN,
+    ACTUATOR_MIXING_PUMP,
     ACTUATOR_ERROR_LAMP,
     ACTUATOR_MAX_COUNT
 } actuator_id_t;
@@ -26,6 +37,7 @@ typedef struct {
     uint8_t gpio_num;
     bool is_on;
     bool is_interlocked;
+    actuator_owner_t owner;
     uint32_t run_time_seconds;
     uint8_t active_level; // 0 for Active-LOW, 1 for Active-HIGH
 } actuator_status_t;
@@ -54,6 +66,16 @@ esp_err_t actuator_hal_get_status(actuator_id_t id, actuator_status_t *out_statu
  * @brief Enforce hardware Emergency Stop: immediately turns all actuators OFF and latches.
  */
 void actuator_hal_emergency_stop(void);
+
+/**
+ * @brief Acquire ownership of an actuator to prevent concurrent control.
+ */
+esp_err_t actuator_hal_acquire(actuator_id_t id, actuator_owner_t owner);
+
+/**
+ * @brief Release ownership of an actuator.
+ */
+esp_err_t actuator_hal_release(actuator_id_t id, actuator_owner_t owner);
 
 /**
  * @brief Clear the emergency stop latch.

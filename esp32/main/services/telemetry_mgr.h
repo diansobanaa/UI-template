@@ -15,14 +15,19 @@ typedef struct {
     float temperature_c;
     bool temp_valid;
     float humidity_pct;
+    bool humidity_valid;
     float light_lux;
+    bool light_valid;
     float water_level_pct;
+    bool float_lower_ok;
     float flow_rate_lpm;
     float total_liters;
 
     /* Actuator states */
     bool well_pump_on;
     bool dist_pump_on;
+    bool raw_submersible_on;
+    bool mixing_pump_on;
     bool dosing_a_on;
     bool dosing_b_on;
     bool fan_on;

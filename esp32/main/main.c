@@ -24,6 +24,10 @@
 #include "services/crop_cycle_mgr.h"
 #include "services/telemetry_mgr.h"
 #include "services/event_mgr.h"
+#include "services/fertigation_mgr.h"
+#include "services/manual_actuator_mgr.h"
+#include "services/transfer_mgr.h"
+#include "services/calibration_mgr.h"
 #include "hal/sdcard_hal.h"
 #include "hal/tft_hal.h"
 #include "services/panel_button_mgr.h"
@@ -125,11 +129,8 @@ void app_main(void)
     /* 4. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
     sdcard_hal_init();
-    if (rtc_ds3231_init() == ESP_OK) {
-        rtc_ds3231_sync_to_system();
-    } else {
-        ESP_LOGW(TAG, "RTC DS3231 not present. Operating in degraded time mode (SNTP/system timer).");
-    }
+    rtc_ds3231_init();
+    rtc_ds3231_sync_to_system();
 
     /* Initialize TFT ST7735 display in degraded-safe mode */
     if (tft_hal_init() == ESP_OK && tft_hal_is_available()) {
@@ -149,9 +150,13 @@ void app_main(void)
 
     /* 6. Initialize Runtime Services & Safety (SP-006) */
     ESP_ERROR_CHECK(command_mgr_init());
+    ESP_ERROR_CHECK(manual_actuator_mgr_init());
+    ESP_ERROR_CHECK(transfer_mgr_init());
+    ESP_ERROR_CHECK(calibration_mgr_init());
     ESP_ERROR_CHECK(safety_monitor_init());
     ESP_ERROR_CHECK(scheduler_init());
     ESP_ERROR_CHECK(panel_button_mgr_init());
+    ESP_ERROR_CHECK(fertigation_mgr_init());
 
     /* 7. Initialize Crop Cycle Engine & Persistence (SP-007) */
     ESP_ERROR_CHECK(crop_cycle_mgr_init());

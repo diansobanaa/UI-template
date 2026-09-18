@@ -30,16 +30,19 @@ export const defaultConfig: HardwarePortConfig = {
   esp32BaseUrl: ESP32_API_BASE || undefined,
   requestTimeoutMs: Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 8000),
   token: import.meta.env.VITE_API_TOKEN || undefined,
-  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 === "true" || Boolean(ESP32_API_BASE),
+  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 !== "false",
 };
 
 export const isDirectEsp32Enabled = (): boolean =>
-  Boolean(defaultConfig.directEsp32Enabled && defaultConfig.esp32BaseUrl);
+  Boolean(defaultConfig.directEsp32Enabled);
 
 
 function resolveUrl(path: string, config: HardwarePortConfig = defaultConfig): string {
   if (/^https?:\/\//i.test(path)) return path;
-  return `${config.pythonBaseUrl.replace(/\/$/, "")}${path}`;
+  if (config.esp32BaseUrl) {
+    return `${config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
+  }
+  return path;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, config = defaultConfig): Promise<T> {

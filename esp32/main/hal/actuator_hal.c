@@ -12,6 +12,7 @@ typedef struct {
     const char *name;
     gpio_num_t gpio;
     bool state;
+    actuator_owner_t owner;
     uint8_t active_level;
 } actuator_descriptor_t;
 
@@ -19,14 +20,15 @@ typedef struct {
 #define DEFAULT_ACTIVE_LEVEL ACTUATOR_ACTIVE_LEVEL
 
 static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
-    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_MIXING_PUMP]     = { .name = "Mixing Pump",      .gpio = PIN_OUT_MIXING_PUMP,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
 };
 
 static bool s_emergency_stop_latched = false;
@@ -108,6 +110,40 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
     return ESP_OK;
 }
 
+esp_err_t actuator_hal_acquire(actuator_id_t id, actuator_owner_t owner)
+{
+    if (id >= ACTUATOR_MAX_COUNT) return ESP_ERR_INVALID_ARG;
+    if (!s_lock) return ESP_ERR_INVALID_STATE;
+
+    esp_err_t err = ESP_OK;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_actuators[id].owner != ACTUATOR_OWNER_NONE && s_actuators[id].owner != owner) {
+        ESP_LOGW(TAG, "Failed to acquire %s. Already owned by %d", s_actuators[id].name, s_actuators[id].owner);
+        err = ESP_ERR_INVALID_STATE;
+    } else {
+        s_actuators[id].owner = owner;
+    }
+    xSemaphoreGive(s_lock);
+    return err;
+}
+
+esp_err_t actuator_hal_release(actuator_id_t id, actuator_owner_t owner)
+{
+    if (id >= ACTUATOR_MAX_COUNT) return ESP_ERR_INVALID_ARG;
+    if (!s_lock) return ESP_ERR_INVALID_STATE;
+
+    esp_err_t err = ESP_OK;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_actuators[id].owner == owner || owner == ACTUATOR_OWNER_SAFETY) {
+        s_actuators[id].owner = ACTUATOR_OWNER_NONE;
+    } else {
+        ESP_LOGW(TAG, "Failed to release %s. Owned by %d, requested by %d", s_actuators[id].name, s_actuators[id].owner, owner);
+        err = ESP_ERR_INVALID_STATE;
+    }
+    xSemaphoreGive(s_lock);
+    return err;
+}
+
 bool actuator_hal_get_state(actuator_id_t id)
 {
     if (id >= ACTUATOR_MAX_COUNT) return false;
@@ -124,6 +160,7 @@ esp_err_t actuator_hal_get_status(actuator_id_t id, actuator_status_t *out_statu
     out_status->is_on = s_actuators[id].state;
     out_status->is_interlocked = s_emergency_stop_latched || 
                                  ((id == ACTUATOR_DIST_PUMP || id == ACTUATOR_WELL_PUMP || id == ACTUATOR_RAW_SUBMERSIBLE) && gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY);
+    out_status->owner = s_actuators[id].owner;
     out_status->run_time_seconds = 0; // Not fully tracked yet
     out_status->active_level = s_actuators[id].active_level;
 
@@ -140,6 +177,7 @@ void actuator_hal_emergency_stop(void)
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         s_actuators[i].state = false;
+        s_actuators[i].owner = ACTUATOR_OWNER_SAFETY; // Force lock ownership to safety
         gpio_set_level(s_actuators[i].gpio, !s_actuators[i].active_level);
     }
 
@@ -165,6 +203,12 @@ void actuator_hal_resume(void)
     if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT) {
         s_actuators[ACTUATOR_ERROR_LAMP].state = false;
         gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, !s_actuators[ACTUATOR_ERROR_LAMP].active_level);
+    }
+
+    for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
+        if (s_actuators[i].owner == ACTUATOR_OWNER_SAFETY) {
+            s_actuators[i].owner = ACTUATOR_OWNER_NONE;
+        }
     }
 
     ESP_LOGI(TAG, "Emergency Stop latched cleared. Actuators can now be commanded.");

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { esp32Client } from "@/lib/api/esp32-client";
+import { updateFromEsp32 } from "@/lib/store";
+import { eventService } from "@/lib/services";
 import { AlertTriangle } from "lucide-react";
 
 export function ConnectionMonitor() {
@@ -25,6 +27,26 @@ export function ConnectionMonitor() {
         failureCount.current = 0;
         if (isOffline) {
           setIsOffline(false);
+        }
+        // Sync real live status from ESP32 into UI store
+        try {
+          const status = await esp32Client.getStatus();
+          const actuators: Record<string, boolean> = {};
+          if (status.actuators) {
+            for (const [k, v] of Object.entries(status.actuators)) {
+              actuators[k] = Boolean(v === true || v === "ON" || v === "RUNNING");
+            }
+          }
+          updateFromEsp32({
+            emergencyStopped: Boolean(status.emergencyStopped),
+            actuators,
+            sensors: {
+              temperatureC: status.sensors?.["waterTemperatureC"] ?? null,
+            },
+          });
+          await eventService.syncLogsFromEsp32();
+        } catch {
+          // Ignore transient status fetch errors during polling
         }
       } catch (err) {
         failureCount.current += 1;

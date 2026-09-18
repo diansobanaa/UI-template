@@ -29,8 +29,8 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & SD Slot | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and built-in SD slot. |
 | **Left-19** | **13** | Shared SPI MISO | MicroSD Card Slot | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from built-in SD slot. |
 | **Left-20** | **14** | TFT Chip Select | TFT ST7735 Display | SPI Chip Select | Output (Active-LOW) | VERIFIED SAFE | Dedicated SPI CS for 1.8" TFT display controller. |
-| **Left-8** | **15** | Flow Pulse Fertigation | Sensor YF-B1 (DN15) | Pulse Counter | Input (Interrupt) | VERIFIED SAFE | 5V Hall sensor signal level-shifted to 3.3V. |
-| **Left-9** | **16** | Flow Pulse Raw Supply | Sensor FS400A (G1") | Pulse Counter | Input (Interrupt) | VERIFIED SAFE | 5V Hall sensor signal level-shifted to 3.3V. |
+| **Left-8** | **15** | Flow Pulse Raw Water | Sensor ZJ-B1 (DN15) | Pulse Counter | Input (Interrupt) | VERIFIED SAFE (CALIBRATION REQUIRED) | 5V Hall sensor signal level-shifted to 3.3V. Transfer line: Raw Water → Mixing Tank. Completion criterion. Calibration factor unverified. |
+| **Left-9** | **16** | Flow Pulse Fertigation | Sensor FS400A (G1") | Pulse Counter | Input (Interrupt) | VERIFIED SAFE | 5V Hall sensor signal level-shifted to 3.3V. Fertigation delivery loop. F=4.8*Q (288 pulses/L). Telemetry & delivery monitoring. |
 | **Left-10** | **17** | 1-Wire Temperature Data | Sensor DS18B20 | 1-Wire Bus | Bi-directional | VERIFIED SAFE | Dedicated 1-Wire bus with mandatory 4.7kΩ pull-up to 3.3V. |
 | **Left-11** | **18** | Error Beacon Lamp Trigger | 4-Ch Relay Board IN2 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls visual alert beacon/lamp. |
 | **Right-20** | **19** | *RESERVED: Native USB D-* | USB-C "USB" Port | USB OTG / JTAG | N/A | **DO NOT USE (USB PHY)** | Hardwired to onboard native USB connector. |
@@ -43,7 +43,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-11** | **37** | *RESERVED: Octal PSRAM DQS*| Internal PSRAM | Octal Bus DQS | N/A | **FATAL (DO NOT TOUCH)** | Exposed on pin header, but touching crashes Octal PSRAM! |
 | **Right-10** | **38** | Lower Float Switch | Stainless Float Switch | Digital Input | Input (Active-LOW dry) | **VERIFIED SAFE (SAFETY)** | **SAFETY AUTHORITY:** Dedicated clean pin for dry-run protection. |
 | **Right-9** | **39** | Manual Well Pump Toggle | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual toggle for Well Pump with 5-minute auto-off timer & float switch interlock. |
-| **Right-8** | **40** | Reserved Button 3 | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Reserved / TBD. Internal pull-up and 40ms debounce maintained. |
+| **Right-8** | **40** | Mixing Pump AC Trigger | 4-Ch Relay Board IN4 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Pond Pump for Mixing. |
 | **Right-7** | **41** | Reserved Button 4 | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Reserved / TBD. Internal pull-up and 40ms debounce maintained. |
 | **Right-6** | **42** | TFT Hardware Reset | TFT ST7735 Display | Control Signal | Output (Active-LOW) | VERIFIED SAFE | Dedicated reset line for ST7735 display controller. |
 | **Right-2** | **43** | *RESERVED: UART0 TXD* | USB-UART Bridge | Console UART | Output | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
@@ -66,8 +66,8 @@ Pin 4 : GPIO4  -> Raw Submersible Pump (Relay IN1)
 Pin 5 : GPIO5  -> Dosing Pump A (MOSFET #1)
 Pin 6 : GPIO6  -> Dosing Pump B (MOSFET #2)
 Pin 7 : GPIO7  -> Cooling Fan Panel (MOSFET #3)
-Pin 8 : GPIO15 -> Flow Meter YF-B1 (Fertigation)
-Pin 9 : GPIO16 -> Flow Meter FS400A (Supply)
+Pin 8 : GPIO15 -> Raw Water Flow Meter ZJ-B1 (Transfer to Mixing Tank)
+Pin 9 : GPIO16 -> Fertigation Flow Meter FS400A (G1" Delivery)
 Pin 10: GPIO17 -> Temperature Sensor DS18B20 (1-Wire)
 Pin 11: GPIO18 -> Error Beacon Lamp (Relay IN2)
 Pin 12: GPIO8  -> RTC DS3231 SDA (I2C Data)
@@ -92,7 +92,7 @@ Pin 4 : GPIO1  -> Well Pump AC Trigger (Omron #1)
 Pin 5 : GPIO2  -> Distribution Pump AC Trigger (Omron #2)
 Pin 6 : GPIO42 -> TFT Display RESET
 Pin 7 : GPIO41 -> Reserved Button 4 (TBD / Spare)
-Pin 8 : GPIO40 -> Reserved Button 3 (TBD / Spare)
+Pin 8 : GPIO40 -> Mixing Pump AC Trigger (Relay IN4)
 Pin 9 : GPIO39 -> Manual Well Pump Toggle (5-Min Auto-Shutoff)
 Pin 10: GPIO38 -> Lower Float Switch (Dry-Run Safety Interlock)
 Pin 11: GPIO37 -> [FATAL DO NOT TOUCH: Octal PSRAM DQS]
@@ -133,5 +133,4 @@ Pin 22: GND (Common Signal Ground)
 |---|:---:|:---:|---|---|
 | **Button 1 (`PIN_BTN_MODE`)** | **GPIO 0** | Input (Active-LOW, 0=Press) | **TFT Display Screen Switch**: Press cycles forward through ST7735 diagnostic screens (Diagnostics $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle. | Must remain OPEN/HIGH during chip reset/boot. |
 | **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Input (Active-LOW, 0=Press) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)**:<br>• *State 1 (OFF):* Turns Well Pump ON + starts 5-min non-blocking FreeRTOS timer.<br>• *State 2 (ON via button):* Turns Well Pump OFF immediately + cancels 5-min timer.<br>• *Timer Expiry:* Auto-turns Well Pump OFF after 5 minutes. | **SAFETY INTERLOCK:** Strictly blocked if Lower Float Switch is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched. |
-| **Button 3 (`PIN_BTN_MANUAL_B`)** | **GPIO 40** | Input (Active-LOW, 0=Press) | **RESERVED / TBD**: Dedicated clean input pin with 40ms software debounce. No action currently assigned. | Pull-up enabled. Reserved for future expansion. |
-| **Button 4 (`PIN_BTN_DISTRIBUTION`)** | **GPIO 41** | Input (Active-LOW, 0=Press) | **RESERVED / TBD**: Dedicated clean input pin with 40ms software debounce. No action currently assigned. | Pull-up enabled. Reserved for future expansion. |
+| **Button 4 (`PIN_BTN_RESERVED`)** | **GPIO 41** | Input (Active-LOW, 0=Press) | **RESERVED / UNASSIGNED**: Dedicated clean input pin with 40ms software debounce. No operational behavior assigned. | Pull-up enabled. Reserved for future expansion. Button 3 (GPIO 40) was repurposed for Mixing Pump. |

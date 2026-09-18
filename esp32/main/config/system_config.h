@@ -50,7 +50,7 @@ extern "C" {
 #endif
 
 #ifndef FEATURE_SENSORS_ENABLED
-#define FEATURE_SENSORS_ENABLED     0   /* 0 = Disabled for board bring-up without external sensors; 1 = Enabled */
+#define FEATURE_SENSORS_ENABLED     1   /* 1 = Real hardware runtime execution (pulse interrupts, 1-wire DS18B20, float switch, tamper) */
 #endif
 
 #ifdef __cplusplus

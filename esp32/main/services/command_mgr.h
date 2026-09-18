@@ -12,6 +12,8 @@ typedef enum {
     CMD_TYPE_WELL_PUMP = 0,
     CMD_TYPE_DIST_PUMP,
     CMD_TYPE_DOSING_RUN,
+    CMD_TYPE_TANK_TRANSFER,
+    CMD_TYPE_FERTIGATION_BATCH,
     CMD_TYPE_EMERGENCY_STOP,
     CMD_TYPE_RESUME,
     CMD_TYPE_CUSTOM
@@ -30,6 +32,11 @@ typedef struct {
     cmd_type_t type;
     int32_t param_duration_sec;
     int32_t param_volume_ml;
+    int32_t param_raw_volume_ml;
+    int32_t param_dosing_a_ml;
+    int32_t param_dosing_b_ml;
+    uint8_t param_source_id;
+    uint8_t param_dest_id;
     cmd_status_enum_t status;
     int64_t submitted_at;
     char message[64];

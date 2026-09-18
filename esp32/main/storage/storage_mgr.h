@@ -84,6 +84,16 @@ esp_err_t storage_mgr_load_components_json(char *out_buf, size_t max_len, size_t
  */
 esp_err_t storage_mgr_save_components_json(const char *json_str);
 
+/**
+ * @brief Load calibration JSON from NVS.
+ */
+esp_err_t storage_mgr_load_calibration(char *out_buf, size_t max_len, size_t *out_len);
+
+/**
+ * @brief Save calibration JSON to NVS.
+ */
+esp_err_t storage_mgr_save_calibration(const char *json_str);
+
 #ifdef __cplusplus
 }
 #endif
