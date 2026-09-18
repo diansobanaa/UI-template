@@ -11,6 +11,29 @@ static active_configuration_t s_active_config = {0};
 static active_configuration_t s_candidate_config = {0};
 static bool s_candidate_valid = false;
 
+static void parse_greenhouses(cJSON *gh_arr, active_configuration_t *cfg) {
+    if (!gh_arr || !cJSON_IsArray(gh_arr)) return;
+    int count = cJSON_GetArraySize(gh_arr);
+    if (count > MAX_GREENHOUSES) count = MAX_GREENHOUSES;
+    cfg->greenhouse_count = 0;
+    
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_GetArrayItem(gh_arr, i);
+        if (!item) continue;
+        
+        cfg_greenhouse_t *g = &cfg->greenhouses[cfg->greenhouse_count];
+        memset(g, 0, sizeof(cfg_greenhouse_t));
+        
+        cJSON *ghid = cJSON_GetObjectItem(item, "ghId");
+        if (ghid && cJSON_IsString(ghid)) strncpy(g->gh_id, ghid->valuestring, sizeof(g->gh_id) - 1);
+        
+        cJSON *name = cJSON_GetObjectItem(item, "name");
+        if (name && cJSON_IsString(name)) strncpy(g->name, name->valuestring, sizeof(g->name) - 1);
+        
+        cfg->greenhouse_count++;
+    }
+}
+
 static void parse_recipes(cJSON *recipes_arr, active_configuration_t *cfg) {
     if (!recipes_arr || !cJSON_IsArray(recipes_arr)) return;
     int count = cJSON_GetArraySize(recipes_arr);
@@ -250,6 +273,7 @@ esp_err_t configuration_mgr_parse_candidate(const char *json_str)
         strncpy(s_candidate_config.updated_at, upd->valuestring, sizeof(s_candidate_config.updated_at) - 1);
     }
     
+    parse_greenhouses(cJSON_GetObjectItem(cfg, "greenhouses"), &s_candidate_config);
     parse_recipes(cJSON_GetObjectItem(cfg, "recipes"), &s_candidate_config);
     parse_schedules(cJSON_GetObjectItem(cfg, "schedules"), &s_candidate_config);
     parse_assignments(cJSON_GetObjectItem(cfg, "assignments"), &s_candidate_config);

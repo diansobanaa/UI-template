@@ -29,6 +29,7 @@ typedef struct {
     schedule_type_t type;
     schedule_action_t action;
     uint32_t duration_sec;
+    char target_gh_id[32];
     
     /* Time specifiers */
     uint8_t hour;           /* 0-23 */

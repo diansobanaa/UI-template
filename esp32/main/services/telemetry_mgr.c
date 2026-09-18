@@ -1,6 +1,7 @@
 #include "services/telemetry_mgr.h"
 #include "hal/sensor_hal.h"
 #include "hal/actuator_hal.h"
+#include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
 #include "config/system_config.h"
 #include "esp_log.h"
@@ -34,7 +35,6 @@ static void telemetry_sampler_task(void *pvParameters)
 
         s_snapshot.temp_valid = (sensors.temp_state == SENSOR_STATE_VALID);
         s_snapshot.temperature_c = sensors.temperature_c;
-        /* No physical humidity or lux sensor in BOM (HARDWARE_INVENTORY.md) -> marked invalid/null */
         s_snapshot.humidity_pct = 0.0f;
         s_snapshot.humidity_valid = false;
         s_snapshot.light_lux = 0.0f;
@@ -87,71 +87,95 @@ cJSON *telemetry_mgr_to_json(const char *greenhouse_id)
     telemetry_mgr_get_snapshot(&snap);
 
     const system_storage_state_t *st = storage_mgr_get_state();
+    
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "complexId", st->complex_id);
-    cJSON_AddStringToObject(root, "greenhouseId", greenhouse_id ? greenhouse_id : "gh-01");
-    cJSON_AddNumberToObject(root, "sequence", (double)snap.sequence);
-    cJSON_AddStringToObject(root, "recordedAt", snap.timestamp);
-    cJSON_AddNumberToObject(root, "staleAfterSeconds", 15);
-
-    /* Values */
-    cJSON *vals = cJSON_AddObjectToObject(root, "values");
-    if (snap.temp_valid) {
-        cJSON_AddNumberToObject(vals, "temperatureC", snap.temperature_c);
+    if (greenhouse_id && strlen(greenhouse_id) > 0) {
+        cJSON_AddStringToObject(root, "ghId", greenhouse_id);
     } else {
-        cJSON_AddNullToObject(vals, "temperatureC");
+        cJSON_AddNullToObject(root, "ghId");
     }
-    if (snap.humidity_valid) {
-        cJSON_AddNumberToObject(vals, "humidityPct", snap.humidity_pct);
-    } else {
-        cJSON_AddNullToObject(vals, "humidityPct");
+    cJSON_AddStringToObject(root, "timestamp", snap.timestamp);
+    
+    cJSON *samples = cJSON_AddArrayToObject(root, "samples");
+
+    size_t count = hardware_registry_get_count();
+    for (size_t i = 0; i < count; i++) {
+        hw_component_info_t hw;
+        if (hardware_registry_get_by_index(i, &hw) != ESP_OK) continue;
+
+        if (greenhouse_id && strlen(greenhouse_id) > 0) {
+            if (strcmp(hw.assignment.gh_id, greenhouse_id) != 0) {
+                continue;
+            }
+        }
+
+        if (hw.lifecycle_state == HW_LIFECYCLE_REGISTERED || 
+            hw.lifecycle_state == HW_LIFECYCLE_NOT_COMMISSIONED || 
+            hw.lifecycle_state == HW_LIFECYCLE_REMOVED) {
+            continue;
+        }
+
+        cJSON *sample = cJSON_CreateObject();
+        cJSON_AddNumberToObject(sample, "sequence", snap.sequence);
+        cJSON_AddStringToObject(sample, "deviceTimestamp", snap.timestamp);
+        cJSON_AddStringToObject(sample, "componentId", hw.component_id);
+
+        double val = 0.0;
+        const char *unit = "";
+        bool valid = false;
+
+        // Map dynamic components to our fixed HAL layer variables
+        if (strcmp(hw.role, "dist-pump") == 0) {
+            val = snap.dist_pump_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "well-pump") == 0) {
+            val = snap.well_pump_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "raw-submersible") == 0) {
+            val = snap.raw_submersible_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "mixing-pump") == 0) {
+            val = snap.mixing_pump_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "dosing-a") == 0) {
+            val = snap.dosing_a_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "dosing-b") == 0) {
+            val = snap.dosing_b_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "cooling-fan") == 0) {
+            val = snap.fan_on ? 1.0 : 0.0;
+            unit = "bool";
+            valid = true;
+        } else if (strcmp(hw.role, "air-temp") == 0) {
+            val = snap.temperature_c;
+            unit = "C";
+            valid = snap.temp_valid;
+        } else if (strcmp(hw.role, "flow-raw") == 0) {
+            val = snap.flow_rate_lpm;
+            unit = "L/min";
+            valid = true;
+        } else {
+            // Unmapped component, emit zero
+            val = 0.0;
+            unit = "unknown";
+            valid = true;
+        }
+
+        cJSON_AddNumberToObject(sample, "value", val);
+        cJSON_AddStringToObject(sample, "unit", unit);
+        cJSON_AddStringToObject(sample, "quality", valid ? "GOOD" : "BAD");
+        cJSON_AddStringToObject(sample, "measurementType", "MEASURED");
+        
+        cJSON_AddItemToArray(samples, sample);
     }
-    if (snap.light_valid) {
-        cJSON_AddNumberToObject(vals, "lightLux", snap.light_lux);
-    } else {
-        cJSON_AddNullToObject(vals, "lightLux");
-    }
-    cJSON_AddBoolToObject(vals, "floatLowerOk", snap.float_lower_ok);
-    cJSON_AddNumberToObject(vals, "waterLevelPct", snap.water_level_pct);
-    cJSON_AddNumberToObject(vals, "flowRateLpm", snap.flow_rate_lpm);
-    cJSON_AddNumberToObject(vals, "totalLiters", snap.total_liters);
-
-    /* Components */
-    cJSON *comps = cJSON_AddObjectToObject(root, "components");
-    cJSON *wp = cJSON_AddObjectToObject(comps, "wellPump");
-    cJSON_AddBoolToObject(wp, "value", snap.well_pump_on);
-    cJSON_AddStringToObject(wp, "state", snap.well_pump_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(wp, "recordedAt", snap.timestamp);
-
-    cJSON *dp = cJSON_AddObjectToObject(comps, "distPump");
-    cJSON_AddBoolToObject(dp, "value", snap.dist_pump_on);
-    cJSON_AddStringToObject(dp, "state", snap.dist_pump_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(dp, "recordedAt", snap.timestamp);
-
-    cJSON *rs = cJSON_AddObjectToObject(comps, "rawSubmersible");
-    cJSON_AddBoolToObject(rs, "value", snap.raw_submersible_on);
-    cJSON_AddStringToObject(rs, "state", snap.raw_submersible_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(rs, "recordedAt", snap.timestamp);
-
-    cJSON *mp = cJSON_AddObjectToObject(comps, "mixingPump");
-    cJSON_AddBoolToObject(mp, "value", snap.mixing_pump_on);
-    cJSON_AddStringToObject(mp, "state", snap.mixing_pump_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(mp, "recordedAt", snap.timestamp);
-
-    cJSON *da = cJSON_AddObjectToObject(comps, "dosingA");
-    cJSON_AddBoolToObject(da, "value", snap.dosing_a_on);
-    cJSON_AddStringToObject(da, "state", snap.dosing_a_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(da, "recordedAt", snap.timestamp);
-
-    cJSON *db = cJSON_AddObjectToObject(comps, "dosingB");
-    cJSON_AddBoolToObject(db, "value", snap.dosing_b_on);
-    cJSON_AddStringToObject(db, "state", snap.dosing_b_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(db, "recordedAt", snap.timestamp);
-
-    cJSON *cf = cJSON_AddObjectToObject(comps, "coolingFan");
-    cJSON_AddBoolToObject(cf, "value", snap.fan_on);
-    cJSON_AddStringToObject(cf, "state", snap.fan_on ? "RUNNING" : "STOPPED");
-    cJSON_AddStringToObject(cf, "recordedAt", snap.timestamp);
-
+    
     return root;
 }

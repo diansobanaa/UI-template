@@ -30,6 +30,7 @@ typedef enum {
 typedef struct {
     char command_id[40];
     cmd_type_t type;
+    char target_gh_id[32];
     int32_t param_duration_sec;
     int32_t param_volume_ml;
     int32_t param_raw_volume_ml;

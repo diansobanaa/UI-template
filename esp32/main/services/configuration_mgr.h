@@ -9,7 +9,14 @@
 extern "C" {
 #endif
 
+#include "system_config.h"
+
 /* Canonical M3 Structs */
+
+typedef struct {
+    char gh_id[32];
+    char name[48];
+} cfg_greenhouse_t;
 
 typedef enum {
     CFG_RECIPE_TYPE_FERTIGATION,
@@ -79,6 +86,9 @@ typedef struct {
     uint32_t version;
     char complex_id[32];
     char updated_at[32];
+    
+    cfg_greenhouse_t greenhouses[MAX_GREENHOUSES];
+    size_t greenhouse_count;
     
     cfg_recipe_t recipes[16];
     size_t recipe_count;

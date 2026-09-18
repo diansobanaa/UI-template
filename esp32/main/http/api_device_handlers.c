@@ -1,7 +1,8 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "hal/hardware_registry.h"
-#include "storage/storage_mgr.h"
+#include "services/storage_mgr.h"
+#include "services/configuration_mgr.h"
 #include "config/system_config.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -234,12 +235,25 @@ esp_err_t handler_get_context(httpd_req_t *req)
     
     cJSON *ghs = cJSON_AddArrayToObject(root, "greenhouses");
     
-    cJSON *gh01 = cJSON_CreateObject();
-    cJSON_AddStringToObject(gh01, "ghId", "gh-01");
-    cJSON_AddStringToObject(gh01, "complexId", st->complex_id);
-    cJSON_AddStringToObject(gh01, "name", "Greenhouse 01");
-    cJSON_AddStringToObject(gh01, "status", "ACTIVE");
-    cJSON_AddItemToArray(ghs, gh01);
+    const active_configuration_t *cfg = configuration_mgr_get_active();
+    
+    if (cfg && cfg->greenhouse_count > 0) {
+        for (size_t i = 0; i < cfg->greenhouse_count; i++) {
+            cJSON *gh = cJSON_CreateObject();
+            cJSON_AddStringToObject(gh, "ghId", cfg->greenhouses[i].gh_id);
+            cJSON_AddStringToObject(gh, "complexId", st->complex_id);
+            cJSON_AddStringToObject(gh, "name", cfg->greenhouses[i].name);
+            cJSON_AddStringToObject(gh, "status", "ACTIVE");
+            cJSON_AddItemToArray(ghs, gh);
+        }
+    } else {
+        cJSON *gh01 = cJSON_CreateObject();
+        cJSON_AddStringToObject(gh01, "ghId", "gh-01");
+        cJSON_AddStringToObject(gh01, "complexId", st->complex_id);
+        cJSON_AddStringToObject(gh01, "name", "Greenhouse 01");
+        cJSON_AddStringToObject(gh01, "status", "ACTIVE");
+        cJSON_AddItemToArray(ghs, gh01);
+    }
 
     return http_send_enveloped_response(req, 200, NULL, root);
 }

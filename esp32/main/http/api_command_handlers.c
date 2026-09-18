@@ -74,6 +74,11 @@ esp_err_t handler_post_command(httpd_req_t *req)
     command_item_t cmd = {0};
     strncpy(cmd.command_id, cmd_id->valuestring, sizeof(cmd.command_id) - 1);
     
+    cJSON *target_gh = cJSON_GetObjectItem(payload, "targetGhId");
+    if (target_gh && cJSON_IsString(target_gh)) {
+        strncpy(cmd.target_gh_id, target_gh->valuestring, sizeof(cmd.target_gh_id) - 1);
+    }
+    
     cJSON *dur = cJSON_GetObjectItem(payload, "durationSeconds");
     if (dur && cJSON_IsNumber(dur)) {
         cmd.param_duration_sec = dur->valueint;

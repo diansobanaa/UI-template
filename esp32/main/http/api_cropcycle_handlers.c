@@ -1,6 +1,7 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "services/crop_cycle_mgr.h"
+#include "services/configuration_mgr.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include <string.h>
@@ -18,10 +19,20 @@ static esp_err_t validate_gh_id(httpd_req_t *req, char *gh_id, size_t max_len) {
     strncpy(gh_id, start, len);
     gh_id[len] = '\0';
 
-    /* Phase 1 constraint: Only gh-01 is physically installed and supported */
-    if (strcmp(gh_id, "gh-01") != 0) {
-        return ESP_ERR_NOT_FOUND;
+    const active_configuration_t *cfg = configuration_mgr_get_active();
+    if (cfg) {
+        bool found = false;
+        for (size_t i = 0; i < cfg->greenhouse_count; i++) {
+            if (strcmp(cfg->greenhouses[i].gh_id, gh_id) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found && cfg->greenhouse_count > 0) {
+            return ESP_ERR_NOT_FOUND;
+        }
     }
+
     return ESP_OK;
 }
 

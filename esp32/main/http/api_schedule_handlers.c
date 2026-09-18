@@ -60,6 +60,11 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
         cJSON *item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "id", entries[i].id);
         cJSON_AddBoolToObject(item, "enabled", entries[i].enabled);
+        if (entries[i].target_gh_id[0] != '\0') {
+            cJSON_AddStringToObject(item, "targetGhId", entries[i].target_gh_id);
+        } else {
+            cJSON_AddNullToObject(item, "targetGhId");
+        }
         cJSON_AddStringToObject(item, "type", type_to_str(entries[i].type));
         cJSON_AddStringToObject(item, "action", action_to_str(entries[i].action));
         cJSON_AddNumberToObject(item, "durationSec", entries[i].duration_sec);
@@ -103,6 +108,12 @@ static esp_err_t api_schedule_add_handler(httpd_req_t *req)
     entry.type = type_item && cJSON_IsString(type_item) ? str_to_type(type_item->valuestring) : SCHED_TYPE_DAILY;
     entry.action = action_item && cJSON_IsString(action_item) ? str_to_action(action_item->valuestring) : SCHED_ACTION_FERTIGATION;
     entry.duration_sec = dur_item && cJSON_IsNumber(dur_item) ? dur_item->valueint : 60;
+
+    cJSON *target_gh = cJSON_GetObjectItem(target, "targetGhId");
+    if (!target_gh) target_gh = cJSON_GetObjectItem(target, "ghId"); // Backwards compatibility
+    if (target_gh && cJSON_IsString(target_gh)) {
+        strncpy(entry.target_gh_id, target_gh->valuestring, sizeof(entry.target_gh_id) - 1);
+    }
 
     cJSON *hour_item = cJSON_GetObjectItem(target, "hour");
     if (hour_item && cJSON_IsNumber(hour_item)) entry.hour = (uint8_t)hour_item->valueint;

@@ -17,7 +17,25 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-M4-001 Deployment Lifecycle: Atomic Activation & Rollback (M4.1-M4.13)
+SP-M5-001 Dynamic ESP32 Runtime Foundation (M5)
+
+---
+
+## Safe Point Record: SP-M5-001
+- **ID**: SP-M5-001
+- **Objective**: Eradicate hardcoded singleton `gh-01` assumptions and implement multi-greenhouse support (MAX 10).
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Updated `system_config.h` with `MAX_GREENHOUSES 10`.
+  2. Modified `configuration_mgr.c/h` and `contracts.ts` to parse and store `cfg_greenhouse_t` arrays up to MAX 10.
+  3. Rewrote `crop_cycle_mgr.c` to use `s_active_cycles[MAX_GREENHOUSES]`, resolving state by `gh_id`.
+  4. Rewrote `telemetry_mgr.c` to build dynamic JSON samples using actual hardware registry definitions and lifecycle statuses mapped by GH.
+  5. Updated API endpoints in `api_device_handlers.c`, `api_telemetry_handlers.c`, `api_cropcycle_handlers.c`, `api_schedule_handlers.c` and `api_command_handlers.c` to validate and forward `ghId` context instead of checking for hardcoded `"gh-01"`.
+  6. Added `target_gh_id` context to `schedule_entry_t` and `command_item_t`.
+- **Verification Result**: Code builds internally. Semantic JSON generation follows OpenAPI.
+- **Known Issues**: None.
+- **Next Safe Point / Action**:
+  - M6 Resource/Assignment & M7 Capability/Topology.
 
 ---
 

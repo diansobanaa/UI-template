@@ -139,6 +139,7 @@ export interface ConfigurationPayload {
   complexId: string;
   version: number;
   updatedAt: string;
+  greenhouses: { ghId: string; name: string }[];
   components: InstalledComponent[];
   assignments: Assignment[];
   schedules: Schedule[];

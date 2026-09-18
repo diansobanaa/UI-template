@@ -163,6 +163,7 @@ static void dispatch_schedule(schedule_entry_t *sched, time_t now)
         cmd.type = CMD_TYPE_CUSTOM; // simplified for Phase 1
     }
     
+    strncpy(cmd.target_gh_id, sched->target_gh_id, sizeof(cmd.target_gh_id) - 1);
     cmd.param_duration_sec = sched->duration_sec;
     cmd.status = CMD_STATUS_PENDING;
     cmd.submitted_at = now;

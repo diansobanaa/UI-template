@@ -1,4 +1,5 @@
 #include "services/crop_cycle_mgr.h"
+#include "config/system_config.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include <string.h>
@@ -8,21 +9,30 @@
 static const char *TAG = "CROPCYCLE_MGR";
 static const char *NVS_NAMESPACE = "agrotech_cc";
 
-static crop_cycle_record_t s_active_cycle = {
-    .cycle_id = "",
-    .gh_id = "gh-01",
-    .status = CYCLE_STATE_NO_CYCLE,
-    .tanggal_tanam = "",
-    .tanggal_polinasi = "",
-    .variety = "",
-    .plant_count = 0,
-    .notes = "No active crop cycle initially",
-    .version = 0,
-    .has_harvest = false,
-    .hst = -1,
-    .hsp = -1,
-    .has_hsp = false
-};
+static crop_cycle_record_t s_active_cycles[MAX_GREENHOUSES] = {0};
+
+static crop_cycle_record_t* get_cycle(const char *gh_id) {
+    if (!gh_id) return NULL;
+    for (int i = 0; i < MAX_GREENHOUSES; i++) {
+        if (strcmp(s_active_cycles[i].gh_id, gh_id) == 0) {
+            return &s_active_cycles[i];
+        }
+    }
+    return NULL;
+}
+
+static crop_cycle_record_t* get_or_create_cycle(const char *gh_id) {
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (c) return c;
+    for (int i = 0; i < MAX_GREENHOUSES; i++) {
+        if (s_active_cycles[i].gh_id[0] == '\0') {
+            strncpy(s_active_cycles[i].gh_id, gh_id, sizeof(s_active_cycles[i].gh_id) - 1);
+            s_active_cycles[i].status = CYCLE_STATE_NO_CYCLE;
+            return &s_active_cycles[i];
+        }
+    }
+    return NULL; // Array full
+}
 
 static int days_between(const char *date_str)
 {
@@ -66,13 +76,13 @@ static void recompute_hst_hsp(crop_cycle_record_t *c)
     }
 }
 
-static esp_err_t persist_cycle(void)
+static esp_err_t persist_cycles(void)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
 
-    nvs_set_blob(h, "active_cc", &s_active_cycle, sizeof(crop_cycle_record_t));
+    nvs_set_blob(h, "active_cc_arr", s_active_cycles, sizeof(s_active_cycles));
     nvs_commit(h);
     nvs_close(h);
     return ESP_OK;
@@ -80,166 +90,221 @@ static esp_err_t persist_cycle(void)
 
 esp_err_t crop_cycle_mgr_init(void)
 {
+    // Initialize empty defaults
+    memset(s_active_cycles, 0, sizeof(s_active_cycles));
+    for (int i=0; i<MAX_GREENHOUSES; i++) {
+        s_active_cycles[i].status = CYCLE_STATE_NO_CYCLE;
+        s_active_cycles[i].hst = -1;
+        s_active_cycles[i].hsp = -1;
+    }
+
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
     if (err == ESP_OK) {
-        size_t sz = sizeof(crop_cycle_record_t);
-        if (nvs_get_blob(h, "active_cc", &s_active_cycle, &sz) == ESP_OK) {
-            ESP_LOGI(TAG, "Restored active crop cycle from NVS (ID='%s', Status=%d)",
-                     s_active_cycle.cycle_id, s_active_cycle.status);
+        size_t sz = sizeof(s_active_cycles);
+        if (nvs_get_blob(h, "active_cc_arr", s_active_cycles, &sz) == ESP_OK) {
+            ESP_LOGI(TAG, "Restored active crop cycles from NVS");
+        } else {
+            // Legacy migration: try loading single struct to index 0
+            crop_cycle_record_t legacy;
+            sz = sizeof(legacy);
+            if (nvs_get_blob(h, "active_cc", &legacy, &sz) == ESP_OK) {
+                s_active_cycles[0] = legacy;
+                ESP_LOGI(TAG, "Migrated legacy active crop cycle to array format");
+            }
         }
         nvs_close(h);
     }
 
-    recompute_hst_hsp(&s_active_cycle);
-    ESP_LOGI(TAG, "Crop Cycle Manager initialized: HST=%ld, HSP=%ld (hasHsp=%d)",
-             (long)s_active_cycle.hst, (long)s_active_cycle.hsp, s_active_cycle.has_hsp);
+    for (int i=0; i<MAX_GREENHOUSES; i++) {
+        if (s_active_cycles[i].gh_id[0] != '\0') {
+            recompute_hst_hsp(&s_active_cycles[i]);
+        }
+    }
+    
+    ESP_LOGI(TAG, "Crop Cycle Manager initialized");
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_get_current(const char *gh_id, crop_cycle_record_t *out_record)
 {
-    if (!out_record) return ESP_ERR_INVALID_ARG;
-    recompute_hst_hsp(&s_active_cycle);
-    *out_record = s_active_cycle;
+    if (!gh_id || !out_record) return ESP_ERR_INVALID_ARG;
+    
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (c) {
+        recompute_hst_hsp(c);
+        *out_record = *c;
+    } else {
+        // Return a NO_CYCLE dummy record
+        memset(out_record, 0, sizeof(crop_cycle_record_t));
+        strncpy(out_record->gh_id, gh_id, sizeof(out_record->gh_id)-1);
+        out_record->status = CYCLE_STATE_NO_CYCLE;
+        out_record->hst = -1;
+        out_record->hsp = -1;
+    }
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_start(const char *gh_id, const char *tanggal_tanam, const char *variety, uint32_t plant_count, const char *notes)
 {
-    if (!tanggal_tanam || strlen(tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
+    if (!gh_id || !tanggal_tanam || strlen(tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
+
+    crop_cycle_record_t* c = get_or_create_cycle(gh_id);
+    if (!c) return ESP_ERR_NO_MEM; // Max greenhouses reached
 
     /* Disallow start if already active */
-    if (s_active_cycle.status == CYCLE_STATE_ACTIVE) {
-        ESP_LOGW(TAG, "Refused to start cycle: A cycle is already ACTIVE in %s", gh_id ? gh_id : "gh-01");
+    if (c->status == CYCLE_STATE_ACTIVE) {
+        ESP_LOGW(TAG, "Refused to start cycle: A cycle is already ACTIVE in %s", gh_id);
         return ESP_ERR_INVALID_STATE;
     }
 
-    snprintf(s_active_cycle.cycle_id, sizeof(s_active_cycle.cycle_id), "cc-%lu", (unsigned long)time(NULL));
-    strncpy(s_active_cycle.gh_id, gh_id ? gh_id : "gh-01", sizeof(s_active_cycle.gh_id) - 1);
-    s_active_cycle.status = CYCLE_STATE_ACTIVE;
-    strncpy(s_active_cycle.tanggal_tanam, tanggal_tanam, sizeof(s_active_cycle.tanggal_tanam) - 1);
-    s_active_cycle.tanggal_polinasi[0] = '\0';
-    if (variety) strncpy(s_active_cycle.variety, variety, sizeof(s_active_cycle.variety) - 1);
-    s_active_cycle.plant_count = plant_count;
-    if (notes) strncpy(s_active_cycle.notes, notes, sizeof(s_active_cycle.notes) - 1);
-    s_active_cycle.version++;
-    s_active_cycle.has_harvest = false;
+    snprintf(c->cycle_id, sizeof(c->cycle_id), "cc-%lu", (unsigned long)time(NULL));
+    c->status = CYCLE_STATE_ACTIVE;
+    strncpy(c->tanggal_tanam, tanggal_tanam, sizeof(c->tanggal_tanam) - 1);
+    c->tanggal_polinasi[0] = '\0';
+    if (variety) strncpy(c->variety, variety, sizeof(c->variety) - 1);
+    c->plant_count = plant_count;
+    if (notes) strncpy(c->notes, notes, sizeof(c->notes) - 1);
+    c->version++;
+    c->has_harvest = false;
 
-    recompute_hst_hsp(&s_active_cycle);
-    persist_cycle();
+    recompute_hst_hsp(c);
+    persist_cycles();
 
-    ESP_LOGI(TAG, "Started new crop cycle: %s, Tanam=%s", s_active_cycle.cycle_id, s_active_cycle.tanggal_tanam);
+    ESP_LOGI(TAG, "Started new crop cycle: %s for GH %s, Tanam=%s", c->cycle_id, gh_id, c->tanggal_tanam);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_import_active(const char *gh_id, const char *tanggal_tanam, const char *tanggal_polinasi, const char *variety, uint32_t plant_count, const char *notes)
 {
-    if (!tanggal_tanam || strlen(tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
+    if (!gh_id || !tanggal_tanam || strlen(tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
 
-    snprintf(s_active_cycle.cycle_id, sizeof(s_active_cycle.cycle_id), "import-%lu", (unsigned long)time(NULL));
-    strncpy(s_active_cycle.gh_id, gh_id ? gh_id : "gh-01", sizeof(s_active_cycle.gh_id) - 1);
-    s_active_cycle.status = CYCLE_STATE_ACTIVE;
-    strncpy(s_active_cycle.tanggal_tanam, tanggal_tanam, sizeof(s_active_cycle.tanggal_tanam) - 1);
+    crop_cycle_record_t* c = get_or_create_cycle(gh_id);
+    if (!c) return ESP_ERR_NO_MEM;
+
+    snprintf(c->cycle_id, sizeof(c->cycle_id), "import-%lu", (unsigned long)time(NULL));
+    c->status = CYCLE_STATE_ACTIVE;
+    strncpy(c->tanggal_tanam, tanggal_tanam, sizeof(c->tanggal_tanam) - 1);
 
     if (tanggal_polinasi && strlen(tanggal_polinasi) >= 10) {
-        strncpy(s_active_cycle.tanggal_polinasi, tanggal_polinasi, sizeof(s_active_cycle.tanggal_polinasi) - 1);
+        strncpy(c->tanggal_polinasi, tanggal_polinasi, sizeof(c->tanggal_polinasi) - 1);
     } else {
-        s_active_cycle.tanggal_polinasi[0] = '\0';
+        c->tanggal_polinasi[0] = '\0';
     }
 
-    if (variety) strncpy(s_active_cycle.variety, variety, sizeof(s_active_cycle.variety) - 1);
-    s_active_cycle.plant_count = plant_count;
-    if (notes) strncpy(s_active_cycle.notes, notes, sizeof(s_active_cycle.notes) - 1);
-    s_active_cycle.version++;
-    s_active_cycle.has_harvest = false;
+    if (variety) strncpy(c->variety, variety, sizeof(c->variety) - 1);
+    c->plant_count = plant_count;
+    if (notes) strncpy(c->notes, notes, sizeof(c->notes) - 1);
+    c->version++;
+    c->has_harvest = false;
 
-    recompute_hst_hsp(&s_active_cycle);
-    persist_cycle();
+    recompute_hst_hsp(c);
+    persist_cycles();
 
-    ESP_LOGI(TAG, "Imported active cycle: %s, HST=%ld, HSP=%ld", s_active_cycle.cycle_id, (long)s_active_cycle.hst, (long)s_active_cycle.hsp);
+    ESP_LOGI(TAG, "Imported active cycle: %s for GH %s, HST=%ld", c->cycle_id, gh_id, (long)c->hst);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_set_pollination(const char *gh_id, const char *tanggal_polinasi, const char *method)
 {
-    if (!tanggal_polinasi || strlen(tanggal_polinasi) < 10) return ESP_ERR_INVALID_ARG;
+    if (!gh_id || !tanggal_polinasi || strlen(tanggal_polinasi) < 10) return ESP_ERR_INVALID_ARG;
+    
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
 
     /* Validate pollination date >= planting date */
-    if (strcmp(tanggal_polinasi, s_active_cycle.tanggal_tanam) < 0) {
+    if (strcmp(tanggal_polinasi, c->tanggal_tanam) < 0) {
         ESP_LOGE(TAG, "Validation failed: pollination date cannot be earlier than planting date");
         return ESP_ERR_INVALID_ARG;
     }
 
-    strncpy(s_active_cycle.tanggal_polinasi, tanggal_polinasi, sizeof(s_active_cycle.tanggal_polinasi) - 1);
-    s_active_cycle.version++;
+    strncpy(c->tanggal_polinasi, tanggal_polinasi, sizeof(c->tanggal_polinasi) - 1);
+    c->version++;
 
-    recompute_hst_hsp(&s_active_cycle);
-    persist_cycle();
+    recompute_hst_hsp(c);
+    persist_cycles();
 
-    ESP_LOGI(TAG, "Pollination recorded: %s (HSP=%ld)", tanggal_polinasi, (long)s_active_cycle.hsp);
+    ESP_LOGI(TAG, "Pollination recorded: %s (HSP=%ld) for GH %s", tanggal_polinasi, (long)c->hsp, gh_id);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_delete_pollination(const char *gh_id)
 {
-    s_active_cycle.tanggal_polinasi[0] = '\0';
-    s_active_cycle.hsp = 0;
-    s_active_cycle.has_hsp = false;
-    s_active_cycle.version++;
+    if (!gh_id) return ESP_ERR_INVALID_ARG;
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
 
-    persist_cycle();
-    ESP_LOGI(TAG, "Pollination date removed; HSP reset to NULL.");
+    c->tanggal_polinasi[0] = '\0';
+    c->hsp = 0;
+    c->has_hsp = false;
+    c->version++;
+
+    persist_cycles();
+    ESP_LOGI(TAG, "Pollination date removed for GH %s", gh_id);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_update_planting_date(const char *gh_id, const char *new_tanggal_tanam)
 {
-    if (!new_tanggal_tanam || strlen(new_tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
+    if (!gh_id || !new_tanggal_tanam || strlen(new_tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
+    
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
 
-    strncpy(s_active_cycle.tanggal_tanam, new_tanggal_tanam, sizeof(s_active_cycle.tanggal_tanam) - 1);
-    s_active_cycle.version++;
+    strncpy(c->tanggal_tanam, new_tanggal_tanam, sizeof(c->tanggal_tanam) - 1);
+    c->version++;
 
-    recompute_hst_hsp(&s_active_cycle);
-    persist_cycle();
+    recompute_hst_hsp(c);
+    persist_cycles();
 
-    ESP_LOGI(TAG, "Updated planting date to %s (HST=%ld)", new_tanggal_tanam, (long)s_active_cycle.hst);
+    ESP_LOGI(TAG, "Updated planting date to %s for GH %s", new_tanggal_tanam, gh_id);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_update_metadata(const char *gh_id, const char *variety, uint32_t plant_count, const char *notes)
 {
-    if (variety) strncpy(s_active_cycle.variety, variety, sizeof(s_active_cycle.variety) - 1);
-    if (plant_count > 0) s_active_cycle.plant_count = plant_count;
-    if (notes) strncpy(s_active_cycle.notes, notes, sizeof(s_active_cycle.notes) - 1);
+    if (!gh_id) return ESP_ERR_INVALID_ARG;
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
 
-    s_active_cycle.version++;
-    persist_cycle();
+    if (variety) strncpy(c->variety, variety, sizeof(c->variety) - 1);
+    if (plant_count > 0) c->plant_count = plant_count;
+    if (notes) strncpy(c->notes, notes, sizeof(c->notes) - 1);
+
+    c->version++;
+    persist_cycles();
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_cancel(const char *gh_id)
 {
-    s_active_cycle.status = CYCLE_STATE_CANCELLED;
-    s_active_cycle.version++;
-    persist_cycle();
-    ESP_LOGI(TAG, "Cycle %s cancelled.", s_active_cycle.cycle_id);
+    if (!gh_id) return ESP_ERR_INVALID_ARG;
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
+
+    c->status = CYCLE_STATE_CANCELLED;
+    c->version++;
+    persist_cycles();
+    ESP_LOGI(TAG, "Cycle %s cancelled for GH %s", c->cycle_id, gh_id);
     return ESP_OK;
 }
 
 esp_err_t crop_cycle_mgr_harvest(const char *gh_id, const char *harvest_date, float yield_kg, const char *grade, const char *notes)
 {
-    s_active_cycle.status = CYCLE_STATE_HARVESTED;
-    s_active_cycle.has_harvest = true;
-    if (harvest_date) strncpy(s_active_cycle.harvest_date, harvest_date, sizeof(s_active_cycle.harvest_date) - 1);
-    s_active_cycle.yield_kg = (yield_kg > 0) ? yield_kg : 300.0f;
-    if (grade) strncpy(s_active_cycle.grade, grade, sizeof(s_active_cycle.grade) - 1);
-    if (notes) strncpy(s_active_cycle.harvest_notes, notes, sizeof(s_active_cycle.harvest_notes) - 1);
+    if (!gh_id) return ESP_ERR_INVALID_ARG;
+    crop_cycle_record_t* c = get_cycle(gh_id);
+    if (!c || c->status != CYCLE_STATE_ACTIVE) return ESP_ERR_INVALID_STATE;
 
-    s_active_cycle.version++;
-    persist_cycle();
-    ESP_LOGI(TAG, "Cycle %s harvested. Yield: %.1f kg, Grade: %s",
-             s_active_cycle.cycle_id, s_active_cycle.yield_kg, s_active_cycle.grade);
+    c->status = CYCLE_STATE_HARVESTED;
+    c->has_harvest = true;
+    if (harvest_date) strncpy(c->harvest_date, harvest_date, sizeof(c->harvest_date) - 1);
+    c->yield_kg = (yield_kg > 0) ? yield_kg : 300.0f;
+    if (grade) strncpy(c->grade, grade, sizeof(c->grade) - 1);
+    if (notes) strncpy(c->harvest_notes, notes, sizeof(c->harvest_notes) - 1);
+
+    c->version++;
+    persist_cycles();
+    ESP_LOGI(TAG, "Cycle %s harvested. Yield: %.1f kg, Grade: %s", c->cycle_id, c->yield_kg, c->grade);
     return ESP_OK;
 }
 

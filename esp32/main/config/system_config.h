@@ -21,6 +21,9 @@ extern "C" {
 #define DEFAULT_HOSTNAME_PREFIX     "esp32-"
 #define DEFAULT_HTTP_PORT           80
 
+/* Structural Limits */
+#define MAX_GREENHOUSES             10
+
 /* FreeRTOS Task Priorities & Stack Sizes */
 #define TASK_HTTP_SERVER_STACK      8192
 #define TASK_HTTP_SERVER_PRIO       5
