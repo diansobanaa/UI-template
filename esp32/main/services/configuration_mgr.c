@@ -1,7 +1,8 @@
 #include "services/configuration_mgr.h"
 #include "storage/storage_mgr.h"
 #include "hal/hardware_registry.h"
-#include "cJSON.h"
+#include "services/storage_mgr.h"
+#include "services/scheduler.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -222,20 +223,39 @@ static esp_err_t validate_candidate_semantics(void) {
     }
     
     // Validate assignments exist in hardware_registry (M3.3 / M3.6 strict checks)
+    // M6 Resource Assignment / Ownership: An installed resource cannot silently have two exclusive owners.
     for (size_t i = 0; i < s_candidate_config.assignment_count; i++) {
         hw_component_info_t hw;
         if (hardware_registry_find_by_id(s_candidate_config.assignments[i].resource_id, &hw) != ESP_OK) {
             ESP_LOGE(TAG, "Validation failed: Assignment refers to unknown hardware '%s'", s_candidate_config.assignments[i].resource_id);
             return ESP_ERR_NOT_FOUND; // Strict rejection per M3 PRD
         }
+        
+        for (size_t j = i + 1; j < s_candidate_config.assignment_count; j++) {
+            if (strcmp(s_candidate_config.assignments[i].resource_id, s_candidate_config.assignments[j].resource_id) == 0) {
+                ESP_LOGE(TAG, "Validation failed: Resource '%s' assigned multiple times (M6 conflict)", s_candidate_config.assignments[i].resource_id);
+                return ESP_ERR_INVALID_STATE;
+            }
+        }
     }
     
-    // Validate topology edges
+    // Validate topology edges (M7 Topology / Capability)
     for (size_t i = 0; i < s_candidate_config.topology_count; i++) {
         cfg_topology_edge_t *e = &s_candidate_config.topology[i];
         if (strcmp(e->source_resource_id, e->target_resource_id) == 0) {
             ESP_LOGE(TAG, "Validation failed: Topology edge creates self-loop on '%s'", e->source_resource_id);
             return ESP_ERR_INVALID_ARG;
+        }
+        
+        bool src_found = false;
+        bool dst_found = false;
+        for (size_t j = 0; j < s_candidate_config.assignment_count; j++) {
+            if (strcmp(s_candidate_config.assignments[j].resource_id, e->source_resource_id) == 0) src_found = true;
+            if (strcmp(s_candidate_config.assignments[j].resource_id, e->target_resource_id) == 0) dst_found = true;
+        }
+        if (!src_found || !dst_found) {
+            ESP_LOGE(TAG, "Validation failed: Topology edge references unassigned resources");
+            return ESP_ERR_NOT_FOUND;
         }
     }
 
@@ -304,7 +324,49 @@ esp_err_t configuration_mgr_apply_candidate(void)
     s_active_config = s_candidate_config;
     s_candidate_valid = false;
     
-    ESP_LOGI(TAG, "Candidate configuration applied as ACTIVE.");
+    // M8 Schedule Compiler: Compile schedules and bind to resources (gh_id context)
+    scheduler_clear_all();
+    for (size_t i = 0; i < s_active_config.schedule_count; i++) {
+        cfg_schedule_t *cfg_s = &s_active_config.schedules[i];
+        if (!cfg_s->enabled) continue;
+        
+        schedule_entry_t entry = {0};
+        strncpy(entry.id, cfg_s->schedule_id, sizeof(entry.id) - 1);
+        entry.enabled = true;
+        
+        switch (cfg_s->type) {
+            case CFG_SCHED_TYPE_INTERVAL: entry.type = SCHED_TYPE_INTERVAL; break;
+            case CFG_SCHED_TYPE_ONCE: entry.type = SCHED_TYPE_ONCE; break;
+            default: entry.type = SCHED_TYPE_DAILY; break;
+        }
+        
+        switch (cfg_s->action) {
+            case CFG_SCHED_ACTION_WATER_PUMP: entry.action = SCHED_ACTION_WATER_PUMP; break;
+            case CFG_SCHED_ACTION_FAN_TOGGLE: entry.action = SCHED_ACTION_FAN_TOGGLE; break;
+            case CFG_SCHED_ACTION_FERTIGATION: entry.action = SCHED_ACTION_FERTIGATION; break;
+            default: entry.action = SCHED_ACTION_CUSTOM; break;
+        }
+        
+        entry.duration_sec = cfg_s->duration_sec;
+        entry.hour = cfg_s->hour;
+        entry.minute = cfg_s->minute;
+        entry.days_of_week = cfg_s->days_of_week;
+        entry.interval_min = cfg_s->interval_min;
+        
+        // Dependency Resolution & Resource Binding: lookup targetGhId
+        for (size_t j = 0; j < s_active_config.assignment_count; j++) {
+            if (strcmp(s_active_config.assignments[j].resource_id, cfg_s->owner_id) == 0) {
+                if (s_active_config.assignments[j].scope == CFG_SCOPE_GREENHOUSE) {
+                    strncpy(entry.target_gh_id, s_active_config.assignments[j].gh_id, sizeof(entry.target_gh_id) - 1);
+                }
+                break;
+            }
+        }
+        
+        scheduler_add_entry(&entry);
+    }
+    
+    ESP_LOGI(TAG, "Candidate configuration applied as ACTIVE. Schedules compiled.");
     return ESP_OK;
 }
 

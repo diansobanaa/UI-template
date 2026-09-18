@@ -17,7 +17,24 @@
   - Menyinkronkan seluruh dokumentasi teknis dan firmware dengan zero-drift mirroring.
 
 ### Latest Safe Point
-SP-M5-001 Dynamic ESP32 Runtime Foundation (M5)
+SP-M8-001 Backend Resource, Topology, and Schedule Compiler (M6-M8)
+
+---
+
+## Safe Point Record: SP-M8-001
+- **ID**: SP-M8-001
+- **Objective**: Implement backend validation and compilation for Resource Assignments (M6), Topology Constraints (M7), and Schedule Compiler (M8).
+- **Date**: 2026-09-18
+- **Completed Work**:
+  1. Updated `validate_candidate_semantics()` in `configuration_mgr.c` to reject configurations where a resource is assigned multiple times (M6 Resource Ownership conflict).
+  2. Updated `validate_candidate_semantics()` to reject configurations where topology edges reference unassigned or non-existent resources (M7 Topology Constraints).
+  3. Replaced raw schedule runtime execution with a **Schedule Compiler pipeline** (M8) in `configuration_mgr_apply_candidate()`.
+  4. The Schedule Compiler now dynamically resolves a schedule's `owner_id` against active `assignments` to bind the correct `targetGhId` context to the compiled `schedule_entry_t`.
+  5. Cleared `scheduler.c`'s state upon successful compilation to synchronize active schedules strictly with the canonical Configuration Payload.
+- **Verification Result**: Code logic is strictly aligned with the M6/M7/M8 Backend Requirements outlined in `Gemini_Patching_follow_PRD.MD` and `IMPLEMENTATION_BACKLOG_PRD_ALIGNMENT.md`.
+- **Known Issues**: Frontend UI components for defining Assignments, Topology, and Schedules using the new canonical models are required to complete the end-to-end user experience.
+- **Next Safe Point / Action**:
+  - M9 ESP32 Scheduler Runtime validation & M10 Command Safety enforcement.
 
 ---
 
