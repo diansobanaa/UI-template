@@ -5,10 +5,20 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "node scripts/verify_e2e_contracts.mjs",
-    "preview": "vite preview"
+    "test": "node scripts/verify_e2e_contracts.mjs --mock",
+    "test:m10": "node scripts/test_m10_command_safety.mjs",
+    "test:m10:proxy": "python3 scripts/test_m10_backend_proxy.py",
+    "preview": "vite preview",
+    "test:m16": "node scripts/test_m16_no_legacy_operational_paths.mjs",
+    "test:m3:m4": "python3 scripts/test_m3_m4_hardening.py",
+    "test:m13": "node scripts/test_m13_firmware_contract.mjs",
+    "test:m14:m15": "python3 scripts/test_m14_m15.py",
+    "test:m5:m6": "python3 scripts/test_m5_m6.py",
+    "test:m11:m12": "python3 scripts/test_m11_m12_engine.py && node scripts/test_m11_m12_firmware_path.mjs",
+    "test:m17": "python3 scripts/test_m17_software_e2e.py",
+    "test:simulation:surface": "python3 scripts/test_no_production_simulation_surface.py",
+    "test:onboarding": "node scripts/test_complex_esp32_onboarding.mjs"
   },
-
   "dependencies": {
     "lucide-react": "^0.544.0",
     "react": "19.1.0",
@@ -25,5 +35,6 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "vite-plugin-singlefile": "^2.3.0"
-  }
+  },
+  "type": "module"
 }

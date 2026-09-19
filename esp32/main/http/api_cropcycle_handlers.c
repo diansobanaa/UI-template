@@ -1,10 +1,10 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "services/crop_cycle_mgr.h"
-#include "services/configuration_mgr.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include <string.h>
+#include <stdbool.h>
 
 static const char *TAG = "CROPCYCLE_API";
 
@@ -19,20 +19,7 @@ static esp_err_t validate_gh_id(httpd_req_t *req, char *gh_id, size_t max_len) {
     strncpy(gh_id, start, len);
     gh_id[len] = '\0';
 
-    const active_configuration_t *cfg = configuration_mgr_get_active();
-    if (cfg) {
-        bool found = false;
-        for (size_t i = 0; i < cfg->greenhouse_count; i++) {
-            if (strcmp(cfg->greenhouses[i].gh_id, gh_id) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found && cfg->greenhouse_count > 0) {
-            return ESP_ERR_NOT_FOUND;
-        }
-    }
-
+    /* GH identity is configuration-driven; the manager stores state per GH. */
     return ESP_OK;
 }
 
@@ -61,15 +48,12 @@ esp_err_t handler_list_crop_cycles(httpd_req_t *req)
     } else if (err_gh != ESP_OK) {
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid greenhouse ID in URI", NULL);
     }
-    crop_cycle_record_t record;
-    crop_cycle_mgr_get_current(gh_id, &record);
-
+    cJSON *items = NULL;
+    if (crop_cycle_mgr_list(gh_id, &items) != ESP_OK || !items) return http_send_error(req, 500, "HISTORY_UNAVAILABLE", "Failed to load crop cycle history", NULL);
     cJSON *root = cJSON_CreateObject();
-    cJSON *items = cJSON_AddArrayToObject(root, "items");
-    cJSON_AddItemToArray(items, crop_cycle_mgr_to_json(&record));
-    cJSON_AddNumberToObject(root, "total", 1);
+    cJSON_AddItemToObject(root, "items", items);
+    cJSON_AddNumberToObject(root, "total", (double)cJSON_GetArraySize(items));
     cJSON_AddNullToObject(root, "nextCursor");
-
     return http_send_enveloped_response(req, 200, NULL, root);
 }
 
@@ -426,23 +410,24 @@ esp_err_t handler_harvest_crop_cycle(httpd_req_t *req)
         }
     }
 
-    const char *harvest_date = "2026-09-13";
-    float yield_kg = 325.0f;
-    const char *grade = "A";
-    const char *notes = "Harvest completed";
+    const char *harvest_date = NULL;
+    float yield_kg = 0.0f;
+    bool has_yield = false;
+    const char *grade = NULL;
+    const char *notes = NULL;
 
     if (payload) {
         cJSON *d = cJSON_GetObjectItem(payload, "harvestDate");
         if (d && cJSON_IsString(d)) harvest_date = d->valuestring;
         cJSON *y = cJSON_GetObjectItem(payload, "yieldKg");
-        if (y && cJSON_IsNumber(y)) yield_kg = (float)y->valuedouble;
+        if (y && cJSON_IsNumber(y)) { yield_kg = (float)y->valuedouble; has_yield = yield_kg >= 0.0f; }
         cJSON *g = cJSON_GetObjectItem(payload, "grade");
         if (g && cJSON_IsString(g)) grade = g->valuestring;
         cJSON *n = cJSON_GetObjectItem(payload, "notes");
         if (n && cJSON_IsString(n)) notes = n->valuestring;
     }
-
-    crop_cycle_mgr_harvest(gh_id, harvest_date, yield_kg, grade, notes);
+    esp_err_t harvest_err = crop_cycle_mgr_harvest(gh_id, harvest_date, yield_kg, has_yield, grade, notes);
+    if (harvest_err != ESP_OK) return http_send_error(req, 422, "HARVEST_FAILED", "No active crop cycle is available for harvest", req_id);
     if (body) cJSON_Delete(body);
 
     crop_cycle_record_t record;

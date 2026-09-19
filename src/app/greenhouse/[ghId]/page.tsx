@@ -40,20 +40,20 @@ import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { ScheduleContent } from "@/app/schedule/page";
 import { useToast } from "@/components/ui/toast";
-import { complexService, cropCycleService, fertigationService, greenhouseService } from "@/lib/services";
+import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { formatIndoDate, processCropCycle } from "@/lib/cropCycleProcessor";
 import { errorMessage } from "@/lib/errors";
 import { number, required } from "@/lib/validation";
-import { environmentMetrics, fruitDevFor } from "@/lib/data/environment";
+import { environmentMetrics, fruitDevFor } from "@/lib/telemetry-presentation";
 import { delta, lux, n } from "@/lib/format";
+import { getCropTimelineConfig } from "@/lib/cropTimelineConfig";
 import type { RangeId } from "./range-types";
 import { greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import type { Greenhouse } from "@/lib/types";
+import type { TelemetryHistoryResponse, TelemetrySnapshot } from "@/lib/api/contracts";
 import { CropCycleModals } from "@/components/ui/CropCycleModals";
-import { AssignmentManager } from "@/components/ui/equipment/AssignmentManager";
-import { TopologyViewer } from "@/components/ui/equipment/TopologyViewer";
 
 const RANGE_OPTIONS: { id: RangeId; label: string }[] = [
   { id: "24H", label: "24 Hours" },
@@ -100,7 +100,6 @@ type SavedTimelineConfig = {
   maintenance?: MaintenancePoint[];
 };
 
-const timelineStorageKey = (ghId: string) => `greenhouse-crop-timeline:${ghId}`;
 
 const timelineDateAtHst = (tanggalTanam: string | null | undefined, hstValue: number) => {
   if (!tanggalTanam || !Number.isFinite(hstValue)) return null;
@@ -112,14 +111,6 @@ const timelineDateAtHst = (tanggalTanam: string | null | undefined, hstValue: nu
 
 const defaultMaintenancePoints = (): MaintenancePoint[] => [];
 
-const defaultTimelinePoints = (): TimelinePoint[] => [
-  { id: "seed", name: "Semai", startHst: 0, endHst: 10, note: "" },
-  { id: "vegetative", name: "Vegetatif", startHst: 11, endHst: 25, note: "" },
-  { id: "flowering", name: "Berbunga", startHst: 26, endHst: 45, note: "" },
-  { id: "fruiting", name: "Pembuahan", startHst: 46, endHst: 65, note: "" },
-  { id: "ripening", name: "Pematangan", startHst: 66, endHst: 85, note: "" },
-  { id: "harvest", name: "Panen", startHst: 86, endHst: 90, note: "" },
-];
 
 export function CropCycleTimeline({
   gh,
@@ -209,7 +200,7 @@ export function CropCycleTimeline({
     } catch (err) { toast(errorMessage(err), "error"); throw err; }
   };
 
-  const handleUpdateMetadata = async (updates: { variety?: string; plantCount?: number; notes?: string }) => {
+  const handleUpdateMetadata = async (updates: { variety?: string; plantCount?: number; notes?: string; cropTimelineConfig?: import("@/lib/cropTimelineConfig").CropTimelineConfig }) => {
     try {
       await cropCycleService.updateMetadata(gh.id, updates);
       toast(`Data tanaman diperbarui.`, "success");
@@ -249,102 +240,37 @@ export function CropCycleTimeline({
 
   const [timelineConfig, setTimelineConfig] = useState<SavedTimelineConfig | null>(null);
   useEffect(() => {
-    const load = () => {
-      try {
-        const raw = window.localStorage.getItem(timelineStorageKey(gh.id));
-        if (!raw) {
-          setTimelineConfig(null);
-          return;
-        }
-        const saved = JSON.parse(raw) as SavedTimelineConfig;
-        if (
-          Number.isFinite(Number(saved.targetHarvestHst)) &&
-          Number(saved.targetHarvestHst) > 0 &&
-          Array.isArray(saved.points) &&
-          saved.points.length
-        ) {
-          setTimelineConfig({
-            targetHarvestHst: Number(saved.targetHarvestHst),
-            points: saved.points
-              .map((point) => ({
-                ...point,
-                startHst: Number(point.startHst),
-                endHst: Number(point.endHst),
-              }))
-              .filter(
-                (point) =>
-                  point.name?.trim() &&
-                  Number.isFinite(point.startHst) &&
-                  Number.isFinite(point.endHst)
-              ),
-            maintenance: Array.isArray(saved.maintenance)
-              ? saved.maintenance
-                  .map((item) => ({
-                    ...item,
-                    hst: Number(item.hst),
-                    name: String(item.name ?? ""),
-                    category: String(item.category ?? "Lainnya"),
-                    note: String(item.note ?? ""),
-                  }))
-                  .filter((item) => item.name.trim() && Number.isFinite(item.hst))
-              : defaultMaintenancePoints(),
-          });
-        } else {
-          setTimelineConfig(null);
-        }
-      } catch {
-        setTimelineConfig(null);
-      }
-    };
-    load();
-    const onUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ ghId?: string; config?: SavedTimelineConfig }>).detail;
-      if (detail?.ghId !== gh.id || !detail.config) return;
-      const saved = detail.config;
-      if (
-        Number.isFinite(saved.targetHarvestHst) &&
-        saved.targetHarvestHst > 0 &&
-        Array.isArray(saved.points) &&
-        saved.points.length
-      ) {
-        setTimelineConfig({
-          targetHarvestHst: saved.targetHarvestHst,
-          points: saved.points.map((point) => ({
-            ...point,
-            startHst: Number(point.startHst),
-            endHst: Number(point.endHst),
-          })),
-          maintenance: Array.isArray(saved.maintenance)
-            ? saved.maintenance
-                .map((item) => ({
-                  ...item,
-                  hst: Number(item.hst),
-                  name: String(item.name ?? ""),
-                  category: String(item.category ?? "Lainnya"),
-                  note: String(item.note ?? ""),
-                }))
-                .filter((item) => item.name.trim() && Number.isFinite(item.hst))
-            : defaultMaintenancePoints(),
-        });
-      } else {
-        load();
-      }
-    };
-    window.addEventListener("crop-timeline-config-updated", onUpdated);
-    window.addEventListener("storage", load);
-    return () => {
-      window.removeEventListener("crop-timeline-config-updated", onUpdated);
-      window.removeEventListener("storage", load);
-    };
-  }, [gh.id]);
+    const saved = getCropTimelineConfig(gh);
+    if (!saved || !Array.isArray(saved.points) || !saved.points.length || !Number.isFinite(saved.targetHarvestHst)) {
+      setTimelineConfig(null);
+      return;
+    }
+    setTimelineConfig({
+      targetHarvestHst: Number(saved.targetHarvestHst),
+      points: saved.points.map((point) => ({
+        ...point,
+        startHst: Number(point.startHst),
+        endHst: Number(point.endHst),
+      })),
+      maintenance: Array.isArray(saved.maintenance)
+        ? saved.maintenance.map((item) => ({
+            ...item,
+            hst: Number(item.hst),
+            name: String(item.name ?? ""),
+            category: String(item.category ?? "Lainnya"),
+            note: String(item.note ?? ""),
+          })).filter((item) => item.name.trim() && Number.isFinite(item.hst))
+        : defaultMaintenancePoints(),
+    });
+  }, [gh]);
 
   const phases = useMemo(() => {
-    const points = timelineConfig?.points ?? defaultTimelinePoints();
+    const points = timelineConfig?.points ?? [];
     return [...points].sort((a, b) => a.startHst - b.startHst);
   }, [timelineConfig]);
-  const totalHst = Math.max(1, timelineConfig?.targetHarvestHst ?? phases[phases.length - 1]?.endHst ?? 90);
+  const totalHst = Math.max(1, timelineConfig?.targetHarvestHst ?? phases[phases.length - 1]?.endHst ?? 1);
   const currentPhase = phases.find((phase) => hst >= phase.startHst && hst <= phase.endHst) ?? null;
-  const hariLagi = Math.max(0, totalHst - hst);
+  const hariLagi = timelineConfig ? Math.max(0, totalHst - hst) : null;
 
   const getVisuals = (id: string, isEnd?: boolean) => {
     if (isEnd) return { color: "text-amber-400", border: "border-amber-400", bg: "bg-amber-400", icon: Wheat, desc: "Target akhir siklus" };
@@ -687,7 +613,7 @@ export function CropCycleTimeline({
                 </span>
               </div>
               <div className="mt-2 text-base font-bold text-white">
-                {hariLagi > 0 ? `${hariLagi} hari lagi` : "Siap Panen!"}
+                {hariLagi === null ? "Timeline belum dikonfigurasi" : hariLagi > 0 ? `${hariLagi} hari lagi` : "Siap Panen!"}
               </div>
               <button
                 type="button"
@@ -1142,11 +1068,12 @@ function GreenhouseContent() {
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
   const complexes = complexService.list();
-  const complexId = params.get("complex") ?? complexes[0].id;
-  const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
+  const complexId = params.get("complex") ?? "";
+  const complex = complexes.find((c) => c.id === complexId);
+  if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
-  const ghId = params.get("gh") ?? routeGhId ?? ghs[0]?.id;
-  const gh = greenhouseService.get(ghId ?? "") ?? ghs[0];
+  const ghId = params.get("gh") ?? routeGhId;
+  const gh = ghId ? greenhouseService.get(ghId) : undefined;
   if (!gh) return null;
 
   const handleResume = async () => {
@@ -1183,9 +1110,36 @@ function GreenhouseContent() {
   const [metric, setMetric] = useState<(typeof METRIC_TABS)[number]["id"]>("temperature");
   const [metricCarouselLocked, setMetricCarouselLocked] = useState(false);
   const [obsOpen, setObsOpen] = useState(false);
-  const [obsDeleteTarget, setObsDeleteTarget] = useState<{ id: string; plantId: string } | null>(null);
+  const [obsDeleteTarget, setObsDeleteTarget] = useState<{ observationId: string; plantId: string } | null>(null);
   const [obsDeleting, setObsDeleting] = useState(false);
-  const metrics = useMemo(() => environmentMetrics(gh), [gh]);
+  const [telemetrySnapshot, setTelemetrySnapshot] = useState<TelemetrySnapshot | null>(null);
+  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshTelemetry = async () => {
+      try {
+        const [current, history] = await Promise.all([
+          telemetryService.syncCurrent(complex.id, gh.id),
+          telemetryService.syncHistory(complex.id, gh.id, { limit: 200 }),
+        ]);
+        if (!cancelled) {
+          setTelemetrySnapshot(current);
+          setTelemetryHistory(history);
+        }
+      } catch {
+        if (!cancelled) {
+          setTelemetrySnapshot(null);
+          setTelemetryHistory(null);
+        }
+      }
+    };
+    void refreshTelemetry();
+    const interval = window.setInterval(refreshTelemetry, 10000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [complex.id, gh.id]);
+
+  const metrics = useMemo(() => environmentMetrics(gh, telemetrySnapshot, telemetryHistory), [gh, telemetrySnapshot, telemetryHistory]);
   const active = metrics.find((m) => m.id === metric)!;
   const activePoints = (active as unknown as { ranges: Record<RangeId, typeof active.points> }).ranges[range];
 
@@ -1221,7 +1175,7 @@ function GreenhouseContent() {
     if (!obsDeleteTarget) return;
     setObsDeleting(true);
     try {
-      await fertigationService.deleteObservation(obsDeleteTarget.id);
+      await fertigationService.deleteObservation(obsDeleteTarget.observationId);
       toast(`Observation for ${obsDeleteTarget.plantId} deleted`, "info");
       setObsDeleteTarget(null);
     } catch (e) {
@@ -1248,24 +1202,16 @@ function GreenhouseContent() {
 
   // Derived presentation data: no new/fabricated measurements are introduced.
   // These values are calculated only from the existing metric payload and telemetry.
-  const currentMetricValue = (metricId: string) => {
-    if (metricId === "temperature") return gh.telemetry.temperatureC;
-    if (metricId === "humidity") return gh.telemetry.humidityPct;
-    if (metricId === "light") return gh.telemetry.lightLux !== null ? gh.telemetry.lightLux / 1000 : null;
-    if (metricId === "tank") return gh.telemetry.tankPct;
-    return null;
-  };
-
-  const activeCurrent = currentMetricValue(active.id);
-  const activeAvg = Number(active.avg);
-  const activeMin = Number(active.min);
-  const activeMax = Number(active.max);
+  const activeCurrent = active.current;
+  const activeAvg = active.avg;
+  const activeMin = active.min;
+  const activeMax = active.max;
   const activePosition =
-    activeCurrent !== null && Number.isFinite(activeMin) && Number.isFinite(activeMax) && activeMax > activeMin
+    activeCurrent !== null && activeMin !== null && activeMax !== null && Number.isFinite(activeMin) && Number.isFinite(activeMax) && activeMax > activeMin
       ? Math.max(0, Math.min(100, ((activeCurrent - activeMin) / (activeMax - activeMin)) * 100))
       : null;
   const activeVsAverage =
-    activeCurrent !== null && Number.isFinite(activeAvg)
+    activeCurrent !== null && activeAvg !== null && Number.isFinite(activeAvg)
       ? activeCurrent - activeAvg
       : null;
 
@@ -1479,7 +1425,7 @@ function GreenhouseContent() {
           title="Environmental Conditions"
           icon={Activity}
           iconTone="green"
-          subtitle={`Real-time monitoring • 24H telemetry from ${gh.code}`}
+          subtitle={`Real-time monitoring • Measured telemetry from ${gh.code}`}
           className="gh-surface overflow-hidden !rounded-b-2xl !rounded-t-none !border-x !border-b !border-t-0 !border-emerald-400/30 !bg-[#071c25] !shadow-[0_18px_55px_rgba(2,6,23,0.40)] text-slate-100"
           action={
             <div className="flex overflow-hidden rounded-xl border border-white/10 bg-black/10 p-0.5">
@@ -1503,7 +1449,7 @@ function GreenhouseContent() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {metrics.map((item) => {
               const itemPoints = (item as unknown as { ranges: Record<RangeId, typeof item.points> }).ranges[range];
-              const itemCurrent = currentMetricValue(item.id);
+              const itemCurrent = item.current ?? null;
               const isFertigation = item.id === "fertigation";
               const isTank = item.id === "tank";
               const deltaValue =
@@ -1670,6 +1616,10 @@ function GreenhouseContent() {
                     </>
                   )}
 
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                    Telemetry {telemetrySnapshot?.source ?? "UNAVAILABLE"}{telemetrySnapshot?.stale ? " • STALE/HISTORY" : " • LIVE"}
+                  </div>
+
                   <div className="mt-7 border-t border-white/10 pt-4">
                     <div className="text-[11px] text-slate-500">Compared with 24H Average</div>
                     <div className="mt-2 flex items-center gap-2">
@@ -1705,7 +1655,7 @@ function GreenhouseContent() {
 
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
               {metrics.map((item) => {
-                const current = currentMetricValue(item.id);
+                const current = item.current ?? null;
                 const min = Number(item.min);
                 const max = Number(item.max);
                 const avg = Number(item.avg);
@@ -1791,10 +1741,10 @@ function GreenhouseContent() {
             <div className="mt-3 space-y-1.5">
               <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Recent Observations</div>
               {observations.slice(0, 3).map((o) => (
-                <div key={o.id} className="flex items-center gap-2 rounded-lg border border-white/8 bg-[#0b2027] px-2.5 py-2 text-xs">
+                <div key={o.observationId} className="flex items-center gap-2 rounded-lg border border-white/8 bg-[#0b2027] px-2.5 py-2 text-xs">
                   <span className="font-semibold text-slate-200">{o.plantId}</span>
                   <span className="text-slate-500">{o.heightCm} cm • {o.leafCount} leaves • {o.fruitCount} fruits</span>
-                  <span className="ml-auto text-slate-500">{o.at}</span>
+                  <span className="ml-auto text-slate-500">{new Date(o.observedAt).toLocaleString("id-ID")}</span>
                   <button aria-label="Delete observation" title="Delete observation" onClick={() => setObsDeleteTarget(o)} className="cursor-pointer text-slate-300 transition hover:text-red-500">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -2215,14 +2165,6 @@ function GreenhouseContent() {
           ))}
         </div>
       </SectionCard>
-
-      <div className="mt-8">
-        <AssignmentManager context="GH" ghId={gh.id} />
-      </div>
-
-      <div className="mt-8">
-        <TopologyViewer ghId={gh.id} complexId={complex.id} />
-      </div>
 
       {/* ---------------- Add Observation modal ---------------- */}
       {typeof document !== "undefined" &&

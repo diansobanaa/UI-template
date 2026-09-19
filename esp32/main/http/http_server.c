@@ -11,6 +11,7 @@ static httpd_handle_t s_server = NULL;
 
 extern void register_api_calibration_handlers(httpd_handle_t server);
 extern void register_api_schedule_handlers(httpd_handle_t server);
+extern void register_api_fertigation_handlers(httpd_handle_t server);
 
 
 #include "nvs_flash.h"
@@ -229,11 +230,11 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_inv = { .uri = "/api/v1/inventory", .method = HTTP_GET, .handler = handler_get_inventory, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_inv);
 
-    httpd_uri_t uri_topology = { .uri = "/api/v1/topology", .method = HTTP_GET, .handler = handler_get_topology, .user_ctx = NULL };
-    httpd_register_uri_handler(s_server, &uri_topology);
-
     httpd_uri_t uri_cap = { .uri = "/api/v1/capabilities", .method = HTTP_GET, .handler = handler_get_capabilities, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cap);
+
+    httpd_uri_t uri_topology_cap = { .uri = "/api/v1/topology-capabilities", .method = HTTP_GET, .handler = handler_get_topology_capabilities, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_topology_cap);
 
     httpd_uri_t uri_ctx = { .uri = "/api/v1/context", .method = HTTP_GET, .handler = handler_get_context, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_ctx);
@@ -248,37 +249,20 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_cfg_get = { .uri = "/api/v1/configuration", .method = HTTP_GET, .handler = handler_get_configuration, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_cfg_get);
 
-    httpd_uri_t config_put = {
-        .uri       = "/api/v1/configuration",
-        .method    = HTTP_PUT,
-        .handler   = handler_put_configuration,
-        .user_ctx  = NULL
-    };
-    httpd_register_uri_handler(s_server, &config_put);
+    httpd_uri_t uri_cfg_dep = { .uri = "/api/v1/configuration/deployment", .method = HTTP_GET, .handler = handler_get_configuration_deployment, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cfg_dep);
 
-    httpd_uri_t config_validate = {
-        .uri       = "/api/v1/configuration/validate",
-        .method    = HTTP_POST,
-        .handler   = handler_validate_configuration,
-        .user_ctx  = NULL
-    };
-    httpd_register_uri_handler(s_server, &config_validate);
-    
-    httpd_uri_t config_commit = {
-        .uri       = "/api/v1/configuration/commit",
-        .method    = HTTP_POST,
-        .handler   = handler_commit_configuration,
-        .user_ctx  = NULL
-    };
-    httpd_register_uri_handler(s_server, &config_commit);
-    
-    httpd_uri_t config_rollback = {
-        .uri       = "/api/v1/configuration/rollback",
-        .method    = HTTP_POST,
-        .handler   = handler_rollback_configuration,
-        .user_ctx  = NULL
-    };
-    httpd_register_uri_handler(s_server, &config_rollback);
+    httpd_uri_t uri_cfg_put = { .uri = "/api/v1/configuration", .method = HTTP_PUT, .handler = handler_put_configuration, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cfg_put);
+
+    httpd_uri_t uri_cfg_val = { .uri = "/api/v1/configuration/validate", .method = HTTP_POST, .handler = handler_validate_configuration, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cfg_val);
+
+    httpd_uri_t uri_cfg_deploy = { .uri = "/api/v1/configuration/deploy", .method = HTTP_POST, .handler = handler_deploy_configuration, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cfg_deploy);
+
+    httpd_uri_t uri_cfg_rollback = { .uri = "/api/v1/configuration/rollback", .method = HTTP_POST, .handler = handler_rollback_configuration, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_cfg_rollback);
 
     /* Commands */
     httpd_uri_t uri_cmd_post = { .uri = "/api/v1/commands", .method = HTTP_POST, .handler = handler_post_command, .user_ctx = NULL };
@@ -336,6 +320,7 @@ esp_err_t http_server_start(void)
 
     register_api_calibration_handlers(s_server);
     register_api_schedule_handlers(s_server);
+    register_api_fertigation_handlers(s_server);
 
     ESP_LOGI(TAG, "HTTP Server successfully started with all canonical OpenAPI routes registered.");
     return ESP_OK;

@@ -17,12 +17,12 @@ idf_component_register(
         "services/telemetry_mgr.c"
         "services/event_mgr.c"
         "services/fertigation_mgr.c"
+        "services/offline_sync_mgr.c"
         "services/manual_actuator_mgr.c"
         "services/transfer_mgr.c"
+        "services/topology_capability.c"
         "services/calibration_mgr.c"
         "services/panel_button_mgr.c"
-        "services/configuration_mgr.c"
-        "services/topology_mgr.c"
         "http/http_server.c"
         "http/api_device_handlers.c"
         "http/api_config_handlers.c"
@@ -31,6 +31,7 @@ idf_component_register(
         "http/api_telemetry_handlers.c"
         "http/api_calibration_handlers.c"
         "http/api_schedule_handlers.c"
+        "http/api_fertigation_handlers.c"
     INCLUDE_DIRS
         "."
         "config"
@@ -41,6 +42,7 @@ idf_component_register(
         "network"
     REQUIRES
         esp_http_server
+        esp_http_client
         mdns
         nvs_flash
         esp_wifi

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type ComponentType, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Clock,
@@ -27,10 +27,15 @@ import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
-import { MOCK_NOW } from "@/lib/format";
+import { SYSTEM_NOW } from "@/lib/format";
 import type { FanSchedule, FertigationSchedule, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
 import { complexRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
+import { TopologyCapabilityPanel, type GreenhouseTopologyState } from "@/components/ui/TopologyCapabilityPanel";
+import { calculateCapabilities } from "@/lib/runtime/topology-engine";
+import { esp32Client } from "@/lib/api/esp32-client";
+import { isDirectEsp32Enabled, isPythonBackendEnabled } from "@/lib/api/backend-client";
+import { PythonClient } from "@/lib/api/python-client";
 
 export default function SchedulePage() {
   return (
@@ -49,18 +54,28 @@ export function ScheduleContent({
   selectedComplexId?: string;
   selectedGreenhouseId?: string;
 }) {
-  useDbVersion(); // re-render on any mock-store mutation
+  useDbVersion(); // re-render on authoritative operational-state changes
   const [params] = useSearchParams();
   const toast = useToast();
 
   const complexes = complexService.list();
-  const complexId = selectedComplexId ?? params.get("complex") ?? complexes[0].id;
-  const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
+  const complexId = selectedComplexId ?? params.get("complex") ?? "";
+  const complex = complexes.find((c) => c.id === complexId);
+  if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
-  const selectedGhId = selectedGreenhouseId ?? params.get("gh") ?? ghs[0]?.id ?? "";
-  const gh = greenhouseService.get(selectedGhId) ?? ghs[0];
-  const scheduleGreenhouses = selectedGreenhouseId ? [gh] : ghs;
+  const scopedGhId = selectedGreenhouseId ?? params.get("gh") ?? "";
+  const gh = scopedGhId ? greenhouseService.get(scopedGhId) : undefined;
+  const scheduleGreenhouses = scopedGhId ? (gh ? [gh] : []) : ghs;
   const realtimeState = complexRealtimeState(complex, ghs);
+
+  const openFertigationCreate = () => {
+    if (!gh) { toast("Select a greenhouse before creating a fertigation schedule.", "error"); return; }
+    setEditFert(null); setFertOpen(true);
+  };
+  const openFanCreate = () => {
+    if (!gh) { toast("Select a greenhouse before creating a fan schedule.", "error"); return; }
+    setEditFan(null); setFanOpen(true);
+  };
 
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
@@ -72,6 +87,73 @@ export function ScheduleContent({
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [topologyStates, setTopologyStates] = useState<GreenhouseTopologyState[] | null>(null);
+  const [topologyLoading, setTopologyLoading] = useState(false);
+  const [topologyError, setTopologyError] = useState<string | undefined>(undefined);
+  const [dosingComponents, setDosingComponents] = useState<Array<{ componentId: string; name: string; channel?: string; calibrationId?: string; calibrationVersion?: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDosingComponents() {
+      try {
+        const inventory = isDirectEsp32Enabled()
+          ? await esp32Client.getInventory()
+          : isPythonBackendEnabled()
+            ? await new PythonClient().getInventory(complex.id)
+            : null;
+        if (!inventory || !Array.isArray(inventory.components)) {
+          if (!cancelled) setDosingComponents([]);
+          return;
+        }
+        const components = inventory.components
+          .filter((c) => ["COMMISSIONED", "ENABLED"].includes(c.lifecycleState))
+          .filter((c) => /DOSING/i.test(`${c.role ?? ""} ${c.supportedTypeId ?? ""} ${c.name ?? ""}`))
+          .slice(0, 7)
+          .map((c) => ({
+            componentId: c.componentId,
+            name: c.name,
+            channel: c.parameters?.channel != null ? String(c.parameters.channel) : undefined,
+            calibrationId: typeof c.parameters?.calibrationReference === "string" ? c.parameters.calibrationReference : undefined,
+            calibrationVersion: typeof c.parameters?.calibrationVersion === "number" ? c.parameters.calibrationVersion : undefined,
+          }));
+        if (!cancelled) setDosingComponents(components);
+      } catch {
+        if (!cancelled) setDosingComponents([]);
+      }
+    }
+    loadDosingComponents();
+    return () => { cancelled = true; };
+  }, [complex.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTopology() {
+      if (!isDirectEsp32Enabled()) {
+        setTopologyStates(null);
+        setTopologyError("ESP32 topology is not connected in this environment.");
+        return;
+      }
+      setTopologyLoading(true);
+      setTopologyError(undefined);
+      try {
+        const configuration = await esp32Client.getConfiguration();
+        const capabilities = calculateCapabilities(configuration);
+        if (!cancelled) {
+          const states = Object.values(capabilities.byGh) as GreenhouseTopologyState[];
+          setTopologyStates(states.filter((state) => state.ghId && ghs.some((g) => g.id === state.ghId || g.code === state.ghId)));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTopologyStates(null);
+          setTopologyError(errorMessage(error));
+        }
+      } finally {
+        if (!cancelled) setTopologyLoading(false);
+      }
+    }
+    void loadTopology();
+    return () => { cancelled = true; };
+  }, [complex.id, ghs.map((g) => g.id).join(",")]);
 
   const fertSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fertigationForGh(greenhouse.id));
   const wellPumps = scheduleService.wellPumpForComplex(complex.id);
@@ -230,9 +312,9 @@ export function ScheduleContent({
         {!embedded && <ComplexSwitcher complexId={complex.id} complexes={complexes} />}
         <div className="ml-auto flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/35 px-3 py-2 text-[11px] text-slate-400 shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
-          <span>{MOCK_NOW.label}</span>
+          <span>{SYSTEM_NOW.label}</span>
           <span className="text-slate-600">•</span>
-          <span className="font-semibold text-slate-300">{MOCK_NOW.time}</span>
+          <span className="font-semibold text-slate-300">{SYSTEM_NOW.time}</span>
         </div>
       </div>
 
@@ -287,10 +369,14 @@ export function ScheduleContent({
         })}
       </div>
 
+      <div className="mb-5">
+        <TopologyCapabilityPanel states={topologyStates} loading={topologyLoading} unavailableReason={topologyError} />
+      </div>
+
       {/* Today's timeline */}
       <div className="mb-5">
-        <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${MOCK_NOW.label}`}>
-          <ScheduleTimeline events={timelineEvents} nowPct={MOCK_NOW.dayPct} />
+        <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${SYSTEM_NOW.label}`}>
+          <ScheduleTimeline events={timelineEvents} nowPct={SYSTEM_NOW.dayPct} greenhouseLanes={scheduleGreenhouses.map((g) => ({ id: g.id, label: g.code || g.greenhouseTag || g.id }))} />
         </DarkSectionCard>
       </div>
 
@@ -305,7 +391,7 @@ export function ScheduleContent({
               <ActionButton tone="violet" onClick={() => { toast("Form Water Transfer belum diimplementasikan", "info"); }}>
                 <Plus className="h-3.5 w-3.5" /> Add Water Transfer
               </ActionButton>
-              <ActionButton tone="blue" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+              <ActionButton tone="blue" onClick={openFertigationCreate}>
                 <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
               </ActionButton>
             </div>
@@ -424,7 +510,7 @@ export function ScheduleContent({
           iconTone="green"
           subtitle="Greenhouse-level schedules"
           action={
-            <ActionButton tone="green" onClick={() => { setEditFan(null); setFanOpen(true); }}>
+            <ActionButton tone="green" onClick={openFanCreate}>
               <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
             </ActionButton>
           }
@@ -459,7 +545,7 @@ export function ScheduleContent({
           {queue.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 py-7 text-center">
               <p className="text-[13px] text-slate-500">No fertigation schedules configured.</p>
-              <ActionButton tone="violet" size="sm" className="mt-3" onClick={() => { setEditFert(null); setFertOpen(true); }}>
+              <ActionButton tone="violet" size="sm" className="mt-3" onClick={openFertigationCreate}>
                 <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
               </ActionButton>
             </div>
@@ -511,16 +597,17 @@ export function ScheduleContent({
       </div>
 
       {/* Drawers */}
-      <AddFertigationDrawer
+      {gh && <AddFertigationDrawer
         open={fertOpen}
         onClose={() => setFertOpen(false)}
         ghId={gh.id}
         ghCode={gh.code}
         recipes={gh.recipes}
+        dosingComponents={dosingComponents}
         initial={editFert}
         tankCapacityL={gh.telemetry.tankCapacityL}
         onSubmit={handleFertSubmit}
-      />
+      />}
       <AddWellPumpDrawer
         open={pumpOpen}
         onClose={() => setPumpOpen(false)}
@@ -529,14 +616,14 @@ export function ScheduleContent({
         initial={editPump}
         onSubmit={handlePumpSubmit}
       />
-      <AddFanScheduleDrawer
+      {gh && <AddFanScheduleDrawer
         open={fanOpen}
         onClose={() => setFanOpen(false)}
         ghId={gh.id}
         ghCode={gh.code}
         initial={editFan}
         onSubmit={handleFanSubmit}
-      />
+      />}
 
       <ConfirmDialog
         open={deleteTarget !== null}
@@ -631,9 +718,13 @@ function DarkSectionCard({
   );
 }
 
-function ScheduleTimeline({ events, nowPct }: { events: ScheduleTimelineEvent[]; nowPct: number }) {
-  const lanes = ["GH 01", "GH 02", "GH 03", "GH 04", "GH 05"];
-  const palette = ["bg-blue-500", "bg-emerald-400", "bg-amber-400", "bg-violet-400", "bg-pink-400"];
+function ScheduleTimeline({ events, nowPct, greenhouseLanes }: { events: ScheduleTimelineEvent[]; nowPct: number; greenhouseLanes: Array<{ id: string; label: string }> }) {
+  const lanes = greenhouseLanes.length > 0
+    ? greenhouseLanes.map((g) => ({ id: g.id, label: g.label }))
+    : Array.from(new Set(events.filter((e) => e.greenhouse !== "Complex").map((e) => e.greenhouse))).map((label) => ({ id: label, label }));
+  const hasComplexEvents = events.some((e) => e.greenhouse === "Complex");
+  const allLanes = hasComplexEvents ? [...lanes, { id: "complex", label: "Complex" }] : lanes;
+  const palette = ["bg-blue-500", "bg-emerald-400", "bg-amber-400", "bg-violet-400", "bg-pink-400", "bg-cyan-400"];
   const hourMarks = [0, 3, 6, 9, 12, 15, 18, 21, 24];
   const nowMinutes = Math.min(1439, Math.max(0, Math.round(nowPct * 1440)));
 
@@ -652,8 +743,8 @@ function ScheduleTimeline({ events, nowPct }: { events: ScheduleTimelineEvent[];
               <span key={h} className="absolute inset-y-0 border-l border-slate-800/80" style={{ left: `${(h / 24) * 100}%` }} />
             ))}
           </div>
-          {lanes.map((lane, laneIndex) => {
-            const laneEvents = events.filter((e) => e.greenhouse === lane);
+          {allLanes.map((lane, laneIndex) => {
+            const laneEvents = events.filter((e) => e.greenhouse === lane.label || (lane.id === "complex" && e.greenhouse === "Complex"));
             return (
               <div key={lane} className="relative grid min-h-[58px] grid-cols-[80px_1fr] items-center border-b border-slate-800/70 last:border-b-0">
                 <div className="flex items-center gap-2 pl-1 text-[11px] font-semibold text-slate-400">
@@ -721,8 +812,7 @@ interface Row {
   lastRun: string | null;
   nextRun: string | null;
   enabled: boolean;
-  status: string;
-  blockedReason?: { code: string; message: string; resolution?: string | null } | null;
+  status: FertigationSchedule["status"];
   type?: "fertigation" | "fan" | "pump" | "water-transfer";
 }
 
@@ -841,21 +931,7 @@ function ScheduleTable({
                   <td className="py-3.5 pr-3 text-slate-300">{r.repeat}</td>
                   <td className="py-3.5 pr-3 text-slate-500">{r.lastRun ?? "–"}</td>
                   <td className="py-3.5 pr-3 font-medium text-slate-300">{r.nextRun ?? "–"}</td>
-                  <td className="py-3.5 pr-3">
-                    <StatusPill status={r.status} />
-                    {r.blockedReason && (
-                      <div className="mt-1 max-w-[200px]">
-                        <p className="text-[10px] font-medium text-orange-400 leading-tight">
-                          {r.blockedReason.message}
-                        </p>
-                        {r.blockedReason.resolution && (
-                          <p className="mt-0.5 text-[9px] text-slate-400 leading-tight">
-                            Fix: {r.blockedReason.resolution}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </td>
+                  <td className="py-3.5 pr-3"><StatusPill status={r.status} /></td>
                   <td className="py-3.5 pr-3">
                     <ScheduleToggle checked={r.enabled} onChange={(v) => onToggle(r.id, v)} disabled={togglingId === r.id} />
                   </td>
@@ -914,48 +990,28 @@ function ActionButton({
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const config: Record<string, string> = {
+function StatusPill({ status }: { status: FertigationSchedule["status"] }) {
+  const config = {
     completed: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
     scheduled: "border-blue-400/20 bg-blue-500/10 text-blue-300",
     running: "border-cyan-400/25 bg-cyan-500/10 text-cyan-300",
     missed: "border-red-400/20 bg-red-500/10 text-red-300",
     failed: "border-rose-400/20 bg-rose-500/10 text-rose-300",
     disabled: "border-slate-700 bg-slate-800/50 text-slate-500",
-    blocked: "border-orange-400/20 bg-orange-500/10 text-orange-300",
-    draft: "border-slate-500/20 bg-slate-600/10 text-slate-400",
-  };
-  
-  const labels: Record<string, string> = { 
-    completed: "Completed", 
-    scheduled: "Scheduled", 
-    running: "Running", 
-    missed: "Missed", 
-    failed: "Failed", 
-    disabled: "Disabled",
-    blocked: "Blocked",
-    draft: "Draft"
-  };
-  
-  const dot: Record<string, string> = {
+  } as const;
+  const labels = { completed: "Completed", scheduled: "Scheduled", running: "Running", missed: "Missed", failed: "Failed", disabled: "Disabled" } as const;
+  const dot = {
     completed: "bg-emerald-400",
     scheduled: "bg-blue-400",
     running: "bg-cyan-300",
     missed: "bg-red-400",
     failed: "bg-rose-400",
     disabled: "bg-slate-500",
-    blocked: "bg-orange-400",
-    draft: "bg-slate-500",
-  };
-
-  const currentConfig = config[status] || config.disabled;
-  const currentLabel = labels[status] || status.toUpperCase();
-  const currentDot = dot[status] || dot.disabled;
-
+  } as const;
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${currentConfig}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${currentDot}`} />
-      {currentLabel}
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${config[status]}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot[status]}`} />
+      {labels[status]}
     </span>
   );
 }

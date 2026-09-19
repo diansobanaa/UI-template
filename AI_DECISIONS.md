@@ -24,3 +24,8 @@
 ### Safety
 - Software completion and physical hardware verification are separate.
 - Unknown electrical details must be explicitly marked for datasheet/manual verification.
+
+### M5/M6 dynamic-runtime decision — 2026-09-19
+- Runtime identity is resolved from the active configuration and hardware registry; legacy role/enumeration aliases may remain only as compatibility/UI fields and must not select physical hardware for configuration-driven operations.
+- Tank-transfer commands use `sourceComponentId` and `destinationComponentId` as the runtime authority. Numeric actuator IDs are compatibility-only and are not accepted as the transfer execution identity.
+- Resource transfer is a configuration proposal operation: physical-move confirmation is mandatory, ownership/component assignment are changed together, affected schedules are revalidated, capabilities are recalculated, and M3/M4 configuration deployment is required before the change becomes active.

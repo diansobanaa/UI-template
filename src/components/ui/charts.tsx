@@ -28,6 +28,14 @@ export function AreaChart({
   const padT = 14;
   const padB = 30;
 
+  if (points.length === 0) {
+    return (
+      <div className="flex w-full items-center justify-center rounded-xl border border-dashed border-slate-200 text-sm text-slate-400" style={{ height }}>
+        No measured telemetry history available.
+      </div>
+    );
+  }
+
   const values = points.map((p) => p.value);
   let min = Math.min(...values);
   let max = Math.max(...values);

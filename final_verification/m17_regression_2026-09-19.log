@@ -1,0 +1,216 @@
+M17 SOFTWARE E2E
+M17 SOFTWARE E2E GATE: PASS — 28 checks
+Software-proven only; physical hardware evidence remains separate.
+\nM16
+M16 legacy operational-path gate PASS
+No browser storage, legacy store imports, mock runtime entry points, demo UI markers, or operational seed imports found in src/.
+\nM3M4
+M3/M4 HARDENING GATE: PASS
+\nM5M6
+M5/M6 GATE: PASS
+- dynamic Complex/GH context from active config
+- component/resource runtime state is registry-driven
+- resource transfer requires physical confirmation
+- ownership + component assignment move together
+- transfer returns impacted configuration/capability/schedule data and requires M3/M4 deployment
+\nM11M12
+test_calibration_error_precedence_matrix (__main__.M11M12Tests.test_calibration_error_precedence_matrix) ... ok
+test_calibration_version_conflict_rejected (__main__.M11M12Tests.test_calibration_version_conflict_rejected) ... ok
+test_dosing_runtime_policy (__main__.M11M12Tests.test_dosing_runtime_policy) ... ok
+test_durable_run_record_round_trip (__main__.M11M12Tests.test_durable_run_record_round_trip) ... ok
+test_duration_fallback_is_explicit_and_not_verified_volume (__main__.M11M12Tests.test_duration_fallback_is_explicit_and_not_verified_volume) ... ok
+test_exact_calibration_reference_integrity_and_complex_boundary (__main__.M11M12Tests.test_exact_calibration_reference_integrity_and_complex_boundary) ... ok
+test_exact_reference_blocks_silent_latest_fallback (__main__.M11M12Tests.test_exact_reference_blocks_silent_latest_fallback) ... ok
+test_exact_reference_rejects_stale_version_and_unusable_state (__main__.M11M12Tests.test_exact_reference_rejects_stale_version_and_unusable_state) ... ok
+test_execution_plan_sensor_calibration_reference_matches_descriptor (__main__.M11M12Tests.test_execution_plan_sensor_calibration_reference_matches_descriptor) ... ok
+test_expired_and_suspect_calibration_not_usable (__main__.M11M12Tests.test_expired_and_suspect_calibration_not_usable) ... ok
+test_flow_and_pressure_targets_are_required (__main__.M11M12Tests.test_flow_and_pressure_targets_are_required) ... ok
+test_flow_calibration_reference_is_exact_and_never_latest_fallback (__main__.M11M12Tests.test_flow_calibration_reference_is_exact_and_never_latest_fallback) ... ok
+test_flow_volume_requires_exact_flow_calibration (__main__.M11M12Tests.test_flow_volume_requires_exact_flow_calibration) ... ok
+test_legacy_ab_payload_is_not_an_execution_fallback (__main__.M11M12Tests.test_legacy_ab_payload_is_not_an_execution_fallback) ... ok
+test_linear_calibration_types_and_history (__main__.M11M12Tests.test_linear_calibration_types_and_history) ... ok
+test_missing_calibration_reference_is_blocked (__main__.M11M12Tests.test_missing_calibration_reference_is_blocked) ... ok
+test_missing_target_gh_and_recipe_block (__main__.M11M12Tests.test_missing_target_gh_and_recipe_block) ... ok
+test_multi_gh_fertigation_isolation (__main__.M11M12Tests.test_multi_gh_fertigation_isolation) ... ok
+test_plan_binds_exact_components_and_configuration_version (__main__.M11M12Tests.test_plan_binds_exact_components_and_configuration_version) ... ok
+test_prepare_run_immutable_recipe_configuration_snapshot (__main__.M11M12Tests.test_prepare_run_immutable_recipe_configuration_snapshot) ... ok
+test_removed_calibration_is_retained_in_history_but_not_usable (__main__.M11M12Tests.test_removed_calibration_is_retained_in_history_but_not_usable) ... ok
+test_required_delivery_sensor_modes (__main__.M11M12Tests.test_required_delivery_sensor_modes) ... ok
+test_required_safety_ack_blocks (__main__.M11M12Tests.test_required_safety_ack_blocks) ... ok
+test_resource_conflict_exclusive_vs_shared (__main__.M11M12Tests.test_resource_conflict_exclusive_vs_shared) ... ok
+test_run_record_uses_actual_runtime_for_mixed_volume (__main__.M11M12Tests.test_run_record_uses_actual_runtime_for_mixed_volume) ... ok
+test_run_repository_replace_preserves_latest_record (__main__.M11M12Tests.test_run_repository_replace_preserves_latest_record) ... ok
+test_sensor_quality_valid_stale_unavailable_out_of_range_invalid (__main__.M11M12Tests.test_sensor_quality_valid_stale_unavailable_out_of_range_invalid) ... ok
+test_sensor_schema_all_required_fields (__main__.M11M12Tests.test_sensor_schema_all_required_fields) ... ok
+test_seven_channels_and_unknown_duplicate (__main__.M11M12Tests.test_seven_channels_and_unknown_duplicate) ... ok
+test_simulation_flow_mode_requires_actual_flow_measurement (__main__.M11M12Tests.test_simulation_flow_mode_requires_actual_flow_measurement) ... ok
+test_simulation_phase_records_and_mixed_vs_delivered (__main__.M11M12Tests.test_simulation_phase_records_and_mixed_vs_delivered) ... ok
+test_simulation_pressure_flow_mode_requires_actual_pressure_measurement (__main__.M11M12Tests.test_simulation_pressure_flow_mode_requires_actual_pressure_measurement) ... ok
+test_simulation_run_record_distinguishes_calculated_dosing_and_delivery_measurement (__main__.M11M12Tests.test_simulation_run_record_distinguishes_calculated_dosing_and_delivery_measurement) ... ok
+test_validity_expiry_window (__main__.M11M12Tests.test_validity_expiry_window) ... ok
+
+----------------------------------------------------------------------
+Ran 34 tests in 0.244s
+
+OK
+PASS F1 automatic fertigation requires executionPlan at scheduler parse boundary
+PASS F2 HTTP automatic fertigation requires executionPlan and does not parse A/B volumes
+PASS F3 command manager executes fertigation only through fertigation_mgr_start_from_json
+PASS F4 firmware calibration endpoint supports all required record types
+PASS F5 firmware calibration lookup is exact id+version+component+type
+PASS F6 sensor runtime does not fabricate unavailable sensor values
+PASS F7 filling uses accumulated measured volume, not timer-derived volume
+PASS F8 dosing is generic and bounded to configured channel count
+PASS F9 mixing actuator failures enter FAULTED and stop outputs
+PASS F10 delivery uses valid measured flow and explicit target semantics
+PASS F11 configuration version is checked before fertigation execution
+PASS F12 recipe snapshot and execution plan are persisted with run record
+PASS F13 generic configured flow sensors are configuration-driven and use exact FLOW calibration
+PASS F14 generic analog sensors are not read from arbitrary interfaces and require exact usable linear calibration
+PASS F15 active configuration changes trigger sensor input reconfiguration
+PASS F16 fertigation run record distinguishes measured water/delivery from calculated dosing
+PASS F17 simulation and frontend client accept flow/pressure measurements explicitly
+Firmware M11/M12 production-path source gate: 17 PASS
+\nM13
+M13 history/ingestion gate PASS
+M13 firmware/static gate PASS (5 checks)
+M13 history/ingestion gate PASS
+\nM14M15
+M14/M15 gate: PASS
+- persistent recovery sync/deployment state
+- cursor-aware offline replay + reconnect hook
+- reboot interruption hold / explicit operator disposition
+- per-GH crop cycles, plant mortality identity, fruit records, observations
+- historical research analysis relationships
+\nM2
+=================================================================
+   SOFTWARE AUDIT SUITE: M2.16 - M2.26 (simulation + assertions; not physical proof)      
+=================================================================
+
+--- [GROUP 1: M2.17 - M2.19 VALIDATION & NEGATIVE TESTS] ---
+[PASS] M2.17a: Reject duplicate component IDs
+[PASS] M2.17b: Reject empty component ID
+[PASS] M2.17c: Reject component ID exceeding max length 32
+[PASS] M2.17d: Allow display-name update without altering stable componentId
+[PASS] M2.18a: Reject invalid lifecycleState enum
+[PASS] M2.18b: Reject invalid deploymentStatus enum
+[PASS] M2.18c: Reject wiring GPIO out of range [0, 48]
+[PASS] M2.18d: Reject invalid wiring interface
+[PASS] M2.19a: Reject assignment missing valid complexId
+[PASS] M2.19b: Accept valid assignment with complexId and ghId
+
+--- [GROUP 2: M2.16 & M2.22 PERSISTENCE & REGISTRY PARSING] ---
+[PASS] M2.16: Persist component definitions to storage manager
+[PASS] M2.21: Parse component registry into active hardware descriptors (4 components loaded)
+[PASS] M2.22: Persist installed registry across re-load cycles
+
+--- [GROUP 3: M2.23 & M2.24 DYNAMIC RESOLUTION & MULTI-INSTANCE] ---
+[PASS] M2.23a: Resolve component by logical ID 'well-pump'
+[PASS] M2.23b: Return null for non-existent component ID
+[PASS] M2.24a: Dynamically resolve GPIO from configuration (well-pump -> GPIO 4)
+[PASS] M2.24b: Dynamically resolve Channel from configuration (well-pump -> Channel 1)
+[PASS] M2.24c: Dynamically resolve GPIO for flow meter (raw-flow-zjb1 -> GPIO 15)
+[PASS] M2.24d: Same driver supports multiple installed instances with unique IDs
+
+--- [GROUP 4: M2.25 LIFECYCLE STATE OPERATIONAL BLOCKING] ---
+[PASS] M2.25a: COMMISSIONED component allowed to operate
+[PASS] M2.25b: ENABLED component allowed to operate
+[PASS] M2.25c: NOT_COMMISSIONED component BLOCKED from operation
+[PASS] M2.25d: REMOVED component BLOCKED from operation
+
+--- [GROUP 5: M2.20 & M2.26 INVENTORY API VS ACTIVE CONFIGURATION] ---
+[PASS] M2.20: GET /api/v1/inventory exposes active registry state
+[PASS] M2.26a: GET /api/v1/inventory matches persisted active configuration (4 components, not static default)
+[PASS] M2.26b: Inventory response contains correct lifecycleState and wiring mappings
+
+=================================================================
+TOTAL AUDIT RESULTS: Passed: 26, Failed: 0
+=================================================================
+\nM7M8
+PASS M6 shared/exclusive ownership detects duplicate exclusive owner
+PASS M6 shared resource can be locked without inventing a second owner
+PASS M7 automatic multi-GH topology produces independent reachability
+PASS M7 derives capability instead of GH-number rules
+PASS M7 manual route owner limits autonomous capability to current physical target
+PASS M7 detects duplicate exclusive physical paths
+PASS M8 valid resource-complete fertigation compiles with resolved dependencies
+PASS M8 automatic fertigation without a resolved execution plan is BLOCKED
+PASS M8 missing resource becomes BLOCKED, not ACTIVE
+PASS M8 invalid recurrence becomes INVALID
+PASS M8 disabled schedule never becomes executable
+PASS M8 set compilation separates active/blocked/invalid schedules
+PASS M6 exclusive lock still conflicts when inferred from configuration
+PASS M7 hydraulic reachability is not created by a delivery-only edge
+PASS M7 single-GH direct topology remains automatically routable without a routing valve
+PASS M7 multi-GH shared source without routing valves is not automatically independent
+PASS M8 temperature fan intent is INVALID, never executable
+PASS M8 draft schedule remains non-executable
+PASS M8 fallback reference is carried into compiled schedule
+PASS M8 missing fallback reference blocks executable schedule
+PASS M8 raw-water pump without safety sensors is BLOCKED
+PASS M8 schedule deployment gate rejects missing activation state
+M7/M8 runtime acceptance: 22 PASS
+test_duplicate_schedule_id_is_invalid (__main__.BackendM7M8Tests.test_duplicate_schedule_id_is_invalid) ... ok
+test_fertigation_compiles_with_recipe_snapshot_and_config_version (__main__.BackendM7M8Tests.test_fertigation_compiles_with_recipe_snapshot_and_config_version) ... ok
+test_shared_resource_does_not_block_second_compiled_schedule (__main__.BackendM7M8Tests.test_shared_resource_does_not_block_second_compiled_schedule) ... ok
+test_shared_source_without_routing_valves_is_not_auto_independent (__main__.BackendM7M8Tests.test_shared_source_without_routing_valves_is_not_auto_independent) ... ok
+test_temperature_fan_is_invalid (__main__.BackendM7M8Tests.test_temperature_fan_is_invalid) ... ok
+test_topology_and_capabilities_are_derived (__main__.BackendM7M8Tests.test_topology_and_capabilities_are_derived) ... ok
+test_topology_unknown_reference_invalid (__main__.BackendM7M8Tests.test_topology_unknown_reference_invalid) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.026s
+
+OK
+\nM9
+M9 runtime scheduler acceptance: 16/16 PASS
+\nM10
+M10 Command + Safety acceptance: 31/31 PASS
+test_command_is_not_falsely_accepted_when_device_target_is_unconfigured (__main__.M10BackendProxyTests.test_command_is_not_falsely_accepted_when_device_target_is_unconfigured) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "POST /api/complexes/complex-1/esp32/commands HTTP/1.1" 503 -
+ok
+test_command_proxy_preserves_device_safety_rejection (__main__.M10BackendProxyTests.test_command_proxy_preserves_device_safety_rejection) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "POST /api/complexes/complex-1/esp32/commands HTTP/1.1" 409 -
+ok
+test_command_proxy_unwraps_device_envelope (__main__.M10BackendProxyTests.test_command_proxy_unwraps_device_envelope) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "POST /api/complexes/complex-1/esp32/commands HTTP/1.1" 200 -
+ok
+test_complex_mismatch_is_rejected_before_device_call (__main__.M10BackendProxyTests.test_complex_mismatch_is_rejected_before_device_call) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "POST /api/complexes/complex-1/esp32/commands HTTP/1.1" 409 -
+ok
+test_configuration_proxy_unwraps_nested_payload (__main__.M10BackendProxyTests.test_configuration_proxy_unwraps_nested_payload) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "GET /api/complexes/complex-1/esp32/configuration HTTP/1.1" 200 -
+ok
+test_inventory_proxy_unwraps_payload (__main__.M10BackendProxyTests.test_inventory_proxy_unwraps_payload) ... 127.0.0.1 - - [19/Sep/2026 05:04:43] "GET /api/complexes/complex-1/esp32/inventory HTTP/1.1" 200 -
+ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.540s
+
+OK
+\nFORENSIC
+[PASS] F01: storage initializes before hardware registry
+[PASS] F02: production boot never loads components.json as operational fallback
+[PASS] F03: active registry parser is canonical and transactional
+[PASS] F04: logical actuator commands resolve through active configuration
+[PASS] F05: unknown component cannot fall through to default hardware
+[PASS] F06: configuration validator checks canonical envelope and active Complex ownership
+[PASS] F07: configuration validation occurs before persistence
+[PASS] F08: GET configuration never invents a default operational configuration
+[PASS] F09: persisted config metadata is committed as one NVS transaction
+[PASS] F10: frontend installed inventory has no seed/localStorage fallback
+[PASS] F11: frontend configuration CRUD is validate-then-save through ESP32
+[PASS] F12: frontend component identity remains immutable on update
+[PASS] F13: canonical OpenAPI contract documents configuration wrapper
+\nFORENSIC STATIC AUTHORITY RESULTS: 13 PASS | 0 FAIL
+\nCONTRACT
+
+> agrotech-ui@0.1.0 test
+> node scripts/verify_e2e_contracts.mjs --mock
+
+=== STARTING END-TO-END VERIFICATION (SP-010) ===
+[1/4] Checking 28 Canonical Endpoints against UI_ESP32_OPENAPI.yaml...
+PASS: All 28 endpoints defined in OpenAPI contract.
+[2/4] Checking ESP32 C firmware handlers registration...
+PASS: All 26 HTTP handlers registered in ESP32 http_server.c.
+[3/4] Running Mock ESP32 REST Server to test client contract adherence...
+[4/4] Running E2E tests against http://127.0.0.1:3888...
+PASS: Direct REST contract and schema tests completed successfully.
+=== ALL END-TO-END CHECKS PASSED (SP-REMED-009) ===
+\nPYTHON COMPILE
+PASS

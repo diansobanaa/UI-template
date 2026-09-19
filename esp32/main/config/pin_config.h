@@ -23,7 +23,7 @@ extern "C" {
 /* Peripherals:                                                               */
 /*  - TFT ST7735 Display: CS = GPIO 14                                        */
 /*  - SD Card Slot (Built-in on back of TFT ST7735): CS = GPIO 48            */
-/*  - W5500 Ethernet: CS = GPIO 10 (Unused / Pending phase)                   */
+/*  - No W5500 CS is defined by the canonical hardware wiring contract.    */
 /* ========================================================================== */
 #define PIN_SPI_SCK                 11
 #define PIN_SPI_MOSI                12
@@ -36,8 +36,6 @@ extern "C" {
 #define PIN_SD_CS                   48
 #define PIN_MICROSD_CS              PIN_SD_CS   /* Backward compatibility alias */
 
-/* GPIO 10 previously held provisional PIN_W5500_CS; now dedicated to PIN_OUT_BLOWER_FAN (Relay IN3) */
-/* #define PIN_W5500_CS             10 */
 
 /* ========================================================================== */
 /* DISPLAY: ST7735 1.8" TFT SPI (128x160)                                    */
@@ -62,10 +60,8 @@ extern "C" {
 
 /* ========================================================================== */
 /* OUTPUT ACTUATORS (RELAYS & SWITCHES)                                       */
-/* Standard optocoupled relay modules: Active-LOW (0 = ON, 1 = OFF)           */
-/* Direct logic / MOSFET driver boards: Active-HIGH (1 = ON, 0 = OFF)         */
-/* Default in firmware is Active-LOW (0) for optocoupled relay board.         */
-/* NOTE: VERIFY RELAY MODULE DATASHEET / POLARITY BEFORE CONNECTION.          */
+/* The canonical wiring contract defines every mapped actuator output as Active-LOW. */
+/* Do not invert polarity in software unless the authoritative wiring contract is changed. */
 /* ========================================================================== */
 #define PIN_OUT_WELL_PUMP           1
 #define PIN_OUT_DIST_PUMP           2
@@ -92,7 +88,7 @@ extern "C" {
 /* NOTE: VERIFY FLOAT CONTACT ORIENTATION (NO vs NC) UPON INSTALLATION.       */
 /* ========================================================================== */
 #define PIN_IN_FLOW_RAW_ZJB1        15   /* Raw Water Flow Meter (ZJ-B1, 1-25 L/min, RAW WATER -> MIXING TANK) */
-#define PIN_IN_FLOW_FERT_FS400A     16   /* Fertigation Delivery Flow Meter (FS400A G1", 1-60 L/min, F=4.5*Q) */
+#define PIN_IN_FLOW_FERT_FS400A     16   /* Fertigation Delivery Flow Meter (FS400A G1", canonical F=4.8*Q; physical calibration required) */
 /* Backward compatibility aliases (OBSOLETE: YF-B1 replaced by ZJ-B1) */
 #define PIN_IN_FLOW_YFB1            PIN_IN_FLOW_RAW_ZJB1
 #define PIN_IN_FLOW_FS400A          PIN_IN_FLOW_FERT_FS400A
@@ -125,6 +121,9 @@ extern "C" {
     ((pin) == 43) || ((pin) == 44) || \
     ((pin) == 45) || ((pin) == 46) \
 )
+
+/* GPIO22-25 are not bonded on the target ESP32-S3-WROOM-1-N16R8 module. */
+#define IS_UNAVAILABLE_GPIO(pin) (IS_RESERVED_PIN(pin) || ((pin) >= 22 && (pin) <= 25))
 
 #ifdef __cplusplus
 }

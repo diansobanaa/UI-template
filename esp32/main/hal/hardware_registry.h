@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "hal/actuator_hal.h"
 #include "hal/sensor_hal.h"
+#include "cJSON.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,7 +66,9 @@ typedef struct {
     char resource_id[32];
 } hw_component_info_t;
 
-// Removed legacy compatibility aliases to prevent namespace pollution
+// Compatibility aliases for legacy code to compile while refactoring
+#define scope assignment.complex_id
+#define type supported_type_id
 
 typedef struct {
     uint32_t sequence;
@@ -122,7 +125,7 @@ typedef struct {
 
 /**
  * @brief Initialize complete Hardware Abstraction Layer (Actuators, Sensors, Buttons).
- * Automatically loads dynamic /spiffs/components.json if present, falling back to defaults.
+ * Loads the persisted active configuration registry. No static/legacy component file is an operational fallback.
  */
 esp_err_t hardware_hal_init_all(void);
 
@@ -140,6 +143,12 @@ esp_err_t hardware_registry_get_by_index(size_t index, hw_component_info_t *out_
  * @brief Load and parse dynamic hardware components from a JSON string.
  */
 esp_err_t hardware_registry_load_from_json(const char *json_str);
+
+/**
+ * @brief Validate one component wiring object against the canonical M17 hardware contract.
+ * Unknown/unmapped physical GPIO assignments are rejected rather than inferred.
+ */
+esp_err_t hardware_registry_validate_component_json(const cJSON *component, char *reason, size_t reason_len);
 
 /**
  * @brief Find registered component descriptor by logical component_id.

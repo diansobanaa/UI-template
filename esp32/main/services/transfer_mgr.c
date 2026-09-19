@@ -5,6 +5,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include <strings.h>
+#include <string.h>
 
 static const char *TAG = "TRANSFER_MGR";
 
@@ -12,8 +14,8 @@ static const char *TAG = "TRANSFER_MGR";
 
 typedef struct {
     transfer_state_t state;
-    actuator_id_t source_pump;
-    actuator_id_t dest_valve;
+    char source_component_id[40];
+    char destination_component_id[40];
     uint32_t start_tick;
     uint32_t duration_ticks;
     uint32_t draining_start_tick;
@@ -32,13 +34,13 @@ static void set_state(transfer_state_t new_state)
 
 static void turn_off_actuators(void)
 {
-    if (s_ctx.source_pump < ACTUATOR_MAX_COUNT) {
-        actuator_hal_set(s_ctx.source_pump, false);
-        actuator_hal_release(s_ctx.source_pump, ACTUATOR_OWNER_TRANSFER);
+    if (s_ctx.source_component_id[0]) {
+        actuator_hal_set_by_component_id(s_ctx.source_component_id, false);
+        actuator_hal_release_component(s_ctx.source_component_id, ACTUATOR_OWNER_TRANSFER);
     }
-    if (s_ctx.dest_valve < ACTUATOR_MAX_COUNT) {
-        actuator_hal_set(s_ctx.dest_valve, false);
-        actuator_hal_release(s_ctx.dest_valve, ACTUATOR_OWNER_TRANSFER);
+    if (s_ctx.destination_component_id[0]) {
+        actuator_hal_set_by_component_id(s_ctx.destination_component_id, false);
+        actuator_hal_release_component(s_ctx.destination_component_id, ACTUATOR_OWNER_TRANSFER);
     }
 }
 
@@ -69,9 +71,9 @@ static void transfer_worker_task(void *pvParameters)
                         if ((current_tick - s_ctx.start_tick) >= s_ctx.duration_ticks) {
                             ESP_LOGI(TAG, "Transfer duration reached. Moving to DRAINING.");
                             // Turn off source pump, leave dest_valve open if any
-                            if (s_ctx.source_pump < ACTUATOR_MAX_COUNT) {
-                                actuator_hal_set(s_ctx.source_pump, false);
-                                actuator_hal_release(s_ctx.source_pump, ACTUATOR_OWNER_TRANSFER);
+                            if (s_ctx.source_component_id[0]) {
+                                actuator_hal_set_by_component_id(s_ctx.source_component_id, false);
+                                actuator_hal_release_component(s_ctx.source_component_id, ACTUATOR_OWNER_TRANSFER);
                             }
                             s_ctx.draining_start_tick = current_tick;
                             set_state(TRANSFER_STATE_DRAINING);
@@ -102,47 +104,97 @@ esp_err_t transfer_mgr_init(void)
     s_mutex = xSemaphoreCreateMutex();
     
     s_ctx.state = TRANSFER_STATE_IDLE;
-    s_ctx.source_pump = ACTUATOR_MAX_COUNT;
-    s_ctx.dest_valve = ACTUATOR_MAX_COUNT;
+    s_ctx.source_component_id[0] = '\0';
+    s_ctx.destination_component_id[0] = '\0';
     
     xTaskCreatePinnedToCore(transfer_worker_task, "transfer_mgr", 3072, NULL, 3, NULL, 1);
     return ESP_OK;
 }
 
-esp_err_t transfer_mgr_start(actuator_id_t source_pump, actuator_id_t dest_valve, uint32_t duration_sec)
+static bool role_contains(const char *role, const char *needle)
 {
+    return role && needle && strcasestr(role, needle) != NULL;
+}
+
+esp_err_t transfer_mgr_start(const char *source_component_id, const char *destination_component_id, uint32_t duration_sec)
+{
+    if (!source_component_id || !source_component_id[0] || !destination_component_id || !destination_component_id[0] || duration_sec == 0) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
-    
+
     if (s_ctx.state == TRANSFER_STATE_TRANSFERRING || s_ctx.state == TRANSFER_STATE_DRAINING) {
         xSemaphoreGive(s_mutex);
         ESP_LOGE(TAG, "Transfer already in progress.");
         return ESP_ERR_INVALID_STATE;
     }
-    
+
     if (actuator_hal_is_emergency_stopped()) {
         xSemaphoreGive(s_mutex);
         ESP_LOGE(TAG, "Cannot start transfer: System is Emergency Stopped.");
         return ESP_ERR_INVALID_STATE;
     }
-    
-    s_ctx.source_pump = source_pump;
-    s_ctx.dest_valve = dest_valve;
+
+    hw_component_info_t source = {0};
+    hw_component_info_t destination = {0};
+    if (hardware_registry_find_by_id(source_component_id, &source) != ESP_OK ||
+        hardware_registry_find_by_id(destination_component_id, &destination) != ESP_OK) {
+        xSemaphoreGive(s_mutex);
+        ESP_LOGW(TAG, "Transfer blocked: source/destination component is not registered.");
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (!role_contains(source.role, "PUMP") || !role_contains(destination.role, "VALVE")) {
+        xSemaphoreGive(s_mutex);
+        ESP_LOGW(TAG, "Transfer blocked: source '%s' must be a pump and destination '%s' must be a valve.", source.role, destination.role);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strcmp(source.assignment.complex_id, destination.assignment.complex_id) != 0) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (source.resource_id[0] == '\0' || destination.resource_id[0] == '\0') {
+        xSemaphoreGive(s_mutex);
+        ESP_LOGW(TAG, "Transfer blocked: both components must have resource IDs.");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (strcmp(source_component_id, destination_component_id) == 0) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = actuator_hal_acquire_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_mutex);
+        return err;
+    }
+    err = actuator_hal_acquire_component(source_component_id, ACTUATOR_OWNER_TRANSFER);
+    if (err != ESP_OK) {
+        actuator_hal_release_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
+        xSemaphoreGive(s_mutex);
+        return err;
+    }
+    err = actuator_hal_set_by_component_id(destination_component_id, true);
+    if (err != ESP_OK) {
+        actuator_hal_release_component(source_component_id, ACTUATOR_OWNER_TRANSFER);
+        actuator_hal_release_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
+        xSemaphoreGive(s_mutex);
+        return err;
+    }
+    err = actuator_hal_set_by_component_id(source_component_id, true);
+    if (err != ESP_OK) {
+        actuator_hal_set_by_component_id(destination_component_id, false);
+        actuator_hal_release_component(source_component_id, ACTUATOR_OWNER_TRANSFER);
+        actuator_hal_release_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
+        xSemaphoreGive(s_mutex);
+        return err;
+    }
+
+    strncpy(s_ctx.source_component_id, source_component_id, sizeof(s_ctx.source_component_id) - 1);
+    s_ctx.source_component_id[sizeof(s_ctx.source_component_id) - 1] = '\0';
+    strncpy(s_ctx.destination_component_id, destination_component_id, sizeof(s_ctx.destination_component_id) - 1);
+    s_ctx.destination_component_id[sizeof(s_ctx.destination_component_id) - 1] = '\0';
     s_ctx.duration_ticks = pdMS_TO_TICKS(duration_sec * 1000);
     s_ctx.start_tick = xTaskGetTickCount();
-    
-    if (dest_valve < ACTUATOR_MAX_COUNT) {
-        if (actuator_hal_acquire(dest_valve, ACTUATOR_OWNER_TRANSFER) == ESP_OK) {
-            actuator_hal_set(dest_valve, true);
-        }
-    }
-    if (source_pump < ACTUATOR_MAX_COUNT) {
-        if (actuator_hal_acquire(source_pump, ACTUATOR_OWNER_TRANSFER) == ESP_OK) {
-            actuator_hal_set(source_pump, true);
-        }
-    }
-    
     set_state(TRANSFER_STATE_TRANSFERRING);
-    
+
     xSemaphoreGive(s_mutex);
     return ESP_OK;
 }

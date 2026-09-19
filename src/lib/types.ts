@@ -20,6 +20,11 @@ export interface Esp32State {
   configVersion: number;
   esp32ConfigVersion: number;
   synchronized: boolean;
+  deviceId?: string;
+  apiVersion?: string;
+  schemaVersion?: number;
+  inventoryVersion?: number;
+  endpoint?: string;
   firmwareVersion?: string;
   hardwareModel?: string;
 }
@@ -35,6 +40,7 @@ export interface Complex {
   esp32: Esp32State;
   systemStatus: SystemStatus;
   greenhouseIds: Id[];
+  wellPumpSchedules?: WellPumpSchedule[];
   water: {
     wellPumpOn: boolean;
     rawTankPct: number; // % — display only; radar state is binary (see schedule page)
@@ -88,13 +94,13 @@ export interface GreenhouseCamera {
 }
 
 export interface Greenhouse {
-  id: Id; // "gh-01"
-  code: string; // "GH 01"
+  id: Id;
+  code: string; // "GH tag"
   crop: string; // "Tomato"
   complexId: Id;
   online: boolean;
   health: GhHealth;
-  greenhouseTag: string; // "GH-01"
+  greenhouseTag: string;
   fertigationState: FertigationState;
   telemetry: Telemetry;
   plants: PlantStats;
@@ -108,13 +114,20 @@ export interface Greenhouse {
   queue: QueueEntry[];
   history: FertigationRunRow[];
   fruitDevSeries: { label: string; count: number; weight: number }[];
+  /** Persisted by the Python operational backend; stored by the operational backend. */
+  research?: { currentCycle?: ResearchCycle | null; cycles?: ResearchCycle[]; plants?: ResearchPlant[]; fruits?: ResearchFruit[]; recentObservations?: ResearchObservation[] };
+  cropTimelineConfig?: {
+    targetHarvestHst: number;
+    points: Array<{ id: string; name: string; startHst: string | number; endHst: string | number; note?: string }>;
+    maintenance: Array<{ id: string; name: string; hst: string | number; category: string; note?: string }>;
+  };
 }
 
 /* ------------------------------------------------------------------ */
 /* Crop Cycle / Masa Tanam domain                                      */
 /* ------------------------------------------------------------------ */
 
-export type CycleStatus = "NO_CYCLE" | "ACTIVE" | "HARVESTED";
+export type CycleStatus = "NO_CYCLE" | "ACTIVE" | "HARVESTED" | "CANCELLED";
 
 export interface CycleHarvestSummary {
   harvestDate: string; // "YYYY-MM-DD"
@@ -127,6 +140,14 @@ export interface CycleHarvestSummary {
   grade?: string;
   notes?: string;
 }
+
+
+export interface ResearchCycle {
+  cycleId: Id; complexId: Id; ghId: Id; status: string; plantingDate?: string | null; pollinationDate?: string | null; expectedHarvestDate?: string | null; actualHarvestDate?: string | null; variety?: string | null; plantCount: number; mortalityCount: number; yieldKg?: number | null; grade?: string | null; notes?: string | null; hst?: number | null; hsp?: number | null; version: number; source?: string; sourceDeviceId?: string | null; createdAt?: string; updatedAt?: string;
+}
+export interface ResearchPlant { plantId: Id; cycleId: Id; complexId: Id; ghId: Id; plantTag: string; position?: string | null; plantedAt?: string | null; status: string; mortalityDate?: string | null; mortalityReason?: string | null; notes?: string | null; }
+export interface ResearchFruit { fruitId: Id; plantId: Id; cycleId: Id; complexId: Id; ghId: Id; fruitTag?: string | null; pollinationDate?: string | null; developmentStatus: string; harvestedAt?: string | null; weightG?: number | null; grade?: string | null; notes?: string | null; }
+export interface ResearchObservation { observationId: Id; cycleId: Id; complexId: Id; ghId: Id; plantId?: string | null; fruitId?: string | null; observedAt: string; metric: string; value?: number | null; textValue?: string | null; unit?: string | null; notes?: string | null; observer?: string | null; source?: string | null; photoRef?: string | null; heightCm?: number | null; leafCount?: number | null; fruitCount?: number | null; }
 
 export interface CropCycle {
   status: CycleStatus;
@@ -151,6 +172,7 @@ export interface Recipe {
   waterL: number;
   dosingAml: number;
   dosingBml: number;
+  dosingChannels?: Array<{ componentId: string; requestedMl: number }>;
   targetEc: string; // "-" when not set
 }
 
@@ -180,6 +202,7 @@ export interface FertigationSchedule {
   targetWaterL: number;
   dosingAml: number;
   dosingBml: number;
+  dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }>;
   targetPpm?: number;
   fallbackEnabled: boolean;
   fallbackScheduleId?: Id;
@@ -291,17 +314,26 @@ export interface ObservationDraft {
   leafCount: number;
   fruitCount: number;
   notes: string;
+  observer?: string;
 }
 
 export interface Observation {
-  id: Id;
+  observationId: Id;
   ghId: Id;
   plantId: string;
   heightCm: number;
   leafCount: number;
   fruitCount: number;
   notes: string;
-  at: string; // "2 Sep 2026 13:14"
+  observedAt: string;
+}
+
+export interface FertigationSystemStatus {
+  mixingTankLevel: number | null;
+  waterInlet: "ON" | "OFF" | "UNAVAILABLE";
+  distributionLine: "RUNNING" | "IDLE" | "UNAVAILABLE";
+  systemMode: "EMERGENCY_STOP" | "ONLINE" | "OFFLINE";
+  lastUpdate: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -328,11 +360,11 @@ export interface DeviceCategory {
 export interface CalibrationDevice {
   id: Id;
   category: CalibrationCategory;
-  name: string; // "pH Sensor 01 (GH 01)"
+  name: string; // "pH Sensor 01 (GH tag)"
   /** Dosing-pump channel reported by the ESP32 ("A", "B", "C", …). Pumps are dynamic — new channels arrive via the device JSON. */
   channel?: string;
   ghId: Id | null;
-  location: string; // "GH 01 – Mixing Tank"
+  location: string; // "GH tag – Mixing Tank"
   reading: string; // "6.87"
   unit: string; // "pH"
   online: boolean;
@@ -371,6 +403,17 @@ export interface EventItem {
   time: string; // "13:05"
   text: string;
   level: "success" | "warning" | "error" | "info";
+  eventType?: string;
+  complexId?: string | null;
+  ghId?: string | null;
+  deviceId?: string | null;
+  componentId?: string | null;
+  commandId?: string | null;
+  resourceId?: string | null;
+  configurationVersion?: number | null;
+  receivedAt?: string | null;
+  source?: "ESP32" | "HISTORY" | "UNAVAILABLE";
+  stale?: boolean;
 }
 
 export interface AlertItem {
@@ -395,9 +438,9 @@ export interface EnvironmentMetric {
   label: string;
   unit: string;
   color: string;
-  current: number;
-  min: number;
-  max: number;
-  avg: number;
+  current: number | null;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
   points: SeriesPoint[];
 }

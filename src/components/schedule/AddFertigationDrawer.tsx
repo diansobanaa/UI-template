@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getSystemDate, toIsoDateString } from "@/lib/cropCycleProcessor";
 import { CalendarClock, Droplets, ShieldCheck, Zap } from "lucide-react";
 import { Button, Checkbox, FieldError, InfoNote, Input, Label, RadioCard, Select, Textarea, Toggle } from "@/components/ui/primitives";
 import { ConfirmDialog, Drawer } from "@/components/ui/overlay";
-import { allRecipes } from "@/lib/data/greenhouses";
 import { number, required, time as timeValid, assertValid, type FieldErrors } from "@/lib/validation";
 import type { FertigationSchedule, RepeatMode, TriggerType } from "@/lib/types";
 import { useDrawerForm } from "./useDrawerForm";
@@ -17,6 +17,7 @@ export function AddFertigationDrawer({
   ghId,
   ghCode,
   recipes,
+  dosingComponents,
   initial,
   tankCapacityL,
   onSubmit,
@@ -25,7 +26,8 @@ export function AddFertigationDrawer({
   onClose: () => void;
   ghId: string;
   ghCode: string;
-  recipes: { id: string; name: string; waterL: number; dosingAml: number; dosingBml: number }[];
+  recipes: { id: string; name: string; waterL: number; dosingAml: number; dosingBml: number; dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }> }[];
+  dosingComponents: Array<{ componentId: string; name: string; channel?: string; calibrationId?: string; calibrationVersion?: number }>;
   /** When provided the drawer runs in EDIT mode pre-filled with this schedule. */
   initial?: FertigationSchedule | null;
   tankCapacityL?: number;
@@ -34,19 +36,18 @@ export function AddFertigationDrawer({
   const editing = Boolean(initial);
 
   const [name, setName] = useState("");
-  const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? allRecipes[0].id);
+  const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? "");
   const [enabled, setEnabled] = useState(true);
   const [trigger, setTrigger] = useState<TriggerType>("specific-time");
   const [time, setTime] = useState("06:00");
   const [repeat, setRepeat] = useState<RepeatMode>("Every Day");
   const [days, setDays] = useState<string[]>(["Mon", "Wed", "Fri"]);
   const [intervalH, setIntervalH] = useState("4");
-  const [date, setDate] = useState("2026-09-10");
+  const [date, setDate] = useState(() => toIsoDateString(getSystemDate()));
   const [targetMode, setTargetMode] = useState<"volume" | "ppm">("volume");
   const [water, setWater] = useState("80");
-  const [dosingA, setDosingA] = useState("120");
-  const [dosingB, setDosingB] = useState("120");
-  const [ppm, setPpm] = useState("1500");
+  const [dosingChannels, setDosingChannels] = useState<Record<string, string>>({});
+  const [ppm, setPpm] = useState("");
   const [fallbackOn, setFallbackOn] = useState(true);
   const [missedExecute, setMissedExecute] = useState(true);
   const [recoveryH, setRecoveryH] = useState("2");
@@ -71,12 +72,11 @@ export function AddFertigationDrawer({
       setRepeat(initial.repeat);
       setDays(initial.repeat.split(", ").filter((d) => DAY_OPTIONS.includes(d)));
       setIntervalH(String(initial.intervalHours ?? 4));
-      setDate(initial.date ?? "2026-09-10");
+      setDate(initial.date ?? toIsoDateString(getSystemDate()));
       setTargetMode(initial.targetMode);
       setWater(String(initial.targetWaterL));
-      setDosingA(String(initial.dosingAml));
-      setDosingB(String(initial.dosingBml));
-      setPpm(String(initial.targetPpm ?? 1500));
+      setDosingChannels(Object.fromEntries((initial.dosingChannels ?? []).map((c) => [c.componentId, String(c.requestedMl)])));
+      setPpm(initial.targetPpm == null ? "" : String(initial.targetPpm));
       setFallbackOn(initial.fallbackEnabled);
       setMissedExecute(initial.missedPolicy === "execute");
       setRecoveryH(String(initial.recoveryWindowH));
@@ -84,19 +84,18 @@ export function AddFertigationDrawer({
       setNotes("");
     } else {
       setName("");
-      setRecipeId(recipes[0]?.id ?? allRecipes[0].id);
+      setRecipeId(recipes[0]?.id ?? "");
       setEnabled(true);
       setTrigger("specific-time");
       setTime("06:00");
       setRepeat("Every Day");
       setDays(["Mon", "Wed", "Fri"]);
       setIntervalH("4");
-      setDate("2026-09-10");
+      setDate(toIsoDateString(getSystemDate()));
       setTargetMode("volume");
       setWater("80");
-      setDosingA("120");
-      setDosingB("120");
-      setPpm("1500");
+      setDosingChannels({});
+      setPpm("");
       setFallbackOn(true);
       setMissedExecute(true);
       setRecoveryH("2");
@@ -106,7 +105,7 @@ export function AddFertigationDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial?.id]);
 
-  const recipe = recipes.find((r) => r.id === recipeId) ?? allRecipes[0];
+  const recipe = recipes.find((r) => r.id === recipeId);
 
   const dirty = (() => {
     if (!initial) {
@@ -121,8 +120,7 @@ export function AddFertigationDrawer({
       repeat !== initial.repeat ||
       targetMode !== initial.targetMode ||
       water !== String(initial.targetWaterL) ||
-      dosingA !== String(initial.dosingAml) ||
-      dosingB !== String(initial.dosingBml)
+      JSON.stringify(dosingChannels) !== JSON.stringify(Object.fromEntries((initial.dosingChannels ?? []).map((c) => [c.componentId, String(c.requestedMl)])))
     );
   })();
 
@@ -130,10 +128,9 @@ export function AddFertigationDrawer({
 
   // keep targets in sync when recipe changes (volume mode, create only)
   useEffect(() => {
-    if (open && !editing && targetMode === "volume") {
+    if (open && !editing && targetMode === "volume" && recipe) {
       setWater(String(recipe.waterL));
-      setDosingA(String(recipe.dosingAml));
-      setDosingB(String(recipe.dosingBml));
+      setDosingChannels(Object.fromEntries((recipe.dosingChannels ?? []).map((c) => [c.componentId, String(c.requestedMl)])));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipeId, open]);
@@ -147,8 +144,9 @@ export function AddFertigationDrawer({
       date: trigger === "specific-date" ? required(date, "Date") : null,
       water: number(water, { label: "Target water", positive: true, max: maxCapacity }),
       ppm: targetMode === "ppm" ? number(ppm, { label: "Target PPM", positive: true }) : null,
-      dosingA: targetMode === "volume" ? number(dosingA, { label: "Dosing Pump A", min: 0 }) : null,
-      dosingB: targetMode === "volume" ? number(dosingB, { label: "Dosing Pump B", min: 0 }) : null,
+      dosingChannels: targetMode === "volume" && dosingComponents.length > 0
+        ? (Object.values(dosingChannels).some((value) => Number(value) > 0) ? null : "Add at least one dosing channel.")
+        : targetMode === "volume" ? "No operational dosing channels are available from the authoritative inventory." : null,
       recoveryH: number(recoveryH, { label: "Recovery window", positive: true }),
       days: trigger === "days-of-week" && days.length === 0 ? "Select at least one day." : null,
     };
@@ -163,6 +161,7 @@ export function AddFertigationDrawer({
     } catch {
       return;
     }
+    if (!recipe) { setErrors((current) => ({ ...current, recipeId: "No recipes are available from the backend for this greenhouse." })); return; }
     form.submit(async () => {
       await onSubmit(
         {
@@ -177,8 +176,18 @@ export function AddFertigationDrawer({
           date: trigger === "specific-date" ? date : undefined,
           targetMode,
           targetWaterL: Number(water) || 0,
-          dosingAml: Number(dosingA) || 0,
-          dosingBml: Number(dosingB) || 0,
+          dosingAml: 0,
+          dosingBml: 0,
+          dosingChannels: targetMode === "volume"
+            ? dosingComponents
+                .map((c) => ({
+                  componentId: c.componentId,
+                  requestedMl: Number(dosingChannels[c.componentId] || 0),
+                  ...(c.calibrationId ? { calibrationId: c.calibrationId } : {}),
+                  ...(c.calibrationVersion ? { calibrationVersion: c.calibrationVersion } : {}),
+                }))
+                .filter((c) => c.requestedMl > 0)
+            : [],
           targetPpm: targetMode === "ppm" ? Number(ppm) || undefined : undefined,
           fallbackEnabled: fallbackOn,
           missedPolicy: missedExecute ? "execute" : "skip",
@@ -349,18 +358,30 @@ export function AddFertigationDrawer({
                 <FieldError>{errors.water}</FieldError>
               </div>
               {targetMode === "volume" ? (
-                <>
+                <div className="space-y-3.5">
                   <div>
-                    <Label required>Dosing Pump A</Label>
-                    <Input type="number" min={0} value={dosingA} onChange={(e) => setDosingA(e.target.value)} unit="ml" />
-                    <FieldError>{errors.dosingA}</FieldError>
+                    <Label required>Dosing Channels (up to 7)</Label>
+                    {dosingComponents.length === 0 ? (
+                      <InfoNote>No operational dosing channels are available from the authoritative inventory. Commission/configure a dosing pump before creating a volume fertigation schedule.</InfoNote>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        {dosingComponents.map((component) => (
+                          <div key={component.componentId}>
+                            <Label>{component.name}{component.channel ? ` · CH ${component.channel}` : ""}</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={dosingChannels[component.componentId] ?? ""}
+                              onChange={(e) => setDosingChannels((prev) => ({ ...prev, [component.componentId]: e.target.value }))}
+                              unit="ml"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <FieldError>{errors.dosingChannels}</FieldError>
                   </div>
-                  <div>
-                    <Label required>Dosing Pump B</Label>
-                    <Input type="number" min={0} value={dosingB} onChange={(e) => setDosingB(e.target.value)} unit="ml" />
-                    <FieldError>{errors.dosingB}</FieldError>
-                  </div>
-                </>
+                </div>
               ) : (
                 <>
                   <div>
@@ -370,8 +391,7 @@ export function AddFertigationDrawer({
                   </div>
                   <InfoNote>
                     In PPM mode the backend calculates the required dosing volume (ml) from target water, target PPM,
-                    and dosing pump calibration. Estimated: A ≈ {Math.round((Number(water) || 0) * 1.5)} ml, B ≈{" "}
-                    {Math.round((Number(water) || 0) * 1.5)} ml.
+                    and the authoritative calibration/execution plan. No dosing estimate is shown until the backend resolves the active components.
                   </InfoNote>
                 </>
               )}

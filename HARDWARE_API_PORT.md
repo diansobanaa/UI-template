@@ -6,7 +6,7 @@ This document defines the frontend boundary for the Python service and the ESP32
 
 1. Python is the preferred source for identity, history, analytics, configuration orchestration, and server time.
 2. ESP32 is the authority for hardware runtime, actuator safety, inventory, and final command acceptance.
-3. If Python is unavailable and direct ESP32 mode is enabled, the UI falls back to ESP32 REST for inventory, configuration, telemetry, logs, clock sync, and emergency stop.
+3. If Python is unavailable and direct ESP32 mode is enabled, the UI may use ESP32 REST as the hardware authority for inventory, configuration, telemetry, logs, clock sync, and emergency stop.
 4. A direct ESP32 URL must be reachable from the browser through the local network or VPN. Internet access alone does not make a private ESP32 address reachable.
 5. The UI keeps the last received snapshot and must show stale/offline state; it must never silently present a failed request as fresh data.
 
@@ -56,9 +56,9 @@ POST /api/v1/commands/emergency-stop
 
 ## Inventory and configuration rules
 
-The inventory JSON follows `HARDWARE_MAPPING.md`: stable `component_id`, type, role, scope, GH mapping, status, enabled flag, required flag, safety class, capabilities, and runtime state.
+The inventory JSON is derived from the ESP32 active configuration registry. A component is operationally visible only when it exists in that registry. Static UI seed data, localStorage state, and `/spiffs/components.json` never silently create installed hardware.
 
-Inventory changes do not automatically activate hardware configuration. The UI displays newly reported components as available and creates empty/default configuration where appropriate. Before saving or activating configuration, the UI calls validation. ESP32 must repeat validation and retain `LAST_VALID_CONFIGURATION` when validation fails.
+Configuration changes are performed by reading the active configuration, applying a local mutation, validating it, and then calling `PUT /api/v1/configuration`. Failure leaves the UI state unchanged. Full candidate/active staging and rollback semantics remain a later M3/M4 requirement.
 
 ## Shared dosing model
 

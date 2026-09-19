@@ -3,6 +3,11 @@ import type { HardwarePortConfig } from "./contracts";
 export const PYTHON_API_BASE = import.meta.env.VITE_PYTHON_API_BASE ?? "/api";
 export const ESP32_API_BASE = import.meta.env.VITE_ESP32_API_BASE ?? "";
 
+/** Python backend is the default operational authority; set VITE_ENABLE_PYTHON_BACKEND=false
+ * only in a non-operational test environment. */
+export const isPythonBackendEnabled = (): boolean =>
+  import.meta.env.VITE_ENABLE_PYTHON_BACKEND !== "false";
+
 export class BackendNotConnectedError extends Error {
   constructor(message = "Backend is not connected.") {
     super(message);
@@ -30,7 +35,7 @@ export const defaultConfig: HardwarePortConfig = {
   esp32BaseUrl: ESP32_API_BASE || undefined,
   requestTimeoutMs: Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 8000),
   token: import.meta.env.VITE_API_TOKEN || undefined,
-  directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 !== "false",
+  directEsp32Enabled: Boolean(ESP32_API_BASE) && import.meta.env.VITE_ENABLE_DIRECT_ESP32 !== "false",
 };
 
 export const isDirectEsp32Enabled = (): boolean =>
@@ -39,8 +44,12 @@ export const isDirectEsp32Enabled = (): boolean =>
 
 function resolveUrl(path: string, config: HardwarePortConfig = defaultConfig): string {
   if (/^https?:\/\//i.test(path)) return path;
-  if (config.esp32BaseUrl) {
+  if (config.esp32BaseUrl && config.directEsp32Enabled) {
     return `${config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
+  }
+  const base = config.pythonBaseUrl;
+  if (base) {
+    return `${base.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
   }
   return path;
 }
@@ -71,10 +80,20 @@ async function request<T>(path: string, init: RequestInit = {}, config = default
           reconcileRequired = errData.error.reconcileRequired;
           requestId = errData.requestId;
         } else {
-          message = await response.text().catch(() => message);
+          const raw = await response.text().catch(() => message);
+          if (raw.includes("ECONNREFUSED") || response.status === 502 || response.status === 500) {
+            message = "Backend server is not running or unreachable (http://127.0.0.1:8090).";
+          } else {
+            message = raw || message;
+          }
         }
       } catch (e) {
-        message = await response.text().catch(() => message);
+        const raw = await response.text().catch(() => message);
+        if (raw.includes("ECONNREFUSED") || response.status === 502 || response.status === 500) {
+          message = "Backend server is not running or unreachable (http://127.0.0.1:8090).";
+        } else {
+          message = raw || message;
+        }
       }
 
       throw new ApiRequestError(response.status, path, message, code, retryable, reconcileRequired, requestId);

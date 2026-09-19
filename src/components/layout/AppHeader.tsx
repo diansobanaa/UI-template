@@ -40,11 +40,26 @@ export function AppHeader({ onToggleSidebar }: { onToggleSidebar?: () => void })
         </span>
       </div>
 
+      <div className="hidden items-center gap-2 text-[13px] font-medium text-slate-200 md:flex select-none">
+        <span className="font-bold text-white">ChatGPT - AgroTech</span>
+        <span className="hidden text-slate-500 xl:inline">—</span>
+        <span className="hidden text-xs text-slate-400 xl:inline">Smart Greenhouse System</span>
+      </div>
+
       <div className="ml-auto flex items-center gap-2.5">
-        <LiveStatus
-          state={hasSystemAlert ? "problem" : "live"}
-          label={hasSystemAlert ? `${problemComplexes.length} complex or greenhouse alerts` : "System realtime connection"}
-        />
+        {complexes.length === 0 ? (
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500"
+            title="No Complex is configured; realtime hardware state is not available yet."
+          >
+            Setup Required
+          </span>
+        ) : (
+          <LiveStatus
+            state={hasSystemAlert ? "problem" : "live"}
+            label={hasSystemAlert ? `${problemComplexes.length} complex or greenhouse alerts` : "System realtime connection"}
+          />
+        )}
 
         <div className="relative">
           <button

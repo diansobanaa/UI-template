@@ -1,6 +1,7 @@
 #include "http/api_schedule_handlers.h"
 #include "http/http_server.h"
 #include "services/scheduler.h"
+#include "storage/storage_mgr.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include <string.h>
@@ -60,14 +61,8 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
         cJSON *item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "id", entries[i].id);
         cJSON_AddBoolToObject(item, "enabled", entries[i].enabled);
-        if (entries[i].target_gh_id[0] != '\0') {
-            cJSON_AddStringToObject(item, "targetGhId", entries[i].target_gh_id);
-        } else {
-            cJSON_AddNullToObject(item, "targetGhId");
-        }
-        cJSON_AddStringToObject(item, "type", entries[i].interval_min == 0 ? "DAILY" : "INTERVAL");
-        cJSON_AddStringToObject(item, "action", entries[i].resolved_action[0] ? entries[i].resolved_action : "UNKNOWN");
-        cJSON_AddNumberToObject(item, "configurationVersion", entries[i].configuration_version);
+        cJSON_AddStringToObject(item, "type", type_to_str(entries[i].type));
+        cJSON_AddStringToObject(item, "action", action_to_str(entries[i].action));
         cJSON_AddNumberToObject(item, "durationSec", entries[i].duration_sec);
         cJSON_AddNumberToObject(item, "hour", entries[i].hour);
         cJSON_AddNumberToObject(item, "minute", entries[i].minute);
@@ -84,45 +79,100 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
 
 static esp_err_t api_schedule_add_handler(httpd_req_t *req)
 {
-    cJSON *json = NULL;
-    if (http_parse_json_body(req, &json) == ESP_OK && json) {
-        cJSON_Delete(json);
-    }
-    return http_send_error(req, 405, "METHOD_NOT_ALLOWED", 
-                           "Direct raw schedule creation is deprecated and rejected. Schedules must be submitted as ScheduleIntents compiled within versioned Configuration Candidates (/api/v1/configuration).", NULL);
+    return http_send_error(req, 410, "RAW_SCHEDULES_RETIRED", "Raw schedules are no longer executable. Compile and deploy through /api/v1/schedules/compiled.", NULL);
 }
 
 static esp_err_t api_schedule_delete_handler(httpd_req_t *req)
 {
-    const char *uri = req->uri;
-    const char *prefix = "/api/v1/schedules/";
-    const char *id_ptr = strstr(uri, prefix);
-    if (!id_ptr) {
-        return http_send_error(req, 400, "BAD_REQUEST", "Missing schedule ID in path", NULL);
-    }
-    id_ptr += strlen(prefix);
+    return http_send_error(req, 410, "RAW_SCHEDULES_RETIRED", "Raw schedules are no longer executable. Remove them from the backend schedule intent store and redeploy the compiled set.", NULL);
+}
 
-    char id_buf[32] = {0};
-    const char *q = strchr(id_ptr, '?');
-    if (q) {
-        strncpy(id_buf, id_ptr, q - id_ptr);
-    } else {
-        strncpy(id_buf, id_ptr, sizeof(id_buf) - 1);
+static esp_err_t api_compiled_schedule_get_handler(httpd_req_t *req)
+{
+    char *buf = calloc(1, 12288);
+    if (!buf) return http_send_error(req, 503, "NO_MEMORY", "Unable to allocate compiled schedule buffer", NULL);
+    size_t len = 0;
+    esp_err_t err = scheduler_get_compiled_json(buf, 12288, &len);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        free(buf);
+        cJSON *empty = cJSON_CreateObject();
+        cJSON_AddNumberToObject(empty, "configurationVersion", storage_mgr_get_state()->config_version);
+        cJSON_AddArrayToObject(empty, "compiled");
+        return http_send_enveloped_response(req, 200, NULL, empty);
     }
-
-    esp_err_t err = scheduler_remove_entry(id_buf);
     if (err != ESP_OK) {
-        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to delete schedule", NULL);
+        free(buf);
+        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to read deployed compiled schedules", NULL);
+    }
+    cJSON *data = cJSON_ParseWithLength(buf, len);
+    free(buf);
+    if (!data) return http_send_error(req, 500, "CORRUPT_COMPILED_SCHEDULE", "Stored compiled schedule JSON is invalid", NULL);
+    return http_send_enveloped_response(req, 200, NULL, data);
+}
+
+static esp_err_t api_compiled_schedule_deploy_handler(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *json = NULL;
+    if (http_parse_json_body(req, &json) != ESP_OK || !json) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    }
+    cJSON *request_id_item = cJSON_GetObjectItem(json, "requestId");
+    const char *request_id = request_id_item && cJSON_IsString(request_id_item) ? request_id_item->valuestring : NULL;
+    cJSON *payload = cJSON_GetObjectItem(json, "payload");
+    cJSON *target = payload && cJSON_IsObject(payload) ? payload : json;
+    char *normalized = cJSON_PrintUnformatted(target);
+    cJSON_Delete(json);
+    if (!normalized) return http_send_error(req, 503, "NO_MEMORY", "Unable to normalize compiled schedule payload", request_id);
+
+    esp_err_t err = scheduler_deploy_compiled_json(normalized);
+    free(normalized);
+    if (err != ESP_OK) {
+        int status = (err == ESP_ERR_INVALID_STATE) ? 409 : 422;
+        return http_send_error(req, status, status == 409 ? "CONFIGURATION_CONFLICT" : "COMPILED_SCHEDULE_INVALID", "Compiled schedule deployment was rejected by the active runtime configuration", request_id);
     }
 
-    cJSON *resp_data = cJSON_CreateObject();
-    cJSON_AddStringToObject(resp_data, "status", "deleted");
-    cJSON_AddStringToObject(resp_data, "id", id_buf);
-    return http_send_enveloped_response(req, 200, NULL, resp_data);
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "DEPLOYED");
+    cJSON_AddNumberToObject(response, "configurationVersion", storage_mgr_get_state()->config_version);
+    return http_send_enveloped_response(req, 200, request_id, response);
+}
+
+static esp_err_t api_compiled_schedule_delete_handler(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    esp_err_t err = scheduler_clear_compiled();
+    if (err != ESP_OK) return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to clear deployed compiled schedules", NULL);
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "CLEARED");
+    return http_send_enveloped_response(req, 200, NULL, response);
 }
 
 void register_api_schedule_handlers(httpd_handle_t server)
 {
+    httpd_uri_t compiled_get_uri = {
+        .uri = "/api/v1/schedules/compiled",
+        .method = HTTP_GET,
+        .handler = api_compiled_schedule_get_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &compiled_get_uri);
+
+    httpd_uri_t compiled_post_uri = {
+        .uri = "/api/v1/schedules/compiled",
+        .method = HTTP_POST,
+        .handler = api_compiled_schedule_deploy_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &compiled_post_uri);
+
+    httpd_uri_t compiled_delete_uri = {
+        .uri = "/api/v1/schedules/compiled",
+        .method = HTTP_DELETE,
+        .handler = api_compiled_schedule_delete_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &compiled_delete_uri);
     httpd_uri_t get_all_uri = {
         .uri       = "/api/v1/schedules",
         .method    = HTTP_GET,

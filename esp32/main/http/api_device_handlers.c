@@ -1,9 +1,8 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "hal/hardware_registry.h"
-#include "services/storage_mgr.h"
-#include "services/configuration_mgr.h"
-#include "services/topology_mgr.h"
+#include "storage/storage_mgr.h"
+#include "services/topology_capability.h"
 #include "config/system_config.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -71,8 +70,25 @@ esp_err_t handler_get_status(httpd_req_t *req)
     cJSON_AddNumberToObject(runtime, "uptimeSec", (double)(esp_timer_get_time() / 1000000ULL));
     cJSON_AddStringToObject(runtime, "state", actuator_hal_is_emergency_stopped() ? "EMERGENCY_STOP" : "RUNNING");
 
-    /* Actuators */
+    /* Runtime actuator state is configuration-driven. Legacy role aliases remain for UI compatibility only. */
     cJSON *actuators = cJSON_AddObjectToObject(root, "actuators");
+    cJSON *components = cJSON_AddArrayToObject(actuators, "components");
+    for (size_t i = 0; i < hardware_registry_get_count(); ++i) {
+        hw_component_info_t info;
+        if (hardware_registry_get_by_index(i, &info) != ESP_OK) continue;
+        if (info.role[0] == '\0' && info.supported_type_id[0] == '\0') continue;
+        bool on = false; actuator_owner_t owner = ACTUATOR_OWNER_NONE; uint32_t runtime = 0;
+        (void)actuator_hal_get_component_status(info.component_id, &on, &owner, &runtime);
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "componentId", info.component_id);
+        cJSON_AddStringToObject(item, "role", info.role);
+        cJSON_AddBoolToObject(item, "on", on);
+        cJSON_AddNumberToObject(item, "runtimeSec", runtime);
+        if (info.resource_id[0]) cJSON_AddStringToObject(item, "resourceId", info.resource_id);
+        if (info.assignment.gh_id[0]) cJSON_AddStringToObject(item, "ghId", info.assignment.gh_id);
+        else cJSON_AddNullToObject(item, "ghId");
+        cJSON_AddItemToArray(components, item);
+    }
     cJSON_AddBoolToObject(actuators, "wellPump", actuator_hal_get_state(ACTUATOR_WELL_PUMP));
     cJSON_AddBoolToObject(actuators, "distPump", actuator_hal_get_state(ACTUATOR_DIST_PUMP));
     cJSON_AddBoolToObject(actuators, "rawSubmersible", actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE));
@@ -205,52 +221,6 @@ esp_err_t handler_get_inventory(httpd_req_t *req)
     return http_send_enveloped_response(req, 200, NULL, root);
 }
 
-esp_err_t handler_get_topology(httpd_req_t *req)
-{
-    const active_configuration_t *cfg = configuration_mgr_get_active();
-    if (!cfg) {
-        return http_send_error_response(req, 400, "ERR_NO_CONFIG", "No active configuration");
-    }
-
-    topology_status_t status = {0};
-    esp_err_t err = topology_mgr_compute_status(cfg, &status);
-    if (err != ESP_OK) {
-        return http_send_error_response(req, 500, "ERR_TOPOLOGY", "Failed to compute topology status");
-    }
-
-    cJSON *root = cJSON_CreateObject();
-    cJSON *ghs = cJSON_AddArrayToObject(root, "greenhouses");
-
-    for (size_t i = 0; i < status.count; i++) {
-        gh_topology_state_t *st = &status.gh_states[i];
-        cJSON *gh_obj = cJSON_CreateObject();
-        cJSON_AddStringToObject(gh_obj, "ghId", st->gh_id);
-        cJSON_AddBoolToObject(gh_obj, "configured", st->configured);
-        cJSON_AddBoolToObject(gh_obj, "hydraulicallyReachable", st->hydraulically_reachable);
-        cJSON_AddBoolToObject(gh_obj, "automaticallyRoutable", st->automatically_routable);
-        cJSON_AddBoolToObject(gh_obj, "manuallyRoutable", st->manually_routable);
-        cJSON_AddStringToObject(gh_obj, "currentSharedTarget", st->current_shared_target);
-        cJSON_AddStringToObject(gh_obj, "blockingReason", st->blocking_reason);
-
-        cJSON *cap = cJSON_AddObjectToObject(gh_obj, "capabilities");
-        cJSON_AddBoolToObject(cap, "CAN_DELIVER", st->capabilities.can_deliver);
-        cJSON_AddBoolToObject(cap, "CAN_AUTO_FILL", st->capabilities.can_auto_fill);
-        cJSON_AddBoolToObject(cap, "CAN_AUTO_DOSE", st->capabilities.can_auto_dose);
-        cJSON_AddBoolToObject(cap, "CAN_AUTO_MIX", st->capabilities.can_auto_mix);
-        cJSON_AddBoolToObject(cap, "CAN_AUTO_ROUTE", st->capabilities.can_auto_route);
-        cJSON_AddBoolToObject(cap, "CAN_MONITOR_FLOW", st->capabilities.can_monitor_flow);
-        cJSON_AddBoolToObject(cap, "CAN_MONITOR_LEVEL", st->capabilities.can_monitor_level);
-        cJSON_AddBoolToObject(cap, "CAN_MONITOR_EC", st->capabilities.can_monitor_ec);
-        cJSON_AddBoolToObject(cap, "CAN_MONITOR_PH", st->capabilities.can_monitor_ph);
-        cJSON_AddBoolToObject(cap, "CAN_CLIMATE_CONTROL", st->capabilities.can_climate_control);
-        cJSON_AddBoolToObject(cap, "CAN_RUN_AUTONOMOUSLY", st->capabilities.can_run_autonomously);
-
-        cJSON_AddItemToArray(ghs, gh_obj);
-    }
-
-    return http_send_enveloped_response(req, 200, NULL, root);
-}
-
 esp_err_t handler_get_capabilities(httpd_req_t *req)
 {
     const system_storage_state_t *st = storage_mgr_get_state();
@@ -269,32 +239,63 @@ esp_err_t handler_get_capabilities(httpd_req_t *req)
     return http_send_enveloped_response(req, 200, NULL, root);
 }
 
+esp_err_t handler_get_topology_capabilities(httpd_req_t *req)
+{
+    cJSON *root = NULL;
+    esp_err_t err = topology_capability_build_json(&root);
+    if (err != ESP_OK || !root) {
+        return http_send_error(req, 503, "TOPOLOGY_UNAVAILABLE", "Active configuration does not expose a usable topology/capability graph.", NULL);
+    }
+    return http_send_enveloped_response(req, 200, NULL, root);
+}
+
 esp_err_t handler_get_context(httpd_req_t *req)
 {
     const system_storage_state_t *st = storage_mgr_get_state();
-    cJSON *root = cJSON_CreateObject();
-    
-    cJSON *complex_obj = cJSON_AddObjectToObject(root, "complex");
-    cJSON_AddStringToObject(complex_obj, "complexId", st->complex_id);
-    cJSON_AddStringToObject(complex_obj, "name", "Default Complex");
-    cJSON_AddStringToObject(complex_obj, "location", "System Location");
-    cJSON_AddStringToObject(complex_obj, "status", "ACTIVE");
-    
-    cJSON *ghs = cJSON_AddArrayToObject(root, "greenhouses");
-    
-    const active_configuration_t *cfg = configuration_mgr_get_active();
-    
-    if (cfg && cfg->greenhouse_count > 0) {
-        for (size_t i = 0; i < cfg->greenhouse_count; i++) {
-            cJSON *gh = cJSON_CreateObject();
-            cJSON_AddStringToObject(gh, "ghId", cfg->greenhouses[i].gh_id);
-            cJSON_AddStringToObject(gh, "complexId", st->complex_id);
-            cJSON_AddStringToObject(gh, "name", cfg->greenhouses[i].name);
-            cJSON_AddStringToObject(gh, "status", "ACTIVE");
-            cJSON_AddItemToArray(ghs, gh);
-        }
+    if (!st || !st->complex_id[0]) {
+        return http_send_error(req, 503, "IDENTITY_UNAVAILABLE", "ESP32 has no configured Complex identity.", NULL);
     }
 
+    cJSON *root = cJSON_CreateObject();
+    cJSON *complex_obj = cJSON_AddObjectToObject(root, "complex");
+    cJSON_AddStringToObject(complex_obj, "complexId", st->complex_id);
+    cJSON_AddStringToObject(complex_obj, "name", st->complex_id);
+    cJSON_AddStringToObject(complex_obj, "location", "Configured by active configuration");
+    cJSON_AddStringToObject(complex_obj, "status", "ACTIVE");
+
+    cJSON *ghs = cJSON_AddArrayToObject(root, "greenhouses");
+    char *cfg_buf = (char *)calloc(1, 16384);
+    size_t cfg_len = 0;
+    esp_err_t load_err = cfg_buf ? storage_mgr_load_config(cfg_buf, 16384, &cfg_len) : ESP_ERR_NO_MEM;
+    if (load_err == ESP_OK && cfg_len > 0) {
+        cJSON *cfg = cJSON_ParseWithLength(cfg_buf, cfg_len);
+        if (cfg) {
+            cJSON *configured = cJSON_GetObjectItem(cfg, "greenhouses");
+            if (configured && cJSON_IsArray(configured)) {
+                cJSON *gh = NULL;
+                cJSON_ArrayForEach(gh, configured) {
+                    if (!gh || !cJSON_IsObject(gh)) continue;
+                    cJSON *gh_id = cJSON_GetObjectItem(gh, "ghId");
+                    if (!gh_id || !cJSON_IsString(gh_id) || !gh_id->valuestring[0]) continue;
+                    cJSON *out = cJSON_CreateObject();
+                    cJSON_AddStringToObject(out, "ghId", gh_id->valuestring);
+                    cJSON_AddStringToObject(out, "complexId", st->complex_id);
+                    cJSON *name = cJSON_GetObjectItem(gh, "name");
+                    if (name && cJSON_IsString(name) && name->valuestring[0]) cJSON_AddStringToObject(out, "name", name->valuestring);
+                    else cJSON_AddStringToObject(out, "name", gh_id->valuestring);
+                    cJSON *status = cJSON_GetObjectItem(gh, "status");
+                    if (status && cJSON_IsString(status) && status->valuestring[0]) cJSON_AddStringToObject(out, "status", status->valuestring);
+                    else cJSON_AddStringToObject(out, "status", "ACTIVE");
+                    cJSON_AddItemToArray(ghs, out);
+                }
+            }
+            cJSON_Delete(cfg);
+        }
+    }
+    free(cfg_buf);
+
+    cJSON_AddNumberToObject(root, "configurationVersion", st->config_version);
+    cJSON_AddStringToObject(root, "deviceId", st->device_id);
     return http_send_enveloped_response(req, 200, NULL, root);
 }
 

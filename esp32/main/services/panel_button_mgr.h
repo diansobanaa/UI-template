@@ -14,7 +14,7 @@ extern "C" {
  * Configures:
  * - Button 1 (GPIO 0): Cycles TFT Display screens.
  * - Button 2 (GPIO 39): Well Pump manual toggle with 5-minute auto-timeout.
- * - Button 3 (GPIO 40): RESERVED.
+ * - Button 3 (GPIO 40): RETIRED; GPIO 40 is Mixing Pump Relay IN4.
  * - Button 4 (GPIO 41): RESERVED.
  *
  * @return esp_err_t ESP_OK on success.

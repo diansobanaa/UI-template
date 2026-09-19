@@ -188,5 +188,5 @@ flowchart TD
 | **Security Loop** | Anti-Theft Loop | **GPIO 47** | Right-17 | Digital Input | Active-HIGH (1 = Putus / Dicuri, E-Stop) |
 | **Tombol Panel** | Button 1 (TFT Switch) | **GPIO 0** | Right-14 | Digital Input | Active-LOW (Switch layar TFT, BOOT caveat) |
 | **Tombol Panel** | Button 2 (Well Pump)  | **GPIO 39** | Right-9 | Digital Input | Active-LOW (Toggle Pompa Sumur 5-menit timer & dry-run interlock) |
-| **Tombol Panel** | Button 3 (Reserved)   | **GPIO 40** | Right-8 | Digital Input | Active-LOW (Reserved / TBD, Debounce 40ms) |
-| **Tombol Panel** | Button 4 (Reserved)   | **GPIO 41** | Right-7 | Digital Input | Active-LOW (Reserved / TBD, Debounce 40ms) |
+| **Actuator** | Mixing Pump Relay IN4 | **GPIO 40** | Right-8 | Digital Output | Active-LOW (0=ON); Button 3 physical input RETIRED/disconnected |
+| **Tombol Panel** | Button 4 (Reserved)   | **GPIO 41** | Right-7 | Digital Input | Active-LOW output (0=ON); Button 3 physical input is RETIRED/disconnected |

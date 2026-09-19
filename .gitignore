@@ -10,3 +10,14 @@ esp32/sdkconfig
 esp32/sdkconfig.old
 esp32/managed_components/
 esp32/dependencies.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite Databases & Journals
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.db-journal

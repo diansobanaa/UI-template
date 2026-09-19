@@ -6,33 +6,61 @@ import { Modal, ConfirmDialog } from "@/components/ui/overlay";
 import { MaintenanceScheduleModal } from "./MaintenanceScheduleModal";
 import { Button, Input, Label } from "@/components/ui/primitives";
 import type { CropCycle, Greenhouse } from "@/lib/types";
+import type { CropTimelineConfig } from "@/lib/cropTimelineConfig";
 import { calculateDaysBetween, getSystemDate, toIsoDateString, validateTanggalPolinasi, validateTanggalTanam } from "@/lib/cropCycleProcessor";
 
 type TimelinePoint = { id:string; name:string; startHst:string; endHst:string; note:string };
 type MaintenancePoint = { id:string; name:string; hst:string; category:string; note:string };
 type View = "home" | "tanam" | "polinasi" | "tanaman" | "timeline" | "maintenance" | "opsi";
-const key=(id:string)=>`greenhouse-crop-timeline:${id}`;
-const defaults=():TimelinePoint[]=>[
- {id:"seed",name:"Semai",startHst:"0",endHst:"10",note:""},{id:"vegetative",name:"Vegetatif",startHst:"11",endHst:"25",note:""},{id:"flowering",name:"Berbunga",startHst:"26",endHst:"45",note:""},{id:"fruiting",name:"Pembuahan",startHst:"46",endHst:"65",note:""},{id:"ripening",name:"Pematangan",startHst:"66",endHst:"85",note:""},{id:"harvest",name:"Panen",startHst:"86",endHst:"90",note:""}
-];
+const defaults=():TimelinePoint[]=>[];
 const defaultMaintenancePoints=():MaintenancePoint[]=>[];
 
 export interface CycleManageModalProps {
- gh:Greenhouse; cycle?:CropCycle; open:boolean; onClose:()=>void; onUpdateTanggalTanam:(date:string)=>Promise<void>; onUpdateTanggalPolinasi:(date:string)=>Promise<void>; onUpdateMetadata?:(updates:{variety?:string;plantCount?:number;notes?:string})=>Promise<void>; onDeleteTanggalPolinasi:()=>Promise<void>; onResetCycle?:()=>Promise<void>;
+ gh:Greenhouse; cycle?:CropCycle; open:boolean; onClose:()=>void; onUpdateTanggalTanam:(date:string)=>Promise<void>; onUpdateTanggalPolinasi:(date:string)=>Promise<void>; onUpdateMetadata?:(updates:{variety?:string;plantCount?:number;notes?:string;cropTimelineConfig?:CropTimelineConfig})=>Promise<void>; onDeleteTanggalPolinasi:()=>Promise<void>; onResetCycle?:()=>Promise<void>;
 }
 
 export function CycleManageModal({gh,cycle,open,onClose,onUpdateTanggalTanam,onUpdateTanggalPolinasi,onUpdateMetadata,onDeleteTanggalPolinasi,onResetCycle}:CycleManageModalProps){
  const today=useMemo(()=>toIsoDateString(getSystemDate()),[]);
  const [view,setView]=useState<View>("home"); const [busy,setBusy]=useState(false); const [error,setError]=useState<string|null>(null);
  const [tanamDate,setTanamDate]=useState(""); const [polDate,setPolDate]=useState(""); const [variety,setVariety]=useState(""); const [plants,setPlants]=useState(120); const [notes,setNotes]=useState("");
- const [target,setTarget]=useState("90"); const [points,setPoints]=useState<TimelinePoint[]>(defaults()); const [maintenance,setMaintenance]=useState<MaintenancePoint[]>(defaultMaintenancePoints()); const [confirmDelete,setConfirmDelete]=useState(false); const [confirmReset,setConfirmReset]=useState(false); const [maintenanceModalOpen,setMaintenanceModalOpen]=useState(false);
- useEffect(()=>{if(!open)return;setView("home");setError(null);setTanamDate(cycle?.tanggalTanam||today);setPolDate(cycle?.tanggalPolinasi||today);setVariety(cycle?.variety||gh.crop);setPlants(gh.plants?.total||120);setNotes("");try{const raw=localStorage.getItem(key(gh.id));if(raw){const saved=JSON.parse(raw);setTarget(String(saved.targetHarvestHst??90));setPoints(Array.isArray(saved.points)&&saved.points.length?saved.points:defaults());setMaintenance(Array.isArray(saved.maintenance)?saved.maintenance.map((m:any,index:number)=>({id:String(m.id??`maintenance-${index}`),name:String(m.name??""),hst:String(m.hst??""),category:String(m.category??"Lainnya"),note:String(m.note??"")})):defaultMaintenancePoints())}else{setTarget("90");setPoints(defaults());setMaintenance(defaultMaintenancePoints())}}catch{setTarget("90");setPoints(defaults());setMaintenance(defaultMaintenancePoints())}},[open,cycle,today,gh.id,gh.crop,gh.plants?.total]);
+ const [target,setTarget]=useState(""); const [points,setPoints]=useState<TimelinePoint[]>(defaults()); const [maintenance,setMaintenance]=useState<MaintenancePoint[]>(defaultMaintenancePoints()); const [confirmDelete,setConfirmDelete]=useState(false); const [confirmReset,setConfirmReset]=useState(false); const [maintenanceModalOpen,setMaintenanceModalOpen]=useState(false);
+ useEffect(()=>{
+  if(!open)return;
+  setView("home");
+  setError(null);
+  setTanamDate(cycle?.tanggalTanam||today);
+  setPolDate(cycle?.tanggalPolinasi||today);
+  setVariety(cycle?.variety||gh.crop);
+  setPlants(gh.plants?.total ?? 0);
+  setNotes("");
+  const saved=gh.cropTimelineConfig;
+  if(saved){
+   setTarget(String(saved.targetHarvestHst ?? ""));
+   setPoints(Array.isArray(saved.points)&&saved.points.length?saved.points.map(p=>({id:String(p.id),name:String(p.name??""),startHst:String(p.startHst),endHst:String(p.endHst),note:String(p.note??"")})):defaults());
+   setMaintenance(Array.isArray(saved.maintenance)?saved.maintenance.map((m,index)=>({id:String(m.id??`maintenance-${index}`),name:String(m.name??""),hst:String(m.hst??""),category:String(m.category??"Lainnya"),note:String(m.note??"")})):defaultMaintenancePoints());
+  }else{
+   setTarget("");setPoints(defaults());setMaintenance(defaultMaintenancePoints());
+  }
+ },[open,cycle,today,gh.id,gh.crop,gh.plants?.total,gh.cropTimelineConfig]);
+
  const hst=gh.telemetry.hstDays; const nextHst=calculateDaysBetween(tanamDate); const hsp=gh.telemetry.hspDays; const nextHsp=calculateDaysBetween(polDate);
  const setPage=(v:View)=>{setView(v);setError(null)};
  const run=async(task:()=>Promise<void>,message:string)=>{setBusy(true);setError(null);try{await task();setView("home")}catch(e:unknown){setError(e instanceof Error?e.message:message)}finally{setBusy(false)}};
- const saveTimeline=()=>{const t=Number(target);if(!Number.isFinite(t)||t<=0)return setError("Rencana Panen harus berupa HST lebih besar dari 0.");if(points.some(p=>!p.name.trim()||p.startHst===""||p.endHst===""||Number(p.startHst)>Number(p.endHst)))return setError("Lengkapi semua fase timeline.");const sorted=[...points].sort((a,b)=>Number(a.startHst)-Number(b.startHst));for(let i=1;i<sorted.length;i++)if(Number(sorted[i].startHst)<=Number(sorted[i-1].endHst))return setError("Rentang fase timeline tidak boleh bertumpuk.");if(sorted.some(p=>Number(p.endHst)>t))return setError("Fase tidak boleh melewati Rencana Panen.");if(maintenance.some(m=>!m.name.trim()||m.hst===""||!Number.isFinite(Number(m.hst))||Number(m.hst)<0||Number(m.hst)>t))return setError("Jadwal perawatan harus memiliki HST 0 sampai Rencana Panen.");const config={targetHarvestHst:t,points:sorted.map(p=>({...p,name:p.name.trim(),note:p.note.trim()})),maintenance:[...maintenance].sort((a,b)=>Number(a.hst)-Number(b.hst)).map(m=>({...m,name:m.name.trim(),category:m.category.trim()||"Lainnya",note:m.note.trim()}))};localStorage.setItem(key(gh.id),JSON.stringify(config));window.dispatchEvent(new CustomEvent("crop-timeline-config-updated",{detail:{ghId:gh.id,config}}));setView("home")};
- const homeCards:[View,string,string,React.ReactNode][]=[ ["tanam","Tanggal Tanam","Koreksi awal siklus dan lihat dampak HST",<Calendar className="h-5 w-5"/>],["polinasi","Tanggal Polinasi",cycle?.tanggalPolinasi?"Ubah atau hapus pencatatan polinasi":"Belum ada tanggal polinasi",<Clock className="h-5 w-5"/>],["tanaman","Data Tanaman",`${variety||gh.crop} • ${plants} tanaman`,<Leaf className="h-5 w-5"/>],["timeline","Timeline Masa Tanam","Atur fase HST yang tampil di dashboard",<Wheat className="h-5 w-5"/>],["opsi","Zona Perawatan","Reset siklus atau tindakan berisiko",<Settings2 className="h-5 w-5"/>],["maintenance","Rencana Jadwal Perawatan",maintenance.length===0?"Atur pemupukan, pemangkasan, pengendalian hama, inspeksi, dan tindakan lain":"Kelola jadwal perawatan yang sudah direncanakan",<Wrench className="h-5 w-5"/>] ];
- const header=view==="home"?<div><div className="text-base font-bold text-slate-900">Kelola Siklus</div><div className="text-xs text-slate-500">Command center • {gh.code} • {gh.crop}</div></div>:<button type="button" className="flex items-center gap-2 text-left" onClick={()=>setPage("home")}><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700"><ArrowLeft className="h-4 w-4"/></span><div><div className="text-base font-bold text-slate-900">{({tanam:"Tanggal Tanam",polinasi:"Tanggal Polinasi",tanaman:"Data Tanaman",timeline:"Timeline Masa Tanam",maintenance:"Rencana Jadwal Perawatan",opsi:"Zona Perawatan"} as Record<string,string>)[view]}</div><div className="text-xs text-slate-500">Kembali ke command center</div></div></button>;
+
+ const saveTimeline=()=>{
+  const t=Number(target);
+  if(!Number.isFinite(t)||t<=0)return setError("Rencana Panen harus berupa HST lebih besar dari 0.");
+  if(!points.length)return setError("Minimal satu fase timeline diperlukan.");
+  if(points.some(p=>!p.name.trim()||p.startHst===""||p.endHst===""||Number(p.startHst)>Number(p.endHst)))return setError("Lengkapi semua fase timeline.");
+  const sorted=[...points].sort((a,b)=>Number(a.startHst)-Number(b.startHst));
+  for(let i=1;i<sorted.length;i++)if(Number(sorted[i].startHst)<=Number(sorted[i-1].endHst))return setError("Rentang fase timeline tidak boleh bertumpuk.");
+  if(sorted.some(p=>Number(p.endHst)>t))return setError("Fase tidak boleh melewati Rencana Panen.");
+  if(maintenance.some(m=>!m.name.trim()||m.hst===""||!Number.isFinite(Number(m.hst))||Number(m.hst)<0||Number(m.hst)>t))return setError("Jadwal perawatan harus memiliki HST 0 sampai Rencana Panen.");
+  const config:CropTimelineConfig={targetHarvestHst:t,points:sorted.map(p=>({...p,name:p.name.trim(),note:p.note.trim()})),maintenance:[...maintenance].sort((a,b)=>Number(a.hst)-Number(b.hst)).map(m=>({...m,name:m.name.trim(),category:m.category.trim()||"Lainnya",note:m.note.trim()}))};
+  if(!onUpdateMetadata)return setError("Backend authority untuk timeline belum tersedia.");
+  run(()=>onUpdateMetadata({cropTimelineConfig:config}),"Gagal menyimpan timeline");
+ };
+
  return <><Modal open={open} onClose={onClose} title={<div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Sprout className="h-5 w-5"/></span>{header}</div>} footer={view==="home"?<div className="flex justify-end"><Button variant="ghost" onClick={onClose}>Tutup</Button></div>:<div className="flex justify-between gap-2"><Button variant="ghost" onClick={()=>setPage("home")} disabled={busy}>Kembali</Button>{view==="tanam"&&<Button onClick={()=>{const v=validateTanggalTanam(tanamDate);if(!v.valid)return setError(v.error||"Tanggal tidak valid");if(cycle?.tanggalPolinasi&&!validateTanggalPolinasi(cycle.tanggalPolinasi,tanamDate).valid)return setError("Tanggal tanam baru tidak boleh melebihi tanggal polinasi.");run(()=>onUpdateTanggalTanam(tanamDate),"Gagal mengubah tanggal tanam")}} disabled={busy||tanamDate===cycle?.tanggalTanam} className="bg-emerald-600 text-white">{busy?"Menyimpan...":"Simpan Tanggal Tanam"}</Button>}{view==="polinasi"&&cycle?.tanggalPolinasi&&<Button onClick={()=>{const v=validateTanggalPolinasi(polDate,cycle.tanggalTanam);if(!v.valid)return setError(v.error||"Tanggal tidak valid");run(()=>onUpdateTanggalPolinasi(polDate),"Gagal mengubah tanggal polinasi");}} disabled={busy||polDate===cycle.tanggalPolinasi} className="bg-violet-600 text-white">{busy?"Menyimpan...":"Simpan Polinasi"}</Button>}{view==="tanaman"&&<Button onClick={()=>onUpdateMetadata&&run(()=>onUpdateMetadata({variety:variety.trim(),plantCount:Number(plants)||gh.plants.total,notes:notes.trim()||undefined}),"Gagal memperbarui data tanaman")} disabled={busy||!onUpdateMetadata} className="bg-emerald-600 text-white"><Save className="mr-1.5 h-4 w-4"/>{busy?"Menyimpan...":"Simpan Data"}</Button>}{view==="timeline"&&<Button onClick={saveTimeline} disabled={busy} className="bg-emerald-600 text-white"><Save className="mr-1.5 h-4 w-4"/>Simpan Timeline</Button>}</div>}>
  <div className="max-h-[62dvh] overflow-y-auto">
  {view==="home"&&<div className="space-y-3"><div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-900 p-4 text-white"><div><div className="text-[10px] uppercase tracking-wider text-white/50">HST</div><div className="mt-1 text-2xl font-bold">{hst}<span className="ml-1 text-xs font-medium">hari</span></div></div><div><div className="text-[10px] uppercase tracking-wider text-white/50">HSP</div><div className="mt-1 text-2xl font-bold">{hsp==null?"–":hsp}<span className="ml-1 text-xs font-medium">hari</span></div></div></div><div className="grid gap-2 sm:grid-cols-2">{homeCards.map(([id,title,desc,icon])=><button key={id} type="button" onClick={()=>setPage(id)} className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700 group-hover:bg-emerald-100 group-hover:text-emerald-700">{icon}</span><span className="min-w-0"><span className="block text-sm font-bold text-slate-900">{title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{desc}</span></span></button>)}</div><div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Pilih satu tindakan. Setiap perubahan disimpan melalui service yang sama seperti sebelumnya; modal ini hanya mengatur input dan presentasi.</div></div>}

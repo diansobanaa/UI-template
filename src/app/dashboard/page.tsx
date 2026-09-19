@@ -40,7 +40,7 @@ import { Progress } from "@/components/ui/primitives";
 import { complexService, eventService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
-import { MOCK_NOW, delta, lux, n } from "@/lib/format";
+import { SYSTEM_NOW, delta, lux, n } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/overlay";
 import { complexRealtimeState, greenhouseRealtimeState } from "@/lib/realtime";
@@ -92,7 +92,8 @@ function GlobalDashboardContent() {
   const warnings = allGreenhouses.filter(({ greenhouse }) => greenhouse.health !== "NORMAL").length;
   const onlineEsp = complexes.filter((complex) => complex.esp32.online).length;
   const router = useNavigate();
-  const leadCrop = allGreenhouses[0]?.greenhouse.crop ?? "Tomato";
+  const leadGreenhouse = allGreenhouses.length === 1 ? allGreenhouses.find(() => true)?.greenhouse : undefined;
+  const leadCrop = leadGreenhouse?.crop ?? "—";
 
   const metrics = [
     { label: "Complexes", value: complexes.length, detail: `${onlineEsp} ESP32 online`, tone: "violet" as const },
@@ -102,7 +103,7 @@ function GlobalDashboardContent() {
   ];
 
   return (
-    <AppShell complexId={complexes[0]?.id ?? ""}>
+    <AppShell>
       <section className="relative mb-5 min-h-[250px] overflow-hidden rounded-[24px] border border-emerald-300/10 bg-[#071c19] shadow-[0_22px_70px_rgba(0,0,0,.22)]">
         <div className="absolute inset-0 opacity-65">
           <GreenhouseArt crop={leadCrop} variant="landscape" className="h-full w-full scale-[1.08]" />
@@ -135,7 +136,7 @@ function GlobalDashboardContent() {
             <div className="min-w-[170px] border-l border-white/10 pl-5">
               <div className="text-right text-[10px] text-slate-500">Thursday, Sep 11, 2026</div>
               <div className="mt-1 text-right text-2xl font-extrabold tracking-tight text-white">
-                {MOCK_NOW.time} <span className="text-[10px] font-semibold text-slate-500">WIB</span>
+                {SYSTEM_NOW.time} <span className="text-[10px] font-semibold text-slate-500">WIB</span>
               </div>
               <div className="mt-2 flex items-center justify-end gap-2 text-right">
                 <span className="text-xl text-slate-300">☁</span>
@@ -290,7 +291,7 @@ function GlobalDashboardContent() {
 }
 
 function ComplexDashboardContent() {
-  useDbVersion(); // re-render on any mock-store mutation
+  useDbVersion(); // re-render on authoritative operational-state changes
   const [params] = useSearchParams();
   const router = useNavigate();
   const toast = useToast();
@@ -353,8 +354,10 @@ function ComplexDashboardContent() {
   };
 
   const complexes = complexService.list();
-  const complexId = params.get("complex") ?? complexes[0].id;
-  const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
+  const requestedComplexId = params.get("complex");
+  const complexId = requestedComplexId ?? "";
+  const complex = complexes.find((c) => c.id === complexId);
+  if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
   const events = eventService.recent(complex.id);
 
@@ -386,7 +389,9 @@ function ComplexDashboardContent() {
       .map((s) => ({ time: `Today ${s.time}`, gh: "Raw Tank", type: "Well Pump", target: `${s.durationMin} min` }))
   );
 
-  const equipment = ghs[0]?.equipment ?? [];
+  const equipment = ghs.flatMap((greenhouse) => greenhouse.equipment ?? []);
+  const waterDeltaValues = ghs.map((greenhouse) => greenhouse.telemetry.waterDeltaPct).filter((value): value is number => typeof value === "number");
+  const waterDeltaPct = waterDeltaValues.length ? waterDeltaValues.reduce((sum, value) => sum + value, 0) / waterDeltaValues.length : null;
 
   return (
     <AppShell complexId={complex.id}>
@@ -487,7 +492,7 @@ function ComplexDashboardContent() {
         </MetricCard>
         <MetricCard icon={Droplets} iconTone="blue" label="Water Usage (Today)" value={`${n(totalToday)} L`}>
           <span className={`text-xs ${totalToday >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-            {delta(ghs[0]?.telemetry.waterDeltaPct ?? null)} vs yesterday
+            {delta(waterDeltaPct)} vs yesterday
           </span>
         </MetricCard>
         <MetricCard icon={Truck} iconTone="amber" label="Active Fertigation" value={activeFertigations}>
@@ -788,7 +793,7 @@ function ComplexDashboardContent() {
       </div>
       <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
         <MonitorCog className="h-3.5 w-3.5" />
-        Last sync {complex.esp32.lastSync} • Config v{complex.esp32.configVersion} • FW {complex.esp32.firmwareVersion || "v1.0.0"} • HW {complex.esp32.hardwareModel || "Unknown"} • Local time {MOCK_NOW.time}
+        Last sync {complex.esp32.lastSync} • Config v{complex.esp32.configVersion} • FW {complex.esp32.firmwareVersion || "v1.0.0"} • HW {complex.esp32.hardwareModel || "Unknown"} • Local time {SYSTEM_NOW.time}
       </div>
       <div className="mt-2 flex items-center justify-center gap-2 text-xs text-slate-400">
         <Leaf className="h-3.5 w-3.5" />

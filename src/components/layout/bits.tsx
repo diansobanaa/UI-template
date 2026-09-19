@@ -3,7 +3,7 @@
 import { Building2, ChevronDown, ChevronLeft, ChevronRight, Cpu, Leaf, MonitorCog, Activity } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCallback } from "react";
-import { MOCK_NOW } from "@/lib/format";
+import { SYSTEM_NOW } from "@/lib/format";
 import type { Complex, Greenhouse } from "@/lib/types";
 import { Select } from "@/components/ui/primitives";
 
@@ -13,8 +13,8 @@ export function DateTimeBlock({ caption = "Local Time (ESP32)" }: { caption?: st
   return (
     <div className="text-right">
       <div className="text-xs text-slate-400">{caption}</div>
-      <div className="text-[22px] font-bold leading-tight text-slate-900">{MOCK_NOW.time}</div>
-      <div className="text-xs text-slate-500">{MOCK_NOW.label}</div>
+      <div className="text-[22px] font-bold leading-tight text-slate-900">{SYSTEM_NOW.time}</div>
+      <div className="text-xs text-slate-500">{SYSTEM_NOW.label}</div>
     </div>
   );
 }
@@ -22,8 +22,8 @@ export function DateTimeBlock({ caption = "Local Time (ESP32)" }: { caption?: st
 export function BigDateClock() {
   return (
     <div className="text-right">
-      <div className="text-xs text-slate-500">{MOCK_NOW.label}</div>
-      <div className="text-[26px] font-bold leading-tight text-slate-900">{MOCK_NOW.time}</div>
+      <div className="text-xs text-slate-500">{SYSTEM_NOW.label}</div>
+      <div className="text-[26px] font-bold leading-tight text-slate-900">{SYSTEM_NOW.time}</div>
     </div>
   );
 }

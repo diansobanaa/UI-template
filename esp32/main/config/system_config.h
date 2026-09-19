@@ -16,13 +16,13 @@ extern "C" {
 #define HARDWARE_MODEL              "ESP32-S3-WROOM-1-N16R8"
 #define CONTRACT_VERSION            "1.0.0"
 
-#define DEFAULT_DEVICE_ID           "esp32-controller"
+#define DEFAULT_DEVICE_ID           "esp32-controller-01"
 #define DEFAULT_COMPLEX_ID          "complex-01"
 #define DEFAULT_HOSTNAME_PREFIX     "esp32-"
 #define DEFAULT_HTTP_PORT           80
-
-/* Structural Limits */
-#define MAX_GREENHOUSES             10
+#ifndef AGROTECH_BACKEND_BASE_URL
+#define AGROTECH_BACKEND_BASE_URL   "http://192.168.4.2:8000"
+#endif
 
 /* FreeRTOS Task Priorities & Stack Sizes */
 #define TASK_HTTP_SERVER_STACK      8192

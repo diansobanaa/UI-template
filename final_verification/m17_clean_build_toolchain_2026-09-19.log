@@ -1,0 +1,37 @@
+=== CLEAN BUILD / TOOLCHAIN CHECK 2026-09-19 ===
+node: v22.16.0
+npm: 10.9.2
+idf.py: NOT_FOUND
+npm ci attempt: TIMED_OUT / dependency tree incomplete (prior M17 run)
+npm run build:
+
+> agrotech-ui@0.1.0 build
+> tsc -b && vite build
+
+error TS2688: Cannot find type definition file for 'babel__core'.
+  The file is in the program because:
+    Entry point for implicit type library 'babel__core'
+error TS2688: Cannot find type definition file for 'babel__generator'.
+  The file is in the program because:
+    Entry point for implicit type library 'babel__generator'
+error TS2688: Cannot find type definition file for 'babel__template'.
+  The file is in the program because:
+    Entry point for implicit type library 'babel__template'
+error TS2688: Cannot find type definition file for 'babel__traverse'.
+  The file is in the program because:
+    Entry point for implicit type library 'babel__traverse'
+error TS2688: Cannot find type definition file for 'estree'.
+  The file is in the program because:
+    Entry point for implicit type library 'estree'
+error TS2688: Cannot find type definition file for 'node'.
+  The file is in the program because:
+    Entry point for implicit type library 'node'
+error TS2688: Cannot find type definition file for 'react'.
+  The file is in the program because:
+    Entry point for implicit type library 'react'
+error TS2688: Cannot find type definition file for 'react-dom'.
+  The file is in the program because:
+    Entry point for implicit type library 'react-dom'
+build exit recorded as BLOCKED
+git metadata:
+NO_GIT_METADATA_IN_DELIVERED_ARCHIVE

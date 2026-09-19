@@ -53,18 +53,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/InventoryResponse"
 
-  /api/v1/topology:
-    get:
-      tags: [Device]
-      operationId: getTopology
-      responses:
-        "200":
-          description: Topology and Capability state per Greenhouse
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TopologyStateResponse"
-
   /api/v1/capabilities:
     get:
       tags: [Device]
@@ -153,6 +141,56 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/configuration/deployment:
+    get:
+      tags: [Configuration]
+      operationId: getConfigurationDeployment
+      responses:
+        "200":
+          description: Configuration deployment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationDeploymentResponse"
+
+  /api/v1/configuration/deploy:
+    post:
+      tags: [Configuration]
+      operationId: deployConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyConfigurationRequest"
+      responses:
+        "200":
+          description: Configuration staged, validated and atomically activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: Deployment commit failure; previous configuration remains authoritative
+
+  /api/v1/configuration/rollback:
+    post:
+      tags: [Configuration]
+      operationId: rollbackConfiguration
+      responses:
+        "200":
+          description: Previous configuration activated as a new monotonic version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          description: No valid previous configuration is available
+
   /api/v1/configuration/validate:
     post:
       tags: [Configuration]
@@ -172,47 +210,6 @@ paths:
                 $ref: "#/components/schemas/ValidationResponse"
         "422":
           $ref: "#/components/responses/ValidationError"
-
-  /api/v1/configuration/commit:
-    post:
-      tags: [Configuration]
-      operationId: commitConfiguration
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [version]
-              properties:
-                version:
-                  type: integer
-                  description: The staging version to commit
-      responses:
-        "200":
-          description: Commit successful
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ConfigurationResponse"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-
-  /api/v1/configuration/rollback:
-    post:
-      tags: [Configuration]
-      operationId: rollbackConfiguration
-      responses:
-        "200":
-          description: Rollback successful
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ConfigurationResponse"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
 
   /api/v1/commands:
     post:
@@ -269,6 +266,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CommandResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: Device unavailable; no physical state change was confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/greenhouses/{ghId}/crop-cycle:
     get:
@@ -628,6 +635,128 @@ paths:
         "400":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/calibration/record:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationRecord
+      parameters:
+        - { name: componentId, in: query, required: true, schema: { type: string } }
+        - { name: calibrationType, in: query, required: true, schema: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] } }
+        - { name: calibrationId, in: query, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Exact persisted calibration record
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CalibrationRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    post:
+      tags: [Calibration]
+      operationId: saveCalibrationRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalibrationRecordRequest"
+      responses:
+        "200":
+          description: Calibration record persisted and returned by exact ID/version
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CalibrationRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/topology-capabilities:
+    get:
+      tags: [Device]
+      operationId: getTopologyCapabilities
+      responses:
+        "200":
+          description: Topology and capability state derived from the active configuration
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TopologyCapabilitiesResponse"
+        "503":
+          description: Active topology unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/schedules/compiled:
+    get:
+      tags: [Schedule]
+      operationId: getCompiledSchedules
+      responses:
+        "200":
+          description: Currently deployed compiled schedule set
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CompiledScheduleDeployment"
+    post:
+      tags: [Schedule]
+      operationId: deployCompiledSchedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompiledScheduleDeploymentRequest"
+      responses:
+        "200":
+          description: Compiled schedule set accepted and persisted for the active configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Schedule]
+      operationId: clearCompiledSchedules
+      responses:
+        "200":
+          description: Compiled schedule set cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+
   /api/v1/schedules:
     get:
       tags: [Schedule]
@@ -651,10 +780,9 @@ paths:
                               $ref: "#/components/schemas/ScheduleItem"
                           total: { type: integer }
     post:
-      tags: [Schedule]
-      operationId: saveSchedule
       deprecated: true
-      description: DEPRECATED - Raw schedule direct submission is disabled. Schedules must be submitted via Configuration Candidate (PUT /api/v1/configuration).
+      tags: [Schedule]
+      operationId: saveScheduleLegacy
       requestBody:
         required: true
         content:
@@ -662,14 +790,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ScheduleItem"
       responses:
-        "405":
-          description: Method Not Allowed - Direct schedule creation is deprecated. Submit via Configuration Candidate.
+        "410":
+          description: Raw schedule persistence has been retired
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EnvelopeBase"
-        "400":
-          $ref: "#/components/responses/ValidationError"
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/v1/schedules/{id}:
     delete:
@@ -823,6 +949,55 @@ components:
                   type: object
                   additionalProperties: { type: boolean }
 
+    TopologyCapabilityState:
+      type: object
+      required: [ghId, configured, hydraulicallyReachable, automaticallyRoutable, manuallyRoutable, capabilities]
+      properties:
+        ghId: { type: string }
+        configured: { type: boolean }
+        hydraulicallyReachable: { type: boolean }
+        automaticallyRoutable: { type: boolean }
+        manuallyRoutable: { type: boolean }
+        currentSharedManualTarget: { type: string, nullable: true }
+        sharedPath: { type: boolean }
+        capabilities:
+          type: object
+          additionalProperties: { type: boolean }
+
+    TopologyCapabilitiesResponse:
+      type: object
+      required: [topologyVersion, capabilitiesVersion, valid, issues, byGh]
+      properties:
+        topologyVersion: { type: integer }
+        capabilitiesVersion: { type: integer }
+        valid: { type: boolean }
+        issues:
+          type: array
+          items: { type: object, additionalProperties: true }
+        byGh:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TopologyCapabilityState"
+
+    CompiledScheduleDeploymentRequest:
+      type: object
+      required: [deploymentId, configurationVersion, compiled]
+      properties:
+        deploymentId: { type: string }
+        configurationVersion: { type: integer, minimum: 0 }
+        configurationHash: { type: string, nullable: true }
+        compiled:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/CompiledSchedule"
+
+    CompiledScheduleDeployment:
+      allOf:
+        - $ref: "#/components/schemas/CompiledScheduleDeploymentRequest"
+      properties:
+        status: { type: string }
+
     ContextResponse:
       allOf:
         - $ref: "#/components/schemas/EnvelopeBase"
@@ -905,7 +1080,29 @@ components:
                 inventoryVersion: { type: integer }
                 schemaVersion: { type: integer }
                 updatedAt: { type: string, format: date-time }
+                deploymentStatus: { type: string }
+                deploymentId: { type: string, nullable: true }
+                previousConfigurationVersion: { type: integer, minimum: 0 }
+                candidateConfigurationVersion: { type: integer, minimum: 0 }
+                candidateDeploymentId: { type: string, nullable: true }
                 payload: { $ref: "#/components/schemas/ConfigurationPayload" }
+
+    ConfigurationDeploymentResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [status, activeVersion, activeCrc, candidateVersion, previousVersion]
+              properties:
+                status: { type: string }
+                activeVersion: { type: integer, minimum: 0 }
+                activeCrc: { type: integer, minimum: 0 }
+                candidateVersion: { type: integer, minimum: 0 }
+                previousVersion: { type: integer, minimum: 0 }
+                deploymentId: { type: string, nullable: true }
+                candidateDeploymentId: { type: string, nullable: true }
 
     ValidateConfigurationRequest:
       type: object
@@ -931,6 +1128,8 @@ components:
           required: [expectedVersion, configuration]
           properties:
             expectedVersion: { type: integer }
+            deploymentId: { type: string, nullable: true }
+            configuration: { $ref: "#/components/schemas/ConfigurationPayload" }
     Recipe:
       type: object
       required: [recipeId, name, type]
@@ -945,109 +1144,82 @@ components:
         durationSec: { type: integer, nullable: true }
         volumeMl: { type: integer, nullable: true }
 
-    ScheduleItem:
+    Schedule:
       type: object
-      required: [id, enabled, type, action]
-      properties:
-        id: { type: string }
-        enabled: { type: boolean }
-        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
-        action: { type: string }
-        durationSec: { type: integer }
-        targetGhId: { type: string, nullable: true }
-        hour: { type: integer, nullable: true }
-        minute: { type: integer, nullable: true }
-        daysOfWeek: { type: integer, nullable: true }
-        intervalMin: { type: integer, nullable: true }
-
-    ScheduleIntent:
-      type: object
-      required: [scheduleId, targetGhId, action, priority, missedRunPolicy, enabled]
+      required: [scheduleId, ownerId, priority, type, action]
       properties:
         scheduleId: { type: string }
-        targetGhId: { type: string }
-        action: { type: string, enum: [FERTIGATION_START, WATER_PUMP_START, WATER_PUMP_STOP, FAN_START, FAN_STOP] }
-        priority: { type: integer, minimum: 1, maximum: 100 }
-        missedRunPolicy: { type: string, enum: [SKIP, RUN_ON_RECOVERY, RUN_WITHIN_WINDOW, MARK_MISSED] }
-        enabled: { type: boolean }
+        ownerId: { type: string }
+        priority: { type: integer }
+        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
+        action: { type: string, enum: [FERTIGATION, WATER_PUMP, FAN_TOGGLE, CUSTOM] }
         recipeId: { type: string, nullable: true }
-        triggerType: { type: string, enum: [DAILY, INTERVAL, ONCE] }
+        enabled: { type: boolean }
         hour: { type: integer, minimum: 0, maximum: 23, nullable: true }
         minute: { type: integer, minimum: 0, maximum: 59, nullable: true }
         daysOfWeek: { type: integer, nullable: true }
         intervalMin: { type: integer, nullable: true }
         durationSec: { type: integer, nullable: true }
+        constraints:
+          type: array
+          items: { type: string }
 
     CompiledSchedule:
       type: object
-      required: [scheduleId, targetComplexId, targetGhId, resolvedAction, status, configurationVersion]
+      required: [compiledId, scheduleId, status, activationState, complexId, action, ownerId, priority, resourceIds, componentIds, startTimestamp, endTimestamp, configurationVersion, missedRunPolicy]
       properties:
+        compiledId: { type: string }
         scheduleId: { type: string }
-        targetComplexId: { type: string }
-        targetGhId: { type: string }
-        resolvedAction: { type: string }
-        resolvedComponents:
-          type: array
-          maxItems: 16
-          items: { type: string }
-        resolvedResources:
-          type: array
-          maxItems: 16
-          items: { type: string }
-        safetyDependencies:
+        status: { type: string, enum: [ACTIVE, BLOCKED, CONFLICT, EXECUTING, COMPLETED, CANCELLED] }
+        activationState: { type: string, enum: [DRAFT, VALIDATING, ACTIVE, BLOCKED, DISABLED, INVALID] }
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+        action: { type: string }
+        ownerId: { type: string }
+        priority: { type: integer, minimum: 0 }
+        resourceIds:
           type: array
           items: { type: string }
-        recipeVersion: { type: integer, nullable: true }
+        resourceLocks:
+          type: array
+          items:
+            type: object
+            required: [resourceId, lockType]
+            properties:
+              resourceId: { type: string }
+              lockType: { type: string, enum: [EXCLUSIVE, SHARED] }
+        componentIds:
+          type: array
+          items: { type: string }
+        startTimestamp: { type: integer, description: Unix epoch timestamp in milliseconds. }
+        endTimestamp: { type: integer, description: Unix epoch timestamp in milliseconds. }
+        configurationVersion: { type: integer, minimum: 1 }
+        configurationHash: { type: string, nullable: true }
+        missedRunPolicy: { type: string, enum: [EXECUTE, SKIP] }
+        blockedReasons:
+          type: array
+          items: { type: object, additionalProperties: true }
+        dependencies:
+          type: object
+          additionalProperties: true
+        safety:
+          type: object
+          additionalProperties: true
+        trigger:
+          type: object
+          additionalProperties: true
+        parameters:
+          type: object
+          additionalProperties: true
         recipeSnapshot:
           type: object
           nullable: true
-          properties:
-            recipeId: { type: string }
-            recipeVersion: { type: integer }
-            name: { type: string }
-            type: { type: string }
-            targetEc: { type: number, nullable: true }
-            targetPh: { type: number, nullable: true }
-            ratioA: { type: number, nullable: true }
-            ratioB: { type: number, nullable: true }
-            durationSec: { type: integer, nullable: true }
-            volumeMl: { type: integer, nullable: true }
-        configurationVersion: { type: integer }
-        priority: { type: integer }
-        missedRunPolicy: { type: string }
-        executionPolicy: { type: string }
-        status: { type: string, enum: [DRAFT, VALIDATING, ACTIVE, BLOCKED, DISABLED, INVALID] }
-        blockedReason:
+          additionalProperties: true
+        executionPlan:
           type: object
           nullable: true
-          properties:
-            code:
-              type: string
-              enum:
-                - RESOURCE_UNAVAILABLE
-                - RESOURCE_MISSING
-                - RESOURCE_DISABLED
-                - RESOURCE_LIMIT_EXCEEDED
-                - TOPOLOGY_UNREACHABLE
-                - NOT_AUTOMATICALLY_ROUTABLE
-                - SAFETY_DEPENDENCY_MISSING
-                - SENSOR_REQUIRED
-                - CALIBRATION_REQUIRED
-                - RECIPE_INVALID
-                - CONFIGURATION_VERSION_MISMATCH
-                - RECURRENCE_INVALID
-                - RESOURCE_CONFLICT
-                - INVALID_GH
-                - TOPOLOGY_MISSING
-                - NOT_CONFIGURED
-                - TOPOLOGY_BLOCKED
-                - CAPABILITY_MISSING
-            message: { type: string }
-            resourceId: { type: string, nullable: true }
-            componentId: { type: string, nullable: true }
-            ghId: { type: string, nullable: true }
-            action: { type: string, nullable: true }
-            resolution: { type: string, nullable: true }
+          additionalProperties: true
+        conflictReason: { type: string, nullable: true }
 
     ConfigurationPayload:
       type: object
@@ -1064,10 +1236,7 @@ components:
           items: { $ref: "#/components/schemas/Assignment" }
         schedules:
           type: array
-          items: { $ref: "#/components/schemas/ScheduleIntent" }
-        compiledSchedules:
-          type: array
-          items: { $ref: "#/components/schemas/CompiledSchedule" }
+          items: { $ref: "#/components/schemas/Schedule" }
         recipes:
           type: array
           items: { $ref: "#/components/schemas/Recipe" }
@@ -1104,14 +1273,16 @@ components:
           type: object
           required: [commandId, type]
           properties:
-            commandId: { type: string }
-            type: 
-              type: string
-              enum: [FERTIGATION_START, FERTIGATION_STOP, WATER_PUMP_TOGGLE, FAN_TOGGLE, CALIBRATION_START, EMERGENCY_STOP, CLEAR_FAULT, REBOOT]
+            commandId: { type: string, minLength: 1, maxLength: 39 }
+            type: { type: string, minLength: 1 }
+            targetComplexId: { type: string, nullable: true }
             targetGhId: { type: string, nullable: true }
             componentId: { type: string, nullable: true }
-            componentId: { type: string, nullable: true }
-            durationSeconds: { type: integer, nullable: true }
+            resourceId: { type: string, nullable: true }
+            durationSeconds: { type: integer, minimum: 0, nullable: true }
+            maxRuntimeSec: { type: integer, minimum: 1, nullable: true }
+            configurationVersion: { type: integer, minimum: 0, nullable: true }
+            source: { type: string, nullable: true }
             rawWaterVolumeMl: { type: integer, minimum: 0, nullable: true }
             dosingAVolumeMl: { type: integer, minimum: 0, nullable: true }
             dosingBVolumeMl: { type: integer, minimum: 0, nullable: true }
@@ -1131,9 +1302,18 @@ components:
                   type: string
                   enum: [CREATED, ACCEPTED, QUEUED, RUNNING, COMPLETED, FAILED, REJECTED, CANCELLED]
                 componentId: { type: string, nullable: true }
+                targetComplexId: { type: string, nullable: true }
+                targetGhId: { type: string, nullable: true }
+                resourceId: { type: string, nullable: true }
+                configurationVersion: { type: integer, minimum: 0, nullable: true }
+                resultCode: { type: string, nullable: true }
+                message: { type: string, nullable: true }
+                submittedAtMs: { type: integer, minimum: 0, nullable: true }
+                startedAtMs: { type: integer, minimum: 0, nullable: true }
+                completedAtMs: { type: integer, minimum: 0, nullable: true }
                 stateReason: { type: string, nullable: true }
                 actualState: { type: string, nullable: true }
-                createdAt: { type: string, format: date-time }
+                createdAt: { type: string, format: date-time, nullable: true }
                 startedAt: { type: string, format: date-time, nullable: true }
                 completedAt: { type: string, format: date-time, nullable: true }
 
@@ -1487,6 +1667,37 @@ components:
         endTimestamp: { type: string, format: date-time, nullable: true }
         progressPct: { type: integer, minimum: 0, maximum: 100, nullable: true }
 
+    CalibrationRecordRequest:
+      type: object
+      required: [componentId, calibrationType, calibrationId, version, state, operator]
+      properties:
+        componentId: { type: string }
+        calibrationType: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] }
+        calibrationId: { type: string }
+        version: { type: integer, minimum: 1 }
+        state: { type: string, enum: [NOT_CALIBRATED, CALIBRATED, VERIFIED, EXPIRED, SUSPECT, RECALIBRATED, REMOVED] }
+        operator: { type: string }
+        validUntilMs: { type: integer, nullable: true }
+        rateMlPerSec: { type: number, minimum: 0.000001, nullable: true }
+        slope: { type: number, nullable: true }
+        offset: { type: number, nullable: true }
+        pulsesPerLiter: { type: number, minimum: 0.000001, nullable: true }
+
+    CalibrationRecord:
+      type: object
+      required: [calibrationId, componentId, calibrationType, version, state, createdAtMs, validFromMs, operator]
+      properties:
+        calibrationId: { type: string }
+        componentId: { type: string }
+        calibrationType: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] }
+        version: { type: integer, minimum: 1 }
+        state: { type: string, enum: [NOT_CALIBRATED, CALIBRATED, VERIFIED, EXPIRED, SUSPECT, RECALIBRATED, REMOVED] }
+        createdAtMs: { type: integer }
+        validFromMs: { type: integer }
+        validUntilMs: { type: integer, nullable: true }
+        operator: { type: string }
+        parameters: { type: object, additionalProperties: true }
+
     CalibrationRequest:
       type: object
       required: [componentId, type, durationSec]
@@ -1573,41 +1784,3 @@ components:
                 retryable: { type: boolean }
                 reconcileRequired: { type: boolean }
                 details: { type: object, additionalProperties: true }
-
-    TopologyStateResponse:
-      type: object
-      properties:
-        greenhouses:
-          type: array
-          items:
-            type: object
-            required:
-              - ghId
-              - configured
-              - hydraulicallyReachable
-              - automaticallyRoutable
-              - manuallyRoutable
-              - blockingReason
-              - capabilities
-            properties:
-              ghId: { type: string }
-              configured: { type: boolean }
-              hydraulicallyReachable: { type: boolean }
-              automaticallyRoutable: { type: boolean }
-              manuallyRoutable: { type: boolean }
-              currentSharedTarget: { type: string }
-              blockingReason: { type: string }
-              capabilities:
-                type: object
-                properties:
-                  CAN_DELIVER: { type: boolean }
-                  CAN_AUTO_FILL: { type: boolean }
-                  CAN_AUTO_DOSE: { type: boolean }
-                  CAN_AUTO_MIX: { type: boolean }
-                  CAN_AUTO_ROUTE: { type: boolean }
-                  CAN_MONITOR_FLOW: { type: boolean }
-                  CAN_MONITOR_LEVEL: { type: boolean }
-                  CAN_MONITOR_EC: { type: boolean }
-                  CAN_MONITOR_PH: { type: boolean }
-                  CAN_CLIMATE_CONTROL: { type: boolean }
-                  CAN_RUN_AUTONOMOUSLY: { type: boolean }

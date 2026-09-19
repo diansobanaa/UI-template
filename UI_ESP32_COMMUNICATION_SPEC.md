@@ -1365,36 +1365,3 @@ When a UI field changes, update the UI contract first and then update:
 4. tests.
 
 Never silently change only one side.
-
----
-
-# 51. Schedule Compiler & Candidate Configuration Deployment (Milestone 8)
-
-### 51.1 Architecture & Authority
-1. **Canonical Schedule Compiler Authority**: Operates strictly within the backend/server authority (`server/compiler/ScheduleCompiler.ts`). Consumes an authoritative candidate configuration snapshot (`ConfigurationPayload`) with no dependencies on browser `localStorage` or client stores.
-2. **Deterministic Artifact**: Produces `compiledSchedules` embedded in the configuration candidate.
-3. **Harmonized Capacity Ceiling**:
-   - `PRODUCT_MAX_RESOLVED_RESOURCES` = 16 (matching `CFG_MAX_RESOLVED_RESOURCES` and `MAX_SCHED_RESOLVED_RESOURCES`).
-   - `PRODUCT_MAX_SCHEDULES` = 16.
-4. **Lifecycle State Machine**:
-   - `DRAFT`: Local draft / uncommitted schedule.
-   - `VALIDATING`: Successfully compiled schedule in staged candidate configuration awaiting atomic deployment.
-   - `ACTIVE`: Committed and deployed active schedule eligible for runtime execution on ESP32.
-   - `BLOCKED`: Dependency closure failed, routing missing, or static resource conflict detected.
-   - `DISABLED`: Manually turned off schedule.
-   - `INVALID`: Schema or structural error.
-
-### 51.2 API Endpoints
-- `POST /api/v1/schedules`: **Deprecated / Disabled**. Returns `405 Method Not Allowed`. Direct raw schedule dispatch is prohibited.
-- `POST /api/v1/configuration/candidate`: Submits compiled candidate configuration for validation.
-- `POST /api/v1/configuration/apply`: Atomically promotes staged candidate configuration to active, promoting `VALIDATING` schedules to `ACTIVE`.
-- `GET /api/v1/schedules`: Returns active deployed compiled schedules from `configuration_mgr`.
-
-### 51.3 Runtime Safety Interlocks
-1. Schedules dispatch only when:
-   - `status == ACTIVE`
-   - `sched->configuration_version == active_cfg.version`
-   - `enabled == true`
-   - Emergency Stop is inactive (`estop == false`).
-2. Fertigation actions route exclusively through Command Manager (`CMD_TYPE_FERTIGATION_RUN`) carrying immutable recipe snapshots. Direct raw GPIO pin toggling for scheduled dosing is prohibited.
-

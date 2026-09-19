@@ -19,6 +19,8 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT      BIT1
 
 #include "nvs.h"
+#include "services/event_mgr.h"
+#include "storage/storage_mgr.h"
 
 static int s_retry_num = 0;
 static bool s_is_connected = false;
@@ -34,7 +36,9 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
             ESP_LOGI(TAG, "STA started in unprovisioned state. SoftAP active at 192.168.4.1.");
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        bool was_connected = s_is_connected;
         s_is_connected = false;
+        if (was_connected) (void)event_mgr_log(LOG_LEVEL_WARNING, "COMMUNICATION", "COMMUNICATION_LOST", "Wi-Fi communication lost; ESP32 local authority continues independently.", NULL);
         if (s_retry_num < MAX_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -47,7 +51,9 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
+        bool was_connected = s_is_connected;
         s_is_connected = true;
+        if (!was_connected) (void)event_mgr_log(LOG_LEVEL_INFO, "COMMUNICATION", "COMMUNICATION_RESTORED", "Wi-Fi communication restored.", NULL);
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }

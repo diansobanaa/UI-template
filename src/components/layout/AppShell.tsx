@@ -15,14 +15,14 @@ export function AppShell({
   complexId,
   children,
 }: {
-  complexId: string;
+  complexId?: string;
   children: React.ReactNode;
 }) {
   // Desktop: sidebar is visible and can be collapsed.
   // Mobile: sidebar is a drawer and starts closed by default.
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const complex = complexService.get(complexId) ?? complexService.list()[0];
+  const complex = complexId ? complexService.get(complexId) : undefined;
 
   return (
     <div className="min-h-screen bg-[#06131b] text-slate-100">

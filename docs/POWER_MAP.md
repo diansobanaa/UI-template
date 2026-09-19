@@ -147,6 +147,7 @@ In greenhouse operations, malicious intruders or power sabotage often cut the ma
 To detect power loss without requiring cloud dependencies or cellular modems:
 - The operator monitors the greenhouse via a mobile phone, tablet, or wall-mounted dashboard tablet (which has its own battery/UPS).
 - The web application executes a background watchdog timer (`src/components/ConnectionMonitor.tsx`) polling the controller's `/api/v1/health` endpoint every 5,000 ms.
+- **Registration Gate:** The watchdog timer and alarm triggers are strictly gated on the presence of a bound controller (`complex.esp32.deviceId`). If no Complex has a registered/bound ESP32 controller, polling and alarms are completely suppressed to prevent false alarms during initial onboarding and clean-slate states.
 - **Fail Threshold:** 3 consecutive missed responses (15-second grace window). This filter guarantees that transient Wi-Fi packet drops do not cause false alarms.
 - **Audible & Visual Alarm:**
   - When the threshold is breached, the client triggers a synthesized pulsing audio siren using the HTML5 Web Audio API (oscillator sweep: 880 Hz $\leftrightarrow$ 1760 Hz).

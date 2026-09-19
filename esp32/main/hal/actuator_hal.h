@@ -62,6 +62,25 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on);
  */
 bool actuator_hal_get_state(actuator_id_t id);
 
+/** Resolve a configured component to the legacy compatibility actuator slot by role. */
+esp_err_t actuator_hal_find_id_by_component_id(const char *component_id, actuator_id_t *out_id);
+
+/** Return dynamic configured component state/owner and current runtime. */
+esp_err_t actuator_hal_get_component_status(const char *component_id, bool *out_on, actuator_owner_t *out_owner, uint32_t *out_runtime_seconds);
+
+/** Acquire/release a configured logical component without depending on legacy actuator enums. */
+esp_err_t actuator_hal_acquire_component(const char *component_id, actuator_owner_t owner);
+esp_err_t actuator_hal_release_component(const char *component_id, actuator_owner_t owner);
+
+/** Stop a configured component and clear its normal command ownership. */
+esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t owner);
+
+/** Force a configured component OFF and retain a SAFETY ownership lock. */
+esp_err_t actuator_hal_force_off_component(const char *component_id);
+
+/** Clear SAFETY ownership locks after an explicit validated recovery. */
+esp_err_t actuator_hal_clear_safety_locks(void);
+
 /**
  * @brief Get complete status structure for an actuator.
  */

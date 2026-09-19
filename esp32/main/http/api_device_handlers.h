@@ -10,17 +10,18 @@ extern "C" {
 esp_err_t handler_get_health(httpd_req_t *req);
 esp_err_t handler_get_status(httpd_req_t *req);
 esp_err_t handler_get_inventory(httpd_req_t *req);
-esp_err_t handler_get_topology(httpd_req_t *req);
 esp_err_t handler_get_capabilities(httpd_req_t *req);
+esp_err_t handler_get_topology_capabilities(httpd_req_t *req);
 esp_err_t handler_get_context(httpd_req_t *req);
 esp_err_t handler_get_clock(httpd_req_t *req);
 esp_err_t handler_post_clock_sync(httpd_req_t *req);
 
 /* Configuration Handlers */
 esp_err_t handler_get_configuration(httpd_req_t *req);
+esp_err_t handler_get_configuration_deployment(httpd_req_t *req);
 esp_err_t handler_put_configuration(httpd_req_t *req);
 esp_err_t handler_validate_configuration(httpd_req_t *req);
-esp_err_t handler_commit_configuration(httpd_req_t *req);
+esp_err_t handler_deploy_configuration(httpd_req_t *req);
 esp_err_t handler_rollback_configuration(httpd_req_t *req);
 
 esp_err_t handler_post_command(httpd_req_t *req);

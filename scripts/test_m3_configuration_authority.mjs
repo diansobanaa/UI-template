@@ -1,6 +1,9 @@
-﻿/**
+/* M17 NOTICE: GPIO values in this fixture are synthetic logical-test data only.
+ * They are NOT a physical wiring map and must never be used as commissioning evidence.
+ * Physical GPIO authority is docs/HARDWARE_WIRING_MAP.md. */
+/**
  * M3.0 — Active Configuration Authority Verification Gate
- * Behavioral Test Suite
+ * Software verification suite (mock architecture + source assertions; not physical proof)
  *
  * Tests A-R as specified in the M3.0 gate spec.
  * Results: PASS | FAIL | BLOCKED
@@ -8,6 +11,7 @@
  */
 
 import http from 'http';
+import fs from 'node:fs';
 
 const ESP32_HOST = process.env.ESP32_HOST || '192.168.1.50';
 const ESP32_PORT = parseInt(process.env.ESP32_PORT || '80', 10);
@@ -77,11 +81,8 @@ function mockRebuildFromPersisted() {
     mockLoadFromJson(cfg);
     return true;
   }
-  // No active config — bootstrap from components.json only when there is truly no active config
-  if (s_components_json) {
-    mockLoadFromJson({ components: s_components_json });
-    return true;
-  }
+  // No active config must be safe-empty. components.json is migration input only
+  // and must never silently enter the operational registry.
   s_active_components = [];
   return false;
 }
@@ -427,15 +428,14 @@ async function run() {
   console.log('\n-- GROUP 5: Candidate / Activation Isolation --');
 
   /* Test M */
-  await test('M - Frontend hardwareService.getInstalledComponents() calls API not static data', async () => {
-    // Static code audit (verified in services.ts):
-    // - Primary: _esp32.getInventory() -> GET /api/v1/inventory (authoritative)
-    // - Fallback: BackendNotConnectedError only (dev/offline), explicitly logged
-    // - No localStorage used in component authority path
-    // - initialInstalledComponents isolated to _devFallbackComponents (dev fallback only)
-    console.log('    Code-audit test: hardwareService -> Esp32Client.getInventory() -> /api/v1/inventory');
-    console.log('    Fallback only on BackendNotConnectedError; logged with DEVELOPMENT ONLY warning');
-    console.log('    No localStorage usage found in component authority path');
+  await test('M - Frontend installed inventory is API-authoritative (source assertion)', async () => {
+    const servicesSource = fs.readFileSync(new URL('../src/lib/services.ts', import.meta.url), 'utf8');
+    assert(/async getInstalledComponents\(\): Promise<InstalledComponent\[\]>[\s\S]*?_esp32\.getInventory\(\)/.test(servicesSource),
+      'hardwareService.getInstalledComponents must call ESP32 getInventory()');
+    assert(!servicesSource.includes('initialInstalledComponents'),
+      'hardwareService must not reference static initialInstalledComponents as operational authority');
+    assert(!servicesSource.includes('_devFallbackComponents'),
+      'hardwareService must not maintain a production installed-component fallback store');
   });
 
   /* Test N */
@@ -579,12 +579,12 @@ async function run() {
   console.log('    -> hardwareService.getInstalledComponents() (frontend, DERIVED)');
   console.log('');
   console.log('Secondary stores:');
-  console.log('  s_active_components[]        DERIVED (from active config)     OK');
-  console.log('  components.json (SPIFFS)     BOOTSTRAP only (no active config) OK');
-  console.log('  hardware_registry_get_default_json() -> []                     OK');
-  console.log('  s_actuator_component_ids[]   COMPAT/ENUM (not inventory)       OK');
-  console.log('  initialInstalledComponents   DEV FALLBACK (offline only)       OK');
-  console.log('  localStorage                 NOT USED in authority path        OK');
+  console.log('  s_active_components[]        DERIVED (from active config)');
+  console.log('  components.json (SPIFFS)     MIGRATION INPUT ONLY; no silent boot fallback');
+  console.log('  hardware_registry_get_default_json() -> empty JSON only');
+  console.log('  actuator enum map             COMPATIBILITY ROUTING ONLY; registry remains authority');
+  console.log('  initialInstalledComponents   NOT REFERENCED by hardwareService authority path');
+  console.log('  localStorage                 NOT USED by hardwareService inventory authority path');
   console.log('');
   console.log(`M3.0 CONCLUSION: ${conclusion}`);
 

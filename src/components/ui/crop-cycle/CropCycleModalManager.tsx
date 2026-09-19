@@ -28,7 +28,7 @@ export interface CropCycleModalManagerProps {
   onRecordPolinasi: (tanggalPolinasi: string, options?: { pollinationMethod?: "natural" | "bee" | "manual"; notes?: string }) => Promise<void>;
   onUpdateTanggalTanam: (newTanggalTanam: string) => Promise<void>;
   onUpdateTanggalPolinasi: (newTanggalPolinasi: string, options?: { pollinationMethod?: "natural" | "bee" | "manual" }) => Promise<void>;
-  onUpdateMetadata?: (updates: { variety?: string; plantCount?: number; notes?: string }) => Promise<void>;
+  onUpdateMetadata?: (updates: { variety?: string; plantCount?: number; notes?: string; cropTimelineConfig?: import("@/lib/cropTimelineConfig").CropTimelineConfig }) => Promise<void>;
   onDeleteTanggalPolinasi: () => Promise<void>;
   onResetCycle?: () => Promise<void>;
   onHarvest: (options?: { harvestDate?: string; yieldKg?: number; grade?: string; notes?: string }) => Promise<void>;

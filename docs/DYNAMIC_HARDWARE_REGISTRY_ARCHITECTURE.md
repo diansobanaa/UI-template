@@ -2,7 +2,7 @@
 
 **Document Role:** Authoritative Architectural Specification & Step-by-Step Hardware/UI Expansion Guide  
 **Target Subsystems:** ESP32-S3 Firmware (HAL & SPIFFS Storage), OpenAPI Contract, Vite/React Dynamic UI  
-**Status:** **AUTHORITATIVE ARCHITECTURE CONTRACT**
+**Status:** **ACTIVE ARCHITECTURE CONTRACT (M2 alignment update, 2026-09-18)**
 
 ---
 
@@ -11,14 +11,14 @@
 In traditional embedded IoT applications, hardware pinouts and peripheral lists are rigidly hardcoded into compile-time C source code. Adding a new pump, sensor, or valve requires modifying firmware code, recompiling, reflashing the device, and rewriting web frontend components.
 
 The **AgroTech Controller** implements a **Self-Describing Dynamic Hardware Registry (Data-Driven Hardware Architecture)**:
-1. **Single Source of Topology:** Component definitions, assignments, physical pin/bus addresses, and friendly names live in a structured JSON configuration (`components.json`) stored on ESP32 Flash memory (SPIFFS/NVS).
-2. **Dynamic Firmware Ingestion:** On boot, the ESP32 mounts its filesystem, parses `components.json`, initializes corresponding HAL driver handles, and registers each component in an active runtime registry with safe fallback to factory defaults.
+1. **Single Source of Topology:** Component definitions, assignments, physical pin/bus addresses, and friendly names live in the versioned active configuration persisted in NVS. `components.json` is retained only as an explicit migration/bootstrap input; it is never an operational fallback.
+2. **Dynamic Firmware Ingestion:** On boot, the ESP32 loads the persisted active configuration after storage initialization, validates it, and builds the runtime registry. When no valid active configuration exists, the registry stays safely empty/unavailable.
 3. **OpenAPI Auto-Discovery:** The ESP32 serves its active component registry dynamically to the network via `GET /api/v1/inventory` and `GET /api/v1/capabilities`.
 4. **Dynamic UI/UX Rendering:** The React dashboard queries `/api/v1/inventory`, maps each discovered component into reactive state, and dynamically renders cards, status badges, calibration screens, and manual trigger buttons via `.map()` loops without requiring code edits or frontend redeployments.
 
 ```text
 ┌─────────────────────────┐
-│ components.json         │ (Stored on ESP32 Flash: /spiffs/components.json)
+│ Active Configuration    │ (Versioned configuration in NVS)
 └───────────┬─────────────┘
             │ 1. Boot-time Ingestion & Validation
             ▼
@@ -42,8 +42,8 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
 
 ### 2.1. File Path & Storage Location
 * **Filesystem:** SPIFFS (or LittleFS) mounted at `/spiffs`.
-* **Canonical Path:** `/spiffs/components.json`
-* **Default Fallback:** Embedded static C structure in `esp32/main/hal/hardware_registry.c` (used if file is absent, unformatted, or corrupted).
+* **Migration Input:** `/spiffs/components.json` may be used only by an explicit migration/bootstrap procedure that validates and activates the resulting configuration.
+* **Operational Authority:** Persisted versioned active configuration in NVS. No static fallback is used for physical operation.
 
 ### 2.2. JSON Schema Definition
 ```json
@@ -142,11 +142,11 @@ Use this pathway when adding extra actuators and spare channels are available.
   3. Connect Ground return to ESP32 Signal GND / PSU Ground.
   4. Connect 12V DC auxiliary power to actuator driver board.
   5. Connect Actuator (e.g. Dosing Pump C) to output terminals.
-  6. In `components.json`, add:
+  6. Add the component to the active configuration through the configuration API/editor:
      ```json
      { "componentId": "pump_dosing_c", "name": "Dosing Pump C", "supportedTypeId": "pump-12v-dc", "lifecycleState": "REGISTERED", "deploymentStatus": "PENDING", "wiring": { "interface": "GPIO", "gpio": 4, "channel": 3, "polarity": "ACTIVE_LOW" } }
      ```
-  7. Upload `components.json` to ESP32 via API or restart device.
+  7. Validate and deploy the configuration. The ESP32 activates it only after validation; there is no silent `components.json` runtime fallback.
 
 ---
 
@@ -227,7 +227,7 @@ ESP32-S3 Board                  PCA9685 16-Ch Module           MOSFET Drivers & 
    ))}
    ```
 7. **Offline Graceful Degradation:**
-   If the ESP32 is offline or disconnected, `fertigationService` automatically falls back to cached/default pump definitions with an offline badge.
+   If the ESP32 is offline, installed-hardware authority is unavailable. The UI must not synthesize installed pumps/actuators from seed data; cached UI data may be displayed only as explicitly non-authoritative/offline information.
 
 ---
 
@@ -235,7 +235,7 @@ ESP32-S3 Board                  PCA9685 16-Ch Module           MOSFET Drivers & 
 
 | Subsystem | Requirement | Verification Method | Pass Criteria |
 |:---|:---|:---|:---|
-| **ESP32 Storage** | Store & load `components.json` on SPIFFS | Filesystem mount & JSON read | Valid cJSON parse, 0 memory leaks |
-| **ESP32 Fallback** | Safe boot if `components.json` missing | Boot test with erased SPIFFS | Defaults loaded, 0 watchdog resets |
+| **ESP32 Storage** | Store & load active configuration in NVS | NVS persistence + CRC | Valid canonical JSON, version/CRC consistent |
+| **ESP32 No-Config Behavior** | Safe boot if no active configuration exists | Boot test with empty/invalid active config | Registry remains empty/unavailable; no hardware is invented |
 | **OpenAPI Contract** | Match `UI_ESP32_OPENAPI.yaml` schema | REST smoke test `/api/v1/inventory` | EnvelopeBase conforming, HTTP 200 |
 | **React UI Rendering** | Dynamic `.map()` over live inventory | Vite build & component mount | Dynamic cards rendered, 0 TypeScript errors |

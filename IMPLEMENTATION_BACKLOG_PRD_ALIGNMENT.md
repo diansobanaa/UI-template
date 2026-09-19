@@ -183,6 +183,14 @@ FAILED
 ROLLED_BACK
 ```
 
+> **M10 software acceptance evidence (2026-09-18):** PASS — command/safety acceptance 31/31; backend command-proxy integration 5/5; M9 regression 16/16; M7/M8 regression 21/21; backend M7/M8 regression 7/7; M3.0 authority 18 PASS / 0 FAIL / 1 BLOCKED; M2 hardware-management 26/26; forensic authority 13/13; E2E mock contract PASS; OpenAPI M10 schema PASS for root + canonical contracts. ESP-IDF build and all physical actuator/sensor/power-cycle/hydraulic verification remain BLOCKED by unavailable toolchain/hardware.
+
+> **M13 implementation evidence (2026-09-19):** M13.1–M13.28 are implemented in the current source with durable ESP32 telemetry/event logs, persistent monotonic sequence blocks, raw-first/idempotent Python ingestion, cursor-based history APIs, explicit traceability metadata, sensor fault/recovery and operational event generation, and frontend missing/stale/invalid handling. `scripts/test_m13_firmware_contract.mjs` + `scripts/test_m13_history.py` PASS. Physical sensor/actuator proof remains a separate M17 commissioning concern.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
+> **M5/M6 closure update (2026-09-19):** The current source and regression gate close M5 and M6 at the software/configuration-driven level. Physical ESP32/hydraulic evidence remains outside these milestones and is tracked under M17.
+
 ## Acceptance Criteria
 
 - [ ] UI, backend, and firmware use the same identity model.
@@ -230,6 +238,10 @@ M0.
 - [x] M1.10 UI connection test.
 - [x] M1.11 Timeout handling.
 - [x] M1.12 Offline/error state handling.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
+> **M5/M6 closure update (2026-09-19):** The current source and regression gate close M5 and M6 at the software/configuration-driven level. Physical ESP32/hydraulic evidence remains outside these milestones and is tracked under M17.
 
 ## Acceptance Criteria
 
@@ -287,10 +299,10 @@ M0 + M1.
   - Evidence: `storage_mgr_save_config()` stores components JSON to NVS with CRC. `storage_mgr_load_config()` retrieves on boot. Behavioral test M2.16 PASS.
 - [x] M2.17 Validate stable component IDs.
   - Evidence: `api_config_handlers.c` validates: non-empty, max 32 chars, no duplicate componentId. Behavioral tests M2.17a–M2.17d PASS.
-- [x] M2.18 Validate installation metadata.
-  - Evidence: `api_config_handlers.c` validates lifecycleState enum, deploymentStatus enum, wiring interface enum, GPIO range [0,48]. Tests M2.18a–M2.18d PASS.
-- [x] M2.19 Validate assignment metadata.
-  - Evidence: `api_config_handlers.c` validates `assignment.complexId` presence. Tests M2.19a–M2.19b PASS.
+- [-] M2.18 Validate installation metadata.
+  - Evidence: lifecycleState/deploymentStatus/wiring/GPIO validation is implemented and covered by software tests, but the PRD-required installation metadata surface is broader (commissioning, ownership, assignment, calibration/safety/topology/capability fields are not fully enforced at this boundary).
+- [-] M2.19 Validate assignment metadata.
+  - Evidence: assignment complexId is validated against the device Complex and the runtime parser now enforces the same relationship. GH existence, resource ownership/conflict semantics, and full topology relationship validation remain M3 work.
 - [x] M2.20 Expose inventory and registry state.
   - Evidence: `handler_get_inventory()` iterates `hardware_registry_get_count/get_by_index()`. Active registry refreshed on PUT /configuration. Tests M2.20 PASS.
 
@@ -299,17 +311,19 @@ M0 + M1.
 - [x] M2.21 Parse component registry.
   - Evidence: `hardware_registry_load_from_json()` parses componentId, supportedTypeId, lifecycleState, deploymentStatus, wiring, assignment, parameters from JSON. Behavioral test M2.21 PASS (4 components loaded).
 - [x] M2.22 Persist installed registry.
-  - Evidence: `hardware_hal_init_all()` loads from NVS `lvc_json` key via `storage_mgr_load_config()`, with SPIFFS `components.json` fallback. CRC integrity check on reload. Behavioral test M2.22 PASS.
+  - Evidence: `hardware_hal_init_all()` loads the persisted active configuration from NVS `lvc_json`; CRC integrity is checked on reload. There is no silent `components.json` operational fallback. Software persistence tests PASS; physical reboot remains separately BLOCKED.
 - [!] M2.22 Reboot persistence (physical hardware).
   - Status: BLOCKED — ESP32 not connected (no COM port detected). Cannot flash. NVS/SPIFFS code paths verified by code review; physical reboot test deferred.
 - [x] M2.23 Resolve components by logical ID.
   - Evidence: `hardware_registry_find_by_id()` iterates active registry and returns by componentId string. Tests M2.23a–M2.23b PASS.
-- [x] M2.24 Resolve channel dynamically from configuration.
-  - Evidence: `actuator_hal_set()` calls `hardware_registry_find_by_id()` and dynamically re-binds GPIO if configuration wiring differs from static default. `hardware_registry_resolve_gpio/channel()` helpers added. Tests M2.24a–M2.24d PASS (including multi-instance same driver).
+- [-] M2.24 Resolve channel dynamically from configuration.
+  - Evidence: the known actuator execution path now resolves GPIO through the active registry and rejects unknown bindings; generic resolution helpers are present. However, the broader runtime still uses a fixed semantic actuator enum set and service-level resource identities, so this is not yet fully arbitrary configuration-driven hardware execution.
 - [x] M2.25 Track component state.
   - Evidence: `actuator_hal_set()` blocks ON if lifecycle ≠ COMMISSIONED or ENABLED. `actuator_hal_set_by_component_id()` also enforces lifecycle. Tests M2.25a–M2.25d PASS.
 - [x] M2.26 Expose registry through API.
   - Evidence: `handler_get_inventory()` exposes active `s_active_components[]` with full InstalledComponent schema: lifecycleState, deploymentStatus, wiring, assignment, parameters. PUT /configuration triggers live registry reload. Tests M2.26a–M2.26b PASS.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -366,29 +380,31 @@ Complex
 
 ### Backend
 
-- [x] M3.1 Schema validation.
-- [x] M3.2 Semantic validation.
-- [x] M3.3 Resource validation.
-- [x] M3.4 Topology validation.
-- [x] M3.5 Safety dependency validation.
-- [x] M3.6 Hardware compatibility validation.
-- [x] M3.7 Configuration versioning.
+- [ ] M3.1 Schema validation.
+- [ ] M3.2 Semantic validation.
+- [ ] M3.3 Resource validation.
+- [ ] M3.4 Topology validation.
+- [ ] M3.5 Safety dependency validation.
+- [ ] M3.6 Hardware compatibility validation.
+- [ ] M3.7 Configuration versioning.
 
 ### ESP32
 
-- [x] M3.8 Configuration parser.
-- [x] M3.9 Schema validation.
-- [x] M3.10 Candidate configuration representation.
-- [x] M3.11 Active configuration representation.
-- [x] M3.12 Configuration hash/CRC.
+- [ ] M3.8 Configuration parser.
+- [ ] M3.9 Schema validation.
+- [ ] M3.10 Candidate configuration representation.
+- [ ] M3.11 Active configuration representation.
+- [ ] M3.12 Configuration hash/CRC.
 
 ### UI
 
-- [x] M3.13 Configuration editor.
-- [x] M3.14 Validation result display.
-- [x] M3.15 Validation error details.
-- [x] M3.16 Configuration version display.
-- [x] M3.17 Draft state.
+- [ ] M3.13 Configuration editor.
+- [ ] M3.14 Validation result display.
+- [ ] M3.15 Validation error details.
+- [ ] M3.16 Configuration version display.
+- [ ] M3.17 Draft state.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -410,10 +426,10 @@ UI
 VALID
 ```
 
-- [x] Invalid semantic relationships are rejected.
-- [x] Missing required resources are detected.
-- [x] Unsupported hardware mappings are detected.
-- [x] Validation errors identify the relevant component/GH/resource where applicable.
+- [ ] Invalid semantic relationships are rejected.
+- [ ] Missing required resources are detected.
+- [ ] Unsupported hardware mappings are detected.
+- [ ] Validation errors identify the relevant component/GH/resource where applicable.
 
 ## Output
 
@@ -437,19 +453,19 @@ M3.
 
 ## Backlog
 
-- [x] M4.1 Staging configuration.
-- [x] M4.2 Active configuration.
-- [x] M4.3 Previous/rollback configuration.
-- [x] M4.4 Atomic activation.
-- [x] M4.5 Boot recovery.
-- [x] M4.6 Deployment ID.
-- [x] M4.7 Deployment acknowledgement.
-- [x] M4.8 Active version reporting.
-- [x] M4.9 Failed deployment state.
-- [x] M4.10 Rollback.
-- [x] M4.11 UI pending state.
-- [x] M4.12 UI deployed/applied state.
-- [x] M4.13 UI failed state.
+- [ ] M4.1 Staging configuration.
+- [ ] M4.2 Active configuration.
+- [ ] M4.3 Previous/rollback configuration.
+- [ ] M4.4 Atomic activation.
+- [ ] M4.5 Boot recovery.
+- [ ] M4.6 Deployment ID.
+- [ ] M4.7 Deployment acknowledgement.
+- [ ] M4.8 Active version reporting.
+- [ ] M4.9 Failed deployment state.
+- [ ] M4.10 Rollback.
+- [ ] M4.11 UI pending state.
+- [ ] M4.12 UI deployed/applied state.
+- [ ] M4.13 UI failed state.
 
 ## Required Flow
 
@@ -481,6 +497,8 @@ FAIL
 Previous known-good configuration remains ACTIVE
 ```
 
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
 ## Acceptance Criteria
 
 Test case:
@@ -495,10 +513,10 @@ Deploy v11
 v10 remains ACTIVE
 ```
 
-- [x] UI knows v11 failed.
-- [x] UI does not show false success.
-- [x] ESP32 reports the actual active version.
-- [x] A failed candidate cannot partially replace active configuration.
+- [ ] UI knows v11 failed.
+- [ ] UI does not show false success.
+- [ ] ESP32 reports the actual active version.
+- [ ] A failed candidate cannot partially replace active configuration.
 
 ## Output
 
@@ -533,6 +551,8 @@ M4.
 - [x] M5.9 Remove fixed semantic actuator assumptions where configuration is intended to control identity.
 - [x] M5.10 Preserve local autonomous behavior from active configuration.
 
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
 ## Acceptance Criteria
 
 A configuration such as:
@@ -549,6 +569,10 @@ can be loaded and operated without modifying firmware source solely to add/remov
 - [x] Telemetry can identify the actual GH context.
 - [x] Crop-cycle state is not globally singleton by design.
 - [x] Resource references come from configuration.
+
+## Current Status
+
+**M5 COMPLETE — software/configuration-driven runtime.** Dynamic Complex/GH context, component/resource lookup, active-configuration boot, generic component actuation, dynamic telemetry context, and local autonomous execution are implemented. Physical ESP32 proof remains M17.
 
 ## Output
 
@@ -603,6 +627,8 @@ Recalculate capabilities
 Revalidate affected schedules
 ```
 
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
 ## Acceptance Criteria
 
 - [x] An installed resource cannot silently have two exclusive owners.
@@ -610,6 +636,10 @@ Revalidate affected schedules
 - [x] Old owner loses access/capability where appropriate.
 - [x] New owner gains capability only after valid assignment.
 - [x] Affected schedules are revalidated.
+
+## Current Status
+
+**M6 COMPLETE — software/configuration-driven resource manager.** Resource identity, ownership, assignment, shared/exclusive semantics, availability, runtime locking, queued schedule execution, transfer workflow, release, conflict detection, affected schedules, and affected capability recalculation are implemented. Physical move/commissioning proof remains M17.
 
 ## Output
 
@@ -657,6 +687,8 @@ GH manually routable
 GH currently selected shared/manual target
 ```
 
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
 ## Acceptance Criteria
 
 Single-GH direct topology may omit unnecessary distribution valves.
@@ -667,13 +699,13 @@ Multi-GH without routing valves must not be presented as automatically independe
 - [x] Routing conflicts are detected before activation.
 - [x] UI clearly exposes manual-routing vs automatic-routing conditions.
 
+
+> **Current evidence (2026-09-18):** Software acceptance PASS. `scripts/test_m7_m8_engine.mjs` includes 7 M7 checks covering multi-GH reachability, routing, conflicts, direct single-GH topology, shared-source behavior, and derived capabilities. Backend topology tests are included in the 7-test backend M7/M8 suite. Physical hydraulic verification remains BLOCKED until hardware is available.
 ## Output
 
 **Topology Model + Capability Engine v1**.
 
----
-
-# 10. Milestone M8 — Schedule Compiler
+---# 10. Milestone M8 — Schedule Compiler
 
 ## Goal
 
@@ -689,24 +721,26 @@ M7.
 
 ## Backlog
 
-- [ ] M8.1 Schedule intent schema.
-- [ ] M8.2 Target Complex resolution.
-- [ ] M8.3 Target GH resolution.
-- [ ] M8.4 Action resolution.
-- [ ] M8.5 Parameter validation.
-- [ ] M8.6 Component resolution.
-- [ ] M8.7 Resource resolution.
-- [ ] M8.8 Topology resolution.
-- [ ] M8.9 Safety dependency resolution.
-- [ ] M8.10 Resource conflict validation.
-- [ ] M8.11 Recurrence validation.
-- [ ] M8.12 Recipe snapshot/version.
-- [ ] M8.13 Configuration version reference.
-- [ ] M8.14 Priority.
-- [ ] M8.15 Missed-run policy.
-- [ ] M8.16 Compile.
-- [ ] M8.17 Blocked reason.
-- [ ] M8.18 Deployment of compiled schedule.
+- [x] M8.1 Schedule intent schema.
+- [x] M8.2 Target Complex resolution.
+- [x] M8.3 Target GH resolution.
+- [x] M8.4 Action resolution.
+- [x] M8.5 Parameter validation.
+- [x] M8.6 Component resolution.
+- [x] M8.7 Resource resolution.
+- [x] M8.8 Topology resolution.
+- [x] M8.9 Safety dependency resolution.
+- [x] M8.10 Resource conflict validation.
+- [x] M8.11 Recurrence validation.
+- [x] M8.12 Recipe snapshot/version.
+- [x] M8.13 Configuration version reference.
+- [x] M8.14 Priority.
+- [x] M8.15 Missed-run policy.
+- [x] M8.16 Compile.
+- [x] M8.17 Blocked reason.
+- [x] M8.18 Deployment of compiled schedule.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -734,19 +768,19 @@ DEPLOY
 ACTIVE
 ```
 
-- [ ] BLOCKED schedules cannot become executable ACTIVE schedules.
-- [ ] INVALID schedules cannot execute.
-- [ ] DRAFT schedules cannot execute.
-- [ ] DISABLED schedules cannot execute.
-- [ ] Compiled schedule contains resolved runtime dependencies.
+- [x] BLOCKED schedules cannot become executable ACTIVE schedules.
+- [x] INVALID schedules cannot execute.
+- [x] DRAFT schedules cannot execute.
+- [x] DISABLED schedules cannot execute.
+- [x] Compiled schedule contains resolved runtime dependencies.
 
+
+> **Current evidence (2026-09-18):** Software acceptance PASS. Schedule intent validation/compilation, resource/topology/safety dependencies, recurrence, fallback, configuration version/hash, priority, missed-run policy, and deployment gating are exercised by `scripts/test_m7_m8_engine.mjs` and `scripts/test_backend_m7_m8.py`. ESP32 physical deployment remains BLOCKED without a device.
 ## Output
 
 **Compiled Schedule Format v1** and compiler pipeline.
 
----
-
-# 11. Milestone M9 — ESP32 Runtime Scheduler
+---# 11. Milestone M9 — ESP32 Runtime Scheduler
 
 ## Goal
 
@@ -758,34 +792,36 @@ M8.
 
 ## Backlog
 
-- [ ] M9.1 Local clock/time source.
-- [ ] M9.2 Evaluate ACTIVE schedules only.
-- [ ] M9.3 Due-time evaluation.
-- [ ] M9.4 Execute compiled action.
-- [ ] M9.5 Acquire resource locks.
-- [ ] M9.6 Queue conflicting work.
-- [ ] M9.7 Support independent-path concurrency.
-- [ ] M9.8 Priority handling.
-- [ ] M9.9 Missed schedule policy.
-- [ ] M9.10 Reboot recovery.
-- [ ] M9.11 Power recovery integration.
-- [ ] M9.12 Duplicate protection.
+- [x] M9.1 Local clock/time source.
+- [x] M9.2 Evaluate ACTIVE schedules only.
+- [x] M9.3 Due-time evaluation.
+- [x] M9.4 Execute compiled action.
+- [x] M9.5 Acquire resource locks.
+- [x] M9.6 Queue conflicting work.
+- [x] M9.7 Support independent-path concurrency.
+- [x] M9.8 Priority handling.
+- [x] M9.9 Missed schedule policy.
+- [x] M9.10 Reboot recovery.
+- [x] M9.11 Power recovery integration.
+- [x] M9.12 Duplicate protection.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
-- [ ] Scheduler never dispatches BLOCKED schedules.
-- [ ] Scheduler never dispatches INVALID/DRAFT/DISABLED schedules.
-- [ ] Scheduler does not perform complex topology discovery at execution time.
-- [ ] Shared resources serialize correctly.
-- [ ] Independent physical paths may run concurrently where configuration allows.
+- [x] Scheduler never dispatches BLOCKED schedules.
+- [x] Scheduler never dispatches INVALID/DRAFT/DISABLED schedules.
+- [x] Scheduler does not perform complex topology discovery at execution time.
+- [x] Shared resources serialize correctly.
+- [x] Independent physical paths may run concurrently where configuration allows.
 
+
+> **Current evidence (2026-09-18):** Software/simulation acceptance PASS: 15/15 `scripts/test_m9_runtime_scheduler.mjs`. Backend M7/M8 regression: 7/7; M7/M8 runtime regression: 21/21. Scheduler uses persisted compiled ACTIVE schedules, local device time, deterministic due evaluation, explicit resource locks, queueing, independent-path concurrency, priority, missed-run policy, durable execution markers, reboot recovery hold, and deterministic command IDs. Physical clock/GPIO/power-cycle verification remains BLOCKED.
 ## Output
 
 **Production Scheduler Runtime v1**.
 
----
-
-# 12. Milestone M10 — Command System + Safety
+---# 12. Milestone M10 — Command System + Safety
 
 ## Goal
 
@@ -797,34 +833,36 @@ M9.
 
 ## Command Backlog
 
-- [ ] M10.1 Command ID.
-- [ ] M10.2 Target Complex/GH.
-- [ ] M10.3 Target resource/component.
-- [ ] M10.4 Parameters.
-- [ ] M10.5 Configuration version context.
-- [ ] M10.6 Command validation.
-- [ ] M10.7 Resource check.
-- [ ] M10.8 Safety check.
-- [ ] M10.9 E-stop check.
-- [ ] M10.10 Duplicate command detection.
-- [ ] M10.11 Idempotent retry behavior.
-- [ ] M10.12 Command result.
-- [ ] M10.13 Command event generation.
+- [x] M10.1 Command ID.
+- [x] M10.2 Target Complex/GH.
+- [x] M10.3 Target resource/component.
+- [x] M10.4 Parameters.
+- [x] M10.5 Configuration version context.
+- [x] M10.6 Command validation.
+- [x] M10.7 Resource check.
+- [x] M10.8 Safety check.
+- [x] M10.9 E-stop check.
+- [x] M10.10 Duplicate command detection.
+- [x] M10.11 Idempotent retry behavior.
+- [x] M10.12 Command result.
+- [x] M10.13 Command event generation.
 
 ## Safety Backlog
 
-- [ ] M10.14 Complete safe boot coverage.
-- [ ] M10.15 E-stop latch.
-- [ ] M10.16 Reject conflicting commands while E-stop is latched.
-- [ ] M10.17 Prevent scheduler execution while E-stop policy blocks it.
-- [ ] M10.18 Maximum runtime per hazardous actuator/resource.
-- [ ] M10.19 Flow timeout protection.
-- [ ] M10.20 Low-level protection.
-- [ ] M10.21 High-level/overfill protection strategy.
-- [ ] M10.22 Invalid/stale safety sensor fallback.
-- [ ] M10.23 Fault state.
-- [ ] M10.24 Recovery state.
-- [ ] M10.25 Durable safety event path.
+- [x] M10.14 Complete safe boot coverage.
+- [x] M10.15 E-stop latch.
+- [x] M10.16 Reject conflicting commands while E-stop is latched.
+- [x] M10.17 Prevent scheduler execution while E-stop policy blocks it.
+- [x] M10.18 Maximum runtime per hazardous actuator/resource.
+- [x] M10.19 Flow timeout protection.
+- [x] M10.20 Low-level protection.
+- [x] M10.21 High-level/overfill protection strategy.
+- [x] M10.22 Invalid/stale safety sensor fallback.
+- [x] M10.23 Fault state.
+- [x] M10.24 Recovery state.
+- [x] M10.25 Durable safety event path.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -844,9 +882,9 @@ state latched
 explicit resume/reset
 ```
 
-- [ ] Retrying the same command ID cannot double-execute a dangerous operation.
-- [ ] Safe boot covers all configured safety-critical outputs.
-- [ ] Every applicable hazardous actuator has a maximum runtime policy.
+- [x] Retrying the same command ID cannot double-execute a dangerous operation.
+- [x] Safe boot covers all configured safety-critical outputs.
+- [x] Every applicable hazardous actuator has a maximum runtime policy.
 
 ## Output
 
@@ -870,39 +908,41 @@ M5 + M10.
 
 ## Sensor Backlog
 
-- [ ] M11.1 Generic sensor identity.
-- [ ] M11.2 Sensor type.
-- [ ] M11.3 Source/channel.
-- [ ] M11.4 Unit.
-- [ ] M11.5 Sampling interval.
-- [ ] M11.6 Calibration reference.
-- [ ] M11.7 Validity range.
-- [ ] M11.8 Fault state.
-- [ ] M11.9 Quality state.
-- [ ] M11.10 Timestamp.
-- [ ] M11.11 Temperature support.
-- [ ] M11.12 Humidity abstraction.
-- [ ] M11.13 Light abstraction.
-- [ ] M11.14 Level abstraction.
-- [ ] M11.15 Flow abstraction.
-- [ ] M11.16 Pressure abstraction.
-- [ ] M11.17 pH abstraction.
-- [ ] M11.18 EC abstraction.
+- [x] M11.1 Generic sensor identity.
+- [x] M11.2 Sensor type.
+- [x] M11.3 Source/channel.
+- [x] M11.4 Unit.
+- [x] M11.5 Sampling interval.
+- [x] M11.6 Calibration reference.
+- [x] M11.7 Validity range.
+- [x] M11.8 Fault state.
+- [x] M11.9 Quality state.
+- [x] M11.10 Timestamp.
+- [x] M11.11 Temperature support.
+- [x] M11.12 Humidity abstraction.
+- [x] M11.13 Light abstraction.
+- [x] M11.14 Level abstraction.
+- [x] M11.15 Flow abstraction.
+- [x] M11.16 Pressure abstraction.
+- [x] M11.17 pH abstraction.
+- [x] M11.18 EC abstraction.
 
 ## Calibration Backlog
 
-- [ ] M11.19 Dosing calibration.
-- [ ] M11.20 Flow calibration.
-- [ ] M11.21 Level calibration.
-- [ ] M11.22 pH calibration.
-- [ ] M11.23 EC calibration.
-- [ ] M11.24 Calibration version.
-- [ ] M11.25 Timestamp.
-- [ ] M11.26 Operator/technician.
-- [ ] M11.27 Validity state.
-- [ ] M11.28 Expired/suspect state.
-- [ ] M11.29 Historical calibration reference.
-- [ ] M11.30 Runtime uses explicit calibration record.
+- [x] M11.19 Dosing calibration.
+- [x] M11.20 Flow calibration.
+- [x] M11.21 Level calibration.
+- [x] M11.22 pH calibration.
+- [x] M11.23 EC calibration.
+- [x] M11.24 Calibration version.
+- [x] M11.25 Timestamp.
+- [x] M11.26 Operator/technician.
+- [x] M11.27 Validity state.
+- [x] M11.28 Expired/suspect state.
+- [x] M11.29 Historical calibration reference.
+- [x] M11.30 Runtime uses explicit calibration record.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -930,6 +970,26 @@ not a valid measurement.
 **Sensor + Calibration Framework v1**.
 
 ---
+
+
+
+### M11/M12 FINALIZATION OVERRIDE — 2026-09-19
+M11 Sensors + Calibration and M12 Production Fertigation Engine are CLOSED at the software/contract level.
+
+Closure evidence:
+- Generic configuration-driven sensor abstraction supports temperature, humidity, light, level, flow, pressure, pH, and EC semantics; unavailable sensors remain unavailable rather than fabricated.
+- Exact calibration lookup is component + type + calibration ID + version scoped; unusable/expired/suspect records are blocked.
+- Active configuration changes reconfigure generic sensor GPIO/ADC bindings.
+- Generic configured flow meters use pulse accumulation and exact FLOW calibration.
+- Fertigation requires an execution plan, binds logical component IDs, supports up to seven dosing channels, and enforces safety/resource/calibration prechecks.
+- Run records distinguish measured water/delivery from calculated dosing and include calibration references, phase timestamps, actual flow/pressure where available, final status, and fault information.
+- Simulation requires explicit flow/pressure measurements for FLOW/PRESSURE_FLOW modes and never marks an unmeasured delivery volume as verified.
+
+Verification:
+- `npm run test:m11:m12`: **PASS** (34 backend tests + 17 firmware source checks).
+- Existing M2/M3/M4/M5/M6/M7/M8/M9/M10/M13/M14/M15/M16 regression gates remain required.
+
+Residual physical evidence remains M17: ESP-IDF hardware build, live GPIO/sensor calibration, hydraulic volume accuracy, pump/valve commissioning, E-stop physical validation, and power-cycle testing.
 
 # 14. Milestone M12 — Production Fertigation Engine
 
@@ -971,67 +1031,69 @@ INTERRUPTED / FAULTED / ABORTED
 
 ### Precheck
 
-- [ ] M12.1 Target GH.
-- [ ] M12.2 Recipe validity.
-- [ ] M12.3 Required resources.
-- [ ] M12.4 Required sensors.
-- [ ] M12.5 Calibration validity.
-- [ ] M12.6 Safety conditions.
-- [ ] M12.7 Source/tank availability.
-- [ ] M12.8 Conflict check.
+- [x] M12.1 Target GH.
+- [x] M12.2 Recipe validity.
+- [x] M12.3 Required resources.
+- [x] M12.4 Required sensors.
+- [x] M12.5 Calibration validity.
+- [x] M12.6 Safety conditions.
+- [x] M12.7 Source/tank availability.
+- [x] M12.8 Conflict check.
 
 ### Filling
 
-- [ ] M12.9 Select target GH mixing tank.
-- [ ] M12.10 Select water source.
-- [ ] M12.11 Measure incoming volume.
-- [ ] M12.12 Stop at target volume.
-- [ ] M12.13 Tolerance policy.
-- [ ] M12.14 Timeout/failure policy.
+- [x] M12.9 Select target GH mixing tank.
+- [x] M12.10 Select water source.
+- [x] M12.11 Measure incoming volume.
+- [x] M12.12 Stop at target volume.
+- [x] M12.13 Tolerance policy.
+- [x] M12.14 Timeout/failure policy.
 
 ### Dosing
 
-- [ ] M12.15 Resolve logical dosing channels.
-- [ ] M12.16 Support up to seven logical dosing channels.
-- [ ] M12.17 Requested quantity.
-- [ ] M12.18 Calibration lookup.
-- [ ] M12.19 Runtime calculation.
-- [ ] M12.20 Minimum/maximum runtime enforcement.
-- [ ] M12.21 Actual commanded operation record.
+- [x] M12.15 Resolve logical dosing channels.
+- [x] M12.16 Support up to seven logical dosing channels.
+- [x] M12.17 Requested quantity.
+- [x] M12.18 Calibration lookup.
+- [x] M12.19 Runtime calculation.
+- [x] M12.20 Minimum/maximum runtime enforcement.
+- [x] M12.21 Actual commanded operation record.
 
 ### Mixing
 
-- [ ] M12.22 Configurable mixing duration.
-- [ ] M12.23 Record mixing phase timestamps.
+- [x] M12.22 Configurable mixing duration.
+- [x] M12.23 Record mixing phase timestamps.
 
 ### Delivery
 
-- [ ] M12.24 Target delivery mode.
-- [ ] M12.25 Measured delivered volume where configured.
-- [ ] M12.26 Flow-derived target where configured.
-- [ ] M12.27 Pressure/flow readiness where configured.
-- [ ] M12.28 Duration fallback only when explicitly configured.
-- [ ] M12.29 Distinguish mixed volume from actual delivered volume.
+- [x] M12.24 Target delivery mode.
+- [x] M12.25 Measured delivered volume where configured.
+- [x] M12.26 Flow-derived target where configured.
+- [x] M12.27 Pressure/flow readiness where configured.
+- [x] M12.28 Duration fallback only when explicitly configured.
+- [x] M12.29 Distinguish mixed volume from actual delivered volume.
 
 ### Run Record
 
-- [ ] M12.30 Run ID.
-- [ ] M12.31 Complex ID.
-- [ ] M12.32 GH ID.
-- [ ] M12.33 Trigger type.
-- [ ] M12.34 Schedule ID where applicable.
-- [ ] M12.35 Recipe ID/version.
-- [ ] M12.36 Configuration version.
-- [ ] M12.37 Target water volume.
-- [ ] M12.38 Target dosing quantities.
-- [ ] M12.39 Actual water volume.
-- [ ] M12.40 Actual dosing runtimes.
-- [ ] M12.41 Calibration references.
-- [ ] M12.42 Start/end timestamps.
-- [ ] M12.43 Phase timestamps.
-- [ ] M12.44 Final status.
-- [ ] M12.45 Fault/error information.
-- [ ] M12.46 Operator/source.
+- [x] M12.30 Run ID.
+- [x] M12.31 Complex ID.
+- [x] M12.32 GH ID.
+- [x] M12.33 Trigger type.
+- [x] M12.34 Schedule ID where applicable.
+- [x] M12.35 Recipe ID/version.
+- [x] M12.36 Configuration version.
+- [x] M12.37 Target water volume.
+- [x] M12.38 Target dosing quantities.
+- [x] M12.39 Actual water volume.
+- [x] M12.40 Actual dosing runtimes.
+- [x] M12.41 Calibration references.
+- [x] M12.42 Start/end timestamps.
+- [x] M12.43 Phase timestamps.
+- [x] M12.44 Final status.
+- [x] M12.45 Fault/error information.
+- [x] M12.46 Operator/source.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -1060,37 +1122,39 @@ M12.
 
 ## Telemetry Backlog
 
-- [ ] M13.1 Real-time telemetry.
-- [ ] M13.2 Complex association.
-- [ ] M13.3 GH association.
-- [ ] M13.4 Device association.
-- [ ] M13.5 Component/source association.
-- [ ] M13.6 Timestamp.
-- [ ] M13.7 Metric ID.
-- [ ] M13.8 Value.
-- [ ] M13.9 Unit.
-- [ ] M13.10 Quality.
-- [ ] M13.11 Calibration/version metadata where relevant.
-- [ ] M13.12 Durable historical storage.
+- [x] M13.1 Real-time telemetry.
+- [x] M13.2 Complex association.
+- [x] M13.3 GH association.
+- [x] M13.4 Device association.
+- [x] M13.5 Component/source association.
+- [x] M13.6 Timestamp.
+- [x] M13.7 Metric ID.
+- [x] M13.8 Value.
+- [x] M13.9 Unit.
+- [x] M13.10 Quality.
+- [x] M13.11 Calibration/version metadata where relevant.
+- [x] M13.12 Durable historical storage.
 
 ## Event Backlog
 
-- [ ] M13.13 Fertigation started.
-- [ ] M13.14 Fertigation completed.
-- [ ] M13.15 Fertigation interrupted.
-- [ ] M13.16 Pump started/stopped.
-- [ ] M13.17 Schedule triggered/skipped.
-- [ ] M13.18 Emergency stop.
-- [ ] M13.19 Sensor fault.
-- [ ] M13.20 Flow timeout.
-- [ ] M13.21 Tank-full protection.
-- [ ] M13.22 Configuration deployed.
-- [ ] M13.23 Configuration rejected.
-- [ ] M13.24 Power failure.
-- [ ] M13.25 Power restored.
-- [ ] M13.26 Calibration changed.
-- [ ] M13.27 Communication lost/restored.
-- [ ] M13.28 Watchdog/abnormal reset where detectable.
+- [x] M13.13 Fertigation started.
+- [x] M13.14 Fertigation completed.
+- [x] M13.15 Fertigation interrupted.
+- [x] M13.16 Pump started/stopped.
+- [x] M13.17 Schedule triggered/skipped.
+- [x] M13.18 Emergency stop.
+- [x] M13.19 Sensor fault.
+- [x] M13.20 Flow timeout.
+- [x] M13.21 Tank-full protection.
+- [x] M13.22 Configuration deployed.
+- [x] M13.23 Configuration rejected.
+- [x] M13.24 Power failure.
+- [x] M13.25 Power restored.
+- [x] M13.26 Calibration changed.
+- [x] M13.27 Communication lost/restored.
+- [x] M13.28 Watchdog/abnormal reset where detectable.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -1105,9 +1169,9 @@ Resource
 Sensor/Actuator
 ```
 
-- [ ] Missing telemetry samples are not represented as real zero.
-- [ ] UI distinguishes true zero from missing/stale/invalid data.
-- [ ] Event storage has a defined failure behavior.
+- [x] Missing telemetry samples are not represented as real zero.
+- [x] UI distinguishes true zero from missing/stale/invalid data.
+- [x] Event storage has a defined failure behavior.
 
 ## Output
 
@@ -1127,18 +1191,24 @@ M13.
 
 ## Backlog
 
-- [ ] M14.1 Offline schedule execution.
-- [ ] M14.2 Last-valid configuration retention.
-- [ ] M14.3 Offline telemetry queue.
-- [ ] M14.4 Offline event queue.
-- [ ] M14.5 Synchronization cursor.
-- [ ] M14.6 Replay.
-- [ ] M14.7 Deduplication.
-- [ ] M14.8 Reconnect handling.
-- [ ] M14.9 Missed schedule evaluation.
-- [ ] M14.10 Interrupted fertigation disposition.
-- [ ] M14.11 Reboot recovery state.
-- [ ] M14.12 Configuration pending-deployment state.
+- [x] M14.1 Offline schedule execution.
+- [x] M14.2 Last-valid configuration retention.
+- [x] M14.3 Offline telemetry queue.
+- [x] M14.4 Offline event queue.
+- [x] M14.5 Synchronization cursor.
+- [x] M14.6 Replay.
+- [x] M14.7 Deduplication.
+- [x] M14.8 Reconnect handling.
+- [x] M14.9 Missed schedule evaluation.
+- [x] M14.10 Interrupted fertigation disposition.
+- [x] M14.11 Reboot recovery state.
+- [x] M14.12 Configuration pending-deployment state.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
+## Implementation status — 2026-09-19
+
+**COMPLETE at software/contract level.** M14 implements durable sync/deployment state, cursor-aware ESP32 replay, backend idempotent ingestion, reconnect synchronization, schedule recovery windows, safe reboot interruption hold, and pending-deployment state. M15 implements per-GH persistent crop cycles, HST/HSP, planting/pollination/harvest dates, plant and mortality identity, fruit identity/weight/grade, observations, historical retrieval, and joins to telemetry/events/fertigation/recipe/calibration history. Physical network/power/hydraulic commissioning remains a separate M17 concern.
 
 ## Acceptance Criteria
 
@@ -1184,24 +1254,28 @@ M13 + M14.
 
 ## Backlog
 
-- [ ] M15.1 Crop cycle per GH.
-- [ ] M15.2 Planting date.
-- [ ] M15.3 Pollination date.
-- [ ] M15.4 Harvest date.
-- [ ] M15.5 HST.
-- [ ] M15.6 HSP.
-- [ ] M15.7 Plant identity.
-- [ ] M15.8 Mortality records.
-- [ ] M15.9 Fruit identity.
-- [ ] M15.10 Fruit weight.
-- [ ] M15.11 Grade.
-- [ ] M15.12 Observations.
-- [ ] M15.13 Historical cycle persistence.
-- [ ] M15.14 Telemetry relationship.
-- [ ] M15.15 Fertigation-run relationship.
-- [ ] M15.16 Recipe relationship.
-- [ ] M15.17 Calibration relationship.
-- [ ] M15.18 Research retrieval queries.
+- [x] M15.1 Crop cycle per GH.
+- [x] M15.2 Planting date.
+- [x] M15.3 Pollination date.
+- [x] M15.4 Harvest date.
+- [x] M15.5 HST.
+- [x] M15.6 HSP.
+- [x] M15.7 Plant identity.
+- [x] M15.8 Mortality records.
+- [x] M15.9 Fruit identity.
+- [x] M15.10 Fruit weight.
+- [x] M15.11 Grade.
+- [x] M15.12 Observations.
+- [x] M15.13 Historical cycle persistence.
+- [x] M15.14 Telemetry relationship.
+- [x] M15.15 Fertigation-run relationship.
+- [x] M15.16 Recipe relationship.
+- [x] M15.17 Calibration relationship.
+- [x] M15.18 Research retrieval queries.
+
+## Implementation status — 2026-09-19
+
+**COMPLETE at software/contract level.** Research data is persistent in Python-owned SQLite and crop-cycle state is also durable per-GH in ESP32 NVS.
 
 ## Required Data Relationship
 
@@ -1218,6 +1292,8 @@ Crop Cycle
  ├── Calibration references
  └── Telemetry / Events
 ```
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -1260,6 +1336,8 @@ M0–M15 production paths available.
 - [ ] M16.9 Remove obsolete direct scheduler path.
 - [ ] M16.10 Remove stale API contracts.
 - [ ] M16.11 Remove mock E2E claims.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
 
 ## Acceptance Criteria
 
@@ -1393,6 +1471,28 @@ explicit resume
 - [ ] M17.13 Power-loss behavior.
 - [ ] M17.14 Backup-power behavior.
 - [ ] M17.15 Reboot recovery.
+
+> **Forensic re-audit override (2026-09-18):** Earlier completion claims are historical and do not supersede this evidence-based status. Current audited status is: M2.16 PASS (software), M2.17 PASS (software), M2.18 PARTIAL, M2.19 PARTIAL, M2.20 PASS (software), M2.21 PASS (software/source), M2.22 PASS for software persistence plus a separate physical BLOCKED item, M2.23 PASS (software), M2.24 PARTIAL, M2.25 PASS for tested actuator lifecycle gate, M2.26 PASS for the derived inventory path. M3/M4 software cores are implemented in the current repository; final physical deployment evidence remains blocked and some UI/firmware migration work remains open.
+
+## M3/M4 Hardening Addendum — 2026-09-19
+
+The M3/M4 software cores were already present before this hardening pass. The following transactional controls are now implemented and evidence-tested on top of those cores:
+
+- [x] Candidate configuration is persisted separately from active configuration.
+- [x] Active configuration remains the sole runtime authority.
+- [x] Previous active configuration is retained as a rollback snapshot.
+- [x] Runtime registry validates the exact candidate before activation.
+- [x] Candidate-to-active activation is committed as one NVS transaction after runtime validation.
+- [x] Active configuration CRC failure triggers previous-snapshot recovery.
+- [x] Deployment ID and deployment lifecycle state are persisted and exposed.
+- [x] Explicit configuration deploy, rollback, and deployment-status REST endpoints exist.
+- [x] Backend configuration proxy preserves deployment metadata and journals desired/device/previous versions.
+- [x] Stale expected-version requests return HTTP 409 and are not retried against ESP32 automatically.
+- [x] Backend-to-ESP32 fallback is transport-unavailability only, preventing ambiguous duplicate configuration commits.
+- [x] UI exposes ACTIVE / CANDIDATE_STAGED / FAILED deployment state.
+- [x] `scripts/test_m3_m4_hardening.py` exercises the backend proxy, version conflict, explicit deploy and rollback contract.
+
+**Residual physical gate:** ESP-IDF build, live device deployment, power-loss during NVS commit, and physical reboot recovery remain commissioning evidence and are not software claims.
 
 ## Acceptance Criteria
 
@@ -1723,3 +1823,83 @@ Review against PRD
 Only after M0 is stable should implementation proceed to M1.
 
 The goal is controlled migration of the existing repository into the PRD architecture, not uncontrolled parallel rewrites.
+
+---
+
+## M17 — END-TO-END & PHYSICAL COMMISSIONING — 2026-09-19
+
+### M17 FINAL ENGINEERING GATE STATUS: PARTIAL
+
+M17 is explicitly split into two gates:
+
+- **Software E2E: PARTIAL** — production source path and software verification PASS; clean frontend build and actual firmware/ESP-IDF build are BLOCKED by the current environment.
+- **Physical Commissioning: BLOCKED** — no connected ESP32-S3, live sensors/actuators, electrical bench or hydraulic installation evidence is available in this execution environment.
+- **Overall M17: PARTIAL**.
+
+### Software E2E closure evidence
+
+- `scripts/test_m17_software_e2e.py`: **28/28 PASS**.
+- `scripts/test_forensic_authority.mjs`: **13/13 PASS**.
+- M2: **26/26 PASS**.
+- M3/M4: **PASS**.
+- M5/M6: **PASS**.
+- M7/M8 runtime: **22 PASS**.
+- Backend M7/M8: **7/7 PASS**.
+- M9: **16/16 PASS**.
+- M10: **31/31 PASS**.
+- Backend M10 proxy: **6/6 PASS**.
+- M11/M12 backend: **34/34 PASS**.
+- M11/M12 firmware production-path: **17/17 PASS**.
+- M13: **PASS**.
+- M14/M15: **PASS**.
+- M16: **PASS**.
+- OpenAPI/mock REST contract: **PASS** (28 endpoints / 26 handlers).
+- Python backend/scripts compilation: **PASS**.
+
+### M17-specific hardening discovered and completed
+
+- Research analysis now normalizes epoch-millisecond fertigation run timestamps before crop-window comparison, allowing actual run history to join a crop cycle correctly.
+- Frontend operational startup is gated by the authoritative operational-context hydrator; an empty operational context no longer falls through to legacy browser state.
+- UI operational pages no longer use `complexes[0]`, `greenhouses[0]`, or `ghs[0]` singleton shortcuts; context is selected explicitly or by UI-only active/sole-complex fallback.
+- Deployment endpoints are included in the canonical E2E contract inventory.
+
+### M17 physical matrix remains OPEN/BLOCKED
+
+The complete physical matrix is in `docs/M17_END_TO_END_AND_PHYSICAL_COMMISSIONING.md`.
+
+The following physical evidence has NOT been claimed:
+
+- live ESP32-S3 build/flash/boot
+- live GPIO/relay/MOSFET behavior
+- real sensor readings and disconnect states
+- dosing calibration
+- raw/delivery flow calibration
+- E-stop under all runtime phases
+- power-loss/brownout/reboot behavior
+- offline spool persistence under physical interruption
+- shared-resource concurrency on connected pumps/valves
+- hydraulic route validation, leaks, backflow or starvation
+- real fertigation volume reconciliation
+- live crop/research traceability
+
+### Clean-build/toolchain evidence
+
+- `npm ci --ignore-scripts --no-audit --no-fund`: incomplete/timed out in the current environment.
+- `npm run build`: **BLOCKED** because the partial dependency tree does not contain required `@types/*` packages; the failure occurs before Vite compilation.
+- `idf.py`: **NOT FOUND**; real ESP-IDF firmware compilation is therefore BLOCKED.
+- Delivered archive contains no `.git` metadata; no commit hash is available.
+
+### Safe Point
+
+`SP-M17-SOFTWARE-READY`
+
+Do NOT mark M17 physically complete until actual hardware evidence is recorded. `SP-M17-COMPLETE` is not created.
+
+
+### M17 FINAL GPIO/HARDWARE AUDIT — 2026-09-19
+
+- Authoritative pin source is `docs/HARDWARE_WIRING_MAP.md` (SSOT).
+- W-01..W-26 source values match the SSOT.
+- Safe boot covers all 9 mapped actuator outputs.
+- Canonical runtime pin-policy rejects reserved/unavailable/duplicate/non-canonical physical GPIO mappings.
+- M17 hardware installation remains BLOCKED: no dedicated physical E-stop mapping, W-15 ZJ-B1/YF-B1 contradiction inside SSOT, and no physical evidence.

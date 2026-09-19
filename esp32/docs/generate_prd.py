@@ -131,7 +131,7 @@ The product currently encompasses:
 
 **Implementation Status:** IMPLEMENTED
 - **What the user sees:** Real-time values for Temperature, Humidity, and Flow meter pulses.
-- **System behavior:** The ESP32 continuously polls the sensors (e.g., DS18B20, YF-B1 flow meters) and serves the latest values via the /api/v1/telemetry endpoint.
+- **System behavior:** The ESP32 continuously polls the sensors (e.g., DS18B20, ZJ-B1 / FS400A flow meters) and serves the latest values via the /api/v1/telemetry endpoint.
 
 ## 18. Historical Data
 
@@ -142,7 +142,7 @@ The product currently encompasses:
 
 **Implementation Status:** IMPLEMENTED
 - **What the user can do:** Press the global "Emergency Stop" button in the UI.
-- **System behavior:** The ESP32 immediately turns off all 7 actuator pins. The system enters a latched state where no commands can run until a "Resume" command is explicitly sent.
+- **System behavior:** The ESP32 immediately turns off all 9 mapped actuator output pins. The system enters a latched state where no commands can run until a "Resume" command is explicitly sent.
 - **Automatic Safety:** The safe_boot_actuators() function guarantees all pins are OFF at power-on.
 
 ## 20. Automation

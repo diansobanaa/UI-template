@@ -1,3 +1,35 @@
+
+---
+
+## 2026-09-19 — M16 operational mock/seed removal implemented
+Safe Point: SP-M16-001
+Status: PARTIAL COMPLETE (M16 operational-path hardening)
+
+Summary:
+- Removed the browser-side operational store and operational seed datasets from `src/`.
+- Routed Complex/GH CRUD, schedule persistence, and crop-timeline configuration through the Python-owned operational backend.
+- Added an empty-state gate so the UI cannot silently recreate demo Complex/GH data when the backend is empty or unavailable.
+- Removed localStorage/sessionStorage operational authority, seeded telemetry/history fallback, fabricated timeline/yield defaults, and demo reset UI from source.
+- Kept only non-operational reference/catalog data under `src/lib/data/`.
+- Added `test:m16` legacy-path gate and backend CRUD persistence smoke coverage.
+
+Verification:
+- `npm test`: PASS
+- `npm run test:m16`: PASS
+- Forensic authority: 13 PASS / 0 FAIL
+- M2: 26 PASS / 0 FAIL
+- M7/M8: 22 PASS
+- M9: 16/16 PASS
+- M10: 31/31 PASS
+- M11/M12 firmware path: 12 PASS
+- Backend M7/M8: 7 PASS
+- Backend M10 proxy: 6 PASS
+- Backend M11/M12: 30 PASS
+- M16 operational backend smoke: PASS
+- TS/TSX syntax parse: PASS (69 files)
+- Full `npm run build`: BLOCKED by incomplete `node_modules` type packages in the audit environment.
+
+Remaining M16/M17 work is intentionally not claimed complete: remove remaining legacy business-domain assumptions, finish authoritative telemetry/history and offline/recovery paths, then perform physical commissioning.
 # AI CHANGELOG
 
 ## 2026-09-14 — SP-REMED-005 Async Command Processing & Contract Alignment
@@ -376,3 +408,121 @@ Summary:
 
 Next:
 - SP-002: ESP32 project foundation in `template/esp32/`
+## 2026-09-19 — M13 Telemetry + Event System v1
+- Implemented durable ESP32 telemetry history and event logs with persistent monotonic sequence blocks.
+- Added generic telemetry metadata: Complex/GH/device/component/source, timestamps, metricId, units, quality, measurement type, calibration metadata, recordId.
+- Added raw-first/idempotent Python history ingestion with SQLite projections for telemetry/events, cursor pagination, and history bounds/gap metadata.
+- Added authoritative event generation for fertigation lifecycle, pump lifecycle, schedules, E-stop, sensor fault/recovery, flow timeout, tank-full protection, configuration deploy/reject, power failure/restore, calibration change, communication transitions, watchdog and abnormal reset.
+- Added frontend telemetry/history/event contracts and presentation rules so missing/stale/invalid values stay unavailable rather than becoming zero.
+- Added M13 regression gates: `npm run test:m13`.
+- Validation: M13 gate PASS; existing M10/M10 proxy/M16/E2E regression gates PASS.
+- Physical commissioning remains outside M13 and is reserved for M17.
+
+
+## 2026-09-19 — M14 Offline & Recovery + M15 Crop & Research
+- **M14 COMPLETE (software/contract):** added durable sync cursors and pending deployment state, cursor-aware ESP32 replay/uploader, backend idempotent history ingestion, reconnect sync, missed-schedule recovery window, and safe interrupted-fertigation recovery hold requiring explicit operator disposition.
+- **M15 COMPLETE (software/contract):** added persistent per-GH crop-cycle history, planting/pollination/harvest dates, HST/HSP, plant identity and mortality, fruit identity/weight/grade, observations, research retrieval APIs, and analysis joins to telemetry/events/fertigation/recipe/calibration history.
+- Added functional `/research` UI and Research navigation backed by Python operational/research APIs.
+- Validation: `scripts/test_m14_m15.py` PASS; M13/M16/E2E/M10/M11/M12 regression suites PASS. TypeScript transpile checks PASS for modified files; full `tsc -b` remains environment-blocked by incomplete type packages.
+
+
+## 2026-09-19 — M3/M4 Configuration Transaction & Deployment Hardening
+- Added ESP32 candidate/active/previous configuration transaction state in NVS.
+- Added staged candidate validation, atomic activation, previous snapshot retention, CRC recovery, deployment IDs and explicit deployment status.
+- Added configuration deployment and rollback REST endpoints plus configuration deployment status endpoint.
+- Added Python backend configuration proxy routes and durable deployment journal fields with version/hash/previous-version tracking.
+- Prevented UI from falling back to direct ESP32 after authoritative backend HTTP rejection; fallback is now transport-unavailability only.
+- Added equipment UI deployment-state visibility.
+- Added M3/M4 hardening integration gate: `scripts/test_m3_m4_hardening.py`.
+
+## 2026-09-19 — M3/M4 Hardening Finalization
+
+- Hardened candidate activation cleanup to use optional NVS erase semantics.
+- Made explicit rollback deployment IDs unique per target version (`rollback-v<version>`).
+- Added `CONFIGURATION_ROLLED_BACK` event after successful explicit rollback.
+- Re-ran M3/M4 hardening and cross-milestone regression gates; all software gates remain green.
+
+## 2026-09-19 — M5/M6 Completion
+
+### M5 Dynamic Runtime
+- Removed the structural ESP32 device default that identified the controller as a specific greenhouse.
+- Device/status context now enumerates greenhouse assignments from the active configuration.
+- Runtime telemetry exposes registry-driven component state with component/resource/GH attribution.
+- Tank-transfer execution now resolves logical `sourceComponentId` and `destinationComponentId`; numeric actuator slots are compatibility-only.
+- Schedule timeline UI derives greenhouse lanes from configured GHs instead of fixed rows.
+
+### M6 Resource Ownership
+- Added Python resource manager for resource identity, owner/assignment, shared/exclusive semantics and availability.
+- Added resource state and transfer API endpoints.
+- Resource transfer requires explicit physical-move confirmation and produces a proposed configuration requiring M3/M4 deployment.
+- Component assignment and resource ownership are mutated together.
+- Affected schedules are revalidated and topology/capabilities recalculated.
+- Added frontend Transfer & Deploy workflow.
+
+### Verification
+- M5/M6 gate PASS.
+- Full regression: M2, M3/M4, M7/M8, M9, M10, M11/M12, M13, M14/M15 and M16 PASS.
+- Physical hardware proof remains M17.
+
+### 2026-09-19 — M5/M6 Final Hardening 002
+- Converted ESP32 tank-transfer execution from numeric actuator slots to logical source/destination component IDs with registry validation.
+- Added transfer command validation for lifecycle, pump/valve role, Complex scope and resource binding.
+- Made M6 affected-schedule detection include prior and target GH schedules.
+- Added physical transfer confirmation + deployment UI and dynamic schedule lanes.
+- Fixed three unrelated frontend type issues surfaced by the build scan (`NO_CYCLE` research persistence, nullable compiled result typing, optional observation observer field).
+
+
+## 2026-09-19 — M11/M12 FINALIZATION
+- Added configuration-driven generic flow pulse runtime and generic analog sensor acquisition with exact calibration enforcement.
+- Added sensor HAL reconfiguration after active configuration changes.
+- Hardened fertigation run records with actual water/delivery measurement provenance, calculated dosing provenance, calibration references, and final flow/pressure measurements where valid.
+- Hardened simulation so FLOW/PRESSURE_FLOW modes require explicit measured inputs before completion.
+- Added official `npm run test:m11:m12` gate.
+- M11/M12 acceptance items are now closed at software/contract level; physical commissioning remains M17.
+
+## 2026-09-19 — M17 End-to-End Verification & Physical Commissioning
+
+### Implemented
+- Added `scripts/test_m17_software_e2e.py` with a production-path 28-check software gate covering authority, deployment ordering, multi-GH isolation, schedule compilation, fertigation preparation, measurement provenance, history ingest/idempotency, and crop/research joins.
+- Hardened `backend/research_store.py` timestamp normalization so epoch-millisecond fertigation run records correctly join crop-cycle time windows.
+- Gated application rendering behind `OperationalHydrator` authoritative context readiness.
+- Removed frontend `complexes[0]`, `greenhouses[0]`, and `ghs[0]` singleton shortcuts from operational paths.
+- Added M17-critical configuration deployment endpoints to the OpenAPI/mock contract inventory.
+- Added `npm run test:m17`.
+- Added formal M17 software and physical commissioning matrices and evidence boundary in `docs/M17_END_TO_END_AND_PHYSICAL_COMMISSIONING.md`.
+
+### Verification
+- M17 software E2E: **28/28 PASS**.
+- Full M2–M16 regression: **PASS**.
+- Forensic authority: **13/13 PASS**.
+- Python compile: **PASS**.
+- Clean frontend production build: **BLOCKED** by incomplete dependency tree after interrupted dependency installation.
+- ESP-IDF firmware build: **BLOCKED** because `idf.py` is unavailable in the environment.
+- Physical commissioning: **BLOCKED**; no connected ESP32/hydraulic installation or physical evidence package was available.
+
+### Safe Point
+`SP-M17-SOFTWARE-READY`
+
+M17 physical completion is intentionally not claimed.
+
+## 2026-09-19 — M17 Final GPIO / Hardware Pin SSOT Audit
+
+- Treated `docs/HARDWARE_WIRING_MAP.md` as the sole hardware pin authority per M17 brief.
+- Corrected safe boot to clamp all nine mapped actuator outputs.
+- Disabled generic ADC GPIO inference for physical sensor pins not defined by the SSOT.
+- Added canonical GPIO/polarity validation and duplicate-GPIO rejection to the registry/configuration path.
+- Corrected FS400A source nominal factor to the SSOT value 4.8×Q / 288 pulses/L; physical calibration remains unproven.
+- Corrected stale W5500 GPIO10 and Button3/GPIO40 documentation without changing the authoritative pin map.
+- Added M17 pin-audit gate `scripts/test_m17_hardware_pin_audit.py`.
+- Preserved SSOT-internal W-15 ZJ-B1/YF-B1 naming contradiction as BLOCKED rather than choosing a value.
+- Physical commissioning remains BLOCKED; no hardware evidence is claimed.
+## 2026-09-19 — Production Simulation Isolation
+
+- Removed the production `/fertigation/simulate` HTTP endpoint.
+- Removed the frontend `simulateFertigation()` production API client method.
+- Removed `simulate_run()` from `backend/fertigation_engine.py`.
+- Moved host-side simulation helper to `tests/support/fertigation_simulation.py` (test-only).
+- Added `test_no_production_simulation_surface.py` and `npm run test:simulation:surface`.
+- Verified the removed endpoint returns `404 NOT_FOUND` on the running backend.
+- Kept mock ESP32 REST server and simulation assertions only in test/CI paths.
+

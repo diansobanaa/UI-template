@@ -22,12 +22,9 @@ import {
   Settings,
   ShoppingBasket,
   Sprout,
-  RotateCcw,
   Wrench,
-  FileJson,
 } from "lucide-react";
 import { complexService, greenhouseService } from "@/lib/services";
-import { resetMockDb } from "@/lib/store";
 
 interface NavLeaf {
   id: string;
@@ -73,7 +70,8 @@ function SidebarInner({
 }) {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
-  const complexId = params.get("complex") ?? "complex-01";
+  const availableComplexes = complexService.list();
+  const complexId = params.get("complex") ?? "";
   const [open, setOpen] = useState<Record<string, boolean>>({ Complex: true, Research: false });
 
   const activeGhId = pathname.startsWith("/greenhouse/") ? pathname.split("/")[2] : null;
@@ -120,17 +118,16 @@ function SidebarInner({
       label: "Research",
       icon: BookOpen,
       children: [
-        { id: "experiments", label: "Experiments", icon: FlaskConical },
-        { id: "plants", label: "Plants", icon: Leaf },
-        { id: "fruits", label: "Fruits", icon: Apple },
-        { id: "observations", label: "Observations", icon: Search },
-        { id: "harvest", label: "Harvest", icon: ShoppingBasket },
+        { id: "experiments", label: "Experiments", icon: FlaskConical, href: `/research?complex=${complexId}&view=cycles`, match: (p) => p === "/research" },
+        { id: "plants", label: "Plants", icon: Leaf, href: `/research?complex=${complexId}&view=plants`, match: (p) => p === "/research" },
+        { id: "fruits", label: "Fruits", icon: Apple, href: `/research?complex=${complexId}&view=fruits`, match: (p) => p === "/research" },
+        { id: "observations", label: "Observations", icon: Search, href: `/research?complex=${complexId}&view=observations`, match: (p) => p === "/research" },
+        { id: "harvest", label: "Harvest", icon: ShoppingBasket, href: `/research?complex=${complexId}&view=harvest`, match: (p) => p === "/research" },
       ],
     },
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "equipment", label: "Equipment", icon: Wrench, href: "/equipment" },
     { id: "settings", label: "Settings", icon: Settings },
-    { id: "configuration", label: "Configuration", icon: FileJson, href: "/configuration" },
     { id: "events", label: "Events & Logs", icon: ScrollText, href: "/events" },
   ];
 
@@ -175,7 +172,7 @@ function SidebarInner({
         </span>
         {!collapsed && (
           <div className="min-w-0">
-            <div className="truncate text-[15px] font-bold text-white">AgroTech</div>
+            <div className="truncate text-[15px] font-bold text-white">ChatGPT - AgroTech</div>
             <div className="truncate text-[10px] text-slate-400">Smart Greenhouse System</div>
           </div>
         )}
@@ -315,19 +312,6 @@ function SidebarInner({
       </nav>
 
       <div className="border-t border-white/6 bg-black/10 px-2.5 py-3">
-        {!collapsed && (
-          <button
-            onClick={() => {
-              resetMockDb();
-              window.location.reload();
-            }}
-            title="Restore the demo data to its initial state"
-            className="mb-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200 focus:outline-none"
-          >
-            <RotateCcw className="h-[17px] w-[17px] shrink-0" />
-            <span>Reset Demo Data</span>
-          </button>
-        )}
         <button
           onClick={() => { onToggleCollapse?.(); onCloseMobile?.(); }}
           title={collapsed ? "Expand menu" : "Collapse menu"}
