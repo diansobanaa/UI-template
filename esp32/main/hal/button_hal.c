@@ -12,6 +12,8 @@ typedef struct {
     bool current_state;
     bool last_raw_state;
     uint32_t stable_count;
+    TickType_t pressed_since;
+    uint32_t last_press_duration_ms;
 } button_state_t;
 
 static button_state_t s_buttons[BUTTON_MAX_COUNT] = {
@@ -81,6 +83,12 @@ void button_hal_poll(void)
             if (s_buttons[i].stable_count >= 2) { /* ~40ms at 20ms poll */
                 if (s_buttons[i].current_state != raw_level) {
                     s_buttons[i].current_state = raw_level;
+                    if (raw_level) {
+                        s_buttons[i].pressed_since = xTaskGetTickCount();
+                    } else if (s_buttons[i].pressed_since != 0) {
+                        s_buttons[i].last_press_duration_ms = (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount() - s_buttons[i].pressed_since);
+                        s_buttons[i].pressed_since = 0;
+                    }
                     ESP_LOGI(TAG, "Button %d event: %s", i, raw_level ? "PRESSED" : "RELEASED");
                     if (s_callback) {
                         s_callback((button_id_t)i, raw_level);
@@ -98,4 +106,10 @@ bool button_hal_is_pressed(button_id_t btn)
 {
     if (btn >= BUTTON_MAX_COUNT) return false;
     return s_buttons[btn].current_state;
+}
+
+uint32_t button_hal_get_last_press_duration_ms(button_id_t btn)
+{
+    if (btn >= BUTTON_MAX_COUNT) return 0;
+    return s_buttons[btn].last_press_duration_ms;
 }

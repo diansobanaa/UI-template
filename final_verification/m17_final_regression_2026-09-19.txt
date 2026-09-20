@@ -1,0 +1,48 @@
+AGROTECH M17 FINAL REGRESSION — 2026-09-19
+
+AUTHORITATIVE PIN SSOT
+- docs/HARDWARE_WIRING_MAP.md
+- W-01..W-29 parsed: PASS
+- W-01..W-26 source GPIO checks: PASS
+- 9-actuator safe boot coverage: PASS
+- canonical registry/API pin policy: PASS
+- generic ADC guessing disabled: PASS
+- GPIO40/Button3 retirement semantics: PASS
+- W5500 has no active CS mapping: PASS
+- SSOT internal W-15 identity contradiction (ZJ-B1 vs YF-B1): BLOCKED for physical identity acceptance
+
+M17 SOFTWARE PATH
+- test_m17_hardware_pin_audit.py: PASS
+- test_m17_software_e2e.py: 28/28 PASS
+- test_m3_m4_hardening.py: PASS
+- test_m5_m6.py: PASS
+- test_m11_m12_engine.py: 34/34 PASS
+- test_m11_m12_firmware_path.mjs: 17/17 PASS
+- test_m13_history.py (PYTHONPATH=.): PASS
+- test_m13_firmware_contract.mjs: PASS (5 checks)
+- test_m14_m15.py: PASS
+- test_m2_hardware_management.mjs: 26/26 PASS
+- test_m7_m8_engine.mjs: 22 PASS
+- test_m9_runtime_scheduler.mjs: 16/16 PASS
+- test_m10_command_safety.mjs: 31/31 PASS
+- test_m16_no_legacy_operational_paths.mjs: PASS
+- verify_e2e_contracts.mjs: PASS (28 endpoints / 26 handlers)
+- python3 -m compileall -q backend scripts: PASS
+- npm test: PASS
+
+BUILD / TOOLCHAIN
+- npm ci: did not complete in current environment; dependency tree incomplete
+- npm run build: BLOCKED by missing @types/babel__*, @types/estree, @types/node, @types/react, @types/react-dom
+- idf.py --version: BLOCKED / command not found
+- git commit: BLOCKED / .git metadata not present in delivered repository snapshot
+
+PHYSICAL COMMISSIONING
+- BLOCKED: no connected ESP32-S3, live sensors, actuators, electrical bench, hydraulic installation, or evidence package
+- No GPIO/pump/valve/sensor/E-stop/hydraulic physical PASS is claimed.
+
+FINAL STATUS
+- SOFTWARE E2E: PARTIAL (28/28 production-path subgate PASS; clean build/toolchain unavailable)
+- PHYSICAL COMMISSIONING: BLOCKED
+- M17 OVERALL: PARTIAL
+- SAFE POINT: SP-M17-SOFTWARE-READY
+- HARDWARE INSTALLATION STATUS: BLOCKED

@@ -22,6 +22,9 @@ const requiredEndpoints = [
   'GET /api/v1/configuration',
   'PUT /api/v1/configuration',
   'POST /api/v1/configuration/validate',
+  'GET /api/v1/configuration/deployment',
+  'POST /api/v1/configuration/deploy',
+  'POST /api/v1/configuration/rollback',
   'GET /api/v1/telemetry',
   'GET /api/v1/events',
   'POST /api/v1/commands/emergency-stop',
@@ -93,10 +96,11 @@ console.log(`PASS: All ${expectedHandlers.length} HTTP handlers registered in ES
 
 // 3. E2E Target Configuration
 const args = process.argv.slice(2);
-const isMock = args.includes('--mock');
+const targetArgIndex = args.indexOf('--target');
+const hasExplicitLiveTarget = args.includes('--live') || Boolean(process.env.ESP32_BASE_URL) || (targetArgIndex >= 0 && targetArgIndex < args.length - 1);
+const isMock = args.includes('--mock') || !hasExplicitLiveTarget;
 let targetUrl = process.env.ESP32_BASE_URL || "http://192.168.1.50";
 
-const targetArgIndex = args.indexOf('--target');
 if (targetArgIndex >= 0 && targetArgIndex < args.length - 1) {
   targetUrl = args[targetArgIndex + 1];
 }

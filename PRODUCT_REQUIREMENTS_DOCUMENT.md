@@ -1760,6 +1760,152 @@ Telemetry charts should remain legible against the dark dashboard background.
 
 ---
 
+## 30.10 Controller Network & Onboarding UX
+## 30.11 Controller Network State and Recovery UX
+
+The controller network lifecycle shall expose the following operator-visible states without requiring knowledge of implementation details:
+
+```text
+FACTORY_UNCONFIGURED
+NORMAL_STA
+DIRECT_LOCAL_AP
+DIRECT_LOCAL_CONNECTED
+CONNECTING_STA
+```
+
+Configured controllers shall keep the temporary SoftAP OFF during normal operation. Network loss shall not automatically open the AP. The controller retries its configured router indefinitely at a 50-second automatic interval.
+
+Button 4 shall use non-blocking gesture recognition:
+
+```text
+2× quick presses = FORCE ROUTER CONNECT
+3× quick presses = TOGGLE DIRECT LOCAL MODE
+```
+
+A 3-click transition shall not reboot, erase NVS, erase operational configuration, regenerate device identity, unbind the Complex, or stop local physical-runtime authority.
+
+Direct Local Mode shall use a controller-specific temporary `AGROTECH-SETUP-XXXX` SoftAP. The AP shall turn off after 3 minutes with no client or 1 minute after the final client disconnects, unless a candidate Wi-Fi transaction is actively being tested.
+
+### Local Setup Screen Contract
+
+Factory/unconfigured controller:
+
+```text
+AGROTECH CONTROLLER
+
+Set up Wi-Fi
+
+Wi-Fi:
+[ Jaringan Wi-Fi ▼ ]
+
+Password:
+[ ******** ]
+
+[ CONNECT ]
+```
+
+Configured controller in Direct Local / Network Change mode:
+
+```text
+AGROTECH CONTROLLER
+
+CHANGE WI-FI
+
+Controller:
+ESP32-XXXX
+
+New Wi-Fi:
+[ Jaringan Wi-Fi ▼ ]
+
+Password:
+[ ******** ]
+
+Complex:
+Complex terdaftar
+
+[ CONNECT ]
+```
+
+The local UI shall show meaningful Indonesian loading/error text, keep diagnostic codes behind an explicit diagnostic surface, and shall not expose actuator commands.
+
+### Candidate Wi-Fi Transaction
+
+A new Wi-Fi credential shall be handled as an uncommitted candidate:
+
+```text
+NEW SSID + PASSWORD
+        ↓
+attempt connection
+        ↓
+GOT_IP / success?
+   ├── NO → keep old credential, show error, allow retry
+   └── YES
+        ↓
+atomic credential commit
+        ↓
+backend reconnect
+        ↓
+verify device_id + existing Complex
+        ↓
+SoftAP OFF → NORMAL_STA
+```
+
+A failed candidate must never brick network recovery. A successful Wi-Fi change must preserve the same `device_id`, existing Complex relationship, GHs, recipes, schedules, calibration, and data.
+
+
+The product shall treat controller Wi-Fi setup and Complex commissioning as two distinct user experiences. The operator should not need to understand SoftAP, PoP, NVS, mDNS, HTTP endpoints, or provisioning protocols during normal operation.
+
+The factory setup state is `FACTORY_UNCONFIGURED` until valid router credentials are available.
+
+### Factory controller UX
+
+```text
+Controller baru dinyalakan
+→ SoftAP controller muncul
+→ HP/laptop terhubung
+→ Embedded Setup Web UI
+→ pilih Wi-Fi greenhouse
+→ masukkan password
+→ CONNECT
+→ controller bergabung ke router
+→ AgroTech Complex onboarding
+→ Create/Select Complex
+→ Discover controller
+→ Verify identity
+→ Bind controller
+→ Discover inventory/capabilities
+→ READY
+```
+
+### Existing controller / network change UX
+
+```text
+NORMAL
+→ 3× Button 4
+→ Direct Local Mode
+→ HP/laptop terhubung ke temporary controller AP
+→ local setup UI
+→ pilih Wi-Fi baru
+→ masukkan password
+→ tampilkan/konfirmasi Complex terdaftar
+→ CONNECT
+→ test candidate Wi-Fi
+→ atomic credential commit
+→ reconnect router/backend
+→ same device_id + same Complex
+→ ONLINE
+```
+
+Network change must not start the factory onboarding wizard or require new Complex creation/binding.
+
+### Local setup UI boundary
+
+The embedded ESP32 UI is intentionally limited to network setup, network change, and Direct Local status/inspection of the connected controller. It shall not become a second full AgroTech application and shall not expose physical actuator commands.
+
+### Loading and error UX
+
+Each asynchronous operation shall expose a meaningful operator-facing state such as `Mencari controller...`, `Menghubungkan ke Wi-Fi...`, `Memverifikasi controller...`, `Mendaftarkan controller...`, or `Membaca hardware...`. Errors shall explain what happened, what the operator should do next, and provide an appropriate retry/recovery action.
+
 # 31. UI State and Transaction Behavior
 
 CRUD operations involving the backend or ESP32 shall behave transactionally from the operator's perspective.
@@ -3129,7 +3275,52 @@ Backend unavailable
 → missed data synchronized
 ```
 
-## 44.10 Emergency Stop
+## 44.10 Factory Controller Onboarding
+
+```text
+Factory controller
+→ automatic temporary SoftAP
+→ local Wi-Fi setup
+→ router connection
+→ create/select Complex
+→ discover controller
+→ verify deviceId + API/schema identity
+→ bind exactly one controller to Complex
+→ discover inventory + capabilities
+→ Complex Ready
+```
+
+Factory Wi-Fi setup leaves `complex_id` unbound until the separate binding workflow succeeds. Device identity and provisioning PoP are persistent and are not regenerated as part of ordinary onboarding.
+
+## 44.11 Network Change Mode
+
+```text
+Existing controller
+→ 3× quick Button 4
+→ temporary Direct Local SoftAP
+→ embedded Change Wi-Fi UI
+→ existing Complex shown/confirmed
+→ candidate SSID + password
+→ test connection
+→ require GOT_IP
+→ atomic credential persistence
+→ reconnect backend
+→ verify same device_id + same Complex
+→ SoftAP OFF
+→ NORMAL / ONLINE
+```
+
+The old working credential must remain persisted until candidate success. Network Change Mode must not reboot, factory reset, unbind the controller, erase GH/recipe/schedule/calibration/research configuration, or stop local runtime authority.
+
+## 44.12 Direct Local Mode
+
+Configured controllers normally keep the SoftAP OFF. The operator can temporarily enable the controller-local AP with `3× Button 4` for controller-specific inspection or Wi-Fi recovery. `2× Button 4` forces an immediate attempt to the currently configured router without changing credentials.
+
+Direct Local Mode uses a temporary `AGROTECH-SETUP-XXXX` SSID. The AP automatically turns OFF after 3 minutes with no client, or 1 minute after the last client disconnects. A connected client prevents the timeout.
+
+The local UI only communicates with the controller to which the phone/laptop is directly connected. Other controllers are not deleted or re-bound; they remain governed by their own local operation.
+
+## 44.13 Emergency Stop
 
 ```text
 Emergency Stop
@@ -3314,6 +3505,36 @@ Priority meanings:
 - **PRD-UI-007 — SHOULD:** Provide historical curves for operational telemetry.
 - **PRD-UI-008 — MUST:** Roll back displayed state when an authoritative save fails.
 - **PRD-UI-009 — SHOULD:** Provide dark mode suitable for operational monitoring.
+
+## Network & Controller Onboarding
+
+- **PRD-NET-001 — MUST:** A factory-unconfigured controller shall automatically expose a temporary SoftAP for first-time Wi-Fi setup.
+- **PRD-NET-002 — MUST:** The controller shall have a persistent unique `device_id` that is independent of Complex assignment.
+- **PRD-NET-003 — MUST:** Factory provisioning shall use a persistent random setup credential/PoP and shall not derive that credential from the device MAC.
+- **PRD-NET-004 — MUST:** Router credentials shall be persisted atomically and must survive normal controller restarts.
+- **PRD-NET-005 — MUST:** A configured controller shall keep its SoftAP OFF during normal operation.
+- **PRD-NET-006 — MUST:** A configured controller shall retry its configured router indefinitely at the defined firmware interval; current target is 50 seconds between automatic attempts.
+- **PRD-NET-007 — MUST:** Network loss shall not erase configuration and shall not stop autonomous local scheduling, safety monitoring, sensors, event logging, or fertigation runtime.
+- **PRD-NET-008 — MUST:** Button 4 shall use non-blocking multi-click detection with `2×` = force immediate router connection and `3×` = toggle temporary Direct Local Mode.
+- **PRD-NET-009 — MUST:** Entering or leaving Direct Local Mode shall not reboot, factory-reset, or erase system/Complex/GH/recipe/schedule/calibration/research/device-identity data.
+- **PRD-NET-010 — MUST:** Direct Local Mode shall expose a controller-specific temporary SoftAP using the `AGROTECH-SETUP-XXXX` identity pattern.
+- **PRD-NET-011 — MUST:** Direct Local Mode shall automatically disable its SoftAP after 3 minutes with no connected client, or 1 minute after the final client disconnects.
+- **PRD-NET-012 — MUST:** A Wi-Fi candidate shall not replace the persisted credential until a live connection succeeds and the new credential is committed atomically.
+- **PRD-NET-013 — MUST:** A failed Wi-Fi candidate shall leave the previous persisted credential usable and shall permit another recovery attempt.
+- **PRD-NET-014 — MUST:** Network Change Mode shall preserve the same `device_id` and existing authorized/registered Complex relationship; changing Wi-Fi shall not require new Complex creation or manual re-binding.
+- **PRD-NET-015 — MUST:** The temporary local UI shall be limited to network setup/recovery and controller status; it shall not expose physical actuator execution or configuration deployment as a side channel.
+- **PRD-NET-016 — SHOULD:** The local setup UI should use clear Indonesian operator language and meaningful loading/error states.
+
+## Complex + ESP32 Onboarding
+
+- **PRD-ONB-001 — MUST:** Support a dedicated Complex onboarding flow that creates/selects a Complex before controller binding.
+- **PRD-ONB-002 — MUST:** Discover controller endpoints using deterministic hostname/IP/manual-entry paths and verify the real controller response before binding.
+- **PRD-ONB-003 — MUST:** Verify `deviceId`, API version, and schema version before accepting a controller.
+- **PRD-ONB-004 — MUST:** Prevent binding a controller that is already registered to a conflicting Complex.
+- **PRD-ONB-005 — MUST:** Persist the controller-to-Complex relationship only after the ESP32 confirms the binding and the backend re-verifies status.
+- **PRD-ONB-006 — MUST:** Discover inventory and capabilities after binding without silently commissioning physical hardware or deploying operational configuration.
+- **PRD-ONB-007 — MUST:** Treat `Complex Ready` as onboarding/controller/inventory/capability readiness; physical commissioning remains a separate acceptance gate.
+- **PRD-ONB-008 — MUST:** Roll back failed authoritative onboarding mutations so the UI never represents a controller as successfully bound when persistence/verification failed.
 
 ---
 

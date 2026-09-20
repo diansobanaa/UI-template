@@ -28,6 +28,9 @@ esp_err_t http_server_stop(void);
  */
 bool http_server_is_running(void);
 
+/** Return the active HTTPD handle for ESP-IDF SoftAP provisioning. */
+httpd_handle_t http_server_get_handle(void);
+
 /**
  * @brief Attach standard CORS headers to response.
  */

@@ -10,12 +10,12 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 
 #include "config/pin_config.h"
 #include "config/system_config.h"
 #include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
-#include "services/configuration_mgr.h"
 #include "http/http_server.h"
 #include "network/network_mgr.h"
 #include "hal/rtc_ds3231.h"
@@ -26,6 +26,7 @@
 #include "services/telemetry_mgr.h"
 #include "services/event_mgr.h"
 #include "services/fertigation_mgr.h"
+#include "services/offline_sync_mgr.h"
 #include "services/manual_actuator_mgr.h"
 #include "services/transfer_mgr.h"
 #include "services/calibration_mgr.h"
@@ -52,6 +53,8 @@ static void safe_boot_actuators(void)
         PIN_OUT_DOSING_A,
         PIN_OUT_DOSING_B,
         PIN_OUT_COOLING_FAN,
+        PIN_OUT_BLOWER_FAN,
+        PIN_OUT_MIXING_PUMP,
         PIN_OUT_ERROR_LAMP
     };
 
@@ -71,7 +74,7 @@ static void safe_boot_actuators(void)
 
     esp_err_t err = gpio_config(&io_conf);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Safe boot complete: 7 actuator channels locked in safe-off state.");
+        ESP_LOGI(TAG, "Safe boot complete: 9 mapped actuator channels locked in safe-off state.");
     } else {
         ESP_LOGE(TAG, "CRITICAL: Failed to configure actuator safe GPIOs (err=0x%x)", err);
     }
@@ -125,9 +128,18 @@ void app_main(void)
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(network_mgr_init());
 
-    /* 4. Initialize Hardware Abstraction Layer (SP-003) */
+    /* Durable storage must be ready before connectivity can emit communication events. */
+    ESP_ERROR_CHECK(storage_mgr_init());
+
+    /* 4. Initialize Durable Storage & Recovery (SP-004) before registry/HAL.
+     * hardware_hal_init_all() must resolve the installed registry from the
+     * persisted active configuration; calling it before storage_mgr_init()
+     * makes storage look unavailable and prevents reconstruction of the
+     * authoritative installed-component registry. */
+    /* Storage initialized above before network manager so communication events are durable. */
+
+    /* 5. Initialize Hardware Abstraction Layer (SP-003) */
     ESP_ERROR_CHECK(hardware_hal_init_all());
     sdcard_hal_init();
     rtc_ds3231_init();
@@ -135,40 +147,84 @@ void app_main(void)
 
     /* Initialize TFT ST7735 display in degraded-safe mode */
     if (tft_hal_init() == ESP_OK && tft_hal_is_available()) {
-        tft_show_diagnostic_screen(DEFAULT_DEVICE_ID, FIRMWARE_VERSION);
+        const system_storage_state_t *st = storage_mgr_get_state();
+        tft_show_diagnostic_screen(st ? st->device_id : "UNKNOWN", FIRMWARE_VERSION);
     } else {
         ESP_LOGW(TAG, "TFT ST7735 not present or unattached. Operating in degraded headless mode.");
     }
 
-    /* 5. Initialize Durable Storage & Recovery (SP-004) */
-    ESP_ERROR_CHECK(storage_mgr_init());
-    ESP_ERROR_CHECK(configuration_mgr_load_active());
-    if (tft_hal_is_available()) {
-        const system_storage_state_t *st = storage_mgr_get_state();
-        if (st && st->device_id[0] != '\0') {
-            tft_show_diagnostic_screen(st->device_id, FIRMWARE_VERSION);
-        }
-    }
 
     /* 6. Initialize Runtime Services & Safety (SP-006) */
+    ESP_ERROR_CHECK(event_mgr_init());
+    switch (esp_reset_reason()) {
+        case ESP_RST_BROWNOUT:
+            (void)event_mgr_log(LOG_LEVEL_CRITICAL, "POWER", "POWER_FAILURE", "Boot was caused by brownout/power interruption.", NULL);
+            (void)event_mgr_log(LOG_LEVEL_INFO, "POWER", "POWER_RESTORED", "Controller restarted after power interruption and outputs remain fail-safe.", NULL);
+            break;
+#ifdef ESP_RST_INT_WDT
+        case ESP_RST_INT_WDT:
+            (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SYSTEM", "WATCHDOG_RESET", "Boot was caused by interrupt watchdog reset.", NULL);
+            break;
+#endif
+#ifdef ESP_RST_TASK_WDT
+        case ESP_RST_TASK_WDT:
+            (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SYSTEM", "WATCHDOG_RESET", "Boot was caused by task watchdog reset.", NULL);
+            break;
+#endif
+#ifdef ESP_RST_WDT
+        case ESP_RST_WDT:
+            (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SYSTEM", "WATCHDOG_RESET", "Boot was caused by watchdog reset.", NULL);
+            break;
+#endif
+#ifdef ESP_RST_PANIC
+        case ESP_RST_PANIC:
+            (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SYSTEM", "ABNORMAL_RESET", "Boot followed a panic/abnormal reset.", NULL);
+            break;
+#endif
+        default:
+            break;
+    }
     ESP_ERROR_CHECK(command_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(manual_actuator_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(transfer_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(calibration_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(safety_monitor_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(scheduler_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(panel_button_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
     ESP_ERROR_CHECK(fertigation_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
+
+    /* All safety/runtime services are initialized; the controller may now
+     * leave the safe-boot gate and accept normal physical commands. */
+    ESP_ERROR_CHECK(storage_mgr_set_safe_boot_active(false));
+    ESP_LOGI(TAG, "Safe boot active flag cleared in storage.");
 
     /* 7. Initialize Crop Cycle Engine & Persistence (SP-007) */
     ESP_ERROR_CHECK(crop_cycle_mgr_init());
+    ESP_LOGI(TAG, "Crop cycle manager initialized.");
+    assert(heap_caps_check_integrity_all(true));
 
     /* 8. Initialize Telemetry & Event System (SP-008) */
     ESP_ERROR_CHECK(telemetry_mgr_init());
-    ESP_ERROR_CHECK(event_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
+    ESP_ERROR_CHECK(offline_sync_mgr_init());
+    assert(heap_caps_check_integrity_all(true));
+    ESP_LOGI(TAG, "Telemetry & offline sync initialized.");
 
-    /* 9. Start REST HTTP Server (SP-005) */
+    /* 9. Start REST HTTP Server (SP-005). Reused by SoftAP provisioning. */
     ESP_ERROR_CHECK(http_server_start());
+    ESP_LOGI(TAG, "HTTP server started.");
 
-    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (SP-008).");
+    /* 10. Start network provisioning / STA recovery only after local runtime is safe. */
+    ESP_ERROR_CHECK(network_mgr_init());
+    ESP_LOGI(TAG, "Network manager initialized.");
+
+    ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend fully initialized (network + runtime).");
 }

@@ -2,25 +2,66 @@
 #include "hal/button_hal.h"
 #include "hal/actuator_hal.h"
 #include "hal/tft_hal.h"
+#include "network/network_mgr.h"
 #include "config/pin_config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 #include "driver/gpio.h"
+#include "esp_timer.h"
 
 static const char *TAG = "PANEL_BTN_MGR";
 
 #define WELL_PUMP_MANUAL_TIMEOUT_MS   (5 * 60 * 1000) /* 5 minutes */
+#define BUTTON4_QUICK_PRESS_MAX_MS    800
+#define BUTTON4_PRESS_WINDOW_MS       3000
+#define BUTTON4_REQUIRED_PRESSES      3
+#define BUTTON4_FORCE_CONNECT_PRESSES  2
 
 static TimerHandle_t s_well_pump_timer = NULL;
 static bool s_manual_active = false;
 static TickType_t s_start_tick = 0;
+static uint8_t s_button4_press_count = 0;
+static int64_t s_button4_window_start_us = 0;
+static TimerHandle_t s_button4_action_timer = NULL;
 
 static void well_pump_timer_callback(TimerHandle_t xTimer)
 {
     ESP_LOGI(TAG, "Well Pump 5-minute manual runtime completed: turning OFF automatically.");
     s_manual_active = false;
     actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+}
+
+static void reset_button4_sequence(void)
+{
+    s_button4_press_count = 0;
+    s_button4_window_start_us = 0;
+}
+
+static void button4_action_timer_callback(TimerHandle_t xTimer)
+{
+    (void)xTimer;
+    if (s_button4_press_count == BUTTON4_FORCE_CONNECT_PRESSES && s_button4_window_start_us != 0) {
+        reset_button4_sequence();
+        esp_err_t err = network_mgr_force_router_connect();
+        if (err == ESP_OK) ESP_LOGI(TAG, "Button 4 double-press: forced immediate router connection attempt.");
+        else ESP_LOGW(TAG, "Button 4 double-press: router connection attempt unavailable (0x%x).", err);
+        return;
+    }
+    reset_button4_sequence();
+}
+
+static void toggle_direct_local_mode(void)
+{
+    if (network_mgr_is_direct_local_mode()) {
+        esp_err_t err = network_mgr_exit_direct_local_mode();
+        if (err == ESP_OK) ESP_LOGI(TAG, "Button 4 triple-press: Direct Local Mode OFF.");
+        else ESP_LOGW(TAG, "Button 4 triple-press: Direct Local Mode could not exit (0x%x).", err);
+    } else {
+        esp_err_t err = network_mgr_enter_direct_local_mode();
+        if (err == ESP_OK) ESP_LOGI(TAG, "Button 4 triple-press: Direct Local Mode ON.");
+        else ESP_LOGW(TAG, "Button 4 triple-press: Direct Local Mode could not start (0x%x).", err);
+    }
 }
 
 static void toggle_well_pump_manual(void)
@@ -63,7 +104,36 @@ static void toggle_well_pump_manual(void)
 
 static void on_panel_button_event(button_id_t btn, bool pressed)
 {
-    /* Only trigger on press leading edge */
+    if (btn == BUTTON_RESERVED) {
+        if (!pressed) {
+            uint32_t duration_ms = button_hal_get_last_press_duration_ms(btn);
+            int64_t now_us = esp_timer_get_time();
+            if (duration_ms > BUTTON4_QUICK_PRESS_MAX_MS) {
+                if (s_button4_action_timer) xTimerStop(s_button4_action_timer, 0);
+                reset_button4_sequence();
+                ESP_LOGI(TAG, "Button 4 ignored: press was %lu ms, not a quick press.", (unsigned long)duration_ms);
+                return;
+            }
+            if (s_button4_window_start_us == 0 || now_us - s_button4_window_start_us > ((int64_t)BUTTON4_PRESS_WINDOW_MS * 1000LL)) {
+                s_button4_window_start_us = now_us;
+                s_button4_press_count = 1;
+            } else {
+                s_button4_press_count++;
+            }
+            ESP_LOGI(TAG, "Button 4 quick press %u/%u.", s_button4_press_count, BUTTON4_REQUIRED_PRESSES);
+            if (s_button4_press_count >= BUTTON4_REQUIRED_PRESSES) {
+                if (s_button4_action_timer) xTimerStop(s_button4_action_timer, 0);
+                reset_button4_sequence();
+                toggle_direct_local_mode();
+            } else if (s_button4_action_timer) {
+                xTimerStop(s_button4_action_timer, 0);
+                xTimerStart(s_button4_action_timer, 0);
+            }
+        }
+        return;
+    }
+
+    /* Only trigger other buttons on press leading edge. */
     if (!pressed) return;
 
     switch (btn) {
@@ -77,8 +147,7 @@ static void on_panel_button_event(button_id_t btn, bool pressed)
             toggle_well_pump_manual();
             break;
 
-        case BUTTON_RESERVED: /* Button 4: GPIO 41 */
-            ESP_LOGI(TAG, "Button 4 (GPIO %d) pressed: RESERVED / UNASSIGNED (No operational action assigned).", PIN_BTN_RESERVED);
+        case BUTTON_RESERVED:
             break;
 
         default:
@@ -104,6 +173,18 @@ esp_err_t panel_button_mgr_init(void)
         return ESP_ERR_NO_MEM;
     }
 
+    s_button4_action_timer = xTimerCreate(
+        "btn4_action",
+        pdMS_TO_TICKS(BUTTON4_PRESS_WINDOW_MS),
+        pdFALSE,
+        NULL,
+        button4_action_timer_callback
+    );
+    if (!s_button4_action_timer) {
+        ESP_LOGE(TAG, "Failed to create Button 4 multi-click action timer");
+        return ESP_ERR_NO_MEM;
+    }
+
     /* 2. Register callback with button_hal (starts polling daemon on Core 1) */
     esp_err_t err = button_hal_init(on_panel_button_event);
     if (err != ESP_OK) {
@@ -114,7 +195,7 @@ esp_err_t panel_button_mgr_init(void)
     ESP_LOGI(TAG, "Panel Button Manager initialized successfully.");
     ESP_LOGI(TAG, "  Button 1 (GPIO %d): TFT Display Switch", PIN_BTN_MODE);
     ESP_LOGI(TAG, "  Button 2 (GPIO %d): Well Pump Manual 5-min Toggle", PIN_BTN_MANUAL_A);
-    ESP_LOGI(TAG, "  Button 4 (GPIO %d): RESERVED / UNASSIGNED", PIN_BTN_RESERVED);
+    ESP_LOGI(TAG, "  Button 4 (GPIO %d): 2x force router connect, 3x toggle Direct Local Mode", PIN_BTN_RESERVED);
 
     return ESP_OK;
 }

@@ -20,9 +20,6 @@ export const SYSTEM_NOW = {
   get dayPct() { const date = currentDate(); return ((date.getHours() * 60 + date.getMinutes()) / 1440) * 100; },
 };
 
-/** Alias for zero-drift backward compatibility */
-export const MOCK_NOW = SYSTEM_NOW;
-
 export function n(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
   return value.toLocaleString("en-US");

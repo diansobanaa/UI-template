@@ -31,16 +31,6 @@ export function ComponentEditorModal({ catalog, initialData, onClose, onSave }: 
   
   const selectedDef = catalog.find(c => c.supportedTypeId === formData.supportedTypeId);
 
-  // Initialize defaults when complex is selected
-  useEffect(() => {
-    if (!initialData && complexes.length > 0 && !formData.assignment?.complexId) {
-      setFormData(prev => ({
-        ...prev,
-        assignment: { ...prev.assignment, complexId: complexes[0].id }
-      }));
-    }
-  }, [complexes, formData.assignment?.complexId, initialData]);
-
   // Sync wiring interface with definition
   useEffect(() => {
     if (selectedDef && (!initialData || formData.supportedTypeId !== initialData.supportedTypeId)) {

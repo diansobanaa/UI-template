@@ -32,6 +32,9 @@ void button_hal_poll(void);
  */
 bool button_hal_is_pressed(button_id_t btn);
 
+/** Duration in milliseconds of the most recently completed press. */
+uint32_t button_hal_get_last_press_duration_ms(button_id_t btn);
+
 #ifdef __cplusplus
 }
 #endif

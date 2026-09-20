@@ -28,7 +28,7 @@ esp_err_t transfer_mgr_init(void);
  * @param duration_sec Maximum duration of the transfer in seconds.
  * @return esp_err_t ESP_OK if started successfully.
  */
-esp_err_t transfer_mgr_start(actuator_id_t source_pump, actuator_id_t dest_valve, uint32_t duration_sec);
+esp_err_t transfer_mgr_start(const char *source_component_id, const char *destination_component_id, uint32_t duration_sec);
 
 /**
  * @brief Stop any ongoing transfer.

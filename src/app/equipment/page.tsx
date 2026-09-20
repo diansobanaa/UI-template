@@ -11,6 +11,7 @@ export default function EquipmentPage() {
   const [activeTab, setActiveTab] = useState<"installed" | "catalog">("installed");
   const [catalog, setCatalog] = useState<SupportedComponentDefinition[]>([]);
   const [installed, setInstalled] = useState<InstalledComponent[]>([]);
+  const [deployment, setDeployment] = useState<{ status: string; activeVersion: number; candidateVersion: number; previousVersion: number; deploymentId?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
@@ -22,6 +23,12 @@ export default function EquipmentPage() {
       ]);
       setCatalog(catData);
       setInstalled(instData);
+      try {
+        const dep = await hardwareService.getConfigurationDeployment();
+        setDeployment(dep);
+      } catch {
+        setDeployment(null);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -44,6 +51,19 @@ export default function EquipmentPage() {
           <p className="text-sm text-slate-400">Manage supported catalog and installed components</p>
         </div>
       </div>
+
+      {deployment && (
+        <div className={`rounded-xl border p-4 ${deployment.status === "ACTIVE" || deployment.status === "ROLLED_BACK" ? "border-emerald-500/20 bg-emerald-500/5" : deployment.status === "CANDIDATE_STAGED" ? "border-amber-500/20 bg-amber-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-slate-500">Configuration Deployment</div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">{deployment.status}</div>
+              <div className="mt-1 text-xs text-slate-400">Active v{deployment.activeVersion} · Candidate v{deployment.candidateVersion} · Previous v{deployment.previousVersion}</div>
+            </div>
+            {deployment.deploymentId && <span className="rounded-lg bg-slate-800 px-2.5 py-1 text-[10px] font-mono text-slate-300">{deployment.deploymentId}</span>}
+          </div>
+        </div>
+      )}
 
       <div className="border-b border-slate-700/50">
         <nav className="-mb-px flex space-x-8">

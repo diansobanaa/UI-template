@@ -41,31 +41,33 @@ export default function FertigationPage() {
 }
 
 function FertigationContent() {
-  useDbVersion(); // live updates while a mock run advances through its lifecycle
+  useDbVersion(); // re-render when authoritative operational state changes
   const [params] = useSearchParams();
   const router = useNavigate();
   const toast = useToast();
 
   const complexes = complexService.list();
-  const complexId = params.get("complex") ?? complexes[0].id;
-  const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
+  const complexId = params.get("complex") ?? "";
+  const complex = complexes.find((c) => c.id === complexId);
+  if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
-  const gh = ghs.find((g) => g.currentRun) ?? ghs[0];
+  const selectedGhId = params.get("gh") ?? "";
+  const selectedGh = selectedGhId ? greenhouseService.get(selectedGhId) : undefined;
   const realtimeState = complexRealtimeState(complex, ghs);
 
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualGhId, setManualGhId] = useState(gh.id);
+  const [manualGhId, setManualGhId] = useState(selectedGhId);
   const [estopOpen, setEstopOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
-  const [manualRecipe, setManualRecipe] = useState(gh.recipes[0]?.id ?? "");
-  const [manualWater, setManualWater] = useState(String(gh.recipes[0]?.waterL ?? 80));
+  const [manualRecipe, setManualRecipe] = useState("");
+  const [manualWater, setManualWater] = useState("80");
   const [manualError, setManualError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testingPump, setTestingPump] = useState<string | null>(null);
-  const manualGh = greenhouseService.get(manualGhId) ?? gh;
+  const manualGh = manualGhId ? greenhouseService.get(manualGhId) : undefined;
 
   const queue = fertigationService.mixingQueue();
   const [pumps, setPumps] = useState(() => fertigationService.dosingPumps());
@@ -83,8 +85,8 @@ function FertigationContent() {
   }, []);
 
   const history = fertigationService.history();
-  const sys = fertigationService.systemStatus();
-  const run = gh.currentRun;
+  const sys = fertigationService.systemStatus(complex.id, selectedGhId || undefined);
+  const run = selectedGh?.currentRun;
 
   const currentOps = ghs.filter((g) => g.currentRun);
   const complexHistory = history.filter((h) => ghs.some((g) => g.id === h.ghId));
@@ -99,6 +101,8 @@ function FertigationContent() {
     }
     setStarting(true);
     try {
+      if (!manualGh) { setManualError("Select a greenhouse before starting fertigation."); return; }
+      if (!manualRecipe) { setManualError("Select a recipe before starting fertigation."); return; }
       await fertigationService.startManual(manualGh.id, manualRecipe, Number(manualWater));
       setManualOpen(false);
       toast("Manual fertigation started — command accepted by ESP32", "success");
@@ -408,7 +412,7 @@ function FertigationContent() {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {currentOps.map((g) => {
                 const r = g.currentRun!;
-                const isActive = g.id === gh.id;
+                const isActive = g.id === selectedGhId;
                 return (
                   <div
                     key={g.id}
@@ -567,16 +571,21 @@ function FertigationContent() {
               </p>
               <Label>Target Greenhouse</Label>
               <Select
-                value={manualGh.id}
+                value={manualGh?.id ?? ""}
                 onChange={(e) => {
-                  const nextGh = greenhouseService.get(e.target.value) ?? gh;
+                  const nextGh = greenhouseService.get(e.target.value);
+                  if (!nextGh) {
+                    setManualGhId("");
+                    setManualRecipe("");
+                    return;
+                  }
                   setManualGhId(nextGh.id);
-                  setManualRecipe(nextGh.recipes[0]?.id ?? "");
-                  setManualWater(String(nextGh.recipes[0]?.waterL ?? 80));
+                  setManualRecipe("");
+                  setManualWater("80");
                 }}
                 options={ghs.map((greenhouse) => ({ value: greenhouse.id, label: greenhouse.code }))}
               />
-              <Button className="mt-3" onClick={() => { setManualError(null); setManualOpen(true); }} disabled={Boolean(manualGh.currentRun)}>
+              <Button className="mt-3" onClick={() => { setManualError(null); setManualOpen(true); }} disabled={!manualGh || Boolean(manualGh.currentRun)}>
                 <PlayCircle className="h-4 w-4" /> Start Manual Fertigation
               </Button>
             </div>
@@ -664,12 +673,12 @@ function FertigationContent() {
       <Modal
         open={manualOpen}
         onClose={() => { if (!starting) setManualOpen(false); }}
-        title={`Manual Fertigation — ${manualGh.code}`}
+        title={`Manual Fertigation — ${manualGh?.code ?? "Select greenhouse"}`}
         width={520}
         footer={
           <>
             <Button variant="secondary" onClick={() => setManualOpen(false)} disabled={starting}>Cancel</Button>
-            <Button onClick={handleStartManual} disabled={starting}>
+            <Button onClick={handleStartManual} disabled={starting || !manualGh || !manualRecipe}>
               {starting ? "Starting…" : "Start Fertigation"}
             </Button>
           </>
@@ -685,12 +694,13 @@ function FertigationContent() {
             <Label required>Recipe</Label>
             <Select
               value={manualRecipe}
+              disabled={!manualGh}
               onChange={(e) => {
                 setManualRecipe(e.target.value);
-                const r = manualGh.recipes.find((x) => x.id === e.target.value);
+                const r = manualGh?.recipes.find((x) => x.id === e.target.value);
                 if (r) setManualWater(String(r.waterL));
               }}
-              options={manualGh.recipes.map((r) => ({ value: r.id, label: r.name }))}
+              options={manualGh?.recipes.map((r) => ({ value: r.id, label: r.name })) ?? [{ value: "", label: "Select greenhouse first" }]}
             />
           </div>
           <div>

@@ -314,7 +314,7 @@ flowchart TD
     subgraph SENS_FLOW ["Sensor Aliran Air Hall 5V"]
         DIV1["Divider 2.2k-3.3k ke 3.0V"]:::sensor
         DIV2["Divider 2.2k-3.3k ke 3.0V"]:::sensor
-        FLOW1["Sensor Flow YF-B1 DN15<br/>Fertigasi"]:::sensor
+        FLOW1["Sensor Flow ZJ-B1 DN15<br/>Raw Water Transfer"]:::sensor
         FLOW2["Sensor Flow FS400A G1<br/>Air Baku"]:::sensor
 
         FLOW1 --> DIV1
@@ -337,12 +337,12 @@ flowchart TD
     subgraph BUTTONS ["Tombol Panel Fisik"]
         BTN_MODE["Button 1: Switch Layar TFT<br/>Paralel BOOT Button"]:::btn
         BTN_WELL["Button 2: Manual Well Pump<br/>Toggle 5-Min Auto-Off"]:::btn
-        BTN_RES3["Button 3: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
+        BTN_RES3["Button 3: RETIRED / DISCONNECTED<br/>GPIO40 = Mixing Pump Relay IN4"]:::btn
         BTN_RES4["Button 4: RESERVED / TBD<br/>Software Debounce 40ms"]:::btn
 
         BTN_MODE -->|GPIO 0 Right-14 Active-LOW Switch Screen| ESP
         BTN_WELL -->|GPIO 39 Right-9 Active-LOW 5-Min Timer| ESP
-        BTN_RES3 -->|GPIO 40 Right-8 Active-LOW Reserved| ESP
+        BTN_RES3 -->|GPIO 40 Right-8 Active-LOW Mixing Pump Relay IN4| ESP
         BTN_RES4 -->|GPIO 41 Right-7 Active-LOW Reserved| ESP
     end
         </div>

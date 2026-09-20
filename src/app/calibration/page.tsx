@@ -56,11 +56,12 @@ function CalibrationContent() {
   const toast = useToast();
 
   const complexes = complexService.list();
-  const complexId = params.get("complex") ?? complexes[0].id;
-  const complex = complexes.find((c) => c.id === complexId) ?? complexes[0];
+  const complexId = params.get("complex") ?? "";
+  const complex = complexes.find((c) => c.id === complexId);
+  if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
-  const ghId = params.get("gh") ?? ghs[0]?.id ?? "";
-  const gh = greenhouseService.get(ghId) ?? ghs[0];
+  const ghId = params.get("gh") ?? "";
+  const gh = ghId ? greenhouseService.get(ghId) : undefined;
   const realtimeState = complexRealtimeState(complex, ghs);
 
   const [category, setCategory] = useState("all");
@@ -68,20 +69,38 @@ function CalibrationContent() {
   const [activeTab, setActiveTab] = useState<"calibrate" | "history">("calibrate");
   /** Single source of truth for a running pump — the header E-Stop and the wizard share it. */
   const [run, setRun] = useState<{ deviceId: string; secondsLeft: number } | null>(null);
+  const [authoritativeDevices, setAuthoritativeDevices] = useState<CalibrationDevice[]>([]);
+  const [authoritativeHistory, setAuthoritativeHistory] = useState<import("@/lib/types").CalibrationRecord[]>([]);
 
   useDbVersion();
 
-  const devices = calibrationService
-    .devicesForCategory(category)
+  useEffect(() => {
+    let cancelled = false;
+    calibrationService.loadAuthoritative(complex.id).then((loaded) => {
+      if (!cancelled) {
+        setAuthoritativeDevices(loaded.devices);
+        setAuthoritativeHistory(loaded.history);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setAuthoritativeDevices([]);
+        setAuthoritativeHistory([]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [complex.id]);
+
+  const devices = authoritativeDevices
+    .filter((d) => (category === "all" ? true : (category === "sensors" ? ["ph", "ec"].includes(d.category) : d.category === "dosing-pump")))
     .filter((d) => d.ghId === null || d.ghId === gh?.id);
   // No silent fallback to devices[0] — the panel stays empty until the user picks a device.
   const device = devices.find((d) => d.id === selectedDeviceId) ?? null;
-  const history = calibrationService.history();
+  const history = authoritativeHistory;
 
   useEffect(() => {
     if (!run) return;
     const timer = setInterval(() => {
-      setRun((prev) => {
+      setRun((prev: { deviceId: string; secondsLeft: number } | null) => {
         if (!prev) return null;
         return prev.secondsLeft > 1 ? { ...prev, secondsLeft: prev.secondsLeft - 1 } : null;
       });
@@ -137,7 +156,7 @@ function CalibrationContent() {
             {complex.code} • {gh?.code ?? "-"} — Kalibrasi pompa dosing, pH meter, dan EC meter sesuai jadwal.
           </p>
         </div>
-        <StatusBadges devices={calibrationService.devices()} />
+        <StatusBadges devices={authoritativeDevices} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">

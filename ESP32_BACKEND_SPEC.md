@@ -99,11 +99,11 @@ SCK  = GPIO11
 MOSI = GPIO12
 MISO = GPIO13
 
-W5500 CS = GPIO10
+W5500: NO ACTIVE PIN MAPPING IN THE CANONICAL HARDWARE CONTRACT (physical commissioning BLOCKED)
 TFT CS   = GPIO14
 TFT DC   = GPIO21
 TFT RST  = GPIO42
-microSD CS = GPIO47
+microSD CS = GPIO48
 ```
 
 ### RTC
@@ -128,19 +128,19 @@ Error Pilot Lamp        = GPIO18
 ### Inputs
 
 ```text
-YF-B1 flow              = GPIO15
+ZJ-B1 raw-water flow     = GPIO15
 FS400A flow             = GPIO16
 DS18B20                 = GPIO17
-Float Lower             = GPIO19
+Float Lower             = GPIO38
 ```
 
 ### Buttons
 
 ```text
-Mode                    = GPIO38
+Mode                    = GPIO0
 Manual A                = GPIO39
-Manual B                = GPIO40
-Distribution            = GPIO41
+Button 3 at GPIO40      = RETIRED / DISCONNECTED (GPIO40 = Mixing Pump)
+Button 4                = GPIO41 (Reserved)
 ```
 
 Reserved:
@@ -523,7 +523,7 @@ FS400A
 Greenhouse
 ```
 
-YF-B1 = raw-water inlet measurement.
+ZJ-B1 = raw-water inlet measurement.
 
 FS400A = distribution/fertigation outlet measurement.
 
@@ -882,3 +882,35 @@ Do not implement in this layer:
 - analytics;
 - unapproved detailed fertigation algorithms;
 - raw GPIO REST endpoints.
+
+---
+
+# M5/M6 Runtime Rules (2026-09-19)
+
+## Dynamic Runtime Identity
+
+Configuration-driven operations must resolve physical outputs through the active hardware registry using `componentId` and `resourceId`. Legacy actuator enums and role aliases are compatibility representations only; they must not be used to select a different physical component when a logical component ID is available.
+
+## Resource Transfer
+
+Resource ownership changes follow this sequence:
+
+```text
+Current assignment
+    ↓
+Physical move confirmation
+    ↓
+Proposed configuration mutation
+    ↓
+Affected schedule revalidation
+    ↓
+Capability recalculation
+    ↓
+M3/M4 configuration deployment
+    ↓
+ESP32 active configuration
+```
+
+Tank-transfer runtime commands use `sourceComponentId` and `destinationComponentId`. The ESP32 validates registry membership, operational lifecycle, pump/valve roles, Complex boundary and resource bindings before acquiring either component.
+
+Physical commissioning is separate evidence and is not inferred from software tests.

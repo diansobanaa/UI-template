@@ -1,13 +1,12 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { getDbVersion, subscribeDb } from "./store";
+import { getOperationalStateVersion, subscribeOperationalState } from "./operational-state";
 
 /**
- * Re-render the calling component whenever the mock database changes.
- * With the real backend this is replaced by react-query invalidation or
- * polling — the call sites stay the same.
+ * Compatibility hook kept so existing pages continue to re-render, but the
+ * source is now the Python-owned operational state cache.
  */
 export function useDbVersion(): number {
-  return useSyncExternalStore(subscribeDb, getDbVersion, () => 0);
+  return useSyncExternalStore(subscribeOperationalState, getOperationalStateVersion, () => 0);
 }

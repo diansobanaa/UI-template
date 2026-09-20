@@ -285,7 +285,7 @@ void tft_show_diagnostic_screen(const char *device_id, const char *fw_version)
     // Device Identifier
     tft_draw_string(8, 86, "DEV ID:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
     char dev_str[24];
-    snprintf(dev_str, sizeof(dev_str), "%.18s", (device_id && device_id[0]) ? device_id : DEFAULT_DEVICE_ID);
+    snprintf(dev_str, sizeof(dev_str), "%.18s", (device_id && device_id[0]) ? device_id : "UNKNOWN");
     tft_draw_string(8, 98, dev_str, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
 
     // Firmware Version
@@ -398,33 +398,52 @@ static void tft_show_network_screen(void)
     tft_fill_rect(0, 24, TFT_WIDTH_PX, 1, 0xA45F);
 
     tft_draw_string(8, 32, "WIFI STATUS:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-    bool net_ok = network_mgr_is_connected();
-    if (net_ok) {
-        tft_draw_string(8, 44, "CONNECTED (STA)", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    const char *net_state = network_mgr_get_state_string();
+    if (network_mgr_is_connected()) tft_draw_string(8, 44, "CONNECTED", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+    else if (network_mgr_is_provisioning()) tft_draw_string(8, 44, "PROVISIONING", TFT_COLOR_YELLOW, TFT_COLOR_BLACK, 1);
+    else tft_draw_string(8, 44, net_state, TFT_COLOR_YELLOW, TFT_COLOR_BLACK, 1);
+
+    char ipbuf[24] = {0};
+    if (network_mgr_is_setup_active()) {
+        tft_draw_string(8, 58, "AP:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+        tft_draw_string(28, 58, network_mgr_get_setup_ssid(), TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+        tft_draw_string(8, 70, "CODE:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+        tft_draw_string(40, 70, network_mgr_get_setup_pop(), TFT_COLOR_YELLOW, TFT_COLOR_BLACK, 1);
     } else {
-        tft_draw_string(8, 44, "AP/OFFLINE", TFT_COLOR_YELLOW, TFT_COLOR_BLACK, 1);
+        tft_draw_string(8, 58, "IP:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+        if (network_mgr_get_ip(ipbuf, sizeof(ipbuf)) == ESP_OK) tft_draw_string(28, 58, ipbuf, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+        else tft_draw_string(28, 58, "NO IP", TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+        tft_draw_string(8, 70, "SSID:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+        char ssidbuf[22] = {0};
+        if (network_mgr_get_sta_ssid(ssidbuf, sizeof(ssidbuf)) == ESP_OK) tft_draw_string(38, 70, ssidbuf, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+        else tft_draw_string(38, 70, "NOT SET", TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
     }
 
-    tft_draw_string(8, 64, "SYSTEM TIME:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    tft_draw_string(8, 86, "HOST:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    char hostbuf[64];
+    snprintf(hostbuf, sizeof(hostbuf), "%.23s.local", network_mgr_get_hostname());
+    tft_draw_string(38, 86, hostbuf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+
+    tft_draw_string(8, 100, "SYSTEM TIME:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
     time_t now;
     time(&now);
     struct tm ti;
     localtime_r(&now, &ti);
     char tbuf[32];
     strftime(tbuf, sizeof(tbuf), "%Y-%m-%d", &ti);
-    tft_draw_string(8, 76, tbuf, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
+    tft_draw_string(8, 112, tbuf, TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
     strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &ti);
-    tft_draw_string(8, 88, tbuf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
+    tft_draw_string(8, 124, tbuf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
 
-    tft_draw_string(8, 108, "INTERLOCK STATE:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
+    tft_draw_string(8, 136, "SAFETY:", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
     if (actuator_hal_is_emergency_stopped()) {
-        tft_draw_string(8, 120, "EMERGENCY STOP!", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
+        tft_draw_string(52, 136, "E-STOP", TFT_COLOR_RED, TFT_COLOR_BLACK, 1);
     } else {
-        tft_draw_string(8, 120, "SYSTEM RUNNING", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
+        tft_draw_string(52, 136, "SAFE", TFT_COLOR_GREEN, TFT_COLOR_BLACK, 1);
     }
 
-    tft_fill_rect(0, 140, TFT_WIDTH_PX, 20, TFT_COLOR_DARKGRAY);
-    tft_draw_string(8, 146, "[BTN1] SCREEN 4/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
+    tft_fill_rect(0, 144, TFT_WIDTH_PX, 16, TFT_COLOR_DARKGRAY);
+    tft_draw_string(8, 148, "[BTN1] SCREEN 4/4", TFT_COLOR_WHITE, TFT_COLOR_DARKGRAY, 1);
 }
 
 void tft_show_screen(tft_screen_id_t screen_id)
@@ -433,9 +452,11 @@ void tft_show_screen(tft_screen_id_t screen_id)
     s_current_screen = screen_id % TFT_SCREEN_COUNT;
 
     switch (s_current_screen) {
-        case TFT_SCREEN_DIAGNOSTIC:
-            tft_show_diagnostic_screen(DEFAULT_DEVICE_ID, FIRMWARE_VERSION);
+        case TFT_SCREEN_DIAGNOSTIC: {
+            const system_storage_state_t *st = storage_mgr_get_state();
+            tft_show_diagnostic_screen(st ? st->device_id : "UNKNOWN", FIRMWARE_VERSION);
             break;
+        }
         case TFT_SCREEN_SENSORS:
             tft_show_sensors_screen();
             break;

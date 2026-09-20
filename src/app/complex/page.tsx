@@ -22,10 +22,8 @@ import { useToast } from "@/components/ui/toast";
 import { complexService, greenhouseService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
-import { required } from "@/lib/validation";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
-import { AssignmentManager } from "@/components/ui/equipment/AssignmentManager";
 import type { Complex, Greenhouse } from "@/lib/types";
 
 const CROP_OPTIONS = ["Tomato", "Cucumber", "Lettuce", "Spinach", "Strawberry", "Chili", "Bell Pepper", "Broccoli"];
@@ -45,20 +43,15 @@ function ComplexOverviewContent() {
   const toast = useToast();
 
   const complexes = complexService.list();
-  const [addComplexOpen, setAddComplexOpen] = useState(false);
   const [addGhFor, setAddGhFor] = useState<string | null>(null);
 
   // open Add Greenhouse via ?add=1 from the dashboard
   const initialAdd = params.get("add") === "1";
   const [addGhOpen, setAddGhOpen] = useState(initialAdd);
 
-  const [newLocation, setNewLocation] = useState("");
   const [newCrop, setNewCrop] = useState(CROP_OPTIONS[0]);
-  const [complexError, setComplexError] = useState<string | null>(null);
-  const [savingComplex, setSavingComplex] = useState(false);
   const [ghError, setGhError] = useState<string | null>(null);
   const [savingGh, setSavingGh] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState<"complex" | "gh" | null>(null);
   const [editingComplex, setEditingComplex] = useState<Complex | null>(null);
   const [editingGh, setEditingGh] = useState<Greenhouse | null>(null);
   const [editCode, setEditCode] = useState("");
@@ -71,12 +64,8 @@ function ComplexOverviewContent() {
 
   const totalGhs = complexes.reduce((a, c) => a + c.greenhouseIds.length, 0);
   const onlineEsp = complexes.filter((c) => c.esp32.online).length;
+  const totalWaterTodayL = complexes.reduce((sum, complex) => sum + (Number.isFinite(complex.water.flowTodayL) ? complex.water.flowTodayL : 0), 0);
 
-  const closeAddComplex = () => {
-    if (savingComplex) return;
-    if (newLocation.trim()) setConfirmDiscard("complex");
-    else setAddComplexOpen(false);
-  };
   const closeAddGh = () => {
     if (savingGh) return;
     setAddGhOpen(false);
@@ -129,28 +118,13 @@ function ComplexOverviewContent() {
     }
   };
 
-  const handleCreateComplex = async () => {
-    setComplexError(null);
-    if (required(newLocation, "Location")) {
-      setComplexError("Location is required.");
-      return;
-    }
-    setSavingComplex(true);
-    try {
-      const created = await complexService.create(newLocation);
-      setAddComplexOpen(false);
-      setNewLocation("");
-      toast(`${created.code} created successfully`, "success");
-    } catch (e) {
-      setComplexError(errorMessage(e));
-    } finally {
-      setSavingComplex(false);
-    }
-  };
-
   const handleCreateGh = async () => {
     setGhError(null);
-    const target = addGhFor ?? complexes[0].id;
+    const target = addGhFor;
+    if (!target) {
+      setGhError("Create a Complex before adding a Greenhouse.");
+      return;
+    }
     setSavingGh(true);
     try {
       const created = await greenhouseService.create(target, newCrop);
@@ -165,15 +139,15 @@ function ComplexOverviewContent() {
   };
 
   return (
-    <AppShell complexId={complexes[0].id}>
+    <AppShell complexId={addGhFor}>
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Complex Overview</h1>
           <p className="mt-0.5 text-[13px] text-slate-500">All greenhouse complexes in the ecosystem</p>
         </div>
         <div className="ml-auto">
-          <Button onClick={() => { setComplexError(null); setAddComplexOpen(true); }}>
-            <Plus className="h-4 w-4" /> Add Complex
+          <Button onClick={() => router("/onboarding/complex")}>
+            <Plus className="h-4 w-4" /> Add Complex & ESP32
           </Button>
         </div>
       </div>
@@ -183,8 +157,13 @@ function ComplexOverviewContent() {
         <MetricCard icon={Building2} iconTone="violet" label="Total Complexes" value={complexes.length} />
         <MetricCard icon={Leaf} iconTone="green" label="Total Greenhouses" value={totalGhs} />
         <MetricCard icon={Cpu} iconTone="blue" label="ESP32 Online" value={`${onlineEsp} / ${complexes.length}`} />
-        <MetricCard icon={Droplets} iconTone="sky" label="Water Usage (Today)" value="2,310 L">
-          <span className="text-xs text-emerald-600">+8% vs yesterday</span>
+        <MetricCard
+          icon={Droplets}
+          iconTone="sky"
+          label="Water Usage (Today)"
+          value={complexes.length === 0 ? "—" : `${totalWaterTodayL.toLocaleString("en-US")} L`}
+        >
+          <span className="text-xs text-slate-500">{complexes.length === 0 ? "No operational data yet" : "Measured from configured complexes"}</span>
         </MetricCard>
       </div>
 
@@ -193,8 +172,8 @@ function ComplexOverviewContent() {
         {complexes.map((c) => {
           const ghs = greenhouseService.byComplex(c.id);
           return (
-            <div key={c.id} className="space-y-4">
             <SectionCard
+              key={c.id}
               title={c.code}
               subtitle={c.location}
               icon={Building2}
@@ -207,6 +186,9 @@ function ComplexOverviewContent() {
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => { setAddGhFor(c.id); setGhError(null); setAddGhOpen(true); }}>
                     <Plus className="h-3.5 w-3.5" /> Add Greenhouse
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => router(`/onboarding/complex?complex=${encodeURIComponent(c.id)}`)}>
+                    <Cpu className="h-3.5 w-3.5" /> {c.esp32.deviceId ? "Manage ESP32" : "Setup ESP32"}
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => router(`/dashboard?complex=${c.id}`)}>
                     <Eye className="h-3.5 w-3.5" /> View Details
@@ -242,11 +224,6 @@ function ComplexOverviewContent() {
                 </button>
               </div>
             </SectionCard>
-            
-            <div className="mt-8">
-              <AssignmentManager context="COMPLEX" />
-            </div>
-          </div>
           );
         })}
       </div>
@@ -273,7 +250,7 @@ function ComplexOverviewContent() {
           )}
           <div>
             <Label required>{editingComplex ? "Complex Code" : "Greenhouse Code"}</Label>
-            <Input value={editCode} onChange={(event) => setEditCode(event.target.value)} placeholder={editingComplex ? "Complex 01" : "GH 01"} />
+            <Input value={editCode} onChange={(event) => setEditCode(event.target.value)} placeholder={editingComplex ? "Complex 01" : "GH tag"} />
           </div>
           {editingComplex ? (
             <>
@@ -294,48 +271,12 @@ function ComplexOverviewContent() {
               </div>
               <div>
                 <Label>Greenhouse Tag</Label>
-                <Input value={editTag} onChange={(event) => setEditTag(event.target.value)} placeholder="GH-01" />
+                <Input value={editTag} onChange={(event) => setEditTag(event.target.value)} placeholder="GH tag" />
               </div>
             </>
           )}
           <div className="rounded-lg bg-blue-50/70 px-3 py-2.5 text-xs leading-relaxed text-blue-700">
             Perubahan disimpan ke state aplikasi dan tetap tersedia setelah halaman dimuat ulang.
-          </div>
-        </div>
-      </Modal>
-
-      {/* ---------------- Add Complex modal ---------------- */}
-      <Modal
-        open={addComplexOpen}
-        onClose={closeAddComplex}
-        title="Add Complex"
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeAddComplex}>Cancel</Button>
-            <Button onClick={handleCreateComplex} disabled={savingComplex}>
-              {savingComplex ? "Creating…" : "Create Complex"}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3.5">
-          {complexError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-600">
-              {complexError}
-            </div>
-          )}
-          <div>
-            <Label>Complex Name</Label>
-            <Input value={`Complex ${String(complexes.length + 1).padStart(2, "0")}`} disabled />
-          </div>
-          <div>
-            <Label required>Location</Label>
-            <Input value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="e.g. Lembang, Indonesia" />
-            <FieldError>{complexError?.includes("Location") ? complexError : null}</FieldError>
-          </div>
-          <div className="rounded-lg bg-blue-50/70 px-3 py-2.5 text-xs leading-relaxed text-blue-700">
-            A complex is controlled by one ESP32. After creation, pair the controller and discover its hardware in the
-            later backend phase.
           </div>
         </div>
       </Modal>
@@ -365,7 +306,7 @@ function ComplexOverviewContent() {
           <div>
             <Label>Complex</Label>
             <Input
-              value={complexes.find((c) => c.id === (addGhFor ?? complexes[0].id))?.code ?? "–"}
+              value={complexes.find((c) => c.id === addGhFor)?.code ?? "–"}
               disabled
             />
           </div>
@@ -390,21 +331,6 @@ function ComplexOverviewContent() {
         </div>
       </Modal>
 
-      {/* unsaved changes guard for Add Complex */}
-      <ConfirmDialog
-        open={confirmDiscard === "complex"}
-        onClose={() => setConfirmDiscard(null)}
-        onConfirm={() => {
-          setConfirmDiscard(null);
-          setNewLocation("");
-          setComplexError(null);
-          setAddComplexOpen(false);
-        }}
-        title="Unsaved changes"
-        message="You have unsaved changes. Discard them and close?"
-        confirmLabel="Discard Changes"
-        danger
-      />
     </AppShell>
   );
 }

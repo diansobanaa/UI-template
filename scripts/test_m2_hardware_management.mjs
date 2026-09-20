@@ -1,9 +1,12 @@
+/* M17 NOTICE: GPIO values in this fixture are synthetic logical-test data only.
+ * They are NOT a physical wiring map and must never be used as commissioning evidence.
+ * Physical GPIO authority is docs/HARDWARE_WIRING_MAP.md. */
 import http from 'node:http';
 import assert from 'node:assert';
 import fs from 'node:fs';
 
 console.log("=================================================================");
-console.log("   AUDIT SUITE: M2.16 - M2.26 HARDWARE COMPONENT MANAGEMENT      ");
+console.log("   SOFTWARE AUDIT SUITE: M2.16 - M2.26 (simulation + assertions; not physical proof)      ");
 console.log("=================================================================");
 
 let passed = 0;

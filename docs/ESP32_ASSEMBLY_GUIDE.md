@@ -15,7 +15,7 @@
 |---|---|---|---|---|---|
 | **MCU** | ESP32-S3-WROOM-1-N16R8 Dev Board (16MB Flash, 8MB Octal PSRAM) | 1 | 3.3V DC (5V USB/Vin) | GPIO / SPI / I2C / UART | **READY**: Main controller & runtime authority |
 | **BREADBOARD**| 400-Point Breadboard + Wiring Accessories | 1 kit | N/A | Prototyping | **READY**: Workbench prototyping & sensor interconnect |
-| **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | SPI (CS: GPIO 10) | **READY**: Hardwired local LAN interface |
+| **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | **NO PIN IN CANONICAL MAP** | **BLOCKED**: Not part of active commissioning; do not wire to GPIO10 |
 | **WIFI-ANT** | External 2.4GHz 5dBi Antenna + U.FL to SMA Pigtail | 1 | Passive RF | U.FL / SMA | **READY**: External high-gain wireless network antenna |
 | **RTC** | DS3231 High-Precision I2C RTC Module (6-pin: 32K, SQW, SCL, SDA, VCC, GND) | 1 | 3.3V DC | I2C (SDA: GPIO 8, SCL: GPIO 9) | **READY**: Battery-backed I2C RTC (32K & SQW NC; driver update pending) |
 | **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42, SCK: 11, MOSI: 12) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
@@ -26,11 +26,11 @@
 | **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 1) | **READY**: Switches 220V AC Deep Well Pump |
 | **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 2) | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
 | **MOSFET-15A**| High-Power MOSFET Driver Module 15A / 400W | 3 | 3.3V/5V Logic in, 12V out | Physical Pins TBD (GPIO 5, 6, 7) | **READY**: High-speed DC switching (Physical pins TBD) |
-| **FLOW 1** | YF-B1 Hall-Effect Water Flow Sensor (DN15 / G1/2") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 15) | **READY**: Main fertigation loop flow meter |
+| **FLOW 1** | ZJ-B1 Hall-Effect Water Flow Sensor | 1 | 5V DC (3.3V pulse after divider) | Pulse output (GPIO 15) | **BLOCKED** for physical identity/calibration until reconciled; canonical master table names ZJ-B1 |
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
 | **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 38) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
-| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 40, 41) | **READY**: Button 1 (GPIO 0: TFT switch), Button 2 (GPIO 39: Well Pump 5-min toggle & float interlock), Button 3 (GPIO 40: Reserved), Button 4 (GPIO 41: Reserved) |
+| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 physical positions | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 41); GPIO 40 is actuator output | **PARTIAL**: Button 1 and Button 2 operational, Button 3 is RETIRED/disconnected, Button 4 reserved |
 | **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
 | **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
 | **AC-IN** | 3-in-1 AC Power Inlet Socket with Fuse & Switch | 1 | 250V AC 10A | Mains Power Entry | **READY**: Master power disconnect and fuse protection |
@@ -60,11 +60,11 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 8** | I2C SDA (DS3231 RTC / Sensors) | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 9** | I2C SCL (DS3231 RTC / Sensors) | OUTPUT | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 10** | Greenhouse Blower Fans Contactor Trigger (Relay IN3) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Contactor ON, 1 = Safe OFF) Booked / Standby |
-| **GPIO 11** | SPI SCK (Shared SPI Clock) | OUTPUT | 3.3V Logic | W5500, TFT, MicroSD |
-| **GPIO 12** | SPI MOSI (Master Out Slave In) | OUTPUT | 3.3V Logic | W5500, TFT, MicroSD |
+| **GPIO 11** | SPI SCK (Shared SPI Clock) | OUTPUT | 3.3V Logic | TFT, MicroSD (W5500 not in canonical active map) |
+| **GPIO 12** | SPI MOSI (Master Out Slave In) | OUTPUT | 3.3V Logic | TFT, MicroSD (W5500 not in canonical active map) |
 | **GPIO 13** | SPI MISO (Master In Slave Out) | INPUT | 3.3V Logic | W5500, MicroSD |
 | **GPIO 14** | TFT Display Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low |
-| **GPIO 15** | YF-B1 Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
+| **GPIO 15** | ZJ-B1 Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 16** | FS400A Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 17** | DS18B20 1-Wire Temperature Data | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 18** | System Status / Error Beacon Lamp | OUTPUT | 3.3V Logic → Driver | Active-LOW (0 = Lamp ON, 1 = OFF) |
@@ -72,7 +72,7 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 21** | TFT Display Data / Command (DC) | OUTPUT | 3.3V Logic | High = Data, Low = Command |
 | **GPIO 38** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal (SAFETY AUTHORITY) |
 | **GPIO 39** | Button 2: Well Pump Manual Toggle | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). State 1: ON (5-min timer), State 2: OFF. Float interlocked. |
-| **GPIO 40** | Button 3: Reserved / TBD | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). Software debounced, no action assigned. |
+| **GPIO 40** | Mixing Pump Relay IN4 | OUTPUT | 3.3V/5V control | Active-LOW (0=ON). Button 3 physical input RETIRED/disconnected. |
 | **GPIO 41** | Button 4: Reserved / TBD | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). Software debounced, no action assigned. |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
 | **GPIO 47** | Anti-Theft Tamper Loop (Pump Security) | INPUT | 3.3V Logic (Internal pullup) | Closed loop to GND = OK (0), Cut/Open = TAMPER TRIP (1) |
@@ -161,7 +161,7 @@ The controller enclosure contains three strictly segregated power domains:
   - Red wire: Connect to +5V DC (IN / Positive).
   - Black wire: Connect to GND_LV (GND / Negative).
   - Yellow wire (Signal): Connect to GPIO 16 via resistive voltage divider (2.2kΩ / 3.3kΩ) to 3.3V (OUT / signal).
-  - Characteristic: F = 4.5 * Q (288 pulses/L).
+  - Canonical characteristic: F = 4.8 * Q (288 pulses/L); physical calibration is still required.
 - **DS18B20 (Water Temperature):**
   - Red wire (VCC): Connect to 3.3V DC.
   - Black wire (GND): Connect to GND_LV.
@@ -183,8 +183,8 @@ All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`
 - **DISTRIBUTION:** GPIO 41 to Button Pin 1; Button Pin 2 to GND_LV.
 
 ### 4.5. SPI Peripheral Bus Wiring
-The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared across W5500, TFT Display, and built-in MicroSD card slot. Keep wire lengths under 15 cm:
-- **W5500 Ethernet:** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 10, RST → 3.3V (or NC), VCC → 3.3V, GND → GND_LV.
+The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared by the TFT Display and built-in MicroSD card slot. W5500 is not assigned in the canonical pin map and must not be wired. Keep wire lengths under 15 cm:
+- **W5500 Ethernet:** BLOCKED / DO NOT WIRE — the canonical hardware pin map does not assign W5500 CS/INT/RESET.
 - **TFT Display (ST7735 1.8" 128×160 SPI):** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV. (Hardware controller: ST7735. Do NOT substitute with 2.4" or 2.8" or ILI9341/ST7789).
 - **MicroSD Slot (Built-in on back of TFT ST7735 Module):** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 48, VCC → 3.3V, GND → GND_LV. (*Card slot on TFT PCB; flash/boot verification pending*).
 
@@ -313,12 +313,12 @@ With firmware installed, verify hardware pin states using console logs or test c
 
 1. **Boot Clamp Check:**
    - Monitor UART serial console at 115200 baud (`GPIO 43/44`).
-   - Check log output: `[ACTUATOR_HAL] Boot safe clamp: All 7 channels forced OFF (0V)`.
+   - Check log output: `[ACTUATOR_HAL] Boot safe clamp: All 9 mapped actuator channels forced to their documented safe-off state`.
    - Relay LEDs on the 8-channel board must remain dark.
 2. **Button Read Test:**
    - Press MODE button (GPIO 0): Console should report TFT display screen switch.
    - Press MANUAL A button (GPIO 39): Console should report Well Pump manual toggle.
-   - Button 3 (GPIO 40): RETIRED from button input; repurposed as 220V AC Mixing Pump Relay IN4 control.
+   - Button 3 (GPIO 40): RETIRED from button input; physical button must remain disconnected because GPIO40 is Mixing Pump Relay IN4.
    - Press Reserved Button 4 (GPIO 41): Console should report `Button 4 (GPIO 41) pressed: RESERVED / UNASSIGNED (No operational action assigned).`.
 
 ---
@@ -328,9 +328,9 @@ With firmware installed, verify hardware pin states using console logs or test c
 1. **DS18B20 Temperature:**
    - Submerge probe in room temperature water. Verify telemetry shows ~24°C–28°C.
    - Dip into warm water. Verify temperature reading updates within 2 seconds.
-2. **Flow Sensor YF-B1:**
-   - Blow gently into sensor chamber or run water through.
-   - Verify pulse counts increment and telemetry flow rate reflects positive value.
+2. **Flow Sensor ZJ-B1:**
+   - Run a controlled water flow through the sensor.
+   - Verify pulse counts increment and telemetry flow reflects positive measured input. Physical identity/calibration must follow the canonical pin-map discrepancy resolution.
 3. **Lower Float Switch:**
    - Lift float: Telemetry reports `dryRunProtectionActive: false`.
    - Drop float: Telemetry reports `dryRunProtectionActive: true` and safety monitor logs dry-run warning.
@@ -353,9 +353,8 @@ Test each output channel individually with dummy loads or multimeter:
 
 ## 14. Network Bring-Up Procedure
 
-1. Connect RJ-45 cable from local greenhouse router/switch into W5500 port (or configure Wi-Fi credentials).
-2. Check link LEDs on W5500 jack: Green LED steady (Link), Amber LED flickering (Activity).
-3. Ping controller IP (default `192.168.1.50` or DHCP assigned):
+1. Configure the supported Wi-Fi network path for commissioning. W5500 is **BLOCKED / DO NOT WIRE** because the canonical pin map does not define W5500 CS/INT/RESET.
+2. Ping controller IP (DHCP assigned or configured static address):
    ```bash
    ping 192.168.1.50
    ```
@@ -371,7 +370,7 @@ Test each output channel individually with dummy loads or multimeter:
 
 1. **Software Emergency Stop:**
    - Send `POST /api/v1/commands/emergency-stop` from UI or terminal.
-   - Measure all 7 actuator pins: All must immediately drop to 0V (relays drop out).
+   - Measure all 9 mapped actuator pins: All must immediately enter their documented safe-off level (relays drop out).
    - Verify system latches in E-stop state and rejects subsequent pump start commands until resumed.
 2. **Hardware Power Interruption:**
    - Cut main power breaker while pumps are active.
@@ -402,10 +401,10 @@ Test each output channel individually with dummy loads or multimeter:
 |---|---|---|
 | **ESP32 loops in boot crash / Brownout** | Insufficient 5V supply current | Verify buck converter can deliver 2A–3A peak. Replace thin USB cable with direct 18 AWG power wires. |
 | **Pumps turn ON briefly at boot** | Active-low relay board inverted logic or floating inputs | Ensure relay is connected to Normally Open (NO) terminals. Firmware defaults to Active-LOW (`ACTUATOR_ACTIVE_LEVEL = 0`) with inactive pin state forced to HIGH (3.3V) with pull-up. |
-| **W5500 Ethernet not detected** | SPI wiring error or clock too fast | Verify SCK (11), MOSI (12), MISO (13), and CS (10). Check that SPI bus speed is set to 20MHz or lower. Note: Wi-Fi STA+AP is default network in Phase 1 firmware. |
+| **W5500 Ethernet not detected** | No canonical physical mapping | Do not wire W5500 in the current commissioning. Use Wi-Fi; W5500 remains BLOCKED until a future authoritative pin-map update. |
 | **DS18B20 reads -127°C or 85°C** | Missing 4.7kΩ pull-up resistor | Solder 4.7kΩ resistor between Data (GPIO 17) and 3.3V. Check for loose terminal connection. |
 | **Flow sensor registers zero pulses** | 5V signal not triggering 3.3V input | Verify voltage divider wiring and pulse input on oscilloscope or LED indicator. |
-| **SD card mount failure** | Card format not FAT32 or loose CS | Format microSD as FAT32 (32KB cluster). Check CS pin is wired to GPIO 27 (PIN_MICROSD_CS). |
+| **SD card mount failure** | Card format not FAT32 or loose CS | Format microSD as FAT32 (32KB cluster). Check SD CS pin is wired to GPIO 48 (`PIN_MICROSD_CS`). |
 
 ---
 
@@ -419,14 +418,14 @@ Every item on this checklist must be inspected, verified, and signed off before 
 | **C-02** | Chassis protective earth continuity < 0.2Ω | [ ] PASS  [ ] FAIL | |
 | **C-03** | Isolation barrier between AC and DC grounds > 20MΩ | [ ] PASS  [ ] FAIL | |
 | **C-04** | 5.05V DC buck converter voltage verified with DMM | [ ] PASS  [ ] FAIL | |
-| **C-05** | Boot safe clamp verified: All 7 output channels measure 0V at boot | [ ] PASS  [ ] FAIL | |
-| **C-06** | W5500 Ethernet connects and responds to ping | [ ] PASS  [ ] FAIL | |
+| **C-05** | Boot safe clamp verified: All 9 mapped output channels measure their documented safe-off level at boot | [ ] PASS  [ ] FAIL | |
+| **C-06** | W5500 Ethernet is not installed/commissioned because no canonical pin mapping exists | [ ] BLOCKED | |
 | **C-07** | DS3231 RTC maintains time across power-cycle | [ ] PASS  [ ] FAIL | |
-| **C-08** | YF-B1 and FS400A flow sensors increment pulse counts under flow | [ ] PASS  [ ] FAIL | |
+| **C-08** | ZJ-B1 and FS400A flow sensors increment pulse counts under flow | [ ] PASS  [ ] FAIL | |
 | **C-09** | DS18B20 temperature sensor returns valid ambient reading | [ ] PASS  [ ] FAIL | |
 | **C-10** | Lower float switch triggers dry-run alarm when dropped | [ ] PASS  [ ] FAIL | |
 | **C-11** | Emergency stop command immediately shuts off all actuators | [ ] PASS  [ ] FAIL | |
-| **C-12** | All 4 physical push buttons register debounced presses | [ ] PASS  [ ] FAIL | |
+| **C-12** | Active panel inputs operate: Button 1 GPIO0 and Button 2 GPIO39; Button 3 at GPIO40 is RETIRED/disconnected; Button 4 GPIO41 remains reserved | [ ] PASS  [ ] FAIL | |
 | **C-13** | MicroSD card mounts and logs telemetry events | [ ] PASS  [ ] FAIL | |
 | **C-14** | REST API responds to all 25 canonical routes in `UI_ESP32_OPENAPI.yaml` | [ ] PASS  [ ] FAIL | |
 | **C-15** | UI connects directly over LAN and syncs crop-cycle state | [ ] PASS  [ ] FAIL | |

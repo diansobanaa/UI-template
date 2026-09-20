@@ -23,7 +23,7 @@ typedef struct {
     float flow_rate_lpm;
     float total_liters;
 
-    /* Actuator states */
+    /* Actuator states retained for compatibility with the operational overview. */
     bool well_pump_on;
     bool dist_pump_on;
     bool raw_submersible_on;
@@ -34,20 +34,17 @@ typedef struct {
     bool error_lamp_on;
 } telemetry_snapshot_t;
 
-/**
- * @brief Initialize and start the background telemetry sampling task.
- */
+/** Initialize and start background telemetry sampling + durable history capture. */
 esp_err_t telemetry_mgr_init(void);
 
-/**
- * @brief Get latest telemetry snapshot.
- */
+/** Get latest telemetry snapshot. */
 esp_err_t telemetry_mgr_get_snapshot(telemetry_snapshot_t *out_snap);
 
-/**
- * @brief Serialize current snapshot to canonical cJSON matching TelemetryResponse.
- */
+/** Serialize the current measured snapshot. No fabricated sensor values are emitted. */
 cJSON *telemetry_mgr_to_json(const char *greenhouse_id);
+
+/** Return durable telemetry history after a device sequence cursor. */
+cJSON *telemetry_mgr_get_history_json(const char *greenhouse_id, const char *after_sequence, int limit);
 
 #ifdef __cplusplus
 }

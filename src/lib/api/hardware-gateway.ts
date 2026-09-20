@@ -1,4 +1,4 @@
-import { ESP32_API_BASE, PYTHON_API_BASE } from "./backend-client";
+import { ESP32_API_BASE, PYTHON_API_BASE, BackendNotConnectedError } from "./backend-client";
 import { Esp32Client } from "./esp32-client";
 import { PythonClient } from "./python-client";
 import type {
@@ -6,11 +6,11 @@ import type {
   CommandReceipt,
   ConfigurationValidation,
   ConfigurationPayload,
-  Esp32EventLog,
   InventoryResponse,
   HardwarePortConfig,
   SyncSnapshot,
   TelemetrySnapshot,
+  EventResponse,
 } from "./contracts";
 
 export type GatewaySource = "PYTHON" | "ESP32";
@@ -25,7 +25,7 @@ export interface GatewayResult<T> {
 export interface HardwareGateway {
   sync(complexId: string): Promise<GatewayResult<SyncSnapshot>>;
   telemetry(complexId: string, greenhouseId?: string): Promise<GatewayResult<TelemetrySnapshot>>;
-  logs(complexId: string, cursor?: string): Promise<GatewayResult<{ items: Esp32EventLog[]; nextCursor?: string }>>;
+  logs(complexId: string, cursor?: string): Promise<GatewayResult<EventResponse>>;
   validate(complexId: string, configuration: ConfigurationPayload): Promise<GatewayResult<ConfigurationValidation>>;
   saveConfiguration(complexId: string, configuration: ConfigurationPayload): Promise<GatewayResult<ConfigurationPayload>>;
   syncClock(complexId: string, source: "PYTHON" | "UI"): Promise<GatewayResult<{ appliedAt: string }>>;
@@ -47,7 +47,10 @@ export function createHardwareGateway(overrides: Partial<HardwarePortConfig> = {
     try {
       return { data: await pythonCall(), source: "PYTHON", receivedAt: new Date().toISOString() };
     } catch (pythonError) {
-      if (!config.directEsp32Enabled) throw pythonError;
+      /* Never fallback after an authoritative HTTP rejection (409/422/5xx).
+       * A second deployment could otherwise commit after the backend has already
+       * applied the first request but returned an ambiguous transport error. */
+      if (!(pythonError instanceof BackendNotConnectedError) || !config.directEsp32Enabled) throw pythonError;
       return { data: await espCall(), source: "ESP32", receivedAt: new Date().toISOString() };
     }
   }

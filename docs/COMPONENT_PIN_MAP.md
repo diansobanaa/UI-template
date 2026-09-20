@@ -165,7 +165,7 @@ This document specifies the exact mapping from the physical pins of each discret
 
 *Sensor Roles & Specifications:*
 - **ZJ-B1:** Inline raw water flow meter installed on the transfer line from Raw Water source to Mixing Tank. Range: 1–25 L/min, pressure $\le$ 1.75 MPa. Pulse calibration is currently **UNVERIFIED / CALIBRATION REQUIRED**; actual transferred volume is accumulated to evaluate `actualVolumeMl >= targetVolumeMl` once calibrated.
-- **FS400A G1":** Inline fertigation delivery flow meter on the distribution loop to greenhouse beds. Range: 1–60 L/min, pressure $\le$ 1.75 MPa. Pulse frequency follows $F = 4.5 \times Q \implies Q = F / 4.8$ ($288\\text{ pulses/L}$). Used for fertigation delivery verification, telemetry, and safety monitoring.
+- **FS400A G1":** Inline fertigation delivery flow meter on the distribution loop to greenhouse beds. Range: 1–60 L/min, pressure $\le$ 1.75 MPa. Canonical contract: $F = 4.8 \times Q$ and 288 pulses/L at 60 L/min; physical calibration is still required. Used for fertigation delivery verification, telemetry, and safety monitoring.
 - *Voltage Divider Note:* Pulse signals are scaled via 2.2kΩ / 3.3kΩ resistive voltage dividers to ensure maximum voltage into GPIO 15 and 16 does not exceed 3.3V.
 
 ### 2.10. Anti-Theft Pump Security Loop (Tamper Wire)
