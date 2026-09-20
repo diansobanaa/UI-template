@@ -1,3 +1,24 @@
+## SP-GREENHOUSE-CREATION-FLOW-FIX — Fix Greenhouse Creation Flow & Empty State Redirect
+- **Date**: 2026-09-21
+- **Objective**: Fix navigation and state management where "No Greenhouse configured" empty state redirected users to Complex onboarding (`/onboarding/complex`) instead of opening the Greenhouse creation flow (`/complex?add=1`), and resolve null target complex selection in `ComplexOverviewPage`.
+- **Root Cause**:
+  1. `OperationalHydrator.tsx` rendered `OperationalSetupState` when `greenhouses.length === 0`, but `OperationalSetupState.tsx` hardcoded `<Link to="/onboarding/complex">` and action label "Start Complex Setup". Clicking it opened the Complex creation wizard instead of the Greenhouse form.
+  2. In `src/app/complex/page.tsx`, `addGhFor` was initialized to `null` even when `params.get("complex")` or existing complexes were present, leaving the modal with an unselected/disabled complex and triggering "Create a Complex before adding a Greenhouse." on submission.
+- **Completed Work**:
+  1. `src/components/OperationalSetupState.tsx`: Added `actionHref` prop with fallback to `/onboarding/complex`.
+  2. `src/components/OperationalHydrator.tsx`: Configured "No Greenhouse configured" state with `actionLabel="Add Greenhouse"` and `actionHref="/complex?complex=${firstComplexId}&add=1"`.
+  3. `src/app/complex/page.tsx`:
+     - Initialized `addGhFor` to `params.get("complex") || complexes[0]?.id ?? null`.
+     - Ensured fallback target in `handleCreateGh` to prevent false empty-state rejections.
+     - Added `<select>` dropdown for target Complex in Add Greenhouse modal when multiple complexes exist.
+     - Passed `addGhFor || complexes[0]?.id` to `AppShell`.
+- **Verification Result**:
+  - `npm test`: PASS (28 canonical endpoints verified).
+  - `npm run test:onboarding`: PASS.
+  - `npm run test:network-first-boot`: PASS (41/41 checks).
+  - `npx vite build`: PASS (907.01 kB production singlefile bundle).
+- **Current Safe Point**: SP-GREENHOUSE-CREATION-FLOW-FIX.
+
 ## SP-CHATGPT-BRANCH-PUSH-ChatGpt — Push Project to GitHub Branch ChatGpt
 - **Date**: 2026-09-21
 - **Objective**: Stage, verify, commit, and push the complete project to GitHub remote `https://github.com/diansobanaa/UI-template.git` on branch `ChatGpt`.

@@ -26,10 +26,14 @@ export function OperationalHydrator({ children }: { children: ReactNode }) {
       );
     }
     if (!isSetupRoute && snapshot.greenhouses.length === 0) {
+      const firstComplexId = snapshot.complexes[0]?.id;
+      const ghHref = firstComplexId ? `/complex?complex=${encodeURIComponent(firstComplexId)}&add=1` : "/complex?add=1";
       return (
         <OperationalSetupState
           title="No Greenhouse configured"
           message="A Complex exists, but there is no Greenhouse yet. Create at least one Greenhouse from Complex Setup before opening greenhouse operations."
+          actionLabel="Add Greenhouse"
+          actionHref={ghHref}
         />
       );
     }

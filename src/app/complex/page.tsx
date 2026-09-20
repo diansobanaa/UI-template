@@ -43,7 +43,8 @@ function ComplexOverviewContent() {
   const toast = useToast();
 
   const complexes = complexService.list();
-  const [addGhFor, setAddGhFor] = useState<string | null>(null);
+  const initialComplexId = params.get("complex") || (complexes[0]?.id ?? null);
+  const [addGhFor, setAddGhFor] = useState<string | null>(initialComplexId);
 
   // open Add Greenhouse via ?add=1 from the dashboard
   const initialAdd = params.get("add") === "1";
@@ -69,7 +70,6 @@ function ComplexOverviewContent() {
   const closeAddGh = () => {
     if (savingGh) return;
     setAddGhOpen(false);
-    setAddGhFor(null);
     setGhError(null);
   };
 
@@ -120,7 +120,7 @@ function ComplexOverviewContent() {
 
   const handleCreateGh = async () => {
     setGhError(null);
-    const target = addGhFor;
+    const target = addGhFor || complexes[0]?.id;
     if (!target) {
       setGhError("Create a Complex before adding a Greenhouse.");
       return;
@@ -129,7 +129,7 @@ function ComplexOverviewContent() {
     try {
       const created = await greenhouseService.create(target, newCrop);
       setAddGhOpen(false);
-      setAddGhFor(null);
+      setAddGhFor(target);
       toast(`${created.code} — ${created.crop} created successfully`, "success");
     } catch (e) {
       setGhError(errorMessage(e));
@@ -139,7 +139,7 @@ function ComplexOverviewContent() {
   };
 
   return (
-    <AppShell complexId={addGhFor}>
+    <AppShell complexId={addGhFor || complexes[0]?.id}>
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Complex Overview</h1>
@@ -304,11 +304,25 @@ function ComplexOverviewContent() {
             </div>
           )}
           <div>
-            <Label>Complex</Label>
-            <Input
-              value={complexes.find((c) => c.id === addGhFor)?.code ?? "–"}
-              disabled
-            />
+            <Label required>Complex</Label>
+            {complexes.length > 1 ? (
+              <select
+                value={addGhFor || complexes[0]?.id || ""}
+                onChange={(event) => setAddGhFor(event.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+              >
+                {complexes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} ({c.name || c.location})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={complexes.find((c) => c.id === (addGhFor || complexes[0]?.id))?.code ?? "–"}
+                disabled
+              />
+            )}
           </div>
           <div>
             <Label required>Crop</Label>

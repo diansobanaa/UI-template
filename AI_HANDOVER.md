@@ -1,3 +1,27 @@
+# AI HANDOVER — SP-GREENHOUSE-CREATION-FLOW-FIX
+
+## Status
+**Greenhouse Creation Navigation and Complex Pre-Selection Fix is 100% COMPLETE.**  
+**Safe Point**: `SP-GREENHOUSE-CREATION-FLOW-FIX`  
+**Verdict**: `BUILD = PASS`, `E2E CONTRACT = PASS`, `ONBOARDING GATE = PASS`, `NETWORK FIRST-BOOT GATE = PASS`  
+
+### Remediation Details:
+1. **Empty State Target Routing**:
+   - `OperationalHydrator.tsx` previously rendered `OperationalSetupState` with default `to="/onboarding/complex"`.
+   - When complexes exist but no greenhouse exists (`snapshot.greenhouses.length === 0`), `OperationalHydrator` now routes to `/complex?complex=${firstComplexId}&add=1` (or `/complex?add=1`) with action label **"Add Greenhouse"**.
+   - `OperationalSetupState.tsx` now supports `actionHref` prop.
+2. **Add Greenhouse Modal & Selection**:
+   - In `src/app/complex/page.tsx`, `addGhFor` is initialized to `params.get("complex") || (complexes[0]?.id ?? null)`.
+   - If multiple complexes exist, modal renders a `<select>` dropdown to choose the target complex instead of a disabled static input showing `–`.
+   - `handleCreateGh` safely falls back to `complexes[0]?.id` if `addGhFor` is unselected, preventing false "Create a Complex before adding a Greenhouse." rejections.
+3. **Verification**:
+   - `npx vite build`: PASS (907.01 kB).
+   - `npm test`: PASS (28 OpenAPI endpoints, 26 firmware handlers).
+   - `npm run test:onboarding`: PASS.
+   - `npm run test:network-first-boot`: PASS (41/41).
+
+---
+
 # AI HANDOVER — SP-CHATGPT-BRANCH-PUSH-ChatGpt
 
 ## Status
