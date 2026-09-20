@@ -13,9 +13,9 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot } from "./api/contracts";
+import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
-import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, operationalPythonClient, hydrateOperationalState } from "./operational-state";
+import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeComplex, operationalPythonClient, hydrateOperationalState } from "./operational-state";
 import { calibrationReference, categoryFilterMap } from "./data/calibration-reference";
 
 
@@ -64,6 +64,26 @@ export const complexService = {
     const updated = await operationalPythonClient.updateComplex(id, patch);
     replaceComplex(updated);
     return updated;
+  },
+  async getDeletionPreview(complexId: string): Promise<ComplexDeletionPreview> {
+    return operationalPythonClient.getComplexDeletionPreview(complexId);
+  },
+  async deleteComplex(complexId: string, options?: { requestedBy?: string; requestReason?: string; idempotencyKey?: string }): Promise<DeletionJob> {
+    const job = await operationalPythonClient.deleteComplex(complexId, options);
+    if (job.status === "COMPLETED") {
+      removeComplex(complexId);
+    }
+    return job;
+  },
+  async getDeletionJob(jobId: string): Promise<DeletionJob> {
+    const job = await operationalPythonClient.getDeletionJob(jobId);
+    if (job.status === "COMPLETED") {
+      removeComplex(job.complexId);
+    }
+    return job;
+  },
+  removeLocal(complexId: string): void {
+    removeComplex(complexId);
   },
 };
 

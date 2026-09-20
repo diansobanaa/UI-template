@@ -430,6 +430,69 @@ esp_err_t storage_mgr_mark_candidate_failed(void)
     return err;
 }
 
+esp_err_t storage_mgr_retire_complex(const char *complex_id)
+{
+    if (!s_initialized) return ESP_ERR_INVALID_STATE;
+    if (!s_event_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_event_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+    if (complex_id && complex_id[0] && s_state.complex_id[0] && strcmp(s_state.complex_id, complex_id) != 0) {
+        xSemaphoreGive(s_event_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        (void)nvs_erase_key_optional(handle, "cplx_id");
+        (void)nvs_erase_key_optional(handle, "lvc_json");
+        (void)nvs_erase_key_optional(handle, "cfg_ver");
+        (void)nvs_erase_key_optional(handle, "cfg_crc");
+        (void)nvs_erase_key_optional(handle, "cfg_hash");
+        (void)nvs_erase_key_optional(handle, "cand_json");
+        (void)nvs_erase_key_optional(handle, "cand_ver");
+        (void)nvs_erase_key_optional(handle, "cand_crc");
+        (void)nvs_erase_key_optional(handle, "cand_hash");
+        (void)nvs_erase_key_optional(handle, "cand_dep");
+        (void)nvs_erase_key_optional(handle, "prev_json");
+        (void)nvs_erase_key_optional(handle, "prev_ver");
+        (void)nvs_erase_key_optional(handle, "prev_crc");
+        (void)nvs_erase_key_optional(handle, "prev_hash");
+        (void)nvs_erase_key_optional(handle, "dep_id");
+        (void)nvs_set_str(handle, "dep_status", "EMPTY");
+        err = nvs_commit(handle);
+        nvs_close(handle);
+    }
+
+    if (sdcard_hal_is_mounted()) {
+        sdcard_hal_lock();
+        unlink(EVENT_LOG_FILE);
+        unlink(TELEMETRY_LOG_FILE);
+        unlink(FERTIGATION_RUN_FILE);
+        sdcard_hal_unlock();
+    }
+    unlink(EVENT_LOG_FALLBACK_FILE);
+    unlink(TELEMETRY_LOG_FALLBACK_FILE);
+    unlink(FERTIGATION_RUN_FALLBACK_FILE);
+
+    s_state.complex_id[0] = '\0';
+    s_state.config_version = 0;
+    s_state.config_crc = 0;
+    s_state.config_hash[0] = '\0';
+    s_state.candidate_config_version = 0;
+    s_state.candidate_config_crc = 0;
+    s_state.candidate_config_hash[0] = '\0';
+    s_state.candidate_deployment_id[0] = '\0';
+    s_state.previous_config_version = 0;
+    s_state.previous_config_crc = 0;
+    s_state.previous_config_hash[0] = '\0';
+    s_state.active_deployment_id[0] = '\0';
+    strncpy(s_state.config_deployment_status, "EMPTY", sizeof(s_state.config_deployment_status) - 1);
+
+    xSemaphoreGive(s_event_mutex);
+    return err;
+}
+
 esp_err_t storage_mgr_append_event_log(const char *event_json)
 {
     if (!event_json) return ESP_ERR_INVALID_ARG;

@@ -109,7 +109,7 @@ def call(url, payload=None):
         return exc.code, json.loads(exc.read().decode())
 
 
-with tempfile.TemporaryDirectory() as td:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
     tmp = Path(td)
     backend = start_backend(tmp)
     device = fake_device("controller-AABBCCDDEEFF")

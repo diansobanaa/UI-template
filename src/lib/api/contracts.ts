@@ -131,6 +131,98 @@ export interface DeviceBindResponse {
   hostname: string;
 }
 
+export interface DeviceRetireResponse {
+  deviceId: string;
+  complexId: string | null;
+  bindingState: "UNBOUND";
+  hostname?: string;
+  retiredAt?: string;
+}
+
+export interface DeletionScopeRecordCounts {
+  complexes: number;
+  greenhouses: number;
+  schedules: number;
+  telemetrySamples: number;
+  rawRecords: number;
+  eventLogs: number;
+  sensors: number;
+  calibrations: number;
+  fertigationRuns: number;
+  syncState: number;
+  deploymentState: number;
+  cropCycles: number;
+  plants: number;
+  fruits: number;
+  observations: number;
+}
+
+export interface ComplexDeletionPreview {
+  complexId: string;
+  complexName: string;
+  complexCode: string;
+  boundDevice: {
+    deviceId: string | null;
+    endpoint: string | null;
+    online: boolean;
+  };
+  deletionBlockedByDevice: boolean;
+  blockingReason: string | null;
+  countsToPurge: {
+    greenhouses: number;
+    schedules: number;
+    telemetrySamples: number;
+    eventLogs: number;
+    rawRecords: number;
+    sensors: number;
+    calibrations: number;
+    fertigationRuns: number;
+    syncState: number;
+    deploymentState: number;
+  };
+  countsPreservedUntouched: {
+    cropCycles: number;
+    plants: number;
+    fruits: number;
+    observations: number;
+  };
+  scopeSnapshotHash: string;
+}
+
+export interface DeletionJobStep {
+  id?: number;
+  jobId: string;
+  stepName: string;
+  stepOrder: number;
+  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "SKIPPED";
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  recordsAffected: number;
+  errorMessage?: string | null;
+}
+
+export interface DeletionJob {
+  jobId: string;
+  complexId: string;
+  idempotencyKey: string;
+  status: "PENDING" | "RUNNING" | "WAITING_DEVICE" | "FAILED_RETRYABLE" | "FAILED_TERMINAL" | "COMPLETED" | "CANCELLED";
+  currentStep: string;
+  boundDeviceId?: string | null;
+  boundDeviceEndpoint?: string | null;
+  deviceRetired: boolean;
+  deviceRetryCount: number;
+  scopeSnapshotHash: string;
+  recordsPurgedTotal: number;
+  requestedBy: string;
+  requestReason: string;
+  errorMessage?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+  steps?: DeletionJobStep[];
+}
+
 export interface ConfigurationValidation {
   valid: boolean;
   inventoryVersion: number;

@@ -32,6 +32,13 @@ except ImportError:
     from sensor_calibration import CalibrationRepository, build_dosing_calibration, build_linear_calibration, normalize_sensor_sample, validate_sensor_definition
     from fertigation_engine import FertigationRunRepository, prepare_run
 
+try:
+    from .deletion_store import DELETION_STORE
+    from .deletion_manager import DELETION_MANAGER
+except ImportError:
+    from deletion_store import DELETION_STORE
+    from deletion_manager import DELETION_MANAGER
+
 CALIBRATION_REPO = CalibrationRepository(os.getenv("AGROTECH_CALIBRATION_DB", "./agrotech_calibration.sqlite3"))
 FERTIGATION_REPO = FertigationRunRepository(os.getenv("AGROTECH_FERTIGATION_DB", "./agrotech_fertigation.sqlite3"))
 
@@ -210,6 +217,20 @@ class Handler(BaseHTTPRequestHandler):
         if size > 512 * 1024:
             raise ValueError("request body too large")
         return json.loads(self.rfile.read(size).decode("utf-8"))
+
+    def _assert_complex_unlocked(self, complex_id: str | None) -> bool:
+        if not complex_id:
+            return True
+        if DELETION_MANAGER.is_complex_locked(complex_id):
+            self._json(409, {
+                "error": {
+                    "code": "COMPLEX_DELETION_IN_PROGRESS",
+                    "message": f"Complex '{complex_id}' deletion is in progress.",
+                }
+            })
+            return False
+        return True
+
 
     @staticmethod
     def _unwrap_esp32_payload(device: Any) -> Any:
@@ -447,6 +468,22 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     self._json(404, {"error": {"code": "CYCLE_NOT_FOUND", "message": "Research cycle not found."}})
                 return
+        if len(parts) == 4 and parts[0:2] == ["api", "complexes"] and parts[3] == "deletion-preview":
+            complex_id = parts[2]
+            try:
+                preview = DELETION_MANAGER.get_deletion_preview(complex_id)
+                self._json(200, preview)
+            except ValueError:
+                self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
+            return
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "deletion-jobs":
+            job_id = parts[2]
+            try:
+                job = DELETION_MANAGER.get_job_state(job_id)
+                self._json(200, job)
+            except ValueError:
+                self._json(404, {"error": {"code": "JOB_NOT_FOUND", "message": "Deletion job not found."}})
+            return
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "complexes":
             complex_id = parts[2]
             record = OPERATIONAL_STORE.get_complex(complex_id)
@@ -615,6 +652,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) == 6 and parts[0:3] == ["api", "complexes", parts[2] if len(parts) > 2 else ""] and parts[3:5] == ["esp32", "configuration"] and parts[5] in {"validate", "deploy", "rollback"}:
             cid = parts[2]
+            if not self._assert_complex_unlocked(cid):
+                return
             if not OPERATIONAL_STORE.get_complex(cid):
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
                 return
@@ -694,6 +733,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) == 5 and parts[:4] == ["api", "complexes", parts[2] if len(parts)>2 else "", "esp32"] and parts[4] == "sync":
             cid = parts[2]
+            if not self._assert_complex_unlocked(cid):
+                return
             try:
                 if not OPERATIONAL_STORE.get_complex(cid): raise ValueError("COMPLEX_NOT_FOUND")
                 sync = RECOVERY_STORE.get_sync(cid)
@@ -713,6 +754,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 5 and parts[0:2] == ["api", "complexes"] and parts[3] == "research":
             cid=parts[2]; resource=parts[4]
+            if not self._assert_complex_unlocked(cid):
+                return
             try:
                 if not OPERATIONAL_STORE.get_complex(cid): raise ValueError("COMPLEX_NOT_FOUND")
                 if resource == "cycles" and len(parts) >= 6:
@@ -746,6 +789,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) == 5 and parts[:3] == ["api", "complexes", parts[2] if len(parts) > 2 else ""] and parts[3:] == ["controller", "bind"]:
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             record = OPERATIONAL_STORE.get_complex(complex_id)
             if not record:
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
@@ -840,6 +885,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "complexes":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             record = OPERATIONAL_STORE.get_complex(complex_id)
             if not record:
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
@@ -852,6 +899,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "greenhouses":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             complex_record = OPERATIONAL_STORE.get_complex(complex_id)
             if not complex_record:
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
@@ -880,6 +929,8 @@ class Handler(BaseHTTPRequestHandler):
             if not record:
                 self._json(404, {"error": {"code": "GREENHOUSE_NOT_FOUND", "message": "Greenhouse not found."}})
                 return
+            if not self._assert_complex_unlocked(str(record.get("complexId"))):
+                return
             for key in ("code", "crop", "greenhouseTag"):
                 if key in body:
                     value = str(body[key]).strip()
@@ -899,6 +950,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "schedules":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             complex_record = OPERATIONAL_STORE.get_complex(complex_id)
             if not complex_record:
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
@@ -945,6 +998,9 @@ class Handler(BaseHTTPRequestHandler):
                 bucket = _schedule_bucket(kind)
                 if bucket != found[3]: raise ValueError("Schedule kind does not match stored schedule")
                 owner_kind, owner, schedules, _ = found
+                owner_cid = str(owner.get("id") if owner_kind == "complex" else owner.get("complexId"))
+                if not self._assert_complex_unlocked(owner_cid):
+                    return
                 for index, existing in enumerate(schedules):
                     if str(existing.get("id")) == schedule_id:
                         item["id"] = schedule_id
@@ -958,6 +1014,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) >= 5 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "esp32" and parts[4] == "commands":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             if "commandId" not in body or "type" not in body:
                 self._json(422, {"error": {"code": "VALIDATION_FAILED", "message": "commandId and type are required."}})
                 return
@@ -977,6 +1035,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 4 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "sensors":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             errors = validate_sensor_definition(body)
             if errors:
                 self._json(422, {"valid": False, "errors": errors})
@@ -994,6 +1054,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 5 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "sensors" and parts[4] == "sample":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             sensor_id = body.get("sensorId")
             definition = next((x for x in CALIBRATION_REPO.sensors(complex_id) if x.get("sensorId") == sensor_id), None)
             if not definition:
@@ -1009,6 +1071,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 4 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "calibrations":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             ctype = str(body.get("calibrationType", "")).upper()
             cid = str(body.get("componentId", ""))
             operator = str(body.get("operator", "")).strip()
@@ -1028,6 +1092,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 5 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "fertigation" and parts[4] == "prepare":
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             configuration = body.get("configuration") or {}
             if configuration.get("complexId") != complex_id:
                 self._json(409, {"error": {"code": "COMPLEX_MISMATCH", "message": "Path complexId does not match configuration."}})
@@ -1037,6 +1103,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) == 6 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "resources" and parts[5] == "transfer":
             complex_id, resource_id = parts[2], parts[4]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             configuration = body.get("configuration") or {}
             if configuration.get("complexId") != complex_id:
                 self._json(409, {"error": {"code": "COMPLEX_MISMATCH", "message": "Path complexId does not match configuration."}}); return
@@ -1048,6 +1116,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if len(parts) >= 4 and parts[0] == "api" and parts[1] == "complexes" and parts[3] in {"compile", "deploy"}:
             complex_id = parts[2]
+            if not self._assert_complex_unlocked(complex_id):
+                return
             configuration = body.get("configuration") or {}
             if configuration.get("complexId") != complex_id:
                 self._json(409, {"error": {"code": "COMPLEX_MISMATCH", "message": "Path complexId does not match configuration."}})
@@ -1106,6 +1176,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if len(parts) == 5 and parts[0:3] == ["api", "complexes", parts[2] if len(parts) > 2 else ""] and parts[3:5] == ["esp32", "configuration"]:
             cid = parts[2]
+            if not self._assert_complex_unlocked(cid):
+                return
             if not OPERATIONAL_STORE.get_complex(cid):
                 self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}}); return
             if not os.getenv("ESP32_API_BASE"):
@@ -1145,10 +1217,42 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if len(parts) >= 6 and parts[0:2] == ["api", "complexes"] and parts[3] == "research":
             cid, resource, record_id = parts[2], parts[4], parts[5]
+            if not self._assert_complex_unlocked(cid):
+                return
             if resource == "observations":
                 deleted = RESEARCH_STORE.delete_observation(record_id)
                 self._json(200, {"deleted": deleted, "observationId": record_id, "complexId": cid}); return
             self._json(405, {"error": {"code": "RESEARCH_DELETE_NOT_SUPPORTED", "message": "Only observations can be deleted; plant/fruit/cycle records are retained for research history."}}); return
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "complexes":
+            complex_id = parts[2]
+            record = OPERATIONAL_STORE.get_complex(complex_id)
+            if not record:
+                self._json(404, {"error": {"code": "COMPLEX_NOT_FOUND", "message": "Complex not found."}})
+                return
+
+            body = {}
+            try:
+                body = self._read_json()
+            except Exception:
+                pass
+
+            idempotency_key = str(
+                self.headers.get("Idempotency-Key") or body.get("idempotencyKey") or f"del-key-{complex_id}-{int(time.time())}"
+            ).strip()
+
+            try:
+                job = DELETION_MANAGER.start_or_resume_deletion(
+                    complex_id=complex_id,
+                    idempotency_key=idempotency_key,
+                    requested_by=str(body.get("requestedBy", "operator")),
+                    request_reason=str(body.get("requestReason", "User requested deletion")),
+                )
+                status_code = 200 if job.get("status") in {"COMPLETED", "FAILED_TERMINAL", "CANCELLED"} else 202
+                self._json(status_code, job)
+            except Exception as exc:
+                self._json(500, {"error": {"code": "DELETION_INITIALIZATION_FAILED", "message": str(exc)}})
+            return
+
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "schedules":
             schedule_id = parts[2]
             found = _find_schedule(schedule_id)
@@ -1156,6 +1260,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": {"code": "SCHEDULE_NOT_FOUND", "message": "Schedule not found."}})
                 return
             owner_kind, owner, schedules, bucket = found
+            owner_cid = str(owner.get("id") if owner_kind == "complex" else owner.get("complexId"))
+            if not self._assert_complex_unlocked(owner_cid):
+                return
             owner[bucket] = [x for x in schedules if str(x.get("id")) != schedule_id]
             if owner_kind == "greenhouse": OPERATIONAL_STORE.save_greenhouse(owner)
             else: OPERATIONAL_STORE.save_complex(owner)
@@ -1167,6 +1274,10 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8090"))
+    try:
+        DELETION_MANAGER.resume_pending_jobs()
+    except Exception as exc:
+        print(f"Warning: Failed to resume pending deletion jobs: {exc}")
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"AgroTech backend listening on http://{host}:{port}")
     try:
@@ -1175,6 +1286,7 @@ def main() -> None:
         pass
     finally:
         server.server_close()
+
 
 
 if __name__ == "__main__":

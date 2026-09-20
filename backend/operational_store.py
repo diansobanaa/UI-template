@@ -81,5 +81,35 @@ class OperationalStore:
             )
         return payload
 
+    def count_scoped(self, complex_id: str) -> dict[str, int]:
+        with self._lock:
+            c_row = self._db.execute("SELECT payload FROM complexes WHERE id = ?", (complex_id,)).fetchone()
+            gh_row = self._db.execute("SELECT COUNT(*) FROM greenhouses WHERE complex_id = ?", (complex_id,)).fetchone()
+            sched_count = 0
+            if c_row and c_row[0]:
+                try:
+                    p = json.loads(c_row[0])
+                    sched_count += len(p.get("fertigationSchedules") or [])
+                    sched_count += len(p.get("fanSchedules") or [])
+                    sched_count += len(p.get("wellPumpSchedules") or [])
+                except Exception:
+                    pass
+            return {
+                "complexes": 1 if c_row else 0,
+                "greenhouses": int(gh_row[0]) if gh_row else 0,
+                "schedules": sched_count,
+            }
+
+    def purge_greenhouses(self, complex_id: str) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute("DELETE FROM greenhouses WHERE complex_id = ?", (complex_id,))
+            return cur.rowcount
+
+    def purge_complex(self, complex_id: str) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute("DELETE FROM complexes WHERE id = ?", (complex_id,))
+            return cur.rowcount
+
 
 OPERATIONAL_STORE = OperationalStore()
+

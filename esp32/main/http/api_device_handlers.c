@@ -1,8 +1,11 @@
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "hal/hardware_registry.h"
+#include "hal/actuator_hal.h"
 #include "storage/storage_mgr.h"
 #include "services/topology_capability.h"
+#include "services/scheduler.h"
+#include "services/fertigation_mgr.h"
 #include "config/system_config.h"
 #include "network/network_mgr.h"
 #include "esp_system.h"
@@ -278,6 +281,68 @@ esp_err_t handler_post_device_bind(httpd_req_t *req)
     cJSON_AddStringToObject(root, "complexId", st->complex_id);
     cJSON_AddStringToObject(root, "bindingState", "BOUND");
     cJSON_AddStringToObject(root, "hostname", network_mgr_get_hostname());
+    return http_send_enveloped_response(req, 200, req_id, root);
+}
+
+esp_err_t handler_post_device_retire(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload", NULL);
+    cJSON *rq = cJSON_GetObjectItem(body, "requestId");
+    const char *req_id = (rq && cJSON_IsString(rq)) ? rq->valuestring : NULL;
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    cJSON *cid = payload ? cJSON_GetObjectItem(payload, "complexId") : NULL;
+    const system_storage_state_t *st = storage_mgr_get_state();
+
+    /* If device is already UNBOUND, operation is idempotent */
+    if (!st->complex_id[0]) {
+        cJSON_Delete(body);
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "deviceId", st->device_id);
+        cJSON_AddNullToObject(root, "complexId");
+        cJSON_AddStringToObject(root, "bindingState", "UNBOUND");
+        cJSON_AddStringToObject(root, "hostname", network_mgr_get_hostname());
+        return http_send_enveloped_response(req, 200, req_id, root);
+    }
+
+    /* If payload specified complexId, verify it matches currently bound complex */
+    if (cid && cJSON_IsString(cid) && cid->valuestring[0] && strcmp(st->complex_id, cid->valuestring) != 0) {
+        cJSON_Delete(body);
+        return http_send_error(req, 409, "DEVICE_COMPLEX_MISMATCH", "Device is bound to a different Complex.", req_id);
+    }
+
+    /* Retirement sequence:
+     * 1. Stop autonomous scheduler
+     * 2. Abort any active fertigation batch
+     * 3. Safe OFF all actuators
+     * 4. Wipe storage via storage_mgr_retire_complex
+     * 5. Refresh mDNS identity to UNBOUND
+     */
+    (void)scheduler_clear_compiled();
+    (void)fertigation_mgr_cancel_batch();
+    actuator_hal_emergency_stop();
+
+    err = storage_mgr_retire_complex(st->complex_id);
+    cJSON_Delete(body);
+    if (err != ESP_OK) {
+        return http_send_error(req, 503, "RETIREMENT_FAILED", "Failed to wipe Complex storage.", req_id);
+    }
+
+    network_mgr_refresh_identity();
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "deviceId", st->device_id);
+    cJSON_AddNullToObject(root, "complexId");
+    cJSON_AddStringToObject(root, "bindingState", "UNBOUND");
+    cJSON_AddStringToObject(root, "hostname", network_mgr_get_hostname());
+
+    char time_str[32];
+    time_t now = time(NULL);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+    cJSON_AddStringToObject(root, "retiredAt", time_str);
+
     return http_send_enveloped_response(req, 200, req_id, root);
 }
 

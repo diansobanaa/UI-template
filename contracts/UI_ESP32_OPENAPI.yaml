@@ -56,6 +56,32 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/device/retire:
+    post:
+      tags: [Device]
+      operationId: retireDeviceFromComplex
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRetireRequest"
+      responses:
+        "200":
+          description: Controller unbound and wiped to clean factory network state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRetireResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /api/v1/status:
     get:
       tags: [Device]
@@ -1242,6 +1268,35 @@ components:
                 complexId: { type: string }
                 bindingState: { type: string, enum: [BOUND] }
                 hostname: { type: string }
+
+    DeviceRetireRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        payload:
+          type: object
+          properties:
+            complexId: { type: string, nullable: true }
+            reason: { type: string, nullable: true }
+
+    DeviceRetireResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [deviceId, bindingState]
+              properties:
+                deviceId: { type: string }
+                complexId: { type: string, nullable: true }
+                bindingState: { type: string, enum: [UNBOUND] }
+                hostname: { type: string }
+                retiredAt: { type: string, format: date-time, nullable: true }
 
     ClockSyncRequest:
       type: object

@@ -10,6 +10,7 @@ import type {
   ConfigurationPayload,
   ConfigurationDeploymentState,
   DeviceBindResponse,
+  DeviceRetireResponse,
   InventoryResponse,
   HardwarePortConfig,
   HarvestCycleRequest,
@@ -93,6 +94,10 @@ export class Esp32Client {
 
   async bindDevice(deviceId: string, complexId: string): Promise<DeviceBindResponse> {
     return this.postEnveloped<DeviceBindResponse>("/api/v1/device/bind", { deviceId, complexId });
+  }
+
+  async retireDevice(complexId?: string, reason?: string): Promise<DeviceRetireResponse> {
+    return this.postEnveloped<DeviceRetireResponse>("/api/v1/device/retire", { complexId, reason });
   }
 
   async getStatus(): Promise<StatusResponse> {

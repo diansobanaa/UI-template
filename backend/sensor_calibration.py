@@ -358,3 +358,47 @@ class CalibrationRepository:
         if not rec:
             raise ValueError("CALIBRATION_REQUIRED")
         return {"calibrationId": rec.calibrationId, "componentId": rec.componentId, "calibrationType": rec.calibrationType, "version": rec.version, "state": rec.state, "createdAtMs": rec.createdAtMs, "validFromMs": rec.validFromMs, "validUntilMs": rec.validUntilMs, "parameters": rec.parameters, "operator": rec.operator, "complexId": rec.complexId}
+
+    def count_scoped(self, complex_id: str) -> dict[str, int]:
+        with self._connect() as con:
+            c_row = con.execute("SELECT COUNT(*) FROM calibration_records WHERE complex_id = ?", (complex_id,)).fetchone()
+            cal_count = int(c_row[0]) if c_row else 0
+            defs = con.execute("SELECT definition_json FROM sensor_definitions").fetchall()
+            def_count = 0
+            for d in defs:
+                try:
+                    payload = json.loads(d["definition_json"])
+                    if payload.get("complexId") == complex_id:
+                        def_count += 1
+                except Exception:
+                    pass
+            return {
+                "calibrations": cal_count,
+                "sensors": def_count,
+                "calibration_records": cal_count,
+                "sensor_definitions": def_count,
+            }
+
+    def purge_complex(self, complex_id: str) -> dict[str, int]:
+        with self._connect() as con:
+            cal_del = con.execute("DELETE FROM calibration_records WHERE complex_id = ?", (complex_id,)).rowcount
+            defs = con.execute("SELECT sensor_id, definition_json FROM sensor_definitions").fetchall()
+            del_sensors = []
+            for d in defs:
+                try:
+                    payload = json.loads(d["definition_json"])
+                    if payload.get("complexId") == complex_id:
+                        del_sensors.append(d["sensor_id"])
+                except Exception:
+                    pass
+            def_del = 0
+            if del_sensors:
+                placeholders = ",".join("?" for _ in del_sensors)
+                def_del = con.execute(f"DELETE FROM sensor_definitions WHERE sensor_id IN ({placeholders})", del_sensors).rowcount
+            return {
+                "calibrations": cal_del,
+                "sensors": def_del,
+                "calibration_records": cal_del,
+                "sensor_definitions": def_del,
+            }
+

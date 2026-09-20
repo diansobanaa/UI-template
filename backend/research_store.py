@@ -269,5 +269,26 @@ class ResearchStore:
         recipes=sorted({str(r.get("recipeId")) for r in runs if r.get("recipeId")})
         return {"cycle":cycle,"counts":{"plants":len(plants),"fruits":len(fruits),"observations":len(obs),"telemetrySamples":len(tele),"events":len(events),"fertigationRuns":len(runs)},"plants":plants,"fruits":fruits,"observations":obs,"telemetry":tele,"events":events,"fertigationRuns":runs,"calibrations":cals,"recipeIds":recipes,"relationships":{"telemetryWindow":[start,end],"fertigationRuns":True,"recipeReferences":recipes,"calibrationReferences":cals}}
 
+    def counts(self, complex_id: str | None = None) -> dict[str, int]:
+        with self._lock:
+            where = " WHERE complex_id = ?" if complex_id else ""
+            params = (complex_id,) if complex_id else ()
+            c = self._db.execute(f"SELECT COUNT(*) FROM crop_cycles{where}", params).fetchone()
+            p = self._db.execute(f"SELECT COUNT(*) FROM plants{where}", params).fetchone()
+            f = self._db.execute(f"SELECT COUNT(*) FROM fruits{where}", params).fetchone()
+            o = self._db.execute(f"SELECT COUNT(*) FROM observations{where}", params).fetchone()
+            c_cnt = int(c[0]) if c else 0
+            p_cnt = int(p[0]) if p else 0
+            f_cnt = int(f[0]) if f else 0
+            o_cnt = int(o[0]) if o else 0
+            return {
+                "cropCycles": c_cnt,
+                "crop_cycles": c_cnt,
+                "plants": p_cnt,
+                "fruits": f_cnt,
+                "observations": o_cnt,
+            }
+
 
 RESEARCH_STORE=ResearchStore()
+

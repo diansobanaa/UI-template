@@ -1,3 +1,44 @@
+## SP-COMPLEX-DELETION-SAGA-001 — Production-Safe Complex Deletion Architecture & Saga Engine
+- **Date**: 2026-09-21
+- **Objective**: Implement end-to-end distributed Complex Deletion Architecture across SQLite databases, ESP32 firmware, backend REST API, mutation locks, and React UI, strictly enforcing the Research Data Preservation Invariant and physical controller retirement safety interlock.
+- **Completed Work**:
+  1. **System DB & Saga Store (`backend/deletion_store.py`)**:
+     - Created tables `deletion_jobs`, `deletion_job_steps`, `deletion_job_events`, with partial unique index `idx_active_deletion_complex` preventing concurrent deletions on the same complex.
+     - State machine supporting `REQUESTED`, `PREFLIGHTING`, `WAITING_DEVICE`, `LOCKED`, `PURGING`, `COMPLETED`, `FAILED_RETRYABLE`, `FAILED_TERMINAL`, `CANCELLED`.
+  2. **Scoped Purge & Pure Research Preservation**:
+     - Added scoped count and purge methods in `operational_store.py`, `history_store.py`, `recovery_store.py`, `sensor_calibration.py`, and `fertigation_engine.py`.
+     - **MANDATORY RESEARCH INVARIANT**: In `backend/research_store.py`, only read-only `counts(complex_id)` was added. Zero delete, truncate, or nullify methods exist. Crop cycles, plants, fruits, and observations are 100% preserved.
+  3. **Deletion Manager (`backend/deletion_manager.py`)**:
+     - Preflight scope collection and cryptographic SHA-256 snapshot hashing.
+     - Online ESP32 probe and authenticated retirement invocation (`POST /api/v1/device/retire`).
+     - Safety Interlock: If bound ESP32 is offline/unreachable, deletion suspends in `WAITING_DEVICE` and blocks all database purges.
+     - 11-step execution pipeline (Preflight, Device Retire, Purge Greenhouses, Purge History, Purge Calibrations, Purge Fertigation, Purge Recovery, Preserve Research verification, Verify All zero counts, Delete Complex root, Finalize).
+     - Server restart recovery (`resume_pending_jobs()`).
+  4. **Backend Server & Mutation Locks (`backend/server.py`)**:
+     - Added endpoints: `GET /api/complexes/{id}/deletion-preview`, `DELETE /api/complexes/{id}`, `GET /api/deletion-jobs/{id}`.
+     - Enforced `_assert_complex_unlocked(cid)` returning HTTP 409 `COMPLEX_DELETION_IN_PROGRESS` on all mutation endpoints (configuration, binding, schedules, commands, sensors, fertigation, resources).
+  5. **ESP32 Firmware Retirement (`esp32/main/storage/`, `esp32/main/http/`)**:
+     - Implemented `storage_mgr_retire_complex()` to atomically wipe LVC, candidate config, previous config, and reset `cplx_id` to UNBOUND while preserving Wi-Fi credentials.
+     - Implemented `handler_post_device_retire()`: clears autonomous scheduler, cancels fertigation batches, locks actuators safe OFF, wipes config storage, and broadcasts UNBOUND mDNS status.
+     - Registered `POST /api/v1/device/retire` with bearer token authentication.
+  6. **Contracts & Frontend UI**:
+     - Documented `POST /api/v1/device/retire` in `contracts/UI_ESP32_OPENAPI.yaml`.
+     - Added TypeScript models and client adapters in `contracts.ts`, `esp32-client.ts`, `backend-client.ts`, `python-client.ts`, `operational-state.ts`, `services.ts`.
+     - Built `DeleteComplexModal` in `src/app/complex/page.tsx` featuring preflight scope inventory, research safety banner, offline device warning, complex code confirmation input, and live step progress bar.
+  7. **Canonical Documentation**:
+     - Created `docs/COMPLEX_DELETION_ARCHITECTURE.md`.
+     - Updated `docs/COMPLEX_ESP32_ONBOARDING.md`.
+  8. **Test Automation**:
+     - Created `scripts/test_complex_deletion_matrix.py` covering Matrix A through J.
+     - Added npm script `"test:complex:deletion"`.
+- **Verification Results**:
+  - `npm run test:complex:deletion`: PASS (Matrix A-J all green).
+  - `npm run test:onboarding`: PASS.
+  - `npm run test:network-first-boot`: PASS (41/41).
+  - `npm run test:network-first-boot:binding`: PASS (5/5).
+  - `npx vite build`: PASS (917.30 kB singlefile bundle).
+- **Current Safe Point**: SP-COMPLEX-DELETION-SAGA-001.
+
 ## SP-GREENHOUSE-CREATION-FLOW-FIX — Fix Greenhouse Creation Flow & Empty State Redirect
 - **Date**: 2026-09-21
 - **Objective**: Fix navigation and state management where "No Greenhouse configured" empty state redirected users to Complex onboarding (`/onboarding/complex`) instead of opening the Greenhouse creation flow (`/complex?add=1`), and resolve null target complex selection in `ComplexOverviewPage`.

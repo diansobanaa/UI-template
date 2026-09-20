@@ -18,6 +18,7 @@ import type {
   FertigationRun,
   ResearchCycle, ResearchPlant, ResearchFruit, ResearchObservation, ResearchAnalysis,
   ResourceState, ResourceTransferResponse,
+  ComplexDeletionPreview, DeletionJob,
 } from "./contracts";
 import { PYTHON_API_BASE, apiDelete, apiGet, apiPost, apiPut } from "./backend-client";
 
@@ -39,6 +40,34 @@ export class PythonClient {
 
   async updateComplex(id: string, patch: Partial<Pick<import("../types").Complex, "code" | "name" | "location" | "status">> & { esp32?: Partial<import("../types").Esp32State> }): Promise<import("../types").Complex> {
     return apiPost(`/complexes/${encodeURIComponent(id)}`, patch, this.config);
+  }
+
+  async getComplexDeletionPreview(complexId: string): Promise<ComplexDeletionPreview> {
+    return apiGet<ComplexDeletionPreview>(`/complexes/${encodeURIComponent(complexId)}/deletion-preview`, this.config);
+  }
+
+  async deleteComplex(
+    complexId: string,
+    options: { requestedBy?: string; requestReason?: string; idempotencyKey?: string } = {}
+  ): Promise<DeletionJob> {
+    const headers: Record<string, string> = {};
+    if (options.idempotencyKey) {
+      headers["Idempotency-Key"] = options.idempotencyKey;
+    }
+    return apiDelete<DeletionJob>(
+      `/complexes/${encodeURIComponent(complexId)}`,
+      {
+        requestedBy: options.requestedBy ?? "operator",
+        requestReason: options.requestReason ?? "User requested deletion",
+        idempotencyKey: options.idempotencyKey,
+      },
+      this.config,
+      headers
+    );
+  }
+
+  async getDeletionJob(jobId: string): Promise<DeletionJob> {
+    return apiGet<DeletionJob>(`/deletion-jobs/${encodeURIComponent(jobId)}`, this.config);
   }
 
   async bindEsp32Controller(complexId: string, input: { deviceId: string; endpoint: string; apiVersion?: string; schemaVersion?: number; firmwareVersion?: string; hardwareModel?: string; inventoryVersion?: number }): Promise<import("../types").Complex> {

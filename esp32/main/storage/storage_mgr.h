@@ -44,6 +44,9 @@ const system_storage_state_t *storage_mgr_get_state(void);
 /** Persist a verified Complex binding without ever overwriting a different binding. */
 esp_err_t storage_mgr_bind_complex(const char *complex_id);
 
+/** Retire and wipe Complex-scoped configuration and logs, resetting to UNBOUND. */
+esp_err_t storage_mgr_retire_complex(const char *complex_id);
+
 /**
  * @brief Load the Last Valid Configuration (LVC) JSON string from NVS.
  * @param out_buf Target buffer

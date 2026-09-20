@@ -19,7 +19,8 @@
     "test:simulation:surface": "python3 scripts/test_no_production_simulation_surface.py",
     "test:onboarding": "node scripts/test_complex_esp32_onboarding.mjs",
     "test:network-first-boot": "node scripts/test_network_first_boot.mjs",
-    "test:network-first-boot:binding": "python scripts/test_network_first_boot_binding.py"
+    "test:network-first-boot:binding": "python scripts/test_network_first_boot_binding.py",
+    "test:complex:deletion": "python scripts/test_complex_deletion_matrix.py"
   },
   "dependencies": {
     "lucide-react": "^0.544.0",

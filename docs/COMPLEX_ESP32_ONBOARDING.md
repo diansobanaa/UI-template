@@ -102,6 +102,19 @@ Button 4 also supports:
 3× = toggle Direct Local Mode / temporary SoftAP
 ```
 
-Network Change Mode does not erase `device_id`, `complex_id`, GH configuration, recipes, schedules, calibration, research data, telemetry, or event history. The previous Wi-Fi credential remains persistent until a new candidate reaches `IP_EVENT_STA_GOT_IP` and is committed atomically.
-
 The provisioning/setup HTTP endpoints reuse the normal ESP32 HTTP server, so there is no second physical-control execution path.
+
+## Device Retirement & Complex Deletion
+
+When a Complex is deleted via the web UI, the system executes an atomic hardware retirement saga:
+1. **Retirement Request (`POST /api/v1/device/retire`)**: The backend deletion manager invokes the authenticated retirement endpoint on the bound ESP32.
+2. **Firmware Teardown**:
+   - Clears compiled schedules (`scheduler_clear_compiled()`).
+   - Aborts active fertigation/dosing cycles (`fertigation_mgr_cancel_batch()`).
+   - Emergency-stops all actuators and relays to safe OFF (`actuator_hal_emergency_stop()`).
+   - Atomically erases LVC, candidate, previous configuration, and clears `cplx_id` to UNBOUND (`storage_mgr_retire_complex()`).
+   - **Station (STA) Wi-Fi credentials remain preserved**.
+3. **Re-binding Readiness**: The retired controller remains connected to local Wi-Fi and returns to UNBOUND status, ready to be adopted by a new or different Complex without manual flashing or SoftAP reconfiguration.
+4. **Offline Safety Block**: If the bound controller is offline/unreachable during deletion, the deletion saga immediately suspends in `WAITING_DEVICE` and blocks all SQLite data purges until the controller is brought online and retired safely.
+5. **Full Architecture Reference**: See [`docs/COMPLEX_DELETION_ARCHITECTURE.md`](file:///c:/Users/rumah/Downloads/UI-template-chatgpt-network-onboarding-final/docs/COMPLEX_DELETION_ARCHITECTURE.md).
+

@@ -71,6 +71,15 @@ export function replaceComplex(complex: Complex): void {
   notify();
 }
 
+export function removeComplex(complexId: string): void {
+  snapshot = {
+    complexes: snapshot.complexes.filter((item) => item.id !== complexId),
+    greenhouses: snapshot.greenhouses.filter((item) => item.complexId !== complexId),
+  };
+  loaded = true;
+  notify();
+}
+
 export function replaceGreenhouse(greenhouse: Greenhouse): void {
   const index = snapshot.greenhouses.findIndex((item) => item.id === greenhouse.id);
   if (index === -1) snapshot = { ...snapshot, greenhouses: [...snapshot.greenhouses, greenhouse] };

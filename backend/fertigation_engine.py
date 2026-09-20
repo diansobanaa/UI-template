@@ -659,3 +659,16 @@ class FertigationRunRepository:
         with closing(sqlite3.connect(self.db_path)) as con:
             rows = con.execute(query, args).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def count_scoped(self, complex_id: str) -> dict[str, int]:
+        with closing(sqlite3.connect(self.db_path)) as con:
+            row = con.execute("SELECT COUNT(*) FROM fertigation_runs WHERE complex_id = ?", (complex_id,)).fetchone()
+            cnt = int(row[0]) if row else 0
+            return {"fertigationRuns": cnt, "fertigation_runs": cnt}
+
+    def purge_complex(self, complex_id: str) -> dict[str, int]:
+        with closing(sqlite3.connect(self.db_path)) as con:
+            cur = con.execute("DELETE FROM fertigation_runs WHERE complex_id = ?", (complex_id,))
+            con.commit()
+            return {"fertigationRuns": cur.rowcount, "fertigation_runs": cur.rowcount}
+

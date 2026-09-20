@@ -420,5 +420,37 @@ class HistoryStore:
             "receivedAt": row["received_at"],
         }
 
+    def count_scoped(self, complex_id: str) -> dict[str, int]:
+        with self._lock:
+            raw_c = self._db.execute("SELECT COUNT(*) FROM raw_records WHERE complex_id = ?", (complex_id,)).fetchone()
+            tel_c = self._db.execute("SELECT COUNT(*) FROM telemetry_samples WHERE complex_id = ?", (complex_id,)).fetchone()
+            ev_c = self._db.execute("SELECT COUNT(*) FROM events WHERE complex_id = ?", (complex_id,)).fetchone()
+            raw_n = int(raw_c[0]) if raw_c else 0
+            tel_n = int(tel_c[0]) if tel_c else 0
+            ev_n = int(ev_c[0]) if ev_c else 0
+            return {
+                "rawRecords": raw_n,
+                "telemetrySamples": tel_n,
+                "eventLogs": ev_n,
+                "raw_records": raw_n,
+                "telemetry_samples": tel_n,
+                "events": ev_n,
+            }
+
+    def purge_complex(self, complex_id: str) -> dict[str, int]:
+        with self._lock, self._db:
+            c1 = self._db.execute("DELETE FROM telemetry_samples WHERE complex_id = ?", (complex_id,)).rowcount
+            c2 = self._db.execute("DELETE FROM events WHERE complex_id = ?", (complex_id,)).rowcount
+            c3 = self._db.execute("DELETE FROM raw_records WHERE complex_id = ?", (complex_id,)).rowcount
+            return {
+                "telemetrySamples": c1,
+                "eventLogs": c2,
+                "rawRecords": c3,
+                "telemetry_samples": c1,
+                "events": c2,
+                "raw_records": c3,
+            }
+
 
 HISTORY_STORE = HistoryStore()
+

@@ -1,3 +1,33 @@
+# AI HANDOVER — SP-COMPLEX-DELETION-SAGA-001
+
+## Status
+**Complex Deletion Architecture, Saga Engine, Hardware Retirement, and UI Modal are 100% COMPLETE.**  
+**Safe Point**: `SP-COMPLEX-DELETION-SAGA-001`  
+**Verdict**: `DELETION MATRIX (A-J) = PASS`, `BUILD = PASS`, `ONBOARDING GATE = PASS`, `NETWORK FIRST-BOOT GATE = PASS`, `BINDING E2E = PASS`
+
+### Architecture & Implementation Summary:
+1. **Mandatory Research Invariant**:
+   - `agrotech_research.sqlite3` (`crop_cycles`, `plants`, `fruits`, `observations`) remains 100% untouched.
+   - `ResearchStore` is strictly read-only for complex deletion. No mutation or deletion paths exist.
+2. **Device Retirement & Offline Safety Block**:
+   - ESP32 endpoint `POST /api/v1/device/retire` safely terminates autonomous schedules, halts fertigation runs, emergency-stops actuators to safe OFF, clears LVC and unbinds `cplx_id`, while leaving Wi-Fi credentials intact.
+   - If controller is offline, deletion halts in `WAITING_DEVICE` and blocks all SQLite data purges.
+3. **Multi-Store Purge & Saga Machine**:
+   - `DeletionStore` in `agrotech_system.sqlite3` tracks jobs, steps, and audit events with an anti-collision partial index.
+   - `DeletionManager` orchestrates the 11-step execution pipeline with preflight SHA-256 snapshot hashing and server restart recovery.
+   - Domain stores (`operational`, `history`, `recovery`, `calibration`, `fertigation`) implement scoped count and purge methods.
+4. **Mutation Locking**:
+   - Active deletions lock the complex with HTTP 409 `COMPLEX_DELETION_IN_PROGRESS` on all mutation endpoints.
+5. **Frontend UX**:
+   - `DeleteComplexModal` in `src/app/complex/page.tsx` displays preflight counts, research preservation badge, offline device alert, code verification input, and real-time step progress.
+6. **Automated Verification**:
+   - `npm run test:complex:deletion`: 10/10 matrix scenarios PASS (Matrix A through J).
+   - `npm run test:network-first-boot`: 41/41 PASS.
+   - `npm run test:network-first-boot:binding`: 5/5 PASS.
+   - `npx vite build`: PASS (917.30 kB singlefile bundle).
+
+---
+
 # AI HANDOVER — SP-GREENHOUSE-CREATION-FLOW-FIX
 
 ## Status

@@ -116,9 +116,34 @@ class RecoveryStore:
                  int(current["deviceVersion"] if device_version is None else device_version),
                  device_hash if device_hash is not None else current["deviceHash"],
                  int(current["previousVersion"] if previous_version is None else previous_version),
-                 previous_hash if previous_hash is not None else current["previousHash"], status, now),
+                  previous_hash if previous_hash is not None else current["previousHash"], status, now),
             )
         return self.get_deployment(complex_id)
 
+    def count_scoped(self, complex_id: str) -> dict[str, int]:
+        with self._lock:
+            s_row = self._db.execute("SELECT COUNT(*) FROM sync_state WHERE complex_id = ?", (complex_id,)).fetchone()
+            d_row = self._db.execute("SELECT COUNT(*) FROM deployment_state WHERE complex_id = ?", (complex_id,)).fetchone()
+            s_cnt = int(s_row[0]) if s_row else 0
+            d_cnt = int(d_row[0]) if d_row else 0
+            return {
+                "syncState": s_cnt,
+                "deploymentState": d_cnt,
+                "sync_state": s_cnt,
+                "deployment_state": d_cnt,
+            }
+
+    def purge_complex(self, complex_id: str) -> dict[str, int]:
+        with self._lock, self._db:
+            c1 = self._db.execute("DELETE FROM sync_state WHERE complex_id = ?", (complex_id,)).rowcount
+            c2 = self._db.execute("DELETE FROM deployment_state WHERE complex_id = ?", (complex_id,)).rowcount
+            return {
+                "syncState": c1,
+                "deploymentState": c2,
+                "sync_state": c1,
+                "deployment_state": c2,
+            }
+
 
 RECOVERY_STORE = RecoveryStore()
+

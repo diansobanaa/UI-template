@@ -127,6 +127,21 @@ export function apiPatch<T>(path: string, body: unknown, config?: HardwarePortCo
   return request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, config);
 }
 
-export function apiDelete<T = void>(path: string, config?: HardwarePortConfig): Promise<T> {
-  return request<T>(path, { method: "DELETE" }, config);
+export function apiDelete<T = void>(
+  path: string,
+  bodyOrConfig?: unknown,
+  config?: HardwarePortConfig,
+  headers?: Record<string, string>
+): Promise<T> {
+  if (bodyOrConfig && typeof bodyOrConfig === "object" && ("pythonBaseUrl" in bodyOrConfig || "requestTimeoutMs" in bodyOrConfig)) {
+    return request<T>(path, { method: "DELETE" }, bodyOrConfig as HardwarePortConfig);
+  }
+  const init: RequestInit = { method: "DELETE" };
+  if (bodyOrConfig !== undefined) {
+    init.body = JSON.stringify(bodyOrConfig);
+  }
+  if (headers) {
+    init.headers = headers;
+  }
+  return request<T>(path, init, config);
 }

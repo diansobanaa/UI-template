@@ -231,6 +231,9 @@ esp_err_t http_server_start(void)
     httpd_uri_t uri_bind = { .uri = "/api/v1/device/bind", .method = HTTP_POST, .handler = handler_post_device_bind, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_bind);
 
+    httpd_uri_t uri_retire = { .uri = "/api/v1/device/retire", .method = HTTP_POST, .handler = handler_post_device_retire, .user_ctx = NULL };
+    httpd_register_uri_handler(s_server, &uri_retire);
+
     httpd_uri_t uri_inv = { .uri = "/api/v1/inventory", .method = HTTP_GET, .handler = handler_get_inventory, .user_ctx = NULL };
     httpd_register_uri_handler(s_server, &uri_inv);
 
