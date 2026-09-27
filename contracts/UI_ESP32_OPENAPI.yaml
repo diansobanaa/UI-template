@@ -1,0 +1,3209 @@
+openapi: 3.0.3
+info:
+  title: AgroTech ESP32 Local API
+  version: "1.0.0"
+  description: Canonical local REST contract for Single HTML Vite UI ↔ ESP32-S3.
+servers:
+  - url: http://esp32.local
+    description: Example local device hostname
+tags:
+  - name: Device
+  - name: Configuration
+  - name: Clock
+  - name: Commands
+  - name: CropCycle
+  - name: Telemetry
+  - name: Events
+  - name: Calibration
+  - name: LocalSetup
+  - name: Export
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [Device]
+      operationId: getHealth
+      responses:
+        "200":
+          description: Health snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/device/bind:
+    post:
+      tags: [Device]
+      operationId: bindDeviceToComplex
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceBindRequest"
+      responses:
+        "200":
+          description: Binding persisted on the controller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceBindResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/device/retire:
+    post:
+      tags: [Device]
+      operationId: retireDeviceFromComplex
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRetireRequest"
+      responses:
+        "200":
+          description: Controller unbound and wiped to clean factory network state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRetireResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/status:
+    get:
+      tags: [Device]
+      operationId: getStatus
+      responses:
+        "200":
+          description: Full device snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /api/v1/inventory:
+    get:
+      tags: [Device]
+      operationId: getInventory
+      responses:
+        "200":
+          description: Hardware inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryResponse"
+
+  /api/v1/capabilities:
+    get:
+      tags: [Device]
+      operationId: getCapabilities
+      responses:
+        "200":
+          description: Firmware capabilities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilitiesResponse"
+
+  /api/v1/context:
+    get:
+      tags: [Device]
+      operationId: getContext
+      responses:
+        "200":
+          description: Device-bound operational context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextResponse"
+
+  /api/v1/topology-pool:
+    get:
+      tags: [Topology]
+      summary: Return replicated System Topology Pool
+      description: Returns the persistent minimal topology registry known by this controller
+      operationId: getTopologyPool
+      responses:
+        "200":
+          description: Replicated System Topology Pool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemTopologyPoolResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/topology-pool/meta:
+    get:
+      tags: [Topology]
+      summary: Return Topology Pool metadata
+      description: Returns lightweight metadata for quick revision/hash compatibility checks
+      operationId: getTopologyPoolMeta
+      responses:
+        "200":
+          description: Topology Pool metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopologyPoolMetaResponse"
+
+  /api/v1/topology-pool/sync:
+    post:
+      tags: [Topology]
+      summary: Synchronize topology pool with peer controller
+      description: Reconciles peer topology pool state, detecting conflicts and tombstones
+      operationId: syncTopologyPool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schemaId, schemaVersion, contractHash, poolRevision]
+      responses:
+        "200":
+          description: Topology pool converged
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/topology-pool/mutate:
+    post:
+      tags: [Topology]
+      summary: Apply topology mutation
+      description: Ownership-aware mutation to create, update or delete a Complex or Greenhouse
+      operationId: mutateTopologyPool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopologyMutationRequest"
+      responses:
+        "200":
+          description: Mutation applied or already applied
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/clock:
+    get:
+      tags: [Clock]
+      operationId: getClock
+      responses:
+        "200":
+          description: Current device clock
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockResponse"
+
+  /api/v1/clock-sync:
+    post:
+      tags: [Clock]
+      operationId: syncClock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClockSyncRequest"
+      responses:
+        "200":
+          description: Clock synchronized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/configuration:
+    get:
+      tags: [Configuration]
+      operationId: getConfiguration
+      responses:
+        "200":
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+    put:
+      tags: [Configuration]
+      operationId: applyConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyConfigurationRequest"
+      responses:
+        "200":
+          description: Configuration applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/configuration/deployment:
+    get:
+      tags: [Configuration]
+      operationId: getConfigurationDeployment
+      responses:
+        "200":
+          description: Configuration deployment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationDeploymentResponse"
+
+  /api/v1/configuration/deploy:
+    post:
+      tags: [Configuration]
+      operationId: deployConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyConfigurationRequest"
+      responses:
+        "200":
+          description: Configuration staged, validated and atomically activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: Deployment commit failure; previous configuration remains authoritative
+
+  /api/v1/configuration/rollback:
+    post:
+      tags: [Configuration]
+      operationId: rollbackConfiguration
+      responses:
+        "200":
+          description: Previous configuration activated as a new monotonic version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationResponse"
+        "409":
+          description: No valid previous configuration is available
+
+  /api/v1/configuration/validate:
+    post:
+      tags: [Configuration]
+      operationId: validateConfiguration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateConfigurationRequest"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/commands:
+    post:
+      tags: [Commands]
+      operationId: createCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandRequest"
+      responses:
+        "202":
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/commands/{commandId}:
+    get:
+      tags: [Commands]
+      operationId: getCommand
+      parameters:
+        - $ref: "#/components/parameters/CommandId"
+      responses:
+        "200":
+          description: Command status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+  /api/v1/schedule-intents:
+    get:
+      tags: [Schedules]
+      summary: Return all persistent schedule intents from ESP32 NVS
+      operationId: getScheduleIntents
+      responses:
+        "200":
+          description: List of authoritative persisted schedule intents
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "no-store, no-cache, must-revalidate, max-age=0" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [revision, total, items]
+                        properties:
+                          revision: { type: integer }
+                          total: { type: integer }
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              required: [id]
+    post:
+      tags: [Schedules]
+      summary: Save or update schedule intent atomically in ESP32 NVS
+      operationId: saveScheduleIntent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item]
+              properties:
+                item:
+                  type: object
+                  required: [id]
+      responses:
+        "200":
+          description: Schedule intent persisted
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/schedule-intents/{id}:
+    put:
+      tags: [Schedules]
+      summary: Update persistent schedule intent in ESP32 NVS
+      operationId: updateScheduleIntent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item]
+      responses:
+        "200":
+          description: Schedule intent updated
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Schedules]
+      summary: Delete persistent schedule intent from ESP32 NVS
+      operationId: deleteScheduleIntent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Schedule intent deleted from NVS
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/schedules/compiled:
+    get:
+      tags: [Schedules]
+      summary: Return derived compiled FreeRTOS scheduler executable set
+      operationId: getCompiledSchedules
+      responses:
+        "200":
+          description: Active compiled schedules in FreeRTOS scheduler
+    post:
+      tags: [Schedules]
+      summary: Deploy compiled FreeRTOS scheduler executable set
+      operationId: deployCompiledSchedules
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schedules]
+      responses:
+        "200":
+          description: Compiled schedules activated in FreeRTOS scheduler
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    delete:
+      tags: [Schedules]
+      summary: Clear compiled FreeRTOS scheduler executable set
+      operationId: clearCompiledSchedules
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Compiled schedules cleared
+
+  /api/v1/commands/emergency-stop:
+    post:
+      tags: [Commands]
+      operationId: emergencyStop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmergencyStopRequest"
+      responses:
+        "202":
+          description: Emergency stop accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: Device unavailable; no physical state change was confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/greenhouses/{ghId}/crop-cycle:
+    get:
+      tags: [CropCycle]
+      operationId: getCurrentCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      responses:
+        "200":
+          description: Current crop cycle projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles:
+    get:
+      tags: [CropCycle]
+      operationId: listCropCycles
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Crop-cycle history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CropCycleHistoryResponse"
+    post:
+      tags: [CropCycle]
+      operationId: startCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartCropCycleRequest"
+      responses:
+        "201":
+          description: Cycle created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/import-active:
+    post:
+      tags: [CropCycle]
+      operationId: importActiveCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportActiveCropCycleRequest"
+      responses:
+        "201":
+          description: Active cycle imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/pollination:
+    post:
+      tags: [CropCycle]
+      operationId: recordPollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PollinationRequest"
+      responses:
+        "200":
+          description: Pollination recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    patch:
+      tags: [CropCycle]
+      operationId: updatePollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePollinationRequest"
+      responses:
+        "200":
+          description: Pollination updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [CropCycle]
+      operationId: deletePollination
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+        - $ref: "#/components/parameters/RequestIdQuery"
+      responses:
+        "200":
+          description: Pollination removed; history preserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/planting-date:
+    patch:
+      tags: [CropCycle]
+      operationId: updatePlantingDate
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlantingDateRequest"
+      responses:
+        "200":
+          description: Planting date updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}:
+    patch:
+      tags: [CropCycle]
+      operationId: updateCropCycleMetadata
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCropCycleMetadataRequest"
+      responses:
+        "200":
+          description: Cycle metadata updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/cancel:
+    post:
+      tags: [CropCycle]
+      operationId: cancelCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationRequest"
+      responses:
+        "200":
+          description: Cycle cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/greenhouses/{ghId}/crop-cycles/{cycleId}/harvest:
+    post:
+      tags: [CropCycle]
+      operationId: harvestCropCycle
+      parameters:
+        - $ref: "#/components/parameters/GhId"
+        - $ref: "#/components/parameters/CycleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HarvestCycleRequest"
+      responses:
+        "200":
+          description: Harvest recorded and active cycle closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentCropCycleResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/telemetry:
+    get:
+      tags: [Telemetry]
+      operationId: getTelemetry
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: afterSequence
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Telemetry samples
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryResponse"
+
+  /api/v1/telemetry/current:
+    get:
+      tags: [Telemetry]
+      operationId: getCurrentTelemetry
+      summary: Pure RAM fast-path telemetry snapshot
+      parameters:
+        - name: greenhouseId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Pure RAM telemetry snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryResponse"
+
+  /api/v1/telemetry/history:
+    get:
+      tags: [Telemetry]
+      operationId: getTelemetryHistory
+      summary: Bounded cursor-based persistent telemetry history
+      parameters:
+        - name: greenhouseId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: afterSequence
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Bounded history query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryResponse"
+
+  /api/v1/telemetry/stream:
+    get:
+      tags: [Telemetry]
+      operationId: streamTelemetryWs
+      summary: Persistent WebSocket telemetry stream (10s idle, 3s active pump cadence)
+      responses:
+        "101":
+          description: WebSocket Upgrade successful
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      operationId: getEvents
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: afterSequence
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventResponse"
+
+  /api/v1/calibration:
+    post:
+      tags: [Calibration]
+      operationId: startCalibration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalibrationRequest"
+      responses:
+        "200":
+          description: Calibration started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/calibration/status:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationStatus
+      responses:
+        "200":
+          description: Current calibration status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status: { $ref: "#/components/schemas/CalibrationStatus" }
+
+  /api/v1/calibration/rate:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationRate
+      responses:
+        "200":
+          description: Persistent dosing calibration rates
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          rates: { $ref: "#/components/schemas/CalibrationRates" }
+    post:
+      tags: [Calibration]
+      operationId: setCalibrationRate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCalibrationRateRequest"
+      responses:
+        "200":
+          description: Calibration rate saved to NVS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/calibration/record:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationRecord
+      parameters:
+        - { name: componentId, in: query, required: true, schema: { type: string } }
+        - { name: calibrationType, in: query, required: true, schema: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] } }
+        - { name: calibrationId, in: query, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Exact persisted calibration record
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CalibrationRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    post:
+      tags: [Calibration]
+      operationId: saveCalibrationRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalibrationRecordRequest"
+      responses:
+        "200":
+          description: Calibration record persisted and returned by exact ID/version
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CalibrationRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/topology-capabilities:
+    get:
+      tags: [Device]
+      operationId: getTopologyCapabilities
+      responses:
+        "200":
+          description: Topology and capability state derived from the active configuration
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TopologyCapabilitiesResponse"
+        "503":
+          description: Active topology unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/schedules/compiled:
+    get:
+      tags: [Schedule]
+      operationId: getCompiledSchedules
+      responses:
+        "200":
+          description: Currently deployed compiled schedule set
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CompiledScheduleDeployment"
+    post:
+      tags: [Schedule]
+      operationId: deployCompiledSchedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompiledScheduleDeploymentRequest"
+      responses:
+        "200":
+          description: Compiled schedule set accepted and persisted for the active configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Schedule]
+      operationId: clearCompiledSchedules
+      responses:
+        "200":
+          description: Compiled schedule set cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+
+  /api/v1/schedule-intents:
+    get:
+      tags: [Schedule]
+      summary: List persistent schedule intents
+      description: Returns all authoritative schedule intents persisted in NVS
+      operationId: getScheduleIntents
+      responses:
+        "200":
+          description: List of authoritative schedule intents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                          total: { type: integer }
+                          revision: { type: integer }
+    post:
+      tags: [Schedule]
+      summary: Create or update schedule intent
+      description: Persists an authoritative user schedule intent in NVS
+      operationId: saveScheduleIntent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Schedule intent saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/schedule-intents/{id}:
+    put:
+      tags: [Schedule]
+      summary: Update schedule intent
+      description: Updates an authoritative user schedule intent by ID in NVS
+      operationId: updateScheduleIntent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Schedule intent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Schedule]
+      summary: Delete schedule intent
+      description: Removes an authoritative user schedule intent by ID from NVS
+      operationId: deleteScheduleIntent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Schedule intent removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/schedules:
+    get:
+      tags: [Schedule]
+      operationId: getSchedules
+      responses:
+        "200":
+          description: List of configured schedules from NVS
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/ScheduleItem"
+                          total: { type: integer }
+    post:
+      deprecated: true
+      tags: [Schedule]
+      operationId: saveScheduleLegacy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleItem"
+      responses:
+        "410":
+          description: Raw schedule persistence has been retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/schedules/{id}:
+    delete:
+      tags: [Schedule]
+      operationId: deleteSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Schedule removed from NVS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+  /api/v1/fertigation/start:
+    post:
+      tags: [Fertigation]
+      summary: Start fertigation run
+      description: Starts a fertigation run with resolved execution plan on ESP32
+      operationId: startFertigation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commandId: { type: string }
+                ghId: { type: string }
+                recipeId: { type: string }
+                executionPlan: { type: object }
+      responses:
+        "202":
+          description: Fertigation batch accepted and started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/fertigation/status:
+    get:
+      tags: [Fertigation]
+      summary: Get fertigation status
+      description: Authoritative live runtime status and phase telemetry of fertigation
+      operationId: getFertigationStatus
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Live fertigation runtime snapshot
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          state: { type: string }
+                          phase: { type: string }
+                          runId: { type: string }
+                          complexId: { type: string }
+                          ghId: { type: string }
+                          recipeId: { type: string }
+                          targetWaterMl: { type: integer }
+                          actualWaterMl: { type: integer }
+                          deliveryMode: { type: string }
+                          deliveryTargetMl: { type: integer }
+                          actualDeliveredMl: { type: integer }
+                          actualFlowLpm: { type: number }
+                          targetFlowLpm: { type: number }
+                          mixing:
+                            type: object
+                            properties:
+                              status: { type: string }
+                          delivery:
+                            type: object
+                            properties:
+                              status: { type: string }
+                          thresholdPercent: { type: integer }
+                          queuedBatches:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                queueId: { type: string }
+                                occurrenceId: { type: string }
+                                scheduleId: { type: string }
+                                ghId: { type: string }
+                                batchId: { type: string }
+                                status: { type: string }
+                          todaySchedule:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                occurrenceId: { type: string }
+                                scheduleId: { type: string }
+                                complexId: { type: string }
+                                ghId: { type: string }
+                                scheduledTimestamp: { type: number }
+                                status: { type: string }
+                                queueId: { type: string }
+                                batchId: { type: string }
+                          activeDeliveries:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                ghId: { type: string }
+                                occurrenceId: { type: string }
+                                batchId: { type: string }
+                                status: { type: string }
+                                deliveryPumpId: { type: string }
+
+  /api/v1/fertigation/queue:
+    get:
+      tags: [Fertigation]
+      summary: Get fertigation queue and operational schedule
+      description: Authoritative live state of Global Dosing Queue and Today's Operational Schedule
+      operationId: getFertigationQueue
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Live queue snapshot
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          activeBatch: { type: object }
+                          queuedBatches:
+                            type: array
+                            items:
+                              type: object
+                          todaySchedule:
+                            type: array
+                            items:
+                              type: object
+                          activeDeliveries:
+                            type: array
+                            items:
+                              type: object
+
+  /api/v1/fertigation/stop:
+    post:
+      tags: [Fertigation]
+      summary: Stop fertigation run
+      description: Aborts any active fertigation batch and returns actuators to safe idle
+      operationId: stopFertigation
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Fertigation run aborted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /api/v1/recipes:
+    get:
+      tags: [Recipe]
+      summary: List all recipes
+      description: Returns all recipes persistently stored on the ESP32 MicroSD card.
+      operationId: getRecipes
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of stored recipes
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          storageStatus: { type: string, enum: [PERSISTED, STORAGE_UNAVAILABLE] }
+                          recipes:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/Recipe"
+    post:
+      tags: [Recipe]
+      summary: Create or update recipe
+      description: Persists a fertigation recipe directly to the ESP32 MicroSD card under /sdcard/recipes/<id>.json
+      operationId: createRecipe
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Recipe"
+      responses:
+        "201":
+          description: Recipe persisted to MicroSD card
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Recipe"
+        "503":
+          description: MicroSD storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/recipes/{id}:
+    get:
+      tags: [Recipe]
+      summary: Get recipe by ID
+      description: Retrieves a single recipe from the ESP32 MicroSD card.
+      operationId: getRecipeById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Recipe details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Recipe"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "503":
+          description: MicroSD storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Recipe]
+      summary: Update recipe by ID
+      description: Updates an existing recipe on the ESP32 MicroSD card.
+      operationId: updateRecipeById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Recipe"
+      responses:
+        "200":
+          description: Recipe updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Recipe"
+        "503":
+          description: MicroSD storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Recipe]
+      summary: Delete recipe by ID
+      description: Removes a recipe file from the ESP32 MicroSD card.
+      operationId: deleteRecipeById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Recipe deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "503":
+          description: MicroSD storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /setup:
+    get:
+      tags: [LocalSetup]
+      operationId: getLocalSetupPage
+      description: Minimal embedded HTML setup page available only during factory provisioning or temporary Direct Local Mode.
+      responses:
+        "200":
+          description: Local setup HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: Local setup mode is not active
+
+  /setup/api/status:
+    get:
+      tags: [LocalSetup]
+      operationId: getLocalSetupStatus
+      description: Controller-local status for factory setup, Wi-Fi change and Direct Local Mode. This surface must not expose actuator execution.
+      responses:
+        "200":
+          description: Local setup state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: { type: string }
+                  deviceId: { type: string }
+                  complexId: { type: string, nullable: true }
+                  connected: { type: boolean }
+                  currentSsid: { type: string }
+                  ip: { type: string }
+                  mac: { type: string }
+                  setupSsid: { type: string }
+                  setupCode: { type: string }
+                  candidateState: { type: string, enum: [IDLE, CONNECTING, SUCCESS, FAILED] }
+                  candidateSsid: { type: string }
+                  candidateError: { type: string }
+                  networkChange: { type: boolean }
+                  directLocal: { type: boolean }
+                  apClientCount: { type: integer, minimum: 0 }
+                  apTimeoutSec: { type: integer, minimum: 0 }
+        "404":
+          description: Local setup mode is not active
+
+  /setup/api/scan:
+    get:
+      tags: [LocalSetup]
+      operationId: scanLocalWifi
+      description: Scan nearby Wi-Fi networks from the controller-local setup path.
+      responses:
+        "200":
+          description: Nearby Wi-Fi networks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [ssid, rssi]
+                  properties:
+                    ssid: { type: string }
+                    rssi: { type: integer }
+        "404":
+          description: Local setup mode is not active
+        "503":
+          description: Wi-Fi scan failed
+
+  /setup/api/connect:
+    post:
+      tags: [LocalSetup]
+      operationId: submitLocalWifiCandidate
+      description: Test a candidate router credential at runtime. Persisted Wi-Fi credentials are replaced only after the controller obtains an IP and commits the candidate atomically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ssid, password]
+              properties:
+                ssid: { type: string, minLength: 1, maxLength: 32 }
+                password: { type: string, maxLength: 64 }
+      responses:
+        "202":
+          description: Candidate connection test started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, ssid]
+                properties:
+                  state: { type: string, enum: [CONNECTING] }
+                  ssid: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          description: Local setup mode is not active
+        "409":
+          description: Local network change transaction is unavailable
+        "503":
+          description: Candidate Wi-Fi validation could not be started
+
+  /setup/api/finish:
+    post:
+      tags: [LocalSetup]
+      operationId: finishLocalSetup
+      description: Exit Direct Local / Network Change setup after the candidate transaction is complete. This never resets the controller.
+      responses:
+        "200":
+          description: Local setup mode closed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success: { type: boolean, enum: [true] }
+        "409":
+          description: Setup mode is not active or candidate transaction is not ready
+
+  /api/v1/export/capabilities:
+    get:
+      tags: [Export]
+      operationId: getExportCapabilities
+      summary: Query dataset export capabilities and storage state
+      description: Returns dataset types, formats, chunking limits, and SD card mount/degraded status for future backend synchronization.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Export capabilities snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportCapabilitiesResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+  /api/v1/export/jobs:
+    post:
+      tags: [Export]
+      operationId: createExportJob
+      summary: Create historical export job
+      description: Requests ESP32 to prepare historical dataset from SD for export. Returns 503 if SD is absent or degraded.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExportJobRequest"
+      responses:
+        "201":
+          description: Export job created and ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateExportJobResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "503":
+          description: MicroSD storage absent or unmounted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/export/jobs/{exportId}:
+    get:
+      tags: [Export]
+      operationId: getExportJobStatus
+      summary: Check export job status
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Job status and progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJobStatusResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/export/jobs/{exportId}/manifest:
+    get:
+      tags: [Export]
+      operationId: getExportJobManifest
+      summary: Get export job manifest and checksum
+      description: Returns manifest with CRC32 checksum, byte count, record count, and file set before backend acknowledgement.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Export job manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportManifestResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/export/jobs/{exportId}/data:
+    get:
+      tags: [Export]
+      operationId: getExportJobChunk
+      summary: Retrieve chunked export data stream
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+        - name: chunkIndex
+          in: query
+          required: false
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Export chunk data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportChunkResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/export/jobs/{exportId}/ack:
+    post:
+      tags: [Export]
+      operationId: acknowledgeExportJob
+      summary: Acknowledge export and trigger safe deletion
+      description: Explicit idempotent acknowledgement by backend. Only after ACK are exported historical files purged from SD. Active cycles are never deleted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportAckRequest"
+      responses:
+        "200":
+          description: Acknowledgement processed and scoped records purged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportAckResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    GhId:
+      name: ghId
+      in: path
+      required: true
+      schema: { type: string }
+    CycleId:
+      name: cycleId
+      in: path
+      required: true
+      schema: { type: string }
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string }
+    RequestIdQuery:
+      name: requestId
+      in: query
+      required: false
+      schema: { type: string }
+    ExportId:
+      name: exportId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    ValidationError:
+      description: Semantic validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ConflictError:
+      description: State/version conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    EnvelopeBase:
+      type: object
+      required: [requestId, success, deviceTimestamp]
+      properties:
+        requestId: { type: string }
+        success: { type: boolean }
+        deviceTimestamp: { type: string, format: date-time }
+
+    SystemTopologyPoolResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SystemTopologyPool"
+
+    SystemTopologyPool:
+      type: object
+      required: [schemaId, schemaVersion, contractHash, poolRevision, poolHash, originDeviceId, devices, complexes, tombstones]
+      properties:
+        schemaId: { type: string, example: "agrotech.system-topology-pool" }
+        schemaVersion: { type: integer, example: 1 }
+        contractHash: { type: string }
+        poolRevision: { type: integer, minimum: 1 }
+        poolHash: { type: string }
+        originDeviceId: { type: string }
+        generatedAt: { type: string, format: date-time }
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopologyDeviceRecord"
+        complexes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopologyComplexRecord"
+        greenhouses:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopologyGreenhouseRecord"
+        tombstones:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopologyTombstone"
+
+    TopologyPoolMetaResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [schemaId, schemaVersion, contractHash, poolRevision, poolHash, deviceId]
+              properties:
+                schemaId: { type: string }
+                schemaVersion: { type: integer }
+                contractHash: { type: string }
+                poolRevision: { type: integer }
+                poolHash: { type: string }
+                deviceId: { type: string }
+
+    TopologyDeviceRecord:
+      type: object
+      required: [deviceId, deviceState, ownerComplexIds]
+      properties:
+        deviceId: { type: string }
+        deviceState: { type: string, enum: [KNOWN, UNBOUND, BOUND] }
+        ownerComplexIds: { type: array, items: { type: string } }
+        hostname: { type: string }
+        endpoint: { type: string }
+        lastSeenAt: { type: string, format: date-time }
+        lastSeenByDeviceId: { type: string }
+        poolRevision: { type: integer }
+        poolHash: { type: string }
+        contractVersion: { type: integer }
+
+    TopologyComplexRecord:
+      type: object
+      required: [complexId, name, ownerDeviceId, state, greenhouses, recordRevision]
+      properties:
+        complexId: { type: string }
+        name: { type: string }
+        ownerDeviceId: { type: string }
+        state: { type: string, enum: [ACTIVE, INACTIVE] }
+        greenhouses: { type: array, items: { type: string } }
+        recordRevision: { type: integer, minimum: 1 }
+
+    TopologyGreenhouseRecord:
+      type: object
+      required: [ghId, complexId, name, state, recordRevision]
+      properties:
+        ghId: { type: string }
+        complexId: { type: string }
+        name: { type: string }
+        crop: { type: string }
+        greenhouseTag: { type: string }
+        state: { type: string, enum: [ACTIVE, INACTIVE] }
+        recordRevision: { type: integer, minimum: 1 }
+
+    TopologyTombstone:
+      type: object
+      required: [entityType, entityId, deletedAt, deletionChangeId, recordRevision]
+      properties:
+        entityType: { type: string, enum: [COMPLEX, GREENHOUSE] }
+        entityId: { type: string }
+        deletedAt: { type: string, format: date-time }
+        deletionChangeId: { type: string }
+        recordRevision: { type: integer, minimum: 1 }
+
+    TopologyMutationRequest:
+      type: object
+      required: [operation]
+      properties:
+        changeId: { type: string }
+        originDeviceId: { type: string }
+        operation: { type: string, enum: [CREATE_COMPLEX, UPDATE_COMPLEX, DELETE_COMPLEX, CREATE_GREENHOUSE, UPDATE_GREENHOUSE, DELETE_GREENHOUSE] }
+        complexId: { type: string }
+        ghId: { type: string }
+        name: { type: string }
+        crop: { type: string }
+        ownerDeviceId: { type: string }
+        deletionChangeId: { type: string }
+
+    HealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [apiVersion, schemaVersion, deviceId, complexId, firmwareVersion, bootId, uptimeSec, configurationVersion, inventoryVersion, runtimeState, health]
+              properties:
+                apiVersion: { type: string }
+                schemaVersion: { type: integer }
+                deviceId: { type: string }
+                complexId: { type: string, nullable: true }
+                firmwareVersion: { type: string }
+                bootId: { type: string }
+                uptimeSec: { type: integer, minimum: 0 }
+                currentTime: { type: string, format: date-time }
+                timezone: { type: string }
+                configurationVersion: { type: integer, minimum: 0 }
+                inventoryVersion: { type: integer, minimum: 0 }
+                runtimeState: { type: string }
+                health: { type: string }
+                networkState: { type: string }
+                hostname: { type: string }
+
+    StatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [device, network, clock, configuration, inventory, runtime, actuators, sensors, storage, safety]
+              properties:
+                device: { type: object, additionalProperties: true }
+                network:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    ip: { type: string, nullable: true }
+                    mac: { type: string, nullable: true }
+                    state: { type: string }
+                    connected: { type: boolean }
+                    provisioned: { type: boolean }
+                    provisioning: { type: boolean }
+                    hostname: { type: string }
+                    provisioningSsid: { type: string }
+                    ssid: { type: string, nullable: true }
+                clock: { type: object, additionalProperties: true }
+                configuration: { type: object, additionalProperties: true }
+                inventory: { type: object, additionalProperties: true }
+                runtime: { type: object, additionalProperties: true }
+                actuators:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    buzzer: { type: boolean, description: "Active DC Alarm Buzzer output state (defaults OFF)" }
+                    wellPump: { type: boolean }
+                    distPump: { type: boolean }
+                    rawSubmersible: { type: boolean }
+                    dosingA: { type: boolean }
+                    dosingB: { type: boolean }
+                    coolingFan: { type: boolean }
+                    blowerFan: { type: boolean, description: "Greenhouse Blower Fans AC state" }
+                    errorLamp: { type: boolean }
+                    components:
+                      type: array
+                      items:
+                        type: object
+                sensors:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    temperatureC: { type: number, description: "Ambient air temperature in Celsius from DHT22 or tank water temperature" }
+                    humidityPct: { type: number, nullable: true, description: "Relative humidity percentage (0-100% RH) from DHT22" }
+                    flowRawZjb1Lpm: { type: number }
+                    totalLitersRawZjb1: { type: number }
+                    flowFertFs400aLpm: { type: number }
+                    totalLitersFertFs400a: { type: number }
+                    floatLowerOk: { type: boolean }
+                storage: { type: object, additionalProperties: true }
+                safety: { type: object, additionalProperties: true }
+                cropCycle:
+                  nullable: true
+                  $ref: "#/components/schemas/CropCycle"
+                queue: { type: object, additionalProperties: true }
+                sync: { type: object, additionalProperties: true }
+
+    InventoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceId, complexId, inventoryVersion, components]
+              properties:
+                deviceId: { type: string }
+                complexId: { type: string, nullable: true }
+                inventoryVersion: { type: integer }
+                components:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Component"
+
+    CapabilitiesResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceId, capabilitiesVersion, capabilities]
+              properties:
+                deviceId: { type: string }
+                capabilitiesVersion: { type: integer }
+                capabilities:
+                  type: object
+                  additionalProperties: { type: boolean }
+
+    TopologyCapabilityState:
+      type: object
+      required: [ghId, configured, hydraulicallyReachable, automaticallyRoutable, manuallyRoutable, capabilities]
+      properties:
+        ghId: { type: string }
+        configured: { type: boolean }
+        hydraulicallyReachable: { type: boolean }
+        automaticallyRoutable: { type: boolean }
+        manuallyRoutable: { type: boolean }
+        currentSharedManualTarget: { type: string, nullable: true }
+        sharedPath: { type: boolean }
+        capabilities:
+          type: object
+          additionalProperties: { type: boolean }
+
+    TopologyCapabilitiesResponse:
+      type: object
+      required: [topologyVersion, capabilitiesVersion, valid, issues, byGh]
+      properties:
+        topologyVersion: { type: integer }
+        capabilitiesVersion: { type: integer }
+        valid: { type: boolean }
+        issues:
+          type: array
+          items: { type: object, additionalProperties: true }
+        byGh:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TopologyCapabilityState"
+
+    CompiledScheduleDeploymentRequest:
+      type: object
+      required: [deploymentId, configurationVersion, compiled]
+      properties:
+        deploymentId: { type: string }
+        configurationVersion: { type: integer, minimum: 0 }
+        configurationHash: { type: string, nullable: true }
+        compiled:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/CompiledSchedule"
+
+    CompiledScheduleDeployment:
+      allOf:
+        - $ref: "#/components/schemas/CompiledScheduleDeploymentRequest"
+      properties:
+        status: { type: string }
+
+    ContextResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                complex:
+                  $ref: "#/components/schemas/Complex"
+                greenhouses:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Greenhouse"
+
+    Complex:
+      type: object
+      required: [complexId, name]
+      properties:
+        complexId: { type: string }
+        name: { type: string }
+        location: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, INACTIVE, FAULTED] }
+
+    Greenhouse:
+      type: object
+      required: [ghId, complexId, name]
+      properties:
+        ghId: { type: string }
+        complexId: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [ACTIVE, INACTIVE, FAULTED] }
+
+    ClockResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deviceTimestamp, timezone]
+              properties:
+                deviceTimestamp: { type: string, format: date-time }
+                timezone: { type: string }
+                synchronizedAt: { type: string, format: date-time, nullable: true }
+                rtcAvailable: { type: boolean }
+
+    DeviceBindRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        payload:
+          type: object
+          required: [deviceId, complexId]
+          properties:
+            deviceId: { type: string }
+            complexId: { type: string }
+
+    DeviceBindResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [deviceId, complexId, bindingState, hostname]
+              properties:
+                deviceId: { type: string }
+                complexId: { type: string }
+                bindingState: { type: string, enum: [BOUND] }
+                hostname: { type: string }
+
+    DeviceRetireRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        payload:
+          type: object
+          properties:
+            complexId: { type: string, nullable: true }
+            reason: { type: string, nullable: true }
+
+    DeviceRetireResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [deviceId, bindingState]
+              properties:
+                deviceId: { type: string }
+                complexId: { type: string, nullable: true }
+                bindingState: { type: string, enum: [UNBOUND] }
+                hostname: { type: string }
+                retiredAt: { type: string, format: date-time, nullable: true }
+
+    ClockSyncRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        payload:
+          type: object
+          required: [timestamp, timezone]
+          properties:
+            timestamp: { type: string, format: date-time }
+            timezone: { type: string }
+
+    ClientInfo:
+      type: object
+      required: [type, version]
+      properties:
+        type: { type: string }
+        version: { type: string }
+
+    ConfigurationResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [configurationVersion, configurationHash, inventoryVersion, schemaVersion, payload]
+              properties:
+                configurationVersion: { type: integer }
+                configurationHash: { type: string }
+                inventoryVersion: { type: integer }
+                schemaVersion: { type: integer }
+                updatedAt: { type: string, format: date-time }
+                deploymentStatus: { type: string }
+                deploymentId: { type: string, nullable: true }
+                previousConfigurationVersion: { type: integer, minimum: 0 }
+                candidateConfigurationVersion: { type: integer, minimum: 0 }
+                candidateDeploymentId: { type: string, nullable: true }
+                payload: { $ref: "#/components/schemas/ConfigurationPayload" }
+
+    ConfigurationDeploymentResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [status, activeVersion, activeCrc, candidateVersion, previousVersion]
+              properties:
+                status: { type: string }
+                activeVersion: { type: integer, minimum: 0 }
+                activeCrc: { type: integer, minimum: 0 }
+                candidateVersion: { type: integer, minimum: 0 }
+                previousVersion: { type: integer, minimum: 0 }
+                deploymentId: { type: string, nullable: true }
+                candidateDeploymentId: { type: string, nullable: true }
+
+    ValidateConfigurationRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [expectedVersion, configuration]
+          properties:
+            expectedVersion: { type: integer }
+            configuration: { $ref: "#/components/schemas/ConfigurationPayload" }
+
+    ApplyConfigurationRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [expectedVersion, configuration]
+          properties:
+            expectedVersion: { type: integer }
+            deploymentId: { type: string, nullable: true }
+            configuration: { $ref: "#/components/schemas/ConfigurationPayload" }
+    Recipe:
+      type: object
+      required: [recipeId, name, type]
+      properties:
+        recipeId: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [FERTIGATION, IRRIGATION, MIXING] }
+        targetEc: { type: number, nullable: true }
+        targetPh: { type: number, nullable: true }
+        ratioA: { type: number, nullable: true }
+        ratioB: { type: number, nullable: true }
+        durationSec: { type: integer, nullable: true }
+        volumeMl: { type: integer, nullable: true }
+
+    Schedule:
+      type: object
+      required: [scheduleId, ownerId, priority, type, action]
+      properties:
+        scheduleId: { type: string }
+        ownerId: { type: string }
+        priority: { type: integer }
+        type: { type: string, enum: [DAILY, INTERVAL, ONCE] }
+        action: { type: string, enum: [FERTIGATION, WATER_PUMP, FAN_TOGGLE, CUSTOM] }
+        recipeId: { type: string, nullable: true }
+        enabled: { type: boolean }
+        hour: { type: integer, minimum: 0, maximum: 23, nullable: true }
+        minute: { type: integer, minimum: 0, maximum: 59, nullable: true }
+        daysOfWeek: { type: integer, nullable: true }
+        intervalMin: { type: integer, nullable: true }
+        durationSec: { type: integer, nullable: true }
+        constraints:
+          type: array
+          items: { type: string }
+
+    CompiledSchedule:
+      type: object
+      required: [compiledId, scheduleId, status, activationState, complexId, action, ownerId, priority, resourceIds, componentIds, startTimestamp, endTimestamp, configurationVersion, missedRunPolicy]
+      properties:
+        compiledId: { type: string }
+        scheduleId: { type: string }
+        status: { type: string, enum: [ACTIVE, BLOCKED, CONFLICT, EXECUTING, COMPLETED, CANCELLED] }
+        activationState: { type: string, enum: [DRAFT, VALIDATING, ACTIVE, BLOCKED, DISABLED, INVALID] }
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+        action: { type: string }
+        ownerId: { type: string }
+        priority: { type: integer, minimum: 0 }
+        resourceIds:
+          type: array
+          items: { type: string }
+        resourceLocks:
+          type: array
+          items:
+            type: object
+            required: [resourceId, lockType]
+            properties:
+              resourceId: { type: string }
+              lockType: { type: string, enum: [EXCLUSIVE, SHARED] }
+        componentIds:
+          type: array
+          items: { type: string }
+        startTimestamp: { type: integer, description: Unix epoch timestamp in milliseconds. }
+        endTimestamp: { type: integer, description: Unix epoch timestamp in milliseconds. }
+        configurationVersion: { type: integer, minimum: 1 }
+        configurationHash: { type: string, nullable: true }
+        missedRunPolicy: { type: string, enum: [EXECUTE, SKIP] }
+        blockedReasons:
+          type: array
+          items: { type: object, additionalProperties: true }
+        dependencies:
+          type: object
+          additionalProperties: true
+        safety:
+          type: object
+          additionalProperties: true
+        trigger:
+          type: object
+          additionalProperties: true
+        parameters:
+          type: object
+          additionalProperties: true
+        recipeSnapshot:
+          type: object
+          nullable: true
+          additionalProperties: true
+        executionPlan:
+          type: object
+          nullable: true
+          additionalProperties: true
+        conflictReason: { type: string, nullable: true }
+
+    ConfigurationPayload:
+      type: object
+      required: [complexId, version, updatedAt, assignments, schedules, recipes, topology, components]
+      properties:
+        complexId: { type: string }
+        version: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        components:
+          type: array
+          items: { $ref: "#/components/schemas/Component" }
+        assignments:
+          type: array
+          items: { $ref: "#/components/schemas/Assignment" }
+        schedules:
+          type: array
+          items: { $ref: "#/components/schemas/Schedule" }
+        recipes:
+          type: array
+          items: { $ref: "#/components/schemas/Recipe" }
+        topology:
+          type: array
+          items: { $ref: "#/components/schemas/Topology" }
+        settings:
+          type: object
+          additionalProperties: true
+
+    ValidationResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [valid, issues]
+              properties:
+                valid: { type: boolean }
+                issues:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+
+    CommandRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [commandId, type]
+          properties:
+            commandId: { type: string, minLength: 1, maxLength: 39 }
+            type: { type: string, minLength: 1 }
+            targetComplexId: { type: string, nullable: true }
+            targetGhId: { type: string, nullable: true }
+            componentId: { type: string, nullable: true }
+            resourceId: { type: string, nullable: true }
+            durationSeconds: { type: integer, minimum: 0, nullable: true }
+            maxRuntimeSec: { type: integer, minimum: 1, nullable: true }
+            configurationVersion: { type: integer, minimum: 0, nullable: true }
+            source: { type: string, nullable: true }
+            rawWaterVolumeMl: { type: integer, minimum: 0, nullable: true }
+            dosingAVolumeMl: { type: integer, minimum: 0, nullable: true }
+            dosingBVolumeMl: { type: integer, minimum: 0, nullable: true }
+            parameters: { type: object, additionalProperties: true }
+
+    CommandResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [commandId, status]
+              properties:
+                commandId: { type: string }
+                status:
+                  type: string
+                  enum: [CREATED, ACCEPTED, QUEUED, RUNNING, COMPLETED, FAILED, REJECTED, CANCELLED]
+                componentId: { type: string, nullable: true }
+                targetComplexId: { type: string, nullable: true }
+                targetGhId: { type: string, nullable: true }
+                resourceId: { type: string, nullable: true }
+                configurationVersion: { type: integer, minimum: 0, nullable: true }
+                resultCode: { type: string, nullable: true }
+                message: { type: string, nullable: true }
+                submittedAtMs: { type: integer, minimum: 0, nullable: true }
+                startedAtMs: { type: integer, minimum: 0, nullable: true }
+                completedAtMs: { type: integer, minimum: 0, nullable: true }
+                stateReason: { type: string, nullable: true }
+                actualState: { type: string, nullable: true }
+                createdAt: { type: string, format: date-time, nullable: true }
+                startedAt: { type: string, format: date-time, nullable: true }
+                completedAt: { type: string, format: date-time, nullable: true }
+
+    EmergencyStopRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload:
+          type: object
+          required: [commandId]
+          properties:
+            commandId: { type: string }
+            reason: { type: string, nullable: true }
+
+    CropCycle:
+      type: object
+      required: [cycleId, ghId, status, tanggalTanam, hst, version]
+      properties:
+        cycleId: { type: string }
+        ghId: { type: string }
+        status: { type: string }
+        tanggalTanam: { type: string, format: date }
+        tanggalPolinasi: { type: string, format: date, nullable: true }
+        variety: { type: string, nullable: true }
+        plantCount: { type: integer, minimum: 0, nullable: true }
+        notes: { type: string, nullable: true }
+        hst: { type: integer, minimum: 0 }
+        hsp: { type: integer, minimum: 0, nullable: true }
+        targetHarvestHst: { type: integer, minimum: 1, nullable: true }
+        cropTimelineConfig:
+          $ref: "#/components/schemas/CropTimelineConfig"
+          nullable: true
+        lastUpdatedAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 0 }
+
+    CurrentCropCycleResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [ghId, cycle]
+              properties:
+                ghId: { type: string }
+                cycle:
+                  nullable: true
+                  $ref: "#/components/schemas/CropCycle"
+
+    CropCycleHistoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, hasMore]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CropCycle"
+                nextCursor: { type: string, nullable: true }
+                hasMore: { type: boolean }
+
+    BaseCropCycleRequest:
+      type: object
+      required: [requestId, client, payload]
+      properties:
+        requestId: { type: string }
+        client: { $ref: "#/components/schemas/ClientInfo" }
+        payload: { type: object, additionalProperties: true }
+
+    StartCropCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                notes: { type: string, nullable: true }
+
+    ImportActiveCropCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                tanggalPolinasi: { type: string, format: date, nullable: true }
+                notes: { type: string, nullable: true }
+
+    PollinationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalPolinasi]
+              properties:
+                tanggalPolinasi: { type: string, format: date }
+                pollinationMethod:
+                  type: string
+                  enum: [natural, bee, manual]
+                  nullable: true
+                notes: { type: string, nullable: true }
+
+    UpdatePollinationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalPolinasi, expectedVersion]
+              properties:
+                tanggalPolinasi: { type: string, format: date }
+                pollinationMethod:
+                  type: string
+                  enum: [natural, bee, manual]
+                  nullable: true
+                expectedVersion: { type: integer }
+
+    UpdatePlantingDateRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [tanggalTanam, expectedVersion]
+              properties:
+                tanggalTanam: { type: string, format: date }
+                expectedVersion: { type: integer }
+
+    UpdateCropCycleMetadataRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                variety: { type: string, nullable: true }
+                plantCount: { type: integer, minimum: 0, nullable: true }
+                notes: { type: string, nullable: true }
+                targetHarvestHst: { type: integer, minimum: 1, nullable: true }
+                cropTimelineConfig:
+                  $ref: "#/components/schemas/CropTimelineConfig"
+                  nullable: true
+                expectedVersion: { type: integer }
+
+    CropTimelineConfig:
+      type: object
+      required: [targetHarvestHst, points]
+      properties:
+        targetHarvestHst: { type: integer, minimum: 1 }
+        points:
+          type: array
+          items:
+            type: object
+            required: [id, name, startHst, endHst]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              startHst: { oneOf: [{ type: integer }, { type: string }] }
+              endHst: { oneOf: [{ type: integer }, { type: string }] }
+              note: { type: string, nullable: true }
+        maintenance:
+          type: array
+          items:
+            type: object
+            required: [id, name, hst]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              hst: { oneOf: [{ type: integer }, { type: string }] }
+              category: { type: string, nullable: true }
+              note: { type: string, nullable: true }
+
+    OperationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer }
+
+    HarvestCycleRequest:
+      allOf:
+        - $ref: "#/components/schemas/BaseCropCycleRequest"
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [expectedVersion]
+              properties:
+                harvestDate: { type: string, format: date, nullable: true }
+                yieldKg: { type: number, minimum: 0, nullable: true }
+                grade: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                expectedVersion: { type: integer }
+
+    Capability:
+      type: object
+      required: [capabilityId, type]
+      properties:
+        capabilityId: { type: string }
+        type: { type: string }
+        value: { type: string, nullable: true }
+
+    Resource:
+      type: object
+      required: [resourceId, type, componentId]
+      properties:
+        resourceId: { type: string }
+        type: { type: string }
+        componentId: { type: string }
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+
+    Assignment:
+      type: object
+      required: [assignmentId, resourceId, scope]
+      properties:
+        assignmentId: { type: string }
+        resourceId: { type: string }
+        scope: { type: string, enum: [COMPLEX, GREENHOUSE] }
+        ghId: { type: string, nullable: true }
+
+    Ownership:
+      type: object
+      required: [resourceId, ownerId, ownerType]
+      properties:
+        resourceId: { type: string }
+        ownerId: { type: string }
+        ownerType: { type: string, enum: [SCHEDULE, MANUAL, SYSTEM] }
+
+    Topology:
+      type: object
+      required: [sourceResourceId, targetResourceId, connectionType]
+      properties:
+        sourceResourceId: { type: string }
+        targetResourceId: { type: string }
+        connectionType: { type: string }
+
+    ComponentAssignment:
+      type: object
+      required: [complexId]
+      properties:
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+
+    ComponentWiring:
+      type: object
+      required: [interface]
+      properties:
+        interface: { type: string, enum: [GPIO, I2C, UART, SPI, ONE_WIRE, ANALOG, VIRTUAL] }
+        gpio: { type: integer, nullable: true }
+        channel: { type: integer, nullable: true }
+        address: { type: string, nullable: true }
+        port: { type: string, nullable: true }
+        polarity: { type: string, enum: [ACTIVE_HIGH, ACTIVE_LOW], nullable: true }
+
+    ComponentCommissioning:
+      type: object
+      properties:
+        commissionedAt: { type: string, format: date-time, nullable: true }
+        commissionedBy: { type: string, nullable: true }
+        result: { type: string, enum: [PASS, FAIL], nullable: true }
+        notes: { type: string, nullable: true }
+
+    Component:
+      type: object
+      required: [componentId, supportedTypeId, name, lifecycleState, deploymentStatus, parameters]
+      properties:
+        componentId: { type: string }
+        supportedTypeId: { type: string }
+        name: { type: string }
+        lifecycleState: 
+          type: string
+          enum: [REGISTERED, NOT_COMMISSIONED, COMMISSIONED, ENABLED, DISABLED, FAULTED, REMOVED]
+        deploymentStatus:
+          type: string
+          enum: [PENDING, APPLIED, FAILED, UNKNOWN]
+        assignment: { $ref: "#/components/schemas/ComponentAssignment", nullable: true }
+        wiring: { $ref: "#/components/schemas/ComponentWiring", nullable: true }
+        parameters: 
+          type: object
+          additionalProperties: true
+        commissioning: { $ref: "#/components/schemas/ComponentCommissioning", nullable: true }
+        role: { type: string, nullable: true }
+        resourceId: { type: string, nullable: true }
+
+    TelemetrySnapshot:
+      type: object
+      required: [complexId, timestamp, samples]
+      properties:
+        complexId: { type: string }
+        ghId: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time }
+        samples:
+          type: array
+          items:
+            type: object
+            required: [sequence, deviceTimestamp, componentId, value, unit, quality, measurementType]
+            properties:
+              sequence: { type: integer }
+              deviceTimestamp: { type: string, format: date-time }
+              componentId: { type: string }
+              value: { type: number, nullable: true }
+              unit: { type: string }
+              quality: { type: string, enum: [GOOD, UNCERTAIN, BAD] }
+              measurementType: { type: string, enum: [MEASURED, DERIVED, UNAVAILABLE, INVALID] }
+
+    TelemetryResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/TelemetrySnapshot"
+
+    Event:
+      type: object
+      required: [eventId, sequence, deviceTimestamp, eventType, severity]
+      properties:
+        eventId: { type: string }
+        sequence: { type: integer }
+        deviceTimestamp: { type: string, format: date-time }
+        eventType: { type: string }
+        severity: { type: string, enum: [INFO, WARNING, FAULT, CRITICAL] }
+        complexId: { type: string, nullable: true }
+        ghId: { type: string, nullable: true }
+        componentId: { type: string, nullable: true }
+        payload: { type: object, additionalProperties: true }
+
+    EventResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Event"
+                nextSequence: { type: integer, nullable: true }
+                hasMore: { type: boolean }
+
+    FertigationRun:
+      type: object
+      required: [runId, recipeId, ghId, status]
+      properties:
+        runId: { type: string }
+        recipeId: { type: string }
+        ghId: { type: string }
+        status: { type: string, enum: [PENDING, MIXING, DOSING, DELIVERY, COMPLETED, CANCELLED, FAULTED] }
+        targetWaterL: { type: number, nullable: true }
+        actualWaterL: { type: number, nullable: true }
+        targetDosingAMl: { type: number, nullable: true }
+        actualDosingAMl: { type: number, nullable: true }
+        targetDosingBMl: { type: number, nullable: true }
+        actualDosingBMl: { type: number, nullable: true }
+        startTimestamp: { type: string, format: date-time, nullable: true }
+        endTimestamp: { type: string, format: date-time, nullable: true }
+        progressPct: { type: integer, minimum: 0, maximum: 100, nullable: true }
+
+    CalibrationRecordRequest:
+      type: object
+      required: [componentId, calibrationType, calibrationId, version, state, operator]
+      properties:
+        componentId: { type: string }
+        calibrationType: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] }
+        calibrationId: { type: string }
+        version: { type: integer, minimum: 1 }
+        state: { type: string, enum: [NOT_CALIBRATED, CALIBRATED, VERIFIED, EXPIRED, SUSPECT, RECALIBRATED, REMOVED] }
+        operator: { type: string }
+        validUntilMs: { type: integer, nullable: true }
+        rateMlPerSec: { type: number, minimum: 0.000001, nullable: true }
+        slope: { type: number, nullable: true }
+        offset: { type: number, nullable: true }
+        pulsesPerLiter: { type: number, minimum: 0.000001, nullable: true }
+
+    CalibrationRecord:
+      type: object
+      required: [calibrationId, componentId, calibrationType, version, state, createdAtMs, validFromMs, operator]
+      properties:
+        calibrationId: { type: string }
+        componentId: { type: string }
+        calibrationType: { type: string, enum: [DOSING_RATE, FLOW, LEVEL, PH, EC] }
+        version: { type: integer, minimum: 1 }
+        state: { type: string, enum: [NOT_CALIBRATED, CALIBRATED, VERIFIED, EXPIRED, SUSPECT, RECALIBRATED, REMOVED] }
+        createdAtMs: { type: integer }
+        validFromMs: { type: integer }
+        validUntilMs: { type: integer, nullable: true }
+        operator: { type: string }
+        parameters: { type: object, additionalProperties: true }
+
+    CalibrationRequest:
+      type: object
+      required: [componentId, type, durationSec]
+      properties:
+        componentId: { type: string }
+        type: { type: string, enum: [DOSING_A, DOSING_B, FLOW_RAW, FLOW_FERT, SENSOR_PH, SENSOR_EC] }
+        durationSec: { type: integer, minimum: 1 }
+
+    CalibrationStatus:
+      type: object
+      required: [state, remainingSec]
+      properties:
+        state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
+        remainingSec: { type: integer, minimum: 0 }
+        measuredValue: { type: number, nullable: true }
+
+    CalibrationRates:
+      type: object
+      required: [rateDosingAMlSec, rateDosingBMlSec, flowRawPulsesPerL, flowFertPulsesPerL]
+      properties:
+        rateDosingAMlSec: { type: number, minimum: 0 }
+        rateDosingBMlSec: { type: number, minimum: 0 }
+        flowRawPulsesPerL: { type: number, minimum: 0 }
+        flowFertPulsesPerL: { type: number, minimum: 0 }
+
+    SetCalibrationRateRequest:
+      type: object
+      required: [componentId, rateValue]
+      properties:
+        componentId: { type: string }
+        rateValue: { type: number, minimum: 0.001 }
+
+    Plant:
+      type: object
+      required: [plantId, cycleId, ghId, plantTag, status, plantedAt]
+      properties:
+        plantId: { type: string }
+        cycleId: { type: string }
+        ghId: { type: string }
+        plantTag: { type: string }
+        status: { type: string, enum: [HEALTHY, SICK, DEAD, HARVESTED] }
+        plantedAt: { type: string, format: date-time }
+        mortalityDate: { type: string, format: date-time, nullable: true }
+        mortalityReason: { type: string, nullable: true }
+
+    Fruit:
+      type: object
+      required: [fruitId, plantId, cycleId, status, taggedAt]
+      properties:
+        fruitId: { type: string }
+        plantId: { type: string }
+        cycleId: { type: string }
+        status: { type: string, enum: [DEVELOPING, HARVESTED, DROPPED, CULLED] }
+        taggedAt: { type: string, format: date-time }
+        harvestedAt: { type: string, format: date-time, nullable: true }
+        weightG: { type: number, nullable: true }
+        qualityGrade: { type: string, nullable: true }
+
+    Observation:
+      type: object
+      required: [observationId, plantId, cycleId, timestamp, heightCm, leafCount, fruitCount]
+      properties:
+        observationId: { type: string }
+        plantId: { type: string }
+        cycleId: { type: string }
+        timestamp: { type: string, format: date-time }
+        heightCm: { type: number }
+        leafCount: { type: integer }
+        fruitCount: { type: integer }
+        notes: { type: string, nullable: true }
+
+    ErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          required: [error]
+          properties:
+            error:
+              type: object
+              required: [code, message, retryable, reconcileRequired]
+              properties:
+                code: { type: string }
+                message: { type: string }
+                retryable: { type: boolean }
+                reconcileRequired: { type: boolean }
+                details: { type: object, additionalProperties: true }
+
+    Recipe:
+      type: object
+      required: [recipeId, name]
+      properties:
+        recipeId: { type: string }
+        id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        targetWaterL: { type: number, nullable: true }
+        waterL: { type: number, nullable: true }
+        dosingAml: { type: number, nullable: true }
+        dosingBml: { type: number, nullable: true }
+        dosingChannels:
+          type: array
+          items:
+            type: object
+            required: [componentId, requestedMl]
+            properties:
+              componentId: { type: string }
+              requestedMl: { type: number }
+              calibrationId: { type: string, nullable: true }
+              calibrationVersion: { type: integer, nullable: true }
+        targetPpm: { type: number, nullable: true }
+        targetEc: { type: string, nullable: true }
+        version: { type: integer, default: 1 }
+        storageStatus: { type: string, enum: [PERSISTED, STORAGE_UNAVAILABLE], nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+
+    ExportCapabilitiesResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [version, storage, supportedDatasets]
+              properties:
+                version: { type: string }
+                storage:
+                  type: object
+                  required: [sdMounted, degraded, storageMedium]
+                  properties:
+                    sdMounted: { type: boolean }
+                    degraded: { type: boolean }
+                    storageMedium: { type: string, enum: [SDCARD, NONE] }
+                supportedDatasets:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required: [format, version, chunking, deleteAfterAck, maxChunkBytes, description]
+                    properties:
+                      format: { type: string }
+                      version: { type: string }
+                      chunking: { type: boolean }
+                      deleteAfterAck: { type: boolean }
+                      maxChunkBytes: { type: integer }
+                      description: { type: string }
+
+    CreateExportJobRequest:
+      type: object
+      required: [dataset]
+      properties:
+        requestId: { type: string }
+        payload:
+          type: object
+          required: [dataset]
+          properties:
+            dataset: { type: string, enum: [crop_cycles, plants, telemetry, events, fertigation_runs, system_logs] }
+            complexId: { type: string }
+            ghId: { type: string }
+            from: { type: string }
+            to: { type: string }
+            limit: { type: integer }
+
+    CreateExportJobResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exportId, dataset, state, recordCount, totalBytes, totalChunks, chunkBytes]
+              properties:
+                exportId: { type: string }
+                dataset: { type: string }
+                state: { type: string, enum: [PENDING, READY, STREAMING, ACKNOWLEDGED, COMPLETED, DELETED, FAILED] }
+                recordCount: { type: integer }
+                totalBytes: { type: integer }
+                totalChunks: { type: integer }
+                chunkBytes: { type: integer }
+
+    ExportJobStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exportId, dataset, state, recordCount, totalBytes, totalChunks]
+              properties:
+                exportId: { type: string }
+                dataset: { type: string }
+                state: { type: string }
+                recordCount: { type: integer }
+                totalBytes: { type: integer }
+                totalChunks: { type: integer }
+                chunkBytes: { type: integer }
+                crc32: { type: integer }
+                deletionEligible: { type: boolean }
+
+    ExportManifestResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exportId, dataset, recordCount, totalBytes, checksumCrc32, schemaVersion, isComplete]
+              properties:
+                exportId: { type: string }
+                dataset: { type: string }
+                recordCount: { type: integer }
+                totalBytes: { type: integer }
+                checksumCrc32: { type: integer }
+                schemaVersion: { type: string }
+                isComplete: { type: boolean }
+                fileCount: { type: integer }
+                files:
+                  type: array
+                  items: { type: string }
+
+    ExportChunkResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exportId, dataset, chunkIndex, offsetBytes, chunkBytes, totalBytes, isLastChunk, records]
+              properties:
+                exportId: { type: string }
+                dataset: { type: string }
+                chunkIndex: { type: integer }
+                offsetBytes: { type: integer }
+                chunkBytes: { type: integer }
+                totalBytes: { type: integer }
+                isLastChunk: { type: boolean }
+                records:
+                  type: array
+                  items: { type: object }
+
+    ExportAckRequest:
+      type: object
+      properties:
+        requestId: { type: string }
+        payload:
+          type: object
+          properties:
+            clientChecksum: { type: integer }
+            deleteExported: { type: boolean, default: true }
+
+    ExportAckResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exportId, acknowledged, deleted, filesRemoved, state]
+              properties:
+                exportId: { type: string }
+                acknowledged: { type: boolean }
+                deleted: { type: boolean }
+                filesRemoved: { type: integer }
+                state: { type: string }
+
