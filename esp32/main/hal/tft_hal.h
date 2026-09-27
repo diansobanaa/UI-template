@@ -1,0 +1,148 @@
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "esp_err.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* RGB565 Basic Color Definitions */
+#define TFT_COLOR_BLACK       0x0000
+#define TFT_COLOR_WHITE       0xFFFF
+#define TFT_COLOR_RED         0xF800
+#define TFT_COLOR_GREEN       0x07E0
+#define TFT_COLOR_DARKGREEN   0x03E0
+#define TFT_COLOR_BLUE        0x001F
+#define TFT_COLOR_YELLOW      0xFFE0
+#define TFT_COLOR_ORANGE      0xFD20
+#define TFT_COLOR_CYAN        0x07FF
+#define TFT_COLOR_PURPLE      0x911F
+#define TFT_COLOR_GRAY        0x8410
+#define TFT_COLOR_DARKGRAY    0x2104
+#define TFT_COLOR_CARD_BG     0x1082
+#define TFT_COLOR_TRANSPARENT 0x0001
+
+/**
+ * @brief Initialize ST7735 1.8" TFT display on shared SPI2_HOST bus.
+ *
+ * Configures CS (GPIO14), DC (GPIO21), and RST (GPIO42) as an SPI device on SPI2_HOST.
+ * Performs bounded reset and initialization sequence.
+ *
+ * @note Non-blocking / degraded mode: If display is not attached or SPI transmission
+ * fails, returns ESP_OK (marked as degraded) or ESP_ERR_NOT_FOUND without crashing or blocking boot.
+ *
+ * @return ESP_OK on success or degraded handling.
+ */
+esp_err_t tft_hal_init(void);
+
+/**
+ * @brief Check if the TFT display was successfully detected and initialized.
+ */
+bool tft_hal_is_available(void);
+
+/**
+ * @brief Fill the entire 128x160 display area with a solid color.
+ *
+ * @param color 16-bit RGB565 color value.
+ */
+void tft_fill_screen(uint16_t color);
+
+/**
+ * @brief Fill a rectangular region on the display.
+ *
+ * @param x Start X coordinate (0 to 127)
+ * @param y Start Y coordinate (0 to 159)
+ * @param w Width in pixels
+ * @param h Height in pixels
+ * @param color 16-bit RGB565 color value
+ */
+void tft_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
+
+/**
+ * @brief Draw a straight line between two points using Bresenham's algorithm.
+ */
+void tft_draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color);
+
+/**
+ * @brief Render a 1-bit bitmap icon (MSB to LSB).
+ *
+ * @param x Start X coordinate
+ * @param y Start Y coordinate
+ * @param bitmap Byte array where 1 represents pixel on
+ * @param w Width in pixels (<= 8 per byte)
+ * @param h Height in pixels
+ * @param color Color for foreground pixels (1)
+ * @param bg Color for background pixels (0), or TFT_COLOR_TRANSPARENT to skip
+ */
+void tft_draw_bitmap(uint16_t x, uint16_t y, const uint8_t *bitmap, uint8_t w, uint8_t h, uint16_t color, uint16_t bg);
+
+/**
+ * @brief Render a string of text using embedded 5x7 ASCII bitmap font.
+ *
+ * @param x Start X coordinate
+ * @param y Start Y coordinate
+ * @param str Null-terminated string to render
+ * @param color Text color (RGB565)
+ * @param bg Background color (RGB565)
+ * @param size Font scale factor (1 = 6x8 px per char, 2 = 12x16 px per char)
+ */
+void tft_draw_string(uint16_t x, uint16_t y, const char *str, uint16_t color, uint16_t bg, uint8_t size);
+
+/**
+ * @brief Draw an outline rectangle on the display.
+ */
+void tft_draw_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
+
+/**
+ * @brief Render simple system diagnostic screen.
+ */
+void tft_show_diagnostic_screen(const char *device_id, const char *fw_version);
+
+/**
+ * @brief Render Screen 1 (Gambar 1): Authoritative operational Home / Overview & Environment screen.
+ */
+void tft_show_home_screen(void);
+
+/**
+ * @brief Render Screen 2 (Gambar 2): Operations, Actuator Matrix & 24h Schedule screen.
+ */
+void tft_show_operations_screen(void);
+
+/**
+ * @brief Render Screen 3: Complex Dosing Batch Queue & Execution screen.
+ */
+void tft_show_dosing_queue_screen(void);
+
+typedef enum {
+    TFT_SCREEN_HOME = 0,         /* Screen 1: Overview & Lingkungan (1/4) */
+    TFT_SCREEN_OPERATIONS = 1,   /* Screen 2: Operasional, Aktuator & Jadwal - Adaptif (2/4) */
+    TFT_SCREEN_SENSORS = 1,      /* Compatibility alias for Screen 2 */
+    TFT_SCREEN_DOSING_QUEUE = 2, /* Screen 3: Antrean Dosing Batch Complex (3/4) */
+    TFT_SCREEN_DIAGNOSTICS = 3,  /* Screen 4: System & Network Diagnostics (4/4) */
+    TFT_SCREEN_ACTUATORS = 3,    /* Compatibility alias */
+    TFT_SCREEN_NETWORK = 3,      /* Compatibility alias */
+    TFT_SCREEN_COUNT = 4
+} tft_screen_id_t;
+
+/**
+ * @brief Switch and render the next display screen (cyclic 0 -> 1 -> 2 -> 3 -> 0).
+ */
+void tft_show_next_screen(void);
+
+/**
+ * @brief Render a specific screen by ID.
+ *
+ * @param screen_id Screen identifier from tft_screen_id_t.
+ */
+void tft_show_screen(tft_screen_id_t screen_id);
+
+/**
+ * @brief Get the currently active screen ID.
+ */
+tft_screen_id_t tft_get_current_screen(void);
+
+#ifdef __cplusplus
+}
+#endif

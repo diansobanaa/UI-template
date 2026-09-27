@@ -1,0 +1,42 @@
+# Build & Cache
+node_modules
+.next
+dist/
+out/
+.cache/
+*.tsbuildinfo
+next-env.d.ts
+
+# ESP-IDF
+esp32/build/
+esp32/sdkconfig
+esp32/sdkconfig.old
+esp32/managed_components/
+esp32/dependencies.lock
+esp32/.cache/
+*.log
+*.bin
+esp32/log_run3.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite Databases & Journals
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.db-journal
+
+# Agent IDE
+.antigravity/
+
+# Archive and Patch files
+*.patch
+*.zip
+*.rar
+
+
+
+.env.local
