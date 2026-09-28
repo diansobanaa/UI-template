@@ -37,6 +37,7 @@ import type {
   ScheduleIntentMutationResponse,
 } from "./contracts";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
+import { getActiveBootstrapIp } from "../bootstrap-address";
 
 export const HEALTH_TIMEOUT_MS = 6000;
 
@@ -45,8 +46,12 @@ export class Esp32Client {
   constructor(private readonly config: HardwarePortConfig) {}
 
   private path(path: string): string {
-    if (this.config.directEsp32Enabled && this.config.esp32BaseUrl) {
-      return `${this.config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
+    let baseUrl = this.config.esp32BaseUrl;
+    if (!baseUrl && typeof window !== "undefined") {
+      baseUrl = getActiveBootstrapIp() || undefined;
+    }
+    if (this.config.directEsp32Enabled && baseUrl) {
+      return `${baseUrl.replace(/\/$/, "")}${path}`;
     }
     const base = (this.config.pythonBaseUrl || "/api").replace(/\/$/, "");
     if (path.startsWith(base + "/") || path === base) {
@@ -489,8 +494,22 @@ export class Esp32Client {
 
   /* -------------------------- Fertigation Runtime -------------------------- */
 
+  /**
+   * LAYER-B: Get authoritative fertigation status from ESP32.
+   * Returns: state, phase, runId, complexId, ghId, recipeId, targetWaterMl,
+   *          actualWaterMl, deliveryMode, deliveryTargetMl, actualDeliveredMl,
+   *          actualFlowLpm, targetFlowLpm, mixing.status, delivery.status,
+   *          queuedBatches[], todaySchedule[], activeDeliveries[], dailyStats (ITEM-4)
+   */
   async getFertigationStatus(): Promise<any> {
     return this.getEnveloped<any>("/api/v1/fertigation/status");
+  }
+
+  /**
+   * LAYER-B: Get fertigation queue (OpenAPI:1226).
+   */
+  async getFertigationQueue(): Promise<any> {
+    return this.getEnveloped<any>("/api/v1/fertigation/queue");
   }
 
   async startFertigation(payload: Record<string, unknown>): Promise<any> {
@@ -499,6 +518,21 @@ export class Esp32Client {
 
   async stopFertigation(): Promise<any> {
     return this.postEnveloped<any>("/api/v1/fertigation/stop", {});
+  }
+
+  /**
+   * LAYER-B: Trigger distribution for a batch that has reached MIX_READY.
+   * Maps to firmware: fertigation_mgr_trigger_distribution(gh_id, occurrence_id)
+   */
+  async triggerDistribution(ghId: string, occurrenceId: string): Promise<any> {
+    const commandId = `fert-deliver-${ghId}-${occurrenceId}-${Date.now()}`;
+    return this.postEnveloped<any>("/api/v1/commands", {
+      commandId,
+      type: "FERTIGATION_DELIVER",
+      targetGhId: ghId,
+      occurrenceId,
+      source: "WEB_UI",
+    });
   }
 
   /* -------------------------- Recipes (MicroSD) -------------------------- */

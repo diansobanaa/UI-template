@@ -66,6 +66,15 @@ async function run() {
 
   // Monitor network calls from Page A
   const networkCalls = [];
+  pageA.on("console", (msg) => {
+    console.log(`  [UI CONSOLE ${msg.type().toUpperCase()}] ${msg.text()}`);
+  });
+  pageA.on("pageerror", (err) => console.error("  [UI UNCAUGHT ERROR]", err));
+  pageA.on("response", (res) => {
+    if (res.url().includes("/api/v1/")) {
+      console.log(`  [UI HTTP ${res.status()}] ${res.request().method()} ${res.url()}`);
+    }
+  });
   pageA.on("request", (req) => {
     if (req.url().includes("/api/v1/configuration") && req.method() === "PUT") {
       networkCalls.push({ url: req.url(), method: req.method(), time: Date.now() });
@@ -174,16 +183,19 @@ async function run() {
   // -------------------------------------------------------------
   console.log("\n[ TEST 5 ] APPLY commits atomically with exactly ONE PUT to ESP32");
   const putsBeforeApply = networkCalls.length;
-  await toggleBtn.click();
-  await pageA.waitForTimeout(300);
+  const toggleBtn5 = pageA.locator("button[title*='Klik untuk']").first();
+  await toggleBtn5.click();
+  await pageA.locator("text=Draft Belum Diterapkan").waitFor({ state: "visible", timeout: 5000 });
 
   const applyBtn = pageA.locator("button:has-text('Terapkan (Apply)')").first();
   await applyBtn.waitFor({ state: "visible" });
+  console.log("  [DEBUG] Clicking applyBtn...");
   await applyBtn.click();
+  console.log("  [DEBUG] Clicked applyBtn! Waiting for success banner...");
 
   // Wait for success message
   const successBanner = pageA.locator("text=Konfigurasi peralatan berhasil diterapkan");
-  await successBanner.waitFor({ state: "visible", timeout: 90000 });
+  await successBanner.waitFor({ state: "visible", timeout: 15000 });
 
   const putsAfterApply = networkCalls.length;
   if (putsAfterApply === putsBeforeApply + 1) {

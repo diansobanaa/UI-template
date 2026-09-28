@@ -1,6 +1,6 @@
 $env:IDF_PATH = "D:\Espressif"
 $env:IDF_TOOLS_PATH = "D:\Espressif-tool\Espressif"
-$env:IDF_PYTHON_ENV_PATH = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env"
+$env:IDF_PYTHON_ENV_PATH = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env"
 $env:ESP_IDF_VERSION = "5.5"
 $env:IDF_CCACHE_ENABLE = "1"
 $env:OPENOCD_SCRIPTS = "D:\Espressif-tool\Espressif\tools\openocd-esp32\v0.12.0-esp32-20260424\openocd-esp32\share\openocd\scripts"
@@ -22,14 +22,14 @@ $toolsBin = @(
     "D:\Espressif-tool\Espressif\tools\idf-exe\1.0.3\",
     "D:\Espressif-tool\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64",
     "D:\Espressif-tool\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64",
-    "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts",
+    "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env\Scripts",
     "D:\Espressif\tools",
     "D:\Espressif-tool\Espressif\tools\idf-git\2.44.0\cmd"
 ) -join ";"
 
 $env:PATH = "$toolsBin;$env:PATH"
 
-$pythonExe = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe"
+$pythonExe = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env\Scripts\python.exe"
 
 Set-Location -Path "$PSScriptRoot\..\esp32"
 & $pythonExe "D:\Espressif\tools\idf.py" build

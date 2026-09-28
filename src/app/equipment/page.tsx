@@ -25,7 +25,7 @@ function EquipmentContent() {
   const availableComplexes = complexService.list();
   const rawComplexId = (params.get("complex") ?? "").trim();
   const activeComplex = (rawComplexId ? availableComplexes.find((c) => c.id === rawComplexId) : null) ?? availableComplexes[0];
-  const complexId = activeComplex?.id ?? "";
+  const complexId = activeComplex?.id ?? "complex-01";
   const ghs = complexId ? greenhouseService.byComplex(complexId) : [];
 
   const [activeTab, setActiveTab] = useState<"checklist" | "installed" | "catalog">("checklist");

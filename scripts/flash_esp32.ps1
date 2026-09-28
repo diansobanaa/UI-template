@@ -1,6 +1,6 @@
 $env:IDF_PATH = "D:\Espressif"
 $env:IDF_TOOLS_PATH = "D:\Espressif-tool\Espressif"
-$env:IDF_PYTHON_ENV_PATH = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env"
+$env:IDF_PYTHON_ENV_PATH = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env"
 $env:ESP_IDF_VERSION = "5.5"
 $env:IDF_CCACHE_ENABLE = "1"
 $env:OPENOCD_SCRIPTS = "D:\Espressif-tool\Espressif\tools\openocd-esp32\v0.12.0-esp32-20260424\openocd-esp32\share\openocd\scripts"
@@ -29,7 +29,7 @@ $toolsBin = @(
 
 $env:PATH = "$toolsBin;$env:PATH"
 
-$pythonExe = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe"
+$pythonExe = "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env\Scripts\python.exe"
 
 Set-Location -Path "$PSScriptRoot\..\esp32"
 & $pythonExe "D:\Espressif\tools\idf.py" -p COM3 flash

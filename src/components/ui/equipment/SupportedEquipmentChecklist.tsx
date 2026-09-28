@@ -165,7 +165,7 @@ export function SupportedEquipmentChecklist({
 
   // APPLY: Send ONE authoritative mutation to ESP32
   const handleApply = async () => {
-    const targetComplexId = complexId || complexService.list()[0]?.id || "";
+    const targetComplexId = complexId || complexService.list()[0]?.id || "complex-01";
     if (!targetComplexId) {
       setFeedback({ type: "error", message: "Tidak ada complex aktif untuk menerapkan konfigurasi." });
       return;

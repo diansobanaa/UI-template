@@ -1,6 +1,7 @@
 #include "storage/storage_mgr.h"
 #include "config/system_config.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_random.h"
 #include "esp_mac.h"
 #include "nvs.h"
@@ -9,6 +10,7 @@
 #include "cJSON.h"
 #include <string.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "hal/sdcard_hal.h"
@@ -35,6 +37,13 @@ static const char *CONFIG_PREV_FILE = "/spiffs/prev_config.json";
 
 static system_storage_state_t s_state = {0};
 static bool s_initialized = false;
+// RC-9: Flag yang di-set oleh storage_mgr_stage_candidate ketika candidate
+// baru tersedia, dan di-clear oleh activate_candidate Stage 1. Stage 3 dari
+// activate_candidate mengecek flag ini: jika true berarti stage_candidate baru
+// saja dipanggil selama Stage 2 (NVS write) — perlu re-snapshot dan retry
+// Stage 2 dengan data candidate terbaru.
+static volatile bool s_persist_pending = false;
+#define ACTIVATE_CANDIDATE_MAX_RETRIES 3
 static StaticSemaphore_t s_event_mutex_buf;
 static SemaphoreHandle_t s_event_mutex = NULL;       /* Event log storage lock */
 static StaticSemaphore_t s_telemetry_mutex_buf;
@@ -224,26 +233,34 @@ static const char *spiffs_path_for_key(const char *key)
     return NULL;
 }
 
+/* Use POSIX fd ops (open/write/read/close) instead of stdio FILE* (fopen/fclose).
+ * Rationale: newlib's fopen() acquires the global __sfp_lock and then calls
+ * xSemaphoreCreateRecursiveMutex() for each FILE slot's per-file lock. With
+ * ~14 KB internal heap at runtime, this malloc can return NULL → abort() inside
+ * lock_init_generic (locks.c:77). POSIX fd ops bypass the FILE pool entirely:
+ * open()/read()/write()/close() go through ESP-IDF VFS without any newlib
+ * stdio lock allocation, so the abort cannot occur. */
 static esp_err_t save_spiffs_string(const char *filepath, const char *str)
 {
     if (!filepath || !str) return ESP_ERR_INVALID_ARG;
-    FILE *f = fopen(filepath, "w");
-    if (!f) return ESP_FAIL;
-    fputs(str, f);
-    fclose(f);
-    return ESP_OK;
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return ESP_FAIL;
+    size_t len = strlen(str);
+    ssize_t written = write(fd, str, (int)len);
+    close(fd);
+    return ((size_t)written == len) ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t load_spiffs_string(const char *filepath, char *out_buf, size_t max_len, size_t *out_len)
 {
     if (!filepath || !out_buf || max_len < 2) return ESP_ERR_INVALID_ARG;
-    FILE *f = fopen(filepath, "r");
-    if (!f) return ESP_ERR_NOT_FOUND;
-    size_t n = fread(out_buf, 1, max_len - 1, f);
-    fclose(f);
-    if (n == 0) return ESP_ERR_NOT_FOUND;
+    int fd = open(filepath, O_RDONLY);
+    if (fd < 0) return ESP_ERR_NOT_FOUND;
+    ssize_t n = read(fd, out_buf, (int)(max_len - 1));
+    close(fd);
+    if (n <= 0) return ESP_ERR_NOT_FOUND;
     out_buf[n] = '\0';
-    if (out_len) *out_len = n;
+    if (out_len) *out_len = (size_t)n;
     return ESP_OK;
 }
 
@@ -403,6 +420,10 @@ esp_err_t storage_mgr_stage_candidate(const char *json_str, uint32_t version, co
         s_state.candidate_deployment_id[0] = '\0';
         if (deployment_id) strncpy(s_state.candidate_deployment_id, deployment_id, sizeof(s_state.candidate_deployment_id)-1);
         strncpy(s_state.config_deployment_status, "CANDIDATE_STAGED", sizeof(s_state.config_deployment_status)-1);
+        // RC-9: Set persist pending flag sehingga activate_candidate yang
+        // sedang berjalan (di Stage 2 NVS write) dapat detect bahwa candidate
+        // baru tersedia dan perlu re-snapshot + retry Stage 2.
+        s_persist_pending = true;
     }
     xSemaphoreGive(s_config_mutex);
     return err;
@@ -411,87 +432,216 @@ esp_err_t storage_mgr_stage_candidate(const char *json_str, uint32_t version, co
 esp_err_t storage_mgr_activate_candidate(void)
 {
     if (!s_config_mutex) return ESP_ERR_INVALID_STATE;
-    if (xSemaphoreTake(s_config_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+    // RC-9: Staged approach untuk menghindari s_config_mutex di-held selama
+    // NVS+SPIFFS I/O (500ms-2s). Sebelumnya, mutex di-held dari awal sampai
+    // akhir (load + SPIFFS save + NVS open + multiple NVS writes + commit +
+    // state update). Sekarang mutex hanya di-held di Stage 1 (snapshot + RAM
+    // state update) dan Stage 3 (verify + finalize).
+    //
+    // Stage 1: Under mutex (fast). Load candidate JSON, snapshot metadata,
+    //          update s_state ke active config baru, clear s_persist_pending.
+    // Stage 2: No mutex (slow). SPIFFS save + NVS open + writes + commit.
+    // Stage 3: Under mutex (fast). Cek s_persist_pending. Jika true, candidate
+    //          baru datang selama Stage 2 — re-snapshot dan retry Stage 2.
+    //          Jika false, selesai.
+
     char *candidate = (char *)malloc(16384);
-    if (!candidate) { xSemaphoreGive(s_config_mutex); return ESP_ERR_NO_MEM; }
+    if (!candidate) return ESP_ERR_NO_MEM;
     size_t candidate_len = 0;
+
+    // Snapshot metadata yang dibutuhkan Stage 2 (diisi di Stage 1 dan setiap
+    // retry Stage 3).
+    uint32_t new_version = 0, new_crc = 0;
+    char new_hash[80] = {0};
+    char new_deployment_id[64] = {0};
+    uint32_t prev_version = 0, prev_crc = 0;
+    char prev_hash[80] = {0};
+
+    // Stage 1: Take mutex, snapshot, update RAM state, clear s_persist_pending.
+    if (xSemaphoreTake(s_config_mutex, portMAX_DELAY) != pdTRUE) {
+        free(candidate);
+        return ESP_FAIL;
+    }
     esp_err_t err = storage_mgr_load_candidate(candidate, 16384, &candidate_len);
-    if (err != ESP_OK) { free(candidate); xSemaphoreGive(s_config_mutex); return err; }
-
-    /* 1. Persist active candidate to SPIFFS */
-    (void)save_spiffs_string(CONFIG_LVC_FILE, candidate);
-    erase_spiffs_file_optional(CONFIG_CAND_FILE);
-
-    nvs_handle_t handle;
-    err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "activate_candidate: nvs_open failed: 0x%x (%s)", err, esp_err_to_name(err));
-    } else {
-        /* Erase cand_json and old lvc_json from NVS to keep NVS clean */
-        (void)nvs_erase_key_optional(handle, "cand_json");
-        (void)nvs_erase_key_optional(handle, "lvc_json");
+        xSemaphoreGive(s_config_mutex);
+        free(candidate);
+        return err;
+    }
+    new_version = s_state.candidate_config_version;
+    new_crc = s_state.candidate_config_crc;
+    strncpy(new_hash, s_state.candidate_config_hash, sizeof(new_hash)-1);
+    new_hash[sizeof(new_hash)-1] = '\0';
+    strncpy(new_deployment_id, s_state.candidate_deployment_id, sizeof(new_deployment_id)-1);
+    new_deployment_id[sizeof(new_deployment_id)-1] = '\0';
+    prev_version = s_state.config_version;
+    prev_crc = s_state.config_crc;
+    strncpy(prev_hash, s_state.config_hash, sizeof(prev_hash)-1);
+    prev_hash[sizeof(prev_hash)-1] = '\0';
+    // Update RAM state ke active config baru SEKARANG juga. Thread lain yang
+    // membaca via storage_mgr_get_state() akan langsung melihat config baru
+    // tanpa harus menunggu NVS write selesai.
+    s_state.previous_config_version = prev_version;
+    s_state.previous_config_crc = prev_crc;
+    strncpy(s_state.previous_config_hash, prev_hash, sizeof(s_state.previous_config_hash)-1);
+    s_state.config_version = new_version;
+    s_state.config_crc = new_crc;
+    strncpy(s_state.config_hash, new_hash, sizeof(s_state.config_hash)-1);
+    strncpy(s_state.active_deployment_id, new_deployment_id, sizeof(s_state.active_deployment_id)-1);
+    s_state.candidate_config_version = 0;
+    s_state.candidate_config_crc = 0;
+    s_state.candidate_config_hash[0] = '\0';
+    s_state.candidate_deployment_id[0] = '\0';
+    strncpy(s_state.config_deployment_status, "ACTIVE", sizeof(s_state.config_deployment_status)-1);
+    // Clear s_persist_pending. Jika storage_mgr_stage_candidate dipanggil
+    // selama Stage 2, flag ini akan di-set kembali ke true — Stage 3 akan
+    // detect dan retry Stage 2 dengan data candidate terbaru.
+    s_persist_pending = false;
+    xSemaphoreGive(s_config_mutex);
+
+    int retry_count = 0;
+    esp_err_t stage2_err = ESP_OK;
+    for (;;) {
+        // Stage 2: No mutex. NVS writes + SPIFFS writes (500ms-2s).
+        (void)save_spiffs_string(CONFIG_LVC_FILE, candidate);
+        erase_spiffs_file_optional(CONFIG_CAND_FILE);
 
         char *previous = (char *)malloc(16384);
         if (previous) {
             size_t previous_len = 0;
-            esp_err_t prev_err = load_nvs_string_checked("lvc_json", "cfg_crc", s_state.config_crc, previous, 16384, &previous_len);
+            esp_err_t prev_err = load_nvs_string_checked("lvc_json", "cfg_crc", prev_crc, previous, 16384, &previous_len);
             if (prev_err == ESP_OK) {
-                uint32_t prev_crc = esp_rom_crc32_le(0, (const uint8_t *)previous, previous_len);
+                // RC-9: Compute CRC dari previous config yang dibaca dari NVS,
+                // gunakan untuk prev_crc NVS write (sama dengan implementasi
+                // sebelum fix RC-9).
+                uint32_t prev_crc_computed = esp_rom_crc32_le(0, (const uint8_t *)previous, previous_len);
                 (void)save_spiffs_string(CONFIG_PREV_FILE, previous);
-                (void)nvs_erase_key_optional(handle, "prev_json");
-                (void)nvs_set_u32(handle, "prev_ver", s_state.config_version);
-                (void)nvs_set_u32(handle, "prev_crc", prev_crc);
-                if (s_state.config_hash[0]) (void)nvs_set_str(handle, "prev_hash", s_state.config_hash);
-                else (void)nvs_erase_key_optional(handle, "prev_hash");
+                // Update prev_crc ke CRC yang baru dihitung (sebelumnya
+                // memakai prev_crc dari snapshot s_state, yang merupakan CRC
+                // dari config sebelumnya; di sini kita konsisten dengan
+                // implementasi lama yang compute CRC dari string previous).
+                prev_crc = prev_crc_computed;
             } else {
                 ESP_LOGW(TAG, "activate_candidate: no valid previous lvc_json (0x%x), continuing", prev_err);
             }
             free(previous);
         }
 
-        /* Optionally write lvc_json to NVS as backup, but don't fail if NVS has no space */
-        esp_err_t lvc_err = nvs_set_str(handle, "lvc_json", candidate);
-        if (lvc_err != ESP_OK) {
-            ESP_LOGW(TAG, "activate_candidate: lvc_json NVS write bypassed (0x%x); SPIFFS is authoritative", lvc_err);
+        nvs_handle_t handle;
+        err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "activate_candidate: nvs_open failed: 0x%x (%s)", err, esp_err_to_name(err));
+        } else {
+            (void)nvs_erase_key_optional(handle, "cand_json");
+            (void)nvs_erase_key_optional(handle, "lvc_json");
+
+            (void)nvs_erase_key_optional(handle, "prev_json");
+            (void)nvs_set_u32(handle, "prev_ver", prev_version);
+            (void)nvs_set_u32(handle, "prev_crc", prev_crc);
+            if (prev_hash[0]) (void)nvs_set_str(handle, "prev_hash", prev_hash);
+            else (void)nvs_erase_key_optional(handle, "prev_hash");
+
+            esp_err_t lvc_err = nvs_set_str(handle, "lvc_json", candidate);
+            if (lvc_err != ESP_OK) {
+                ESP_LOGW(TAG, "activate_candidate: lvc_json NVS write bypassed (0x%x); SPIFFS is authoritative", lvc_err);
+            }
+            err = nvs_set_u32(handle, "cfg_ver", new_version);
+            if (err == ESP_OK) err = nvs_set_u32(handle, "cfg_crc", new_crc);
+            if (err == ESP_OK) {
+                if (new_hash[0]) err = nvs_set_str(handle, "cfg_hash", new_hash);
+                else err = nvs_erase_key_optional(handle, "cfg_hash");
+            }
+            if (err == ESP_OK) {
+                if (new_deployment_id[0]) err = nvs_set_str(handle, "dep_id", new_deployment_id);
+                else err = nvs_erase_key_optional(handle, "dep_id");
+            }
+            (void)nvs_erase_key_optional(handle, "cand_ver");
+            (void)nvs_erase_key_optional(handle, "cand_crc");
+            (void)nvs_erase_key_optional(handle, "cand_hash");
+            (void)nvs_erase_key_optional(handle, "cand_dep");
+            if (err == ESP_OK) err = nvs_set_str(handle, "dep_status", "ACTIVE");
+            if (err == ESP_OK) {
+                err = nvs_commit(handle);
+                if (err != ESP_OK) ESP_LOGE(TAG, "activate_candidate: nvs_commit failed: 0x%x (%s)", err, esp_err_to_name(err));
+            }
+            nvs_close(handle);
         }
-        err = nvs_set_u32(handle, "cfg_ver", s_state.candidate_config_version);
-        if (err == ESP_OK) err = nvs_set_u32(handle, "cfg_crc", s_state.candidate_config_crc);
-        if (err == ESP_OK) {
-            if (s_state.candidate_config_hash[0]) err = nvs_set_str(handle, "cfg_hash", s_state.candidate_config_hash);
-            else err = nvs_erase_key_optional(handle, "cfg_hash");
+        stage2_err = err;
+
+        // Stage 3: Re-acquire mutex, check if a new candidate arrived during
+        // Stage 2 (s_persist_pending re-set by stage_candidate).
+        if (xSemaphoreTake(s_config_mutex, portMAX_DELAY) != pdTRUE) {
+            // Mutex gagal di-reacquire; NVS write sudah selesai. Return hasil
+            // Stage 2 dan beri warning.
+            ESP_LOGW(TAG, "activate_candidate: failed to reacquire mutex for Stage 3; "
+                          "NVS write completed but persist_pending flag not cleared");
+            free(candidate);
+            return stage2_err;
         }
-        if (err == ESP_OK) {
-            if (s_state.candidate_deployment_id[0]) err = nvs_set_str(handle, "dep_id", s_state.candidate_deployment_id);
-            else err = nvs_erase_key_optional(handle, "dep_id");
+
+        if (!s_persist_pending) {
+            // Tidak ada candidate baru selama Stage 2. Selesai.
+            xSemaphoreGive(s_config_mutex);
+            free(candidate);
+            return stage2_err;
         }
-        (void)nvs_erase_key_optional(handle, "cand_ver");
-        (void)nvs_erase_key_optional(handle, "cand_crc");
-        (void)nvs_erase_key_optional(handle, "cand_hash");
-        (void)nvs_erase_key_optional(handle, "cand_dep");
-        if (err == ESP_OK) err = nvs_set_str(handle, "dep_status", "ACTIVE");
-        if (err == ESP_OK) {
-            err = nvs_commit(handle);
-            if (err != ESP_OK) ESP_LOGE(TAG, "activate_candidate: nvs_commit failed: 0x%x (%s)", err, esp_err_to_name(err));
+
+        // Candidate baru datang selama Stage 2. Re-snapshot dan retry.
+        retry_count++;
+        if (retry_count >= ACTIVATE_CANDIDATE_MAX_RETRIES) {
+            ESP_LOGW(TAG, "activate_candidate: max retries (%d) reached; "
+                          "giving up retry. Latest candidate akan di-persist "
+                          "pada activate berikutnya.", ACTIVATE_CANDIDATE_MAX_RETRIES);
+            // Jangan clear s_persist_pending agar activate berikutnya tahu
+            // ada candidate yang belum ter-persist.
+            xSemaphoreGive(s_config_mutex);
+            free(candidate);
+            return stage2_err;
         }
-        nvs_close(handle);
-    }
-    free(candidate);
-    if (err == ESP_OK) {
-        s_state.previous_config_version = s_state.config_version;
-        s_state.previous_config_crc = s_state.config_crc;
-        strncpy(s_state.previous_config_hash, s_state.config_hash, sizeof(s_state.previous_config_hash)-1);
-        s_state.config_version = s_state.candidate_config_version;
-        s_state.config_crc = s_state.candidate_config_crc;
-        strncpy(s_state.config_hash, s_state.candidate_config_hash, sizeof(s_state.config_hash)-1);
-        strncpy(s_state.active_deployment_id, s_state.candidate_deployment_id, sizeof(s_state.active_deployment_id)-1);
+
+        free(candidate);
+        candidate = (char *)malloc(16384);
+        if (!candidate) {
+            xSemaphoreGive(s_config_mutex);
+            return ESP_ERR_NO_MEM;
+        }
+        esp_err_t load_err = storage_mgr_load_candidate(candidate, 16384, &candidate_len);
+        if (load_err != ESP_OK) {
+            xSemaphoreGive(s_config_mutex);
+            free(candidate);
+            return load_err;
+        }
+
+        // Re-snapshot metadata dari s_state.candidate_* (di-update oleh
+        // stage_candidate yang konkuren).
+        new_version = s_state.candidate_config_version;
+        new_crc = s_state.candidate_config_crc;
+        strncpy(new_hash, s_state.candidate_config_hash, sizeof(new_hash)-1);
+        new_hash[sizeof(new_hash)-1] = '\0';
+        strncpy(new_deployment_id, s_state.candidate_deployment_id, sizeof(new_deployment_id)-1);
+        new_deployment_id[sizeof(new_deployment_id)-1] = '\0';
+        prev_version = s_state.config_version;
+        prev_crc = s_state.config_crc;
+        strncpy(prev_hash, s_state.config_hash, sizeof(prev_hash)-1);
+        prev_hash[sizeof(prev_hash)-1] = '\0';
+        // Update RAM state ke active config baru.
+        s_state.previous_config_version = prev_version;
+        s_state.previous_config_crc = prev_crc;
+        strncpy(s_state.previous_config_hash, prev_hash, sizeof(s_state.previous_config_hash)-1);
+        s_state.config_version = new_version;
+        s_state.config_crc = new_crc;
+        strncpy(s_state.config_hash, new_hash, sizeof(s_state.config_hash)-1);
+        strncpy(s_state.active_deployment_id, new_deployment_id, sizeof(s_state.active_deployment_id)-1);
         s_state.candidate_config_version = 0;
         s_state.candidate_config_crc = 0;
         s_state.candidate_config_hash[0] = '\0';
         s_state.candidate_deployment_id[0] = '\0';
         strncpy(s_state.config_deployment_status, "ACTIVE", sizeof(s_state.config_deployment_status)-1);
+        s_persist_pending = false;
+        xSemaphoreGive(s_config_mutex);
+        // Loop kembali ke Stage 2 dengan data candidate terbaru.
     }
-    xSemaphoreGive(s_config_mutex);
-    return err;
 }
 
 esp_err_t storage_mgr_clear_candidate(void)
@@ -612,6 +762,21 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
     if (stat(path, &st) == 0 && (size_t)st.st_size > max_bytes) {
         unlink(path);
         ESP_LOGW(TAG, "Event log exceeded %zu bytes; rotated at %s.", max_bytes, path);
+    }
+
+    /* HEAP-FIX (audit 2026-09-28): fopen() needs internal heap for the FILE
+     * struct plus VFS/SPIFFS working buffers. This is the one fopen path
+     * reachable from tele_persist_task (4096-byte stack) that had no heap
+     * guard -- the field crash signature was LoadProhibited inside the VFS
+     * layer from this task. When internal heap is critically low, skip the
+     * write instead of crashing; the event stays counted in the bounded
+     * 16-slot RAM ring (no unbounded growth). Mirrors the existing guard in
+     * crop_cycle_mgr_get_timeline(). */
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < 8192) {
+        if (sd) sdcard_hal_unlock();
+        xSemaphoreGive(s_event_mutex);
+        ESP_LOGW(TAG, "Event log write skipped: internal heap < 8KB");
+        return ESP_ERR_NO_MEM;
     }
 
     FILE *f = fopen(path, "a");

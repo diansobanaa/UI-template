@@ -89,6 +89,12 @@ static int expected_gpio_for_component(const char *role, const char *type)
     if (strcmp(r, "RAW_SUBMERSIBLE") == 0 || strcmp(r, "RAW_WATER") == 0) return PIN_OUT_RAW_SUBMERSIBLE;
     if (strcmp(r, "DOSING_A") == 0) return PIN_OUT_DOSING_A;
     if (strcmp(r, "DOSING_B") == 0) return PIN_OUT_DOSING_B;
+    /* PRD §8.6 + DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3.5 Pathway B:
+       Dosing C..G are accepted for I2C PCA9685 expansion. The canonical GPIO
+       is only required when interface=GPIO; for interface=I2C the wiring.gpio
+       field is optional and the channel field selects the PCA9685 output.
+       Returning -1 here for DOSING_C..G means 'no canonical GPIO mapping' —
+       the validator allows this when interface=I2C (see hardware_registry_validate_component_json). */
     if (strcmp(r, "COOLING_FAN") == 0 || (strcmp(r, "FAN") == 0 && strcmp(t, "cooling-fan") == 0)) return PIN_OUT_COOLING_FAN;
     if (strcmp(r, "BLOWER_FAN") == 0) return PIN_OUT_BLOWER_FAN;
     if (strcmp(r, "MIXING_PUMP") == 0 || strcmp(r, "MIX_PUMP") == 0) return PIN_OUT_MIXING_PUMP;
@@ -114,6 +120,9 @@ static bool expected_role_is_actuator(const char *role)
            strcmp(role, "DELIVERY_PUMP") == 0 || strcmp(role, "FERTIGATION_PUMP") == 0 ||
            strcmp(role, "RAW_SUBMERSIBLE") == 0 || strcmp(role, "RAW_WATER") == 0 ||
            strcmp(role, "DOSING_A") == 0 || strcmp(role, "DOSING_B") == 0 ||
+           strcmp(role, "DOSING_C") == 0 || strcmp(role, "DOSING_D") == 0 ||
+           strcmp(role, "DOSING_E") == 0 || strcmp(role, "DOSING_F") == 0 ||
+           strcmp(role, "DOSING_G") == 0 ||
            strcmp(role, "COOLING_FAN") == 0 || strcmp(role, "BLOWER_FAN") == 0 ||
            strcmp(role, "MIXING_PUMP") == 0 || strcmp(role, "MIX_PUMP") == 0 ||
            strcmp(role, "ERROR_LAMP") == 0 || strcmp(role, "ALARM_LAMP") == 0 || strcmp(role, "ERROR_BEACON") == 0 ||
@@ -179,6 +188,26 @@ esp_err_t hardware_registry_validate_component_json(const cJSON *component, char
                (strcmp(iface_s, "GPIO") == 0 || strcmp(iface_s, "ANALOG") == 0 || strcmp(iface_s, "ONE_WIRE") == 0)) {
         validation_reason(reason, reason_len, "operational physical component is missing its canonical GPIO");
         return ESP_ERR_INVALID_ARG;
+    }
+
+    /* PRD §8.6 + DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3.5 Pathway B:
+       Dosing C..G via I2C PCA9685 expansion. For interface=I2C, the wiring
+       must include a `channel` integer in [0,15]. The `gpio` field is
+       optional (SDA/SCL are shared on GPIO 8/9). */
+    if (strcmp(iface_s, "I2C") == 0 && operational) {
+        cJSON *channel = cJSON_GetObjectItem(wiring, "channel");
+        if (!cJSON_IsNumber(channel) || channel->valueint < 0 || channel->valueint > 15) {
+            validation_reason(reason, reason_len, "I2C component requires wiring.channel in [0,15]");
+            return ESP_ERR_INVALID_ARG;
+        }
+        /* I2C components must declare their role in DOSING_C..G or be a known I2C peripheral type. */
+        bool is_dosing_expansion = (strcmp(role_s, "DOSING_C") == 0 || strcmp(role_s, "DOSING_D") == 0 ||
+                                    strcmp(role_s, "DOSING_E") == 0 || strcmp(role_s, "DOSING_F") == 0 ||
+                                    strcmp(role_s, "DOSING_G") == 0);
+        if (!is_dosing_expansion) {
+            validation_reason(reason, reason_len, "I2C interface currently supports DOSING_C..G expansion only");
+            return ESP_ERR_INVALID_ARG;
+        }
     }
 
     cJSON *pol = cJSON_GetObjectItem(wiring, "polarity");
@@ -469,6 +498,89 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
         }
         safe_copy_str(dst->parameters_json, sizeof(dst->parameters_json), param_str, "{}");
         free(param_str);
+
+        // RC-5 + RC-8: Pre-parse `parameters` ke cache sekali saja saat registry
+        // load. poll_generic_sensor_inputs (2s) dan component_safety_policy
+        // (500ms) membaca dari cache alih-alih cJSON_Parse berulang. Jika field
+        // tidak ada di JSON, gunakan default konservatif.
+        sensor_parsed_params_t *sp = &dst->parsed_params;
+        memset(sp, 0, sizeof(*sp));
+        sp->sampling_interval_ms = 1000;
+        sp->raw_scale = 1.0f;
+        sp->raw_offset = 0.0f;
+        sp->active_level = 1; /* default LEVEL sensor aktif HIGH */
+        sp->has_validity_range = false;
+        sp->valid = true;
+        cJSON *p_unit = cJSON_GetObjectItem(j_params, "unit");
+        if (p_unit && cJSON_IsString(p_unit) && p_unit->valuestring[0]) {
+            strncpy(sp->unit, p_unit->valuestring, sizeof(sp->unit) - 1);
+        }
+        cJSON *p_si = cJSON_GetObjectItem(j_params, "samplingIntervalMs");
+        if (p_si && cJSON_IsNumber(p_si) && p_si->valuedouble > 0) {
+            sp->sampling_interval_ms = (uint32_t)p_si->valuedouble;
+        }
+        cJSON *p_cref = cJSON_GetObjectItem(j_params, "calibrationReference");
+        if (p_cref && cJSON_IsString(p_cref) && p_cref->valuestring[0]) {
+            strncpy(sp->calibration_reference, p_cref->valuestring,
+                    sizeof(sp->calibration_reference) - 1);
+        }
+        cJSON *p_ctype = cJSON_GetObjectItem(j_params, "calibrationType");
+        if (p_ctype && cJSON_IsString(p_ctype) && p_ctype->valuestring[0]) {
+            strncpy(sp->calibration_type, p_ctype->valuestring,
+                    sizeof(sp->calibration_type) - 1);
+        }
+        cJSON *p_cver = cJSON_GetObjectItem(j_params, "calibrationVersion");
+        if (p_cver && cJSON_IsNumber(p_cver) && p_cver->valuedouble > 0) {
+            sp->calibration_version = (uint32_t)p_cver->valuedouble;
+        }
+        cJSON *p_min = cJSON_GetObjectItem(j_params, "minValue");
+        if (p_min && cJSON_IsNumber(p_min)) {
+            sp->min_value = (float)p_min->valuedouble;
+            sp->has_validity_range = true;
+        }
+        cJSON *p_max = cJSON_GetObjectItem(j_params, "maxValue");
+        if (p_max && cJSON_IsNumber(p_max)) {
+            sp->max_value = (float)p_max->valuedouble;
+            sp->has_validity_range = true;
+        }
+        cJSON *p_rscale = cJSON_GetObjectItem(j_params, "rawScale");
+        if (p_rscale && cJSON_IsNumber(p_rscale)) {
+            sp->raw_scale = (float)p_rscale->valuedouble;
+        }
+        cJSON *p_roff = cJSON_GetObjectItem(j_params, "rawOffset");
+        if (p_roff && cJSON_IsNumber(p_roff)) {
+            sp->raw_offset = (float)p_roff->valuedouble;
+        }
+        cJSON *p_al = cJSON_GetObjectItem(j_params, "activeLevel");
+        if (p_al && cJSON_IsNumber(p_al)) {
+            sp->active_level = p_al->valueint ? 1 : 0;
+        }
+
+        // RC-8: Pre-parse safety fields (di dalam "safety" object atau root).
+        safety_parsed_params_t *sp_s = &dst->safety_params;
+        memset(sp_s, 0, sizeof(*sp_s));
+        sp_s->max_runtime_sec = 0;  // 0 = gunakan default role-based di safety_monitor
+        sp_s->flow_timeout_sec = 0;
+        sp_s->require_high_level_protection = false;
+        sp_s->external_high_level_interlock = false;
+        sp_s->valid = true;
+        cJSON *safety_obj = cJSON_GetObjectItem(j_params, "safety");
+        if (!safety_obj) safety_obj = j_params; /* backward-compatible placement */
+        cJSON *s_mr = cJSON_GetObjectItem(safety_obj, "maxRuntimeSec");
+        if (s_mr && cJSON_IsNumber(s_mr) && s_mr->valuedouble >= 0 &&
+            s_mr->valuedouble <= 4294967295.0) {
+            sp_s->max_runtime_sec = (uint32_t)s_mr->valuedouble;
+        }
+        cJSON *s_ft = cJSON_GetObjectItem(safety_obj, "flowTimeoutSec");
+        if (s_ft && cJSON_IsNumber(s_ft) && s_ft->valuedouble >= 0 &&
+            s_ft->valuedouble <= 4294967295.0) {
+            sp_s->flow_timeout_sec = (uint32_t)s_ft->valuedouble;
+        }
+        cJSON *s_rh = cJSON_GetObjectItem(safety_obj, "requireHighLevelProtection");
+        if (s_rh) sp_s->require_high_level_protection = cJSON_IsTrue(s_rh);
+        cJSON *s_eh = cJSON_GetObjectItem(safety_obj, "externalHighLevelInterlock");
+        if (s_eh) sp_s->external_high_level_interlock = cJSON_IsTrue(s_eh);
+
         ++parsed_count;
     }
 
@@ -513,16 +625,24 @@ esp_err_t hardware_hal_init_all(void)
         hardware_registry_clear();
     }
 
-    /* Initialize buses & peripherals */
+    /* Initialize buses & peripherals.
+     * SPI_DMA_DISABLED: the TFT uses spi_device_polling_transmit exclusively,
+     * with SPI_TRANS_USE_TXDATA for <=4-byte writes and a static DRAM-resident
+     * s_tx_buf[64] for larger pixel bursts (fits in 64-byte hardware FIFO).
+     * Using SPI_DMA_CH_AUTO caused spi_master to allocate a private DMA TX
+     * bounce buffer (max_transfer_sz bytes, DMA-capable internal SRAM) per
+     * spi_bus_add_device() call. With ~7-14 KB internal heap free at boot,
+     * these allocations fail with "setup_dma_priv_buffer: Failed to allocate
+     * priv TX buffer". SPI_DMA_DISABLED eliminates the allocation entirely. */
     spi_bus_config_t buscfg = {
         .miso_io_num = PIN_SPI_MISO,
         .mosi_io_num = PIN_SPI_MOSI,
         .sclk_io_num = PIN_SPI_SCK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 4096
+        .max_transfer_sz = 64  /* 64 bytes matches non-DMA hardware FIFO limit / s_tx_buf[64] in tft_hal */
     };
-    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_DISABLED);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
     }

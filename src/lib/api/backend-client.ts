@@ -1,4 +1,5 @@
 import type { HardwarePortConfig } from "./contracts";
+import { getActiveBootstrapIp } from "../bootstrap-address";
 
 export const PYTHON_API_BASE = import.meta.env.VITE_PYTHON_API_BASE ?? "/api";
 export const ESP32_API_BASE = import.meta.env.VITE_ESP32_API_BASE ?? "";
@@ -34,7 +35,7 @@ export const DEFAULT_API_TOKEN = "agrotech-secret-key";
 
 export const defaultConfig: HardwarePortConfig = {
   pythonBaseUrl: PYTHON_API_BASE,
-  esp32BaseUrl: ESP32_API_BASE || undefined,
+  esp32BaseUrl: ESP32_API_BASE || (typeof window !== "undefined" ? getActiveBootstrapIp() || undefined : undefined),
   requestTimeoutMs: Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 15000),
   token: import.meta.env.VITE_API_TOKEN || (typeof window !== "undefined" ? localStorage.getItem("agrotech_api_token") : null) || DEFAULT_API_TOKEN,
   directEsp32Enabled: import.meta.env.VITE_ENABLE_DIRECT_ESP32 !== "false",
@@ -56,8 +57,15 @@ export function getActiveEsp32Endpoint(): string | undefined {
 
 function resolveUrl(path: string, config: HardwarePortConfig = defaultConfig): string {
   if (/^https?:\/\//i.test(path)) return path;
-  if (config.esp32BaseUrl && config.directEsp32Enabled) {
-    return `${config.esp32BaseUrl.replace(/\/$/, "")}${path}`;
+  let esp32Url = config.esp32BaseUrl;
+  if (!esp32Url && typeof window !== "undefined") {
+    esp32Url = getActiveBootstrapIp() || undefined;
+    if (esp32Url) {
+      config.esp32BaseUrl = esp32Url;
+    }
+  }
+  if (esp32Url && config.directEsp32Enabled) {
+    return `${esp32Url.replace(/\/$/, "")}${path}`;
   }
   const base = (config.pythonBaseUrl || "").replace(/\/$/, "");
   if (base) {

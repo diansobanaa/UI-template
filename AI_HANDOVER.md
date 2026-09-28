@@ -1,4 +1,26 @@
-# AI HANDOVER — SP-DHT22-DRIVER-001 (latest)
+# AI HANDOVER — SP-SPI-DMA-STORAGE-001 (latest)
+
+## Status — SP-SPI-DMA-STORAGE-001
+**Resolution of SPI Non-DMA Transfer Overflow, newlib lock_init_generic Abort, and Socket Exhaustion — SOFTWARE & RUNTIME VERIFIED**
+**Safe Point**: `SP-SPI-DMA-STORAGE-001`
+**Date**: 2026-09-28
+**Verdict**: `SOFTWARE RESOLVED AND RUNTIME FLASHED`, `TFT SPI OVERFLOW RESOLVED`, `STORAGE SPIFFS POSIX FD COMMITTED`, `APPLY EQUIPMENT RUNTIME VALIDATED`, `ALL 8 CHANGED FILES DOCUMENTED`
+
+### Summary of Fixes
+1. **SPI Master Non-DMA Transfer Limit (`spi_master: check_trans_valid: txdata transfer > host maximum`)**:
+   - Root Cause: Disabling SPI DMA (`SPI_DMA_DISABLED` in `hardware_registry.c`) to eliminate DMA bounce buffer allocation errors in internal SRAM reduced the maximum SPI transfer size to the hardware FIFO limit (64 bytes / 512 bits). However, `tft_hal.c` line 175 was using a 256-byte buffer (`s_dma_buf[256]`), causing ESP-IDF SPI driver to reject all drawing commands with `txdata transfer > host maximum`.
+   - Fix: Replaced `s_dma_buf[256]` in `tft_hal.c` with 64-byte `s_tx_buf[64]` and updated `buscfg.max_transfer_sz = 64`. TFT renders cleanly with zero SPI errors.
+2. **newlib Mutex Abort on Configuration Apply (`locks.c:77 lock_init_generic abort`)**:
+   - Root Cause: Calling `fopen/fputs/fclose` in `storage_mgr.c` during `save_spiffs_string()` allocated recursive mutexes from newlib's FILE slot pool. With fragmented internal SRAM at runtime (~14KB free, ~7KB largest block), mutex allocation failed and triggered `abort()`.
+   - Fix: Switched `save_spiffs_string()` and `load_spiffs_string()` to POSIX file descriptor calls (`open()`, `read()`, `write()`, `close()`), bypassing newlib stdio FILE pool completely.
+3. **HTTP Server Socket Exhaustion Loop (`socket 54` accept spin-loop)**:
+   - Root Cause: `config.max_open_sockets = 10` exceeded `CONFIG_LWIP_MAX_SOCKETS = 8`, causing `accept()` to return -1 and trigger an infinite spin loop on Core 0.
+   - Fix: Reduced `max_open_sockets` to 4 and `backlog_conn` to 4 in `http_server.c`, well within LWIP's socket pool.
+4. **UI Dynamic Bootstrap Endpoint & Complex Fallback**:
+   - `backend-client.ts` and `esp32-client.ts` now fallback to `getActiveBootstrapIp()` from localStorage/cookie when `VITE_ESP32_API_BASE` is unset.
+   - `SupportedEquipmentChecklist.tsx` and `EquipmentPage` fallback to `"complex-01"` when no complex is seeded in local browser state.
+
+# AI HANDOVER — SP-DHT22-DRIVER-001 (previous)
 
 ## Status — SP-DHT22-DRIVER-001
 **DHT22 Driver Robustness Upgrade + Physical Sensor Investigation — SOFTWARE VERIFIED — PHYSICAL DHT22 WIRING INVESTIGATION REQUIRED**

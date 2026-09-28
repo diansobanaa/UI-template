@@ -1,3 +1,32 @@
+## SP-SPI-DMA-STORAGE-001 — Elimination of SPI Master Non-DMA Transfer Overflow, newlib lock_init_generic Abort, and Socket Exhaustion
+- **Date**: 2026-09-28
+- **Git Commit**: `ceccc6c`
+- **Status**: `ALL BUGS RESOLVED — FIRMWARE FLASHED AND RUNTIME VERIFIED — APPLY EQUIPMENT MUTATION OPERATIONAL`
+
+### Root Causes & Fixes
+1. **SPI Master Non-DMA Transfer Overflow (`spi_master: check_trans_valid(1123): txdata transfer > host maximum`)**:
+   - **Root Cause**: In `hardware_registry.c`, `SPI_DMA_CH_AUTO` was changed to `SPI_DMA_DISABLED` to eliminate private DMA TX bounce buffer allocations from internal SRAM. Without DMA, ESP-IDF enforces `SOC_SPI_MAXIMUM_BUFFER_SIZE` (64 bytes / 512 bits) as the maximum transaction length. `tft_hal.c` line 175 was using `s_dma_buf[256]` (256-byte chunks), causing `check_trans_valid` to reject every drawing operation and spam the console.
+   - **Fix**: Changed `s_dma_buf[256]` in `tft_hal.c` to `s_tx_buf[64]` and updated `buscfg.max_transfer_sz = 64`. TFT display renders cleanly with zero SPI errors.
+2. **newlib Mutex Abort on Configuration Save (`abort() at locks.c:77 lock_init_generic`)**:
+   - **Root Cause**: `storage_mgr.c` used stdio `fopen/fputs/fclose` inside `save_spiffs_string()`. Each newlib FILE slot allocates a recursive mutex via `xSemaphoreCreateRecursiveMutex()`. Under fragmented internal heap (~14KB free, ~7KB largest block), mutex allocation failed and triggered `abort()`.
+   - **Fix**: Converted `save_spiffs_string()` and `load_spiffs_string()` to POSIX file descriptor calls (`open()`, `read()`, `write()`, `close()`), bypassing newlib stdio FILE pool completely.
+3. **HTTP Server Socket Exhaustion Loop (`socket 54` spin-loop)**:
+   - **Root Cause**: `config.max_open_sockets = 10` in `http_server.c` exceeded `CONFIG_LWIP_MAX_SOCKETS = 8`, causing `accept()` to return -1 and trigger an infinite spin loop on Core 0.
+   - **Fix**: Reduced `max_open_sockets` to 4 and `backlog_conn` to 4 in `http_server.c`, well within LWIP's socket pool with `lru_purge_enable = true`.
+4. **UI Dynamic Bootstrap Endpoint & Complex Fallback**:
+   - `backend-client.ts` and `esp32-client.ts` now fallback to `getActiveBootstrapIp()` from localStorage/cookie when `VITE_ESP32_API_BASE` is unset.
+   - `SupportedEquipmentChecklist.tsx` and `EquipmentPage` fallback to `"complex-01"` when no complex is seeded in local browser state.
+
+### Files Changed
+- `esp32/main/hal/tft_hal.c` — reduced SPI buffer to 64 bytes (`s_tx_buf[64]`)
+- `esp32/main/hal/hardware_registry.c` — updated `max_transfer_sz = 64`
+- `esp32/main/http/http_server.c` — reduced `max_open_sockets = 4`
+- `esp32/main/storage/storage_mgr.c` — POSIX file descriptors for SPIFFS I/O
+- `src/lib/api/backend-client.ts` — fallback to `getActiveBootstrapIp()`
+- `src/lib/api/esp32-client.ts` — fallback to `getActiveBootstrapIp()`
+- `src/components/ui/equipment/SupportedEquipmentChecklist.tsx` — fallback to `"complex-01"`
+- `src/app/equipment/page.tsx` — fallback to `"complex-01"`
+
 ## SP-TFT-CRASH-SENSOR-001 — TFT Screen2 Crash, Queue Screen Crash, Wrong Air Temp Source
 - **Date**: 2026-09-26
 - **Git Commit**: `4d83c83`

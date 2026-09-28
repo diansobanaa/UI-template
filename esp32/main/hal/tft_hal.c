@@ -1,4 +1,5 @@
 #include "hal/tft_hal.h"
+#include "utils/psram_task.h"
 #include "hal/sensor_hal.h"
 #include "hal/actuator_hal.h"
 #include "network/network_mgr.h"
@@ -171,13 +172,15 @@ static esp_err_t tft_write_data(const uint8_t *data, size_t len)
         memcpy(t.tx_data, data, len);
         return spi_device_polling_transmit(s_spi_dev, &t);
     }
-    WORD_ALIGNED_ATTR static uint8_t s_dma_buf[256];
+    /* Non-DMA SPI transfers cannot exceed SOC_SPI_MAXIMUM_BUFFER_SIZE (64 bytes).
+     * Transmit data in 64-byte chunks to fit hardware FIFO without DMA allocation. */
+    WORD_ALIGNED_ATTR static uint8_t s_tx_buf[64];
     while (len > 0) {
-        size_t chunk = (len > sizeof(s_dma_buf)) ? sizeof(s_dma_buf) : len;
-        memcpy(s_dma_buf, data, chunk);
+        size_t chunk = (len > sizeof(s_tx_buf)) ? sizeof(s_tx_buf) : len;
+        memcpy(s_tx_buf, data, chunk);
         spi_transaction_t t = {
             .length = chunk * 8,
-            .tx_buffer = s_dma_buf
+            .tx_buffer = s_tx_buf
         };
         esp_err_t ret = spi_device_polling_transmit(s_spi_dev, &t);
         if (ret != ESP_OK) return ret;
@@ -390,20 +393,56 @@ static void get_complex_gh_ids(char *out_str, size_t out_len)
             snprintf(c_code, sizeof(c_code), "%.5s", st->complex_id);
         }
     }
-    char gh_code[12] = "GH-01";
+
+    /* PRD §6.1 + MIXING_FERTIGATION_OPERATIONAL_MODEL.md §2.5: no hardcoded GH-01 fallback.
+       Iterate the registry and render up to 3 distinct gh_id values joined by '/' so the
+       operator can see multi-GH status on the TFT. If no GH is assigned, show '—' instead
+       of inventing GH-01. */
+    char gh_list[32] = "—";
     size_t count = hardware_registry_get_count();
-    for (size_t i = 0; i < count; i++) {
+    size_t gh_count = 0;
+    size_t written = 0;
+    for (size_t i = 0; i < count && gh_count < 3; i++) {
         hw_component_info_t info;
         if (hardware_registry_get_by_index(i, &info) == ESP_OK && info.assignment.gh_id[0]) {
-            if (strncmp(info.assignment.gh_id, "gh-", 3) == 0) {
-                snprintf(gh_code, sizeof(gh_code), "GH-01");
-            } else {
-                snprintf(gh_code, sizeof(gh_code), "%.5s", info.assignment.gh_id);
+            /* Deduplicate gh_id values. */
+            bool dup = false;
+            const char *existing = gh_list;
+            const char *sep = strchr(existing, '/');
+            while (sep != NULL && existing[0] != 0xC3 && existing[0] != 0xE2 /* skip "—" bytes */) {
+                size_t seg_len = (size_t)(sep - existing);
+                if (seg_len == strlen(info.assignment.gh_id) &&
+                    strncmp(existing, info.assignment.gh_id, seg_len) == 0) {
+                    dup = true;
+                    break;
+                }
+                existing = sep + 1;
+                sep = strchr(existing, '/');
             }
-            break;
+            if (dup) continue;
+
+            /* Skip if last segment already equals this gh_id. */
+            if (written > 0 && gh_list[0] != 0xE2 /* not "—" */) {
+                const char *last_seg = strrchr(gh_list, '/');
+                last_seg = last_seg ? last_seg + 1 : gh_list;
+                if (strcmp(last_seg, info.assignment.gh_id) == 0) continue;
+            }
+
+            if (gh_count == 0) {
+                snprintf(gh_list, sizeof(gh_list), "%.11s", info.assignment.gh_id);
+            } else {
+                char tmp[32];
+                snprintf(tmp, sizeof(tmp), "%.11s/%.11s", gh_list, info.assignment.gh_id);
+                strlcpy(gh_list, tmp, sizeof(gh_list));
+            }
+            written = strlen(gh_list);
+            gh_count++;
         }
     }
-    snprintf(out_str, out_len, "%s|%s", c_code, gh_code);
+    if (gh_count == 0) {
+        strlcpy(gh_list, "—", sizeof(gh_list));
+    }
+    snprintf(out_str, out_len, "%s|%s", c_code, gh_list);
 }
 
 static int s_prev_net_state = -1;
@@ -582,95 +621,6 @@ static void draw_screen1_sensors(bool full)
     tft_draw_string(card_xs[3] + 8, card_y + 23, "C", TFT_COLOR_GRAY, TFT_COLOR_CARD_BG, 1);
 }
 
-static void draw_screen1_temp_trend(bool full)
-{
-    float t_min = 0, t_max = 0;
-    float t_series[60];
-    size_t t_count = 0;
-    esp_err_t terr = telemetry_mgr_get_temp_history(&t_min, &t_max, t_series, 60, &t_count);
-
-    const uint16_t gx = 54, gy = 116, gw = 71, gh = 32;
-    const uint16_t floor_y = gy + gh - 4; // 144
-
-    if (full) {
-        tft_draw_bitmap(2, 105, s_icon_thermo, 7, 7, TFT_COLOR_RED, TFT_COLOR_BLACK);
-        tft_draw_string(11, 105, "Suhu GH Hari Ini", TFT_COLOR_WHITE, TFT_COLOR_BLACK, 1);
-
-        // Chart floor baseline
-        tft_fill_rect(gx, floor_y, gw, 1, TFT_COLOR_DARKGRAY);
-
-        // Dotted gridlines
-        for (uint16_t x = gx; x < gx + gw; x += 3) {
-            tft_fill_rect(x, gy + 2, 1, 1, 0x3186);
-            tft_fill_rect(x, gy + 14, 1, 1, 0x3186);
-        }
-        for (uint16_t y = gy + 2; y < floor_y; y += 3) {
-            tft_fill_rect(gx + (gw / 2), y, 1, 1, 0x3186);
-        }
-
-        // Y-axis labels
-        tft_draw_string(41, gy, "34", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(41, gy + 12, "28", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(41, gy + 24, "22", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-
-        // X-axis milestone labels
-        tft_draw_string(gx - 2, gy + gh - 1, "06:00", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(gx + (gw / 2) - 14, gy + gh - 1, "12:00", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(gx + gw - 28, gy + gh - 1, "18:00", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-
-        // Labels MIN / MAX
-        tft_draw_string(2, 126, "MIN", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(2, 147, "MAX", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-    }
-
-    // Min and Max numbers on left
-    char mbuf[12];
-    if (terr == ESP_OK) {
-        snprintf(mbuf, sizeof(mbuf), "%4.1f", t_min);
-        tft_draw_string(2, 116, mbuf, TFT_COLOR_CYAN, TFT_COLOR_BLACK, 1);
-        snprintf(mbuf, sizeof(mbuf), "%4.1f", t_max);
-        tft_draw_string(2, 137, mbuf, TFT_COLOR_ORANGE, TFT_COLOR_BLACK, 1);
-    } else {
-        tft_draw_string(2, 116, "--.-", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-        tft_draw_string(2, 137, "--.-", TFT_COLOR_GRAY, TFT_COLOR_BLACK, 1);
-    }
-
-    // Draw curve & shaded gradient fill
-    if (t_count >= 2 && (t_max - t_min) >= 0.05f) {
-        tft_fill_rect(gx, gy + 1, gw, gh - 5, TFT_COLOR_BLACK);
-        // Re-draw dotted gridlines
-        for (uint16_t x = gx; x < gx + gw; x += 3) {
-            tft_fill_rect(x, gy + 2, 1, 1, 0x3186);
-            tft_fill_rect(x, gy + 14, 1, 1, 0x3186);
-        }
-        for (uint16_t y = gy + 2; y < floor_y; y += 3) {
-            tft_fill_rect(gx + (gw / 2), y, 1, 1, 0x3186);
-        }
-
-        int prev_px = -1, prev_py = -1;
-        for (size_t i = 0; i < t_count; i++) {
-            int px = gx + (int)((i * (gw - 2)) / (t_count - 1));
-            int py = floor_y - 1 - (int)(((t_series[i] - t_min) / (t_max - t_min)) * (floor_y - gy - 4));
-            if (py < gy + 1) py = gy + 1;
-            if (py > floor_y - 1) py = floor_y - 1;
-
-            // Shaded vertical fill under curve down to floor (single fast vertical bar)
-            if (px >= gx && px < gx + gw && floor_y > (py + 1)) {
-                tft_fill_rect(px, py + 1, 1, floor_y - (py + 1), 0x3800);
-            }
-
-            if (prev_px >= 0) {
-                tft_draw_line(prev_px, prev_py, px, py, TFT_COLOR_ORANGE);
-            }
-            prev_px = px;
-            prev_py = py;
-        }
-        if (prev_px >= 0) {
-            tft_fill_rect(prev_px - 1, prev_py - 1, 2, 2, TFT_COLOR_WHITE);
-        }
-    }
-}
-
 void tft_show_home_screen(void)
 {
     if (!s_tft_available) return;
@@ -681,7 +631,6 @@ void tft_show_home_screen(void)
     draw_screen1_header(&ti, true);
     draw_screen1_process(true);
     draw_screen1_sensors(true);
-    draw_screen1_temp_trend(true);
 }
 
 static void tft_update_home_dynamic(void)
@@ -693,7 +642,6 @@ static void tft_update_home_dynamic(void)
     draw_screen1_header(&ti, false);
     draw_screen1_process(false);
     draw_screen1_sensors(false);
-    draw_screen1_temp_trend(false);
 }
 
 /* =========================================================================
@@ -1389,7 +1337,7 @@ esp_err_t tft_hal_init(void)
         .clock_speed_hz = 10 * 1000 * 1000, // 10 MHz safe SPI clock
         .mode = 0,                          // SPI mode 0
         .spics_io_num = PIN_TFT_CS,         // CS pin GPIO 14
-        .queue_size = 7,
+        .queue_size = 1,        /* polling transmit only, no queued transactions */
         .flags = SPI_DEVICE_NO_DUMMY
     };
 
@@ -1493,7 +1441,7 @@ esp_err_t tft_hal_init(void)
 
     s_tft_available = true;
     s_need_full_redraw = true;
-    xTaskCreatePinnedToCore(tft_screen_task, "tft_screen_task", 5120, NULL, 2, &s_tft_task_handle, 1);
+    psram_task_create_pinned(tft_screen_task, "tft_screen_task", 5120, NULL, 2, &s_tft_task_handle, 1);
     ESP_LOGI(TAG, "ST7735 1.8\" TFT SPI display initialized successfully (128x160). Dynamic refresh task spawned on Core 1.");
     return ESP_OK;
 }
