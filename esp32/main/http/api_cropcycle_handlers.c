@@ -219,9 +219,17 @@ esp_err_t handler_record_pollination(httpd_req_t *req)
     cJSON *m = cJSON_GetObjectItem(payload, "pollinationMethod");
     if (m && cJSON_IsString(m)) method = m->valuestring;
 
-    err = crop_cycle_mgr_set_pollination(gh_id, pol->valuestring, method);
+    // Parse expectedVersion for optimistic concurrency (ESP32_BACKEND_SPEC §28).
+    cJSON *ev = cJSON_GetObjectItem(payload, "expectedVersion");
+    uint32_t expected_version = (ev && cJSON_IsNumber(ev)) ? (uint32_t)ev->valuedouble : 0;
+
+    err = crop_cycle_mgr_set_pollination_with_version(gh_id, pol->valuestring, method, expected_version);
     cJSON_Delete(body);
 
+    if (err == ESP_ERR_INVALID_VERSION) {
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id_ptr);
+    }
     if (err != ESP_OK) {
         return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalPolinasi cannot be earlier than tanggalTanam", req_id_ptr);
     }
@@ -259,7 +267,22 @@ esp_err_t handler_delete_pollination(httpd_req_t *req)
     }
     const char *req_id = (strcmp(req_id_buf, "none") != 0) ? req_id_buf : NULL;
 
-    crop_cycle_mgr_delete_pollination(gh_id);
+    // delete_pollination may also receive an expectedVersion via query param or body.
+    // For DELETE, body is optional; parse if present.
+    uint32_t expected_version = 0;
+    cJSON *body = NULL;
+    if (http_parse_json_body(req, &body) == ESP_OK && body) {
+        cJSON *payload = cJSON_GetObjectItem(body, "payload");
+        cJSON *ev = cJSON_GetObjectItem(payload ? payload : body, "expectedVersion");
+        if (ev && cJSON_IsNumber(ev)) expected_version = (uint32_t)ev->valuedouble;
+        cJSON_Delete(body);
+    }
+
+    esp_err_t err = crop_cycle_mgr_delete_pollination_with_version(gh_id, expected_version);
+    if (err == ESP_ERR_INVALID_VERSION) {
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id);
+    }
     crop_cycle_record_t record;
     crop_cycle_mgr_get_current(gh_id, &record);
     return http_send_enveloped_response(req, 200, req_id, crop_cycle_mgr_to_json(&record));
@@ -300,9 +323,18 @@ esp_err_t handler_update_planting_date(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "tanggalTanam is required in payload", req_id_ptr);
     }
 
-    err = crop_cycle_mgr_update_planting_date(gh_id, tanam->valuestring);
+    // Parse expectedVersion for optimistic concurrency (ESP32_BACKEND_SPEC §28, UI_ESP32_COMMUNICATION_SPEC:821).
+    // If absent or zero, the check is skipped (legacy behavior).
+    cJSON *ev = cJSON_GetObjectItem(payload, "expectedVersion");
+    uint32_t expected_version = (ev && cJSON_IsNumber(ev)) ? (uint32_t)ev->valuedouble : 0;
+
+    err = crop_cycle_mgr_update_planting_date_with_version(gh_id, tanam->valuestring, expected_version);
     cJSON_Delete(body);
 
+    if (err == ESP_ERR_INVALID_VERSION) {
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id_ptr);
+    }
     if (err != ESP_OK) {
         return http_send_error(req, 422, "VALIDATION_FAILED", "Failed to update planting date", req_id_ptr);
     }
@@ -365,11 +397,20 @@ esp_err_t handler_update_cycle_metadata(httpd_req_t *req)
         timeline_json_str = cJSON_PrintUnformatted(tl);
     }
 
-    crop_cycle_mgr_update_metadata_v2(gh_id, variety, count, notes, target_harvest_hst, timeline_json_str);
+    // Parse expectedVersion for optimistic concurrency (ESP32_BACKEND_SPEC §28).
+    cJSON *ev_meta = cJSON_GetObjectItem(payload, "expectedVersion");
+    uint32_t expected_version_meta = (ev_meta && cJSON_IsNumber(ev_meta)) ? (uint32_t)ev_meta->valuedouble : 0;
+
+    esp_err_t meta_err = crop_cycle_mgr_update_metadata_v2_with_version(gh_id, variety, count, notes, target_harvest_hst, timeline_json_str, expected_version_meta);
     if (timeline_json_str) {
         free(timeline_json_str);
     }
     cJSON_Delete(body);
+
+    if (meta_err == ESP_ERR_INVALID_VERSION) {
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id_ptr);
+    }
 
     crop_cycle_record_t record;
     crop_cycle_mgr_get_current(gh_id, &record);
@@ -398,8 +439,20 @@ esp_err_t handler_cancel_crop_cycle(httpd_req_t *req)
     }
     const char *req_id_ptr = req_id[0] ? req_id : NULL;
 
-    crop_cycle_mgr_cancel(gh_id);
+    uint32_t expected_version = 0;
+    if (body) {
+        cJSON *payload = cJSON_GetObjectItem(body, "payload");
+        cJSON *ev = cJSON_GetObjectItem(payload ? payload : body, "expectedVersion");
+        if (ev && cJSON_IsNumber(ev)) expected_version = (uint32_t)ev->valuedouble;
+    }
+
+    esp_err_t cancel_err = crop_cycle_mgr_cancel_with_version(gh_id, expected_version);
     if (body) cJSON_Delete(body);
+
+    if (cancel_err == ESP_ERR_INVALID_VERSION) {
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id_ptr);
+    }
 
     crop_cycle_record_t record;
     crop_cycle_mgr_get_current(gh_id, &record);
@@ -440,6 +493,7 @@ esp_err_t handler_harvest_crop_cycle(httpd_req_t *req)
     const char *grade = NULL;
     const char *notes = NULL;
 
+    uint32_t expected_version = 0;
     if (payload) {
         cJSON *d = cJSON_GetObjectItem(payload, "harvestDate");
         if (d && cJSON_IsString(d)) harvest_date = d->valuestring;
@@ -449,9 +503,20 @@ esp_err_t handler_harvest_crop_cycle(httpd_req_t *req)
         if (g && cJSON_IsString(g)) grade = g->valuestring;
         cJSON *n = cJSON_GetObjectItem(payload, "notes");
         if (n && cJSON_IsString(n)) notes = n->valuestring;
+        // Parse expectedVersion for optimistic concurrency (ESP32_BACKEND_SPEC §28).
+        cJSON *ev = cJSON_GetObjectItem(payload, "expectedVersion");
+        if (ev && cJSON_IsNumber(ev)) expected_version = (uint32_t)ev->valuedouble;
     }
-    esp_err_t harvest_err = crop_cycle_mgr_harvest(gh_id, harvest_date, yield_kg, has_yield, grade, notes);
-    if (harvest_err != ESP_OK) return http_send_error(req, 422, "HARVEST_FAILED", "No active crop cycle is available for harvest", req_id_ptr);
+    esp_err_t harvest_err = crop_cycle_mgr_harvest_with_version(gh_id, harvest_date, yield_kg, has_yield, grade, notes, expected_version);
+    if (harvest_err == ESP_ERR_INVALID_VERSION) {
+        if (body) cJSON_Delete(body);
+        return http_send_error(req, 409, "VERSION_CONFLICT",
+                               "Crop cycle version mismatch — another update occurred. Refresh and retry.", req_id_ptr);
+    }
+    if (harvest_err != ESP_OK) {
+        if (body) cJSON_Delete(body);
+        return http_send_error(req, 422, "HARVEST_FAILED", "No active crop cycle is available for harvest", req_id_ptr);
+    }
     if (body) cJSON_Delete(body);
 
     crop_cycle_record_t record;

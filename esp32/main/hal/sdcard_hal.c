@@ -1,6 +1,7 @@
 #include "hal/sdcard_hal.h"
 #include "config/pin_config.h"
 #include "config/system_config.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdspi_host.h"
@@ -116,6 +117,15 @@ esp_err_t sdcard_hal_init(void)
     gpio_set_pull_mode(PIN_SPI_MOSI, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(PIN_SPI_SCK, GPIO_PULLUP_ONLY);
 
+    /* 2b. Quiet the shared SPI2 bus before probing the SD card: force the TFT
+     * display's CS (GPIO 14) HIGH (deselected). The TFT HAL has not run yet at
+     * this point, so its CS pin may float; a floating CS could let the display
+     * drive MISO and corrupt the SD card's CMD0/CMD8 identification sequence
+     * (which then surfaces as 0x108 timeout). tft_hal_init() reconfigures these
+     * pins afterwards, so this is harmless. */
+    gpio_set_direction((gpio_num_t)PIN_TFT_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_TFT_CS, 1);
+
     ESP_LOGI(TAG, "SD Card HAL: Using MicroSD Adapter Module (EasyWare EP000094) on shared SPI (SCK=%d, MOSI=%d, MISO=%d, CS=%d)",
              PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO, PIN_SD_CS);
 
@@ -136,13 +146,52 @@ esp_err_t sdcard_hal_init(void)
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI2_HOST;
+    /* SD-SPEED-FIX (2026-09-28): 20MHz -> 10MHz. Field evidence: CMD0 gets a
+     * valid R1 (card is alive) but CMD8 (SEND_IF_COND) returns 0x108
+     * (ESP_ERR_INVALID_RESPONSE) on all 3 attempts with card inserted and
+     * power OK. A longer R7 response failing after a good R1 points at
+     * signal integrity on the shared SPI2 bus (adapter module + wiring),
+     * not at a dead card. 10MHz still gives >1MB/s, plenty for telemetry
+     * batches. If 0x108 persists at 10MHz, measure the module's 3.3V rail AT
+     * THE CARD: many EP000094-class modules have a 5V->3.3V LDO and brown
+     * out when fed 3.3V on VCC. */
+    host.max_freq_khz = 10000;
     host.command_timeout_ms = 100; // Bounded timeout (100 ms)
 
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_SD_CS;
     slot_config.host_id = host.slot;
 
-    esp_err_t ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot_config, &mount_config, &s_card);
+    /* Retry the mount up to 3 times: some cards need extra power-settle time
+     * after 3.3V ramp, and the first CMD0/CMD8 sequence can collide with bus
+     * noise during early boot. Each attempt is logged with its exact error so
+     * a persistent 0x108 (timeout = card not answering at all) can be told
+     * apart from transient failures. A persistent 0x108 with a card inserted
+     * is a hardware issue (seating, adapter, power, wiring) — not software. */
+    /* Silence IDF-internal sdmmc/vfs_fat logs during probing — they emit
+     * dozens of identical E-lines per attempt when no card is present.
+     * Our own W-lines below still capture the outcome clearly. */
+    esp_log_level_set("sdmmc_sd",       ESP_LOG_NONE);
+    esp_log_level_set("vfs_fat_sdmmc",  ESP_LOG_NONE);
+    esp_log_level_set("sdmmc_common",   ESP_LOG_NONE);
+
+    esp_err_t ret = ESP_FAIL;
+    for (int attempt = 1; attempt <= 3; ++attempt) {
+        if (attempt > 1) {
+            vTaskDelay(pdMS_TO_TICKS(600));
+            gpio_set_level(PIN_SD_CS, 1);
+            gpio_set_level(PIN_TFT_CS, 1);
+        }
+        ESP_LOGI(TAG, "SD mount attempt %d/3 ...", attempt);
+        ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot_config, &mount_config, &s_card);
+        if (ret == ESP_OK) break;
+        ESP_LOGW(TAG, "SD mount attempt %d/3 failed: err=0x%x (%s)", attempt, ret, esp_err_to_name(ret));
+    }
+
+    /* Restore default log levels */
+    esp_log_level_set("sdmmc_sd",       ESP_LOG_INFO);
+    esp_log_level_set("vfs_fat_sdmmc",  ESP_LOG_INFO);
+    esp_log_level_set("sdmmc_common",   ESP_LOG_INFO);
 
     if (ret == ESP_OK) {
         sdcard_hal_lock();

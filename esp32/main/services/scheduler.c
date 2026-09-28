@@ -3,6 +3,7 @@
 #include "config/system_config.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -113,6 +114,20 @@ static scheduler_resource_lock_t s_resource_locks[MAX_RUNTIME_RESOURCES];
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_initialized = false;
 
+// RC-1: Decouple NVS marker persistence from s_mutex critical section.
+// s_marker_persist_pending dilindungi oleh portENTER_CRITICAL singkat; persist
+// task memproses tulisan NVS di luar s_mutex (NVS write 100-500ms tidak boleh
+// memblok HTTP handler / scheduler_evaluate_at berikutnya).
+// BUILD-FIX: ESP-IDF 5.5.5 (FreeRTOS SMP) memerlukan spinlock argumen pada
+// portENTER_CRITICAL/portEXIT_CRITICAL. taskENTER_CRITICAL() tanpa argumen
+// tidak valid di ESP-IDF 5.x.
+static volatile bool s_marker_persist_pending = false;
+static portMUX_TYPE s_marker_spinlock = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t s_marker_persist_task_handle = NULL;
+#define MARKER_PERSIST_TASK_STACK 3072
+#define MARKER_PERSIST_TASK_PRIO  2
+#define MARKER_PERSIST_NOTIFY_BIT 0x01
+
 #define MAX_TODAY_OCCURRENCES 32
 #define MAX_DOSING_QUEUE 8
 
@@ -127,6 +142,9 @@ static uint32_t s_next_queue_seq = 1;
 static void materialize_today_schedule(time_t now);
 static void rebuild_dosing_queue_on_boot(time_t now);
 static void reconcile_dosing_queue_on_config_change(uint32_t new_config_version);
+// RC-1: Forward declaration untuk marker_persist_task (definisi di bawah).
+static void marker_persist_task(void *pvParameters);
+static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf);
 
 static void copy_string(char *dst, size_t dst_size, const char *src) {
   if (!dst || dst_size == 0)
@@ -452,16 +470,75 @@ static void hydrate_runtime_markers(void) {
   }
 }
 
-static esp_err_t persist_markers(void) {
+// RC-1: Tulis snapshot marker ke NVS. Tidak mengakses s_mutex; pemanggil harus
+// sudah meng-copy s_markers[] ke buffer lokal sebelum memanggil fungsi ini.
+static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf) {
+  if (!buf)
+    return ESP_ERR_INVALID_ARG;
   nvs_handle_t handle;
   esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
   if (err != ESP_OK)
     return err;
-  err = nvs_set_blob(handle, NVS_KEY_MARKERS, s_markers, sizeof(s_markers));
+  err = nvs_set_blob(handle, NVS_KEY_MARKERS, buf, sizeof(scheduler_marker_t) * MAX_COMPILED_SCHEDULES);
   if (err == ESP_OK)
     err = nvs_commit(handle);
   nvs_close(handle);
   return err;
+}
+
+// RC-1: Task terpisah yang menangani NVS write untuk s_markers. Marker data
+// adalah reconciliation state yang toleran terhadap delay persist 100ms, jadi
+// aman untuk memproses secara asynchronous. NVS write 100-500ms tidak boleh
+// dijalankan di dalam s_mutex karena akan memblok HTTP handler dan menyebabkan
+// IDLE Core 1 starvation -> TWDT reset.
+static void marker_persist_task(void *pvParameters) {
+  (void)pvParameters;
+  ESP_LOGI(TAG, "marker_persist_task running (stack=%d, prio=%d, core=1)",
+           MARKER_PERSIST_TASK_STACK, MARKER_PERSIST_TASK_PRIO);
+  // P0-FIX: Register to WDT with bounded notification wait.
+  // Previously portMAX_DELAY on xTaskNotifyWait → if no notification, task
+  // blocks forever without WDT trigger (not registered). Now registered with
+  // 5s bounded wait — feeds WDT even when idle.
+  esp_task_wdt_add(NULL);
+  // Buffer lokal snapshot
+  static EXT_RAM_BSS_ATTR scheduler_marker_t s_marker_snapshot[MAX_COMPILED_SCHEDULES];
+  while (1) {
+    esp_task_wdt_reset();
+    // P0-FIX: Bounded wait 5s instead of portMAX_DELAY — feeds WDT even when idle.
+    (void)xTaskNotifyWait(0x00, 0xFFFFFFFF, NULL, pdMS_TO_TICKS(5000));
+
+    // Loop untuk memproses multiple pending writes yang mungkin terjadi selama
+    // satu siklus persist. Jika flag masih setelah snapshot, ulangi.
+    for (;;) {
+      // Stage 1: Akuisisi s_mutex singkat hanya untuk menyalin s_markers[] ke
+      // buffer lokal. Kritikal section ini hanya berisi memcpy, jadi sangat cepat.
+      if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
+        memcpy(s_marker_snapshot, s_markers, sizeof(s_markers));
+        xSemaphoreGive(s_mutex);
+      } else {
+        // Mutex belum siap (init belum selesai?) — coba lagi nanti.
+        break;
+      }
+
+      // Clear flag setelah snapshot diambil. Jika marker_update() menulis lagi
+      // selama NVS I/O, flag akan kembali set dan loop akan mengulang.
+      portENTER_CRITICAL(&s_marker_spinlock);
+      s_marker_persist_pending = false;
+      portEXIT_CRITICAL(&s_marker_spinlock);
+
+      // Stage 2: Tulis NVS di LUAR s_mutex. Bisa memakan 100-500ms.
+      (void)persist_markers_from_buffer(s_marker_snapshot);
+
+      // Stage 3: Cek apakah ada update baru yang masuk selama Stage 2. Jika
+      // ya, ulangi seluruh siklus; jika tidak, selesai dan tunggu notifikasi
+      // berikutnya.
+      portENTER_CRITICAL(&s_marker_spinlock);
+      bool still_pending = s_marker_persist_pending;
+      portEXIT_CRITICAL(&s_marker_spinlock);
+      if (!still_pending)
+        break;
+    }
+  }
 }
 
 static void load_markers(void) {
@@ -983,7 +1060,16 @@ static void marker_update(runtime_schedule_t *sched, marker_state_t state,
       sched->pending ? sched->pending_occurrence_timestamp : 0;
   copy_string(m->command_id, sizeof(m->command_id),
               command_id ? command_id : sched->current_command_id);
-  (void)persist_markers();
+
+  // RC-1: Jangan panggil persist_markers() (NVS write 100-500ms) di dalam
+  // s_mutex. Set flag persist pending secara atomik dan kirim notifikasi ke
+  // marker_persist_task yang akan melakukan NVS write di luar s_mutex.
+  portENTER_CRITICAL(&s_marker_spinlock);
+  s_marker_persist_pending = true;
+  portEXIT_CRITICAL(&s_marker_spinlock);
+  if (s_marker_persist_task_handle) {
+    xTaskNotifyGive(s_marker_persist_task_handle);
+  }
 
   sched->marker_state = state;
 }
@@ -1691,7 +1777,16 @@ static void check_distribution_completions(void) {
         fertigation_state_t st = fertigation_mgr_get_state();
         if (st == FERT_STATE_COMPLETE || st == FERT_STATE_IDLE) {
           fertigation_last_terminal_t term;
-          if (fertigation_mgr_get_last_terminal(&term) == ESP_OK && term.state == FERT_STATE_COMPLETE) {
+          // ITEM-2: Use per-run terminal lookup so we get THIS occurrence's
+          // terminal state, not whichever slot happened to terminal last.
+          // occ->batch_id is the run_id we submitted to fertigation_mgr.
+          esp_err_t term_err;
+          if (occ->batch_id[0]) {
+            term_err = fertigation_mgr_get_last_terminal_for_run(occ->batch_id, &term);
+          } else {
+            term_err = fertigation_mgr_get_last_terminal(&term);
+          }
+          if (term_err == ESP_OK && term.state == FERT_STATE_COMPLETE) {
             occ->state = OCC_STATE_COMPLETED;
             ESP_LOGI(TAG, "Occurrence %s distribution completed successfully!", occ->occurrence_id);
 
@@ -1903,9 +1998,13 @@ static void scheduler_task(void *pvParameters) {
   TickType_t last_wake = xTaskGetTickCount();
   ESP_LOGI(TAG,
            "Production runtime scheduler active: 1 second evaluation tick");
+  // RC-7: Register scheduler_task to Task WDT so watchdog resets identify
+  // the stuck task by name (vs generic "IDLE (CPU 1)" message).
+  esp_task_wdt_add(NULL);
   static bool s_clock_warned = false;
   while (1) {
     vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SCHEDULER_TICK_MS));
+    esp_task_wdt_reset();  // RC-7: Feed WDT each tick
     time_t now;
     time(&now);
     esp_err_t err = scheduler_evaluate_at(now);
@@ -2038,6 +2137,17 @@ esp_err_t scheduler_init(void) {
     vSemaphoreDelete(s_mutex);
     s_mutex = NULL;
     return ESP_ERR_NO_MEM;
+  }
+  // RC-1: Spawn marker_persist_task di Core 1 untuk memproses NVS write marker
+  // secara asynchronous (di luar s_mutex). Prioritas 2 lebih rendah dari
+  // scheduler_task (prio 4) agar tidak mengganggu evaluation tick.
+  if (xTaskCreatePinnedToCore(marker_persist_task, "mk_persist",
+                              MARKER_PERSIST_TASK_STACK, NULL,
+                              MARKER_PERSIST_TASK_PRIO,
+                              &s_marker_persist_task_handle, 1) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create marker_persist_task; "
+                  "marker persistence akan tertunda");
+    s_marker_persist_task_handle = NULL;
   }
   return ESP_OK;
 }

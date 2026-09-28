@@ -121,7 +121,8 @@ esp_err_t offline_sync_mgr_init(void)
     if (s_initialized) return ESP_OK;
     (void)storage_mgr_get_sync_cursor("telemetry", &s_telemetry_cursor);
     (void)storage_mgr_get_sync_cursor("events", &s_event_cursor);
-    BaseType_t ok = xTaskCreatePinnedToCore(sync_task, "offline_sync", 7168, NULL, 3, NULL, 1);
+    // HEAP-FIX: Was 7168. cJSON + HTTP ops go to PSRAM. Saves 3KB internal RAM.
+    BaseType_t ok = xTaskCreatePinnedToCore(sync_task, "offline_sync", 4096, NULL, 3, NULL, 1);
     if (ok != pdPASS) return ESP_ERR_NO_MEM;
     s_initialized = true;
     ESP_LOGI(TAG, "Offline sync manager initialized; cursors telemetry=%" PRIu64 " events=%" PRIu64, s_telemetry_cursor, s_event_cursor);

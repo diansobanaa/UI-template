@@ -232,8 +232,10 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
 
     if (comp_info.wiring.interface != HW_INTERFACE_GPIO || comp_info.wiring.gpio < 0) {
         xSemaphoreGive(s_lock);
-        ESP_LOGW(TAG, "Blocked %s: component '%s' has no configured GPIO binding",
-                 s_actuators[id].name, comp_info.component_id);
+        ESP_LOGW(TAG, "Blocked %s: component '%s' has no configured GPIO binding (interface=%d)",
+                 s_actuators[id].name, comp_info.component_id, (int)comp_info.wiring.interface);
+        // Legacy enum path supports GPIO only; I2C components must be driven
+        // via actuator_hal_set_by_component_id() which has the PCA9685 hook.
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -294,8 +296,9 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (info.wiring.interface != HW_INTERFACE_GPIO || info.wiring.gpio < 0) {
+    if (info.wiring.interface != HW_INTERFACE_GPIO && info.wiring.interface != HW_INTERFACE_I2C) {
         xSemaphoreGive(s_lock);
+        ESP_LOGW(TAG, "Component '%s' has unsupported interface %d.", component_id, (int)info.wiring.interface);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -307,6 +310,32 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Blocked component '%s' ON: safety lock is active.", component_id);
         return ESP_ERR_INVALID_STATE;
+    }
+
+    if (info.wiring.interface == HW_INTERFACE_I2C) {
+        // Pathway B (DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3 Pathway B):
+        // PCA9685 16-channel I2C PWM driver for dosing C..G expansion.
+        // Driver implementation pending hardware validation; until then we
+        // return ESP_ERR_NOT_SUPPORTED with a clear log so the calling
+        // fertigation_mgr fault path emits DOSING_ACTUATOR_REJECTED.
+        //
+        // When the PCA9685 driver is added (hal/pca9685.c), this branch
+        // should call (parse address string to int first):
+        //   int i2c_addr = (int)strtol(info.wiring.address, NULL, 0);
+        //   esp_err_t err = pca9685_set_channel(i2c_addr,
+        //                                        info.wiring.channel,
+        //                                        on ? active_level : !active_level);
+        xSemaphoreGive(s_lock);
+        ESP_LOGW(TAG, "Component '%s' (role=%s) uses I2C channel %d @ addr '%s' — driver pending.",
+                 component_id, info.role, info.wiring.channel, info.wiring.address);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // Pathway A: GPIO direct drive
+    if (info.wiring.gpio < 0) {
+        xSemaphoreGive(s_lock);
+        ESP_LOGW(TAG, "Component '%s' has invalid GPIO %d.", component_id, info.wiring.gpio);
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     gpio_num_t gpio = (gpio_num_t)info.wiring.gpio;
@@ -524,6 +553,21 @@ esp_err_t actuator_hal_force_off_component(const char *component_id)
     hw_component_info_t info;
     esp_err_t err = hardware_registry_find_by_id(component_id, &info);
     if (err != ESP_OK) { xSemaphoreGive(s_lock); return err; }
+    if (info.wiring.interface == HW_INTERFACE_I2C) {
+        // PCA9685 I2C force-off: driver pending. Safety path must still
+        // mark runtime state so the component is treated as OFF.
+        runtime_set_locked(component_id, false, ACTUATOR_OWNER_SAFETY);
+        for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
+            hw_component_info_t mapped;
+            if (resolve_configured_actuator((actuator_id_t)i, &mapped) == ESP_OK && strcmp(mapped.component_id, component_id) == 0) {
+                s_actuators[i].state = false;
+                s_actuators[i].owner = ACTUATOR_OWNER_SAFETY;
+            }
+        }
+        xSemaphoreGive(s_lock);
+        ESP_LOGW(TAG, "Component '%s' (I2C) force-off: PCA9685 driver pending; runtime state marked OFF.", component_id);
+        return ESP_OK;
+    }
     if (info.wiring.interface != HW_INTERFACE_GPIO || info.wiring.gpio < 0) { xSemaphoreGive(s_lock); return ESP_ERR_NOT_SUPPORTED; }
     component_runtime_state_t *state = runtime_find_locked(component_id, false);
     const bool was_on = state ? state->on : false;

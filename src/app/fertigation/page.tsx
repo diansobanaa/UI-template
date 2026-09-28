@@ -29,6 +29,13 @@ import { number } from "@/lib/validation";
 import { n } from "@/lib/format";
 import { complexRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
+import {
+  TodayOccurrencesPanel,
+  MixingBatchesPanel,
+  DistributionPanel,
+  DosingQueuePanelThin,
+  FertigationHistoryPanel,
+} from "@/components/fertigation/FertigationRuntimePanels";
 
 const STEP_ICONS = { done: "✓", active: "●", pending: "○" } as const;
 
@@ -48,12 +55,21 @@ function FertigationContent() {
 
   const complexes = complexService.list();
   const rawComplexId = (params.get("complex") ?? "").trim();
-  const complex = (rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null) ?? complexes[0];
+  // F-H1: Jangan silent-fallback ke complexes[0] — bisa leak data ke Complex lain saat Complex aktif dihapus.
+  const complex = rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null;
+  useEffect(() => {
+    if (rawComplexId && !complex) {
+      // rawComplexId specified tapi tidak ditemukan — tampilkan toast, jangan silent-swap.
+      toast("Complex not found", "error");
+    }
+  }, [rawComplexId, complex, toast]);
   if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
   const selectedGhId = params.get("gh") ?? "";
   const selectedGh = selectedGhId ? greenhouseService.get(selectedGhId) : undefined;
   const realtimeState = complexRealtimeState(complex, ghs);
+  // ITEM-5: ghCodeMap for runtime panels (ghId → display code)
+  const ghCodeMap: Record<string, string> = Object.fromEntries(ghs.map((g) => [g.id, g.code || g.greenhouseTag || g.id]));
 
   const [manualOpen, setManualOpen] = useState(false);
   const [manualGhId, setManualGhId] = useState(selectedGhId);
@@ -467,8 +483,16 @@ function FertigationContent() {
                     <div className="mt-3.5 grid grid-cols-3 gap-2.5">
                       {[
                         { label: "Water", value: `${r.waterDoneL} / ${r.targetWaterL} L` },
-                        { label: "Dosing A", value: `${r.dosingADoneMl} / ${r.dosingAml} ml` },
-                        { label: "Dosing B", value: `${r.dosingBDoneMl} / ${r.dosingBml} ml` },
+                        // PRD §8.6 / F-C5: dynamic dosing channels — render per-registry (semua channel, bukan slice 2), fallback A/B untuk record lama.
+                        ...(Array.isArray(r.dosingChannels) && r.dosingChannels.length > 0
+                          ? r.dosingChannels.map((ch) => ({
+                              label: ch.componentId,
+                              value: `${ch.doneMl ?? 0} / ${ch.requestedMl} ml`,
+                            }))
+                          : [
+                              { label: "A", value: `${r.dosingADoneMl ?? 0} / ${r.dosingAml ?? 0} ml` },
+                              { label: "B", value: `${r.dosingBDoneMl ?? 0} / ${r.dosingBml ?? 0} ml` },
+                            ]),
                       ].map((s) => (
                         <div key={s.label} className="rounded-lg bg-[#0b2027] px-2.5 py-2 text-center shadow-sm">
                           <div className="text-[10px] text-slate-500">{s.label}</div>
@@ -644,8 +668,7 @@ function FertigationContent() {
                   <th className="pb-2.5 font-medium">Date & Time</th>
                   <th className="pb-2.5 font-medium">Recipe</th>
                   <th className="pb-2.5 font-medium">Water</th>
-                  <th className="pb-2.5 font-medium">Dosing A</th>
-                  <th className="pb-2.5 font-medium">Dosing B</th>
+                  <th className="pb-2.5 font-medium">Dosing Channels</th>
                   <th className="pb-2.5 font-medium">Duration</th>
                   <th className="pb-2.5 font-medium">Result</th>
                 </tr>
@@ -657,8 +680,11 @@ function FertigationContent() {
                     <td className="py-3 pr-3 text-slate-300">{h.date} {h.time}</td>
                     <td className="py-3 pr-3 text-slate-300">{h.recipeName}</td>
                     <td className="py-3 pr-3 text-slate-300">{n(h.waterL)} L</td>
-                    <td className="py-3 pr-3 text-slate-300">{n(h.dosingAml)} ml</td>
-                    <td className="py-3 pr-3 text-slate-300">{n(h.dosingBml)} ml</td>
+                    <td className="py-3 pr-3 text-slate-300">
+                      {Array.isArray(h.dosingChannels) && h.dosingChannels.length > 0
+                        ? h.dosingChannels.map((ch) => `${ch.componentId}: ${n(ch.requestedMl)}ml`).join(", ")
+                        : `A: ${n(h.dosingAml ?? 0)}ml / B: ${n(h.dosingBml ?? 0)}ml`}
+                    </td>
                     <td className="py-3 pr-3 text-slate-300">{h.durationMin ? `${h.durationMin} min` : "–"}</td>
                     <td className="py-3"><StatusBadge status={h.result} /></td>
                   </tr>
@@ -732,6 +758,15 @@ function FertigationContent() {
         message={`Lift the latched emergency stop on ${complex.code}? Pumps and valves become available again; schedules resume their normal behaviour.`}
         confirmLabel={resuming ? "Resuming…" : "Resume System"}
       />
+      </div>
+
+      {/* ITEM-5: Fertigation runtime panels (Entity 3/4/5/6 — 1:1 with firmware) */}
+      <div className="mt-6 space-y-4">
+        <TodayOccurrencesPanel selectedGhId={selectedGhId} ghCodeMap={ghCodeMap} />
+        <MixingBatchesPanel selectedGhId={selectedGhId} ghCodeMap={ghCodeMap} />
+        <DistributionPanel selectedGhId={selectedGhId} ghCodeMap={ghCodeMap} />
+        <DosingQueuePanelThin selectedGhId={selectedGhId} ghCodeMap={ghCodeMap} />
+        <FertigationHistoryPanel selectedGhId={selectedGhId} ghCodeMap={ghCodeMap} />
       </div>
     </AppShell>
   );

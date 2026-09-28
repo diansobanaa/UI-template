@@ -1,4 +1,5 @@
 #include "services/transfer_mgr.h"
+#include "utils/psram_task.h"
 #include "hal/hardware_registry.h"
 #include "config/pin_config.h"
 #include "driver/gpio.h"
@@ -108,7 +109,7 @@ esp_err_t transfer_mgr_init(void)
     s_ctx.source_component_id[0] = '\0';
     s_ctx.destination_component_id[0] = '\0';
     
-    xTaskCreatePinnedToCore(transfer_worker_task, "transfer_mgr", 3072, NULL, 3, NULL, 1);
+    psram_task_create_pinned(transfer_worker_task, "transfer_mgr", 3072, NULL, 3, NULL, 1);
     return ESP_OK;
 }
 

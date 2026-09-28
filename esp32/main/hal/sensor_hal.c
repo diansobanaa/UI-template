@@ -256,17 +256,30 @@ read_generic_analog_sample(const hw_component_info_t *info,
     return ESP_ERR_INVALID_STATE;
   }
   float value = (float)raw;
-  cJSON *params =
-      cJSON_Parse(info->parameters_json[0] ? info->parameters_json : "{}");
-  if (params) {
-    cJSON *v = cJSON_GetObjectItem(params, "rawScale");
-    if (v && cJSON_IsNumber(v))
-      value *= (float)v->valuedouble;
-    v = cJSON_GetObjectItem(params, "rawOffset");
-    if (v && cJSON_IsNumber(v))
-      value += (float)v->valuedouble;
-    cJSON_Delete(params);
+  // RC-5: Baca rawScale/rawOffset dari pre-parsed cache (diisi saat registry
+  // load). Fallback cJSON_Parse hanya jika cache invalid (seharusnya tidak
+  // terjadi setelah fix RC-5).
+  float raw_scale = 1.0f;
+  float raw_offset = 0.0f;
+  if (info && info->parsed_params.valid) {
+    raw_scale = info->parsed_params.raw_scale;
+    raw_offset = info->parsed_params.raw_offset;
+  } else if (info) {
+    ESP_LOGW(TAG, "parsed_params cache invalid for %s; falling back to cJSON_Parse",
+             info->component_id);
+    cJSON *params =
+        cJSON_Parse(info->parameters_json[0] ? info->parameters_json : "{}");
+    if (params) {
+      cJSON *v = cJSON_GetObjectItem(params, "rawScale");
+      if (v && cJSON_IsNumber(v))
+        raw_scale = (float)v->valuedouble;
+      v = cJSON_GetObjectItem(params, "rawOffset");
+      if (v && cJSON_IsNumber(v))
+        raw_offset = (float)v->valuedouble;
+      cJSON_Delete(params);
+    }
   }
+  value = value * raw_scale + raw_offset;
 
   if (generic_sensor_requires_linear_calibration(descriptor->sensor_type)) {
     if (!descriptor->calibration_reference[0] ||
@@ -392,14 +405,24 @@ static void poll_generic_sensor_inputs(void) {
     if (d.sensor_type == SENSOR_TYPE_LEVEL &&
         info.wiring.interface == HW_INTERFACE_GPIO) {
       int level = gpio_get_level(info.wiring.gpio);
+      // RC-5: Baca active_level dari pre-parsed cache (diisi saat registry load),
+      // bukan cJSON_Parse setiap poll 2s.
       int active_level = 1;
-      cJSON *params =
-          cJSON_Parse(info.parameters_json[0] ? info.parameters_json : "{}");
-      if (params) {
-        cJSON *v = cJSON_GetObjectItem(params, "activeLevel");
-        if (v && cJSON_IsNumber(v))
-          active_level = v->valueint ? 1 : 0;
-        cJSON_Delete(params);
+      if (info.parsed_params.valid) {
+        active_level = info.parsed_params.active_level ? 1 : 0;
+      } else {
+        // Fallback: cache belum di-populate (seharusnya tidak terjadi setelah
+        // fix RC-5). Log warning dan pakai cJSON_Parse untuk safety.
+        ESP_LOGW(TAG, "parsed_params cache invalid for %s; falling back to cJSON_Parse",
+                 info.component_id);
+        cJSON *params =
+            cJSON_Parse(info.parameters_json[0] ? info.parameters_json : "{}");
+        if (params) {
+          cJSON *v = cJSON_GetObjectItem(params, "activeLevel");
+          if (v && cJSON_IsNumber(v))
+            active_level = v->valueint ? 1 : 0;
+          cJSON_Delete(params);
+        }
       }
       slot->sample.value = level == active_level ? 1.0f : 0.0f;
       slot->sample.has_value = true;
@@ -525,12 +548,34 @@ esp_err_t sensor_hal_init(void) {
   gpio_set_pull_mode(PIN_IN_TEMP_DS18B20, GPIO_PULLUP_ENABLE);
 
   /* 4. Configure Tamper Loop Security Pin */
+#if FEATURE_TAMPER_LOOP_ENABLED
   gpio_config_t tamper_conf = {.mode = GPIO_MODE_INPUT,
                                .pull_up_en = GPIO_PULLUP_ENABLE,
                                .pull_down_en = GPIO_PULLDOWN_DISABLE,
                                .intr_type = GPIO_INTR_DISABLE,
                                .pin_bit_mask = (1ULL << PIN_IN_TAMPER_LOOP)};
   ESP_ERROR_CHECK(gpio_config(&tamper_conf));
+#else
+  /* Commissioning bypass: loop supervision disabled at compile time.
+   * Loud warning so this can never be mistaken for a supervised build. */
+  ESP_LOGW(TAG, "FEATURE_TAMPER_LOOP_ENABLED=0: TAMPER LOOP SUPERVISION BYPASSED. "
+                "Tamper input forced OK; E-STOP will NOT trip on an open loop. "
+                "Wire the physical loop and rebuild with =1 for production!");
+#endif
+
+  /* TAMPER-FIX (2026-09-28): seed the tamper snapshot BEFORE the safety
+   * monitor's first evaluation. s_current_readings is zero-initialized and
+   * the safety monitor task runs ~2.5s before the first sensor_hal_poll(),
+   * so without this !tamper_loop_ok is true at boot and the monitor latches
+   * TAMPER_LOOP_OPEN (+ E-STOP + maintenance flag) on every boot even when
+   * FEATURE_TAMPER_LOOP_ENABLED=0. With the loop enabled, seed from the real
+   * pin level; with the bypass, seed true to match the poll() behavior. */
+#if FEATURE_TAMPER_LOOP_ENABLED
+  s_current_readings.tamper_loop_ok =
+      (gpio_get_level(PIN_IN_TAMPER_LOOP) == TAMPER_LOOP_OK);
+#else
+  s_current_readings.tamper_loop_ok = true; /* matches poll() bypass */
+#endif
 
   /* 5. Configure DHT22 Environmental Sensor Pin */
   dht22_init((gpio_num_t)PIN_IN_DHT22);
@@ -581,25 +626,43 @@ esp_err_t sensor_hal_poll(void) {
   /* DHT22 Temperature & Humidity Reading - Non Blocking (Every 3s minimum
      interval) Performed OUTSIDE s_sensor_lock so the mutex is not held across
      the 20ms pulse / critical section. */
-  static int64_t s_last_dht22_poll_ms = 0;
+  static int64_t s_last_dht22_poll_ms = -(int64_t)DHT22_POLL_INTERVAL_MS;  /* force read on first boot */
   int64_t dht_now_ms = esp_timer_get_time() / 1000LL;
-  bool should_poll_dht22 = (dht_now_ms - s_last_dht22_poll_ms >= 3000);
+  bool should_poll_dht22 = (dht_now_ms - s_last_dht22_poll_ms >= DHT22_POLL_INTERVAL_MS);
   float dht_temp = 0.0f, dht_hum = 0.0f;
   esp_err_t dht_err = ESP_ERR_NOT_FOUND;
 
   if (should_poll_dht22) {
-    /* DHT22 is a fixed authoritative physical sensor on GPIO 41.
-       Do not resolve this pin from an arbitrary ENVIRONMENT_SENSOR entry. */
+    /* FIX(FIX-EQUIPMENT-DHT22): DHT22 is now ENABLED on GPIO 41 per SSOT
+     * docs/HARDWARE_WIRING_MAP.md W-23. Button 4 / Network Change Mode is
+     * DISABLED (PIN_BTN_RESERVED = -1) and is instead accessible via the
+     * embedded /setup web UI served by the ESP32 SoftAP. When PIN_IN_DHT22
+     * is -1 (e.g. future hardware rewiring), dht22_read returns
+     * ESP_ERR_INVALID_ARG and the readings stay at SENSOR_STATE_UNAVAILABLE
+     * — UI must not assume humidity/air-temperature data is available in
+     * that case. */
     const int dht_gpio = PIN_IN_DHT22;
-    dht_err = dht22_read((gpio_num_t)dht_gpio, &dht_temp, &dht_hum);
-    s_last_dht22_poll_ms = dht_now_ms;
-    if (dht_err == ESP_OK) {
-      ESP_LOGI(TAG,
-               "DHT22 read success on GPIO %d: Temp=%.1f C, Humidity=%.1f %%",
-               dht_gpio, dht_temp, dht_hum);
+    if (dht_gpio >= 0) {
+      dht_err = dht22_read((gpio_num_t)dht_gpio, &dht_temp, &dht_hum);
+      s_last_dht22_poll_ms = dht_now_ms;
+      if (dht_err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "DHT22 read success on GPIO %d: Temp=%.1f C, Humidity=%.1f %%",
+                 dht_gpio, dht_temp, dht_hum);
+      } else {
+        /* Transient noise (CRC mismatch, range check): next read usually OK → LOGD.
+         * Timeout = sensor not responding at all → keep LOGW for real issues. */
+        if (dht_err == ESP_ERR_INVALID_CRC || dht_err == ESP_ERR_INVALID_RESPONSE) {
+          ESP_LOGD(TAG, "DHT22 transient on GPIO %d: err=%d (%s)", dht_gpio,
+                   dht_err, esp_err_to_name(dht_err));
+        } else {
+          ESP_LOGW(TAG, "DHT22 read failed on GPIO %d: err=%d (%s)", dht_gpio,
+                   dht_err, esp_err_to_name(dht_err));
+        }
+      }
     } else {
-      ESP_LOGW(TAG, "DHT22 read failed on GPIO %d: err=%d (%s)", dht_gpio,
-               dht_err, esp_err_to_name(dht_err));
+      s_last_dht22_poll_ms = dht_now_ms;
+      ESP_LOGI(TAG, "DHT22 unmapped (PIN_IN_DHT22 = -1); skipping poll.");
     }
   }
 
@@ -624,18 +687,27 @@ esp_err_t sensor_hal_poll(void) {
 
   /* Tamper Loop: Level 0 = OK (closed to GND), Level 1 = LOW (tampered/cut,
    * pulled high) */
+#if FEATURE_TAMPER_LOOP_ENABLED
   s_current_readings.tamper_loop_ok =
       (gpio_get_level(PIN_IN_TAMPER_LOOP) == TAMPER_LOOP_OK);
+#else
+  s_current_readings.tamper_loop_ok = true; /* commissioning bypass, see init */
+#endif
 
   /* DS18B20 Temperature Reading - Non Blocking */
   float temp_val = 0.0f;
+  static int64_t s_last_ds18b20_poll_ms = -(int64_t)DS18B20_POLL_INTERVAL_MS;  /* force read on first boot */
+  int64_t ds_now_ms = esp_timer_get_time() / 1000LL;
 
   if (s_ds18b20_state == DS18B20_STATE_IDLE) {
-    if (ds18b20_start_conversion(PIN_IN_TEMP_DS18B20) == ESP_OK) {
-      s_ds18b20_state = DS18B20_STATE_WAIT_CONV;
-      s_ds18b20_start_tick = xTaskGetTickCount();
-    } else {
-      s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
+    if ((ds_now_ms - s_last_ds18b20_poll_ms) >= DS18B20_POLL_INTERVAL_MS) {
+      if (ds18b20_start_conversion(PIN_IN_TEMP_DS18B20) == ESP_OK) {
+        s_ds18b20_state = DS18B20_STATE_WAIT_CONV;
+        s_ds18b20_start_tick = xTaskGetTickCount();
+      } else {
+        s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
+        s_last_ds18b20_poll_ms = ds_now_ms; /* back-off on error too */
+      }
     }
   } else if (s_ds18b20_state == DS18B20_STATE_WAIT_CONV) {
     if ((xTaskGetTickCount() - s_ds18b20_start_tick) >= pdMS_TO_TICKS(750)) {
@@ -644,7 +716,8 @@ esp_err_t sensor_hal_poll(void) {
       if (s_current_readings.temp_state == SENSOR_STATE_VALID) {
         s_current_readings.temperature_c = temp_val;
       }
-      s_ds18b20_state = DS18B20_STATE_IDLE; // Ready for next cycle
+      s_last_ds18b20_poll_ms = ds_now_ms;
+      s_ds18b20_state = DS18B20_STATE_IDLE;
     }
   }
 
@@ -845,37 +918,63 @@ static bool generic_parse_descriptor(const hw_component_info_t *info,
     break;
   }
   out->sampling_interval_ms = 1000;
-  cJSON *params =
-      cJSON_Parse(info->parameters_json[0] ? info->parameters_json : "{}");
-  if (params) {
-    cJSON *v = cJSON_GetObjectItem(params, "unit");
-    if (v && cJSON_IsString(v))
-      strncpy(out->unit, v->valuestring, sizeof(out->unit) - 1);
-    v = cJSON_GetObjectItem(params, "samplingIntervalMs");
-    if (v && cJSON_IsNumber(v) && v->valuedouble > 0)
-      out->sampling_interval_ms = (uint32_t)v->valuedouble;
-    v = cJSON_GetObjectItem(params, "calibrationReference");
-    if (v && cJSON_IsString(v))
-      strncpy(out->calibration_reference, v->valuestring,
+  // RC-5: Baca semua field parameter dari pre-parsed cache (diisi saat registry
+  // load) alih-alih cJSON_Parse setiap pemanggilan (yang terjadi 32x per 2s
+  // cycle di poll_generic_sensor_inputs, plus 1x per generic flow slot).
+  // Fallback cJSON_Parse hanya jika cache invalid (seharusnya tidak terjadi
+  // setelah fix RC-5).
+  if (info->parsed_params.valid) {
+    const sensor_parsed_params_t *sp = &info->parsed_params;
+    if (sp->unit[0])
+      strncpy(out->unit, sp->unit, sizeof(out->unit) - 1);
+    out->sampling_interval_ms = sp->sampling_interval_ms;
+    if (sp->calibration_reference[0])
+      strncpy(out->calibration_reference, sp->calibration_reference,
               sizeof(out->calibration_reference) - 1);
-    v = cJSON_GetObjectItem(params, "calibrationType");
-    if (v && cJSON_IsString(v))
-      strncpy(out->calibration_type, v->valuestring,
+    if (sp->calibration_type[0])
+      strncpy(out->calibration_type, sp->calibration_type,
               sizeof(out->calibration_type) - 1);
-    v = cJSON_GetObjectItem(params, "calibrationVersion");
-    if (v && cJSON_IsNumber(v) && v->valuedouble > 0)
-      out->calibration_version = (uint32_t)v->valuedouble;
-    v = cJSON_GetObjectItem(params, "minValue");
-    if (v && cJSON_IsNumber(v)) {
-      out->min_value = (float)v->valuedouble;
+    out->calibration_version = sp->calibration_version;
+    if (sp->has_validity_range) {
+      out->min_value = sp->min_value;
+      out->max_value = sp->max_value;
       out->has_validity_range = true;
     }
-    v = cJSON_GetObjectItem(params, "maxValue");
-    if (v && cJSON_IsNumber(v)) {
-      out->max_value = (float)v->valuedouble;
-      out->has_validity_range = true;
+  } else {
+    ESP_LOGW(TAG, "parsed_params cache invalid for %s; falling back to cJSON_Parse",
+             info->component_id);
+    cJSON *params =
+        cJSON_Parse(info->parameters_json[0] ? info->parameters_json : "{}");
+    if (params) {
+      cJSON *v = cJSON_GetObjectItem(params, "unit");
+      if (v && cJSON_IsString(v))
+        strncpy(out->unit, v->valuestring, sizeof(out->unit) - 1);
+      v = cJSON_GetObjectItem(params, "samplingIntervalMs");
+      if (v && cJSON_IsNumber(v) && v->valuedouble > 0)
+        out->sampling_interval_ms = (uint32_t)v->valuedouble;
+      v = cJSON_GetObjectItem(params, "calibrationReference");
+      if (v && cJSON_IsString(v))
+        strncpy(out->calibration_reference, v->valuestring,
+                sizeof(out->calibration_reference) - 1);
+      v = cJSON_GetObjectItem(params, "calibrationType");
+      if (v && cJSON_IsString(v))
+        strncpy(out->calibration_type, v->valuestring,
+                sizeof(out->calibration_type) - 1);
+      v = cJSON_GetObjectItem(params, "calibrationVersion");
+      if (v && cJSON_IsNumber(v) && v->valuedouble > 0)
+        out->calibration_version = (uint32_t)v->valuedouble;
+      v = cJSON_GetObjectItem(params, "minValue");
+      if (v && cJSON_IsNumber(v)) {
+        out->min_value = (float)v->valuedouble;
+        out->has_validity_range = true;
+      }
+      v = cJSON_GetObjectItem(params, "maxValue");
+      if (v && cJSON_IsNumber(v)) {
+        out->max_value = (float)v->valuedouble;
+        out->has_validity_range = true;
+      }
+      cJSON_Delete(params);
     }
-    cJSON_Delete(params);
   }
   return out->sensor_type != SENSOR_TYPE_UNKNOWN;
 }

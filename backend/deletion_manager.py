@@ -9,6 +9,11 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+def _esp32_api_token() -> str:
+    """Return ESP32 peer-auth bearer token. No hardcoded default — see server.py for rationale."""
+    return os.getenv('ESP32_API_TOKEN', '')
+
+
 try:
     from .deletion_store import DELETION_STORE, ACTIVE_STATUSES
     from .operational_store import OPERATIONAL_STORE
@@ -94,7 +99,7 @@ class DeletionManager:
             url,
             headers={
                 "Accept": "application/json",
-                "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                "Authorization": f"Bearer {_esp32_api_token()}",
             },
         )
         try:
@@ -121,7 +126,7 @@ class DeletionManager:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                "Authorization": f"Bearer {_esp32_api_token()}",
             },
         )
         try:

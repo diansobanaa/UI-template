@@ -470,42 +470,6 @@ paths:
         "404":
           $ref: "#/components/responses/NotFoundError"
 
-  /api/v1/schedules/compiled:
-    get:
-      tags: [Schedules]
-      summary: Return derived compiled FreeRTOS scheduler executable set
-      operationId: getCompiledSchedules
-      responses:
-        "200":
-          description: Active compiled schedules in FreeRTOS scheduler
-    post:
-      tags: [Schedules]
-      summary: Deploy compiled FreeRTOS scheduler executable set
-      operationId: deployCompiledSchedules
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [schedules]
-      responses:
-        "200":
-          description: Compiled schedules activated in FreeRTOS scheduler
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-    delete:
-      tags: [Schedules]
-      summary: Clear compiled FreeRTOS scheduler executable set
-      operationId: clearCompiledSchedules
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Compiled schedules cleared
-
   /api/v1/commands/emergency-stop:
     post:
       tags: [Commands]
@@ -1037,6 +1001,8 @@ paths:
     post:
       tags: [Schedule]
       operationId: deployCompiledSchedules
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1050,6 +1016,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnvelopeBase"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "409":
           $ref: "#/components/responses/ConflictError"
         "422":
@@ -1057,6 +1025,8 @@ paths:
     delete:
       tags: [Schedule]
       operationId: clearCompiledSchedules
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Compiled schedule set cleared
@@ -1064,100 +1034,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnvelopeBase"
-
-  /api/v1/schedule-intents:
-    get:
-      tags: [Schedule]
-      summary: List persistent schedule intents
-      description: Returns all authoritative schedule intents persisted in NVS
-      operationId: getScheduleIntents
-      responses:
-        "200":
-          description: List of authoritative schedule intents
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/EnvelopeBase"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
-                          items:
-                            type: array
-                            items:
-                              type: object
-                          total: { type: integer }
-                          revision: { type: integer }
-    post:
-      tags: [Schedule]
-      summary: Create or update schedule intent
-      description: Persists an authoritative user schedule intent in NVS
-      operationId: saveScheduleIntent
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: Schedule intent saved
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/EnvelopeBase"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-
-  /api/v1/schedule-intents/{id}:
-    put:
-      tags: [Schedule]
-      summary: Update schedule intent
-      description: Updates an authoritative user schedule intent by ID in NVS
-      operationId: updateScheduleIntent
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: Schedule intent updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/EnvelopeBase"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-    delete:
-      tags: [Schedule]
-      summary: Delete schedule intent
-      description: Removes an authoritative user schedule intent by ID from NVS
-      operationId: deleteScheduleIntent
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: Schedule intent removed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/EnvelopeBase"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
 
   /api/v1/schedules:
     get:
@@ -2339,19 +2217,6 @@ components:
             expectedVersion: { type: integer }
             deploymentId: { type: string, nullable: true }
             configuration: { $ref: "#/components/schemas/ConfigurationPayload" }
-    Recipe:
-      type: object
-      required: [recipeId, name, type]
-      properties:
-        recipeId: { type: string }
-        name: { type: string }
-        type: { type: string, enum: [FERTIGATION, IRRIGATION, MIXING] }
-        targetEc: { type: number, nullable: true }
-        targetPh: { type: number, nullable: true }
-        ratioA: { type: number, nullable: true }
-        ratioB: { type: number, nullable: true }
-        durationSec: { type: integer, nullable: true }
-        volumeMl: { type: integer, nullable: true }
 
     Schedule:
       type: object
@@ -2493,8 +2358,29 @@ components:
             configurationVersion: { type: integer, minimum: 0, nullable: true }
             source: { type: string, nullable: true }
             rawWaterVolumeMl: { type: integer, minimum: 0, nullable: true }
-            dosingAVolumeMl: { type: integer, minimum: 0, nullable: true }
-            dosingBVolumeMl: { type: integer, minimum: 0, nullable: true }
+            dosingAVolumeMl:
+              type: integer
+              minimum: 0
+              nullable: true
+              deprecated: true
+              description: "@deprecated — use dosingChannels[] instead."
+            dosingBVolumeMl:
+              type: integer
+              minimum: 0
+              nullable: true
+              deprecated: true
+              description: "@deprecated — use dosingChannels[] instead."
+            dosingChannels:
+              type: array
+              description: Per-channel dosing targets keyed by componentId (supports dosing A..G via dynamic hardware registry).
+              items:
+                type: object
+                required: [componentId, requestedMl]
+                properties:
+                  componentId: { type: string }
+                  requestedMl: { type: number, minimum: 0 }
+                  calibrationId: { type: string, nullable: true }
+                  calibrationVersion: { type: integer, nullable: true }
             parameters: { type: object, additionalProperties: true }
 
     CommandResponse:
@@ -2904,10 +2790,26 @@ components:
         status: { type: string, enum: [PENDING, MIXING, DOSING, DELIVERY, COMPLETED, CANCELLED, FAULTED] }
         targetWaterL: { type: number, nullable: true }
         actualWaterL: { type: number, nullable: true }
-        targetDosingAMl: { type: number, nullable: true }
-        actualDosingAMl: { type: number, nullable: true }
-        targetDosingBMl: { type: number, nullable: true }
-        actualDosingBMl: { type: number, nullable: true }
+        targetDosingAMl:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
+        actualDosingAMl:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
+        targetDosingBMl:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
+        actualDosingBMl:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
         startTimestamp: { type: string, format: date-time, nullable: true }
         endTimestamp: { type: string, format: date-time, nullable: true }
         progressPct: { type: integer, minimum: 0, maximum: 100, nullable: true }
@@ -2948,7 +2850,9 @@ components:
       required: [componentId, type, durationSec]
       properties:
         componentId: { type: string }
-        type: { type: string, enum: [DOSING_A, DOSING_B, FLOW_RAW, FLOW_FERT, SENSOR_PH, SENSOR_EC] }
+        type:
+          type: string
+          description: "Component ID or role name (e.g. 'pump_dosing_a', 'pump_dosing_c', 'flow_raw_zjb1'). Free-form to support dynamic hardware registry — see DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3 Pathway B for dosing C..G via PCA9685 I2C expansion."
         durationSec: { type: integer, minimum: 1 }
 
     CalibrationStatus:
@@ -2961,10 +2865,22 @@ components:
 
     CalibrationRates:
       type: object
-      required: [rateDosingAMlSec, rateDosingBMlSec, flowRawPulsesPerL, flowFertPulsesPerL]
+      required: [dosingRates, flowRawPulsesPerL, flowFertPulsesPerL]
       properties:
-        rateDosingAMlSec: { type: number, minimum: 0 }
-        rateDosingBMlSec: { type: number, minimum: 0 }
+        dosingRates:
+          type: object
+          description: "Map of componentId → mL/sec rate. Key = componentId (e.g. 'pump_dosing_a', 'pump_dosing_c'). Value = calibration rate in mL/sec."
+          additionalProperties: { type: number }
+        rateDosingAMlSec:
+          type: number
+          format: float
+          deprecated: true
+          description: "@deprecated use dosingRates['pump_dosing_a'] instead"
+        rateDosingBMlSec:
+          type: number
+          format: float
+          deprecated: true
+          description: "@deprecated use dosingRates['pump_dosing_b'] instead"
         flowRawPulsesPerL: { type: number, minimum: 0 }
         flowFertPulsesPerL: { type: number, minimum: 0 }
 
@@ -3040,8 +2956,16 @@ components:
         description: { type: string, nullable: true }
         targetWaterL: { type: number, nullable: true }
         waterL: { type: number, nullable: true }
-        dosingAml: { type: number, nullable: true }
-        dosingBml: { type: number, nullable: true }
+        dosingAml:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
+        dosingBml:
+          type: number
+          nullable: true
+          deprecated: true
+          description: "@deprecated — use dosingChannels[] instead. Retained for backward compatibility with old records."
         dosingChannels:
           type: array
           items:

@@ -3,6 +3,7 @@
 #include "config/system_config.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -530,10 +531,23 @@ static void component_timed_task(void *pvParameters) {
 static void command_worker_task(void *pvParameters) {
   (void)pvParameters;
   ESP_LOGI(TAG, "Command manager worker task started.");
+  // WDT-FIX: Register to Task WDT for diagnostics.
+  // CRITICAL: xQueueReceive with portMAX_DELAY blocks forever when queue is
+  // empty. Previously esp_task_wdt_reset() was called BEFORE the blocking wait,
+  // so if no command arrived for >10s, WDT fired → panic → restart loop.
+  // Fix: Use bounded timeout (2s) on xQueueReceive so we loop back and feed
+  // the WDT even when idle. Commands are not lost — they remain in the queue
+  // until the next poll cycle (2s max latency, acceptable for non-realtime cmds).
+  esp_task_wdt_add(NULL);
   while (1) {
+    esp_task_wdt_reset();  // Feed WDT every iteration (even when idle)
     command_item_t *cmd = NULL;
-    if (xQueueReceive(s_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE || !cmd)
-      continue;
+    // WDT-FIX: Bounded wait — 2 second timeout instead of portMAX_DELAY.
+    // This ensures the task feeds the WDT at least every 2s even when idle.
+    // If a command is in the queue, it's processed immediately (no latency
+    // for active commands — xQueueReceive returns as soon as data arrives).
+    if (xQueueReceive(s_cmd_queue, &cmd, pdMS_TO_TICKS(2000)) != pdTRUE || !cmd)
+      continue;  // Timeout or NULL — loop back, feed WDT, try again
 
     xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
     command_item_t *cached = cache_find_locked(cmd->command_id);

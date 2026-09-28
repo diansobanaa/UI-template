@@ -179,29 +179,62 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
     sdcard_hal_lock();
     ensure_recipes_dir();
 
+    // Atomic write pattern: .tmp + fwrite + fflush + fclose + stat size-verify + rename.
+    // Per UI_ESP32_COMMUNICATION_SPEC.md:1472 and PRD §"Safety-critical configuration
+    // should be atomic and corruption-tolerant" (line 2909). If power is lost during
+    // fwrite, the .tmp file is left behind but the canonical file remains intact.
+    // Matches the pattern already used by crop_history_storage_archive_cycle().
     char filepath[320];
+    char tmp_filepath[336];
     snprintf(filepath, sizeof(filepath), "%s/%s.json", RECIPES_DIR, recipe_id);
+    snprintf(tmp_filepath, sizeof(tmp_filepath), "%s.tmp", filepath);
 
-    FILE *f = fopen(filepath, "w");
+    FILE *f = fopen(tmp_filepath, "w");
     if (!f) {
         sdcard_hal_unlock();
         free(serialized);
-        ESP_LOGE(TAG, "Failed to open '%s' for writing", filepath);
+        ESP_LOGE(TAG, "Failed to open '%s' for writing", tmp_filepath);
         return ESP_FAIL;
     }
 
     size_t len = strlen(serialized);
     size_t written = fwrite(serialized, 1, len, f);
-    fclose(f);
-    sdcard_hal_unlock();
-    free(serialized);
-
     if (written != len) {
-        ESP_LOGE(TAG, "Incomplete write to '%s' (%u of %u bytes)", filepath, (unsigned)written, (unsigned)len);
+        fclose(f);
+        unlink(tmp_filepath);
+        sdcard_hal_unlock();
+        free(serialized);
+        ESP_LOGE(TAG, "Incomplete write to '%s' (%u of %u bytes)", tmp_filepath, (unsigned)written, (unsigned)len);
+        return ESP_FAIL;
+    }
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+
+    // Size verification before rename
+    struct stat st;
+    if (stat(tmp_filepath, &st) != 0 || (size_t)st.st_size != len) {
+        unlink(tmp_filepath);
+        sdcard_hal_unlock();
+        free(serialized);
+        ESP_LOGE(TAG, "Size verification failed for '%s' (expected=%u, actual=%lld)",
+                 tmp_filepath, (unsigned)len, (long long)(st.st_size));
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Successfully persisted recipe '%s' to MicroSD (%u bytes)", recipe_id, (unsigned)written);
+    // Atomic rename (POSIX guarantees atomicity on same filesystem)
+    if (rename(tmp_filepath, filepath) != 0) {
+        unlink(tmp_filepath);
+        sdcard_hal_unlock();
+        free(serialized);
+        ESP_LOGE(TAG, "Failed to rename '%s' -> '%s'", tmp_filepath, filepath);
+        return ESP_FAIL;
+    }
+
+    sdcard_hal_unlock();
+    free(serialized);
+
+    ESP_LOGI(TAG, "Successfully persisted recipe '%s' to MicroSD (%u bytes, atomic)", recipe_id, (unsigned)written);
     return ESP_OK;
 }
 

@@ -156,7 +156,10 @@ static void set_ap_config_with_ssid(const char *ssid)
     cfg.ap.channel = 1;
     cfg.ap.max_connection = 4;
     cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &cfg));
+    // P0-FIX: Don't ESP_ERROR_CHECK — if WiFi state is inconsistent after partial init,
+    // this would panic. Log and continue.
+    esp_err_t cfg_err = esp_wifi_set_config(WIFI_IF_AP, &cfg);
+    if (cfg_err != ESP_OK) ESP_LOGW(TAG, "esp_wifi_set_config AP failed (0x%x)", cfg_err);
 }
 
 static void set_ap_config(void)
@@ -231,7 +234,9 @@ static void apply_sta_config(const char *ssid, const char *pass)
     strncpy((char *)cfg.sta.ssid, ssid, sizeof(cfg.sta.ssid) - 1);
     strncpy((char *)cfg.sta.password, pass ? pass : "", sizeof(cfg.sta.password) - 1);
     cfg.sta.threshold.authmode = (pass && pass[0]) ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
+    // P0-FIX: Don't ESP_ERROR_CHECK — graceful failure.
+    esp_err_t sta_err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    if (sta_err != ESP_OK) ESP_LOGW(TAG, "esp_wifi_set_config STA failed (0x%x)", sta_err);
 }
 
 static void arm_ap_timeout_ms(uint32_t timeout_ms)
@@ -509,10 +514,20 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
 esp_err_t network_mgr_init(void)
 {
     if (s_wifi_started) return ESP_OK;
-    if (!http_server_is_running()) return ESP_ERR_INVALID_STATE;
+    // WDT-FIX: Don't require HTTP server for WiFi init — WiFi should init
+    // early (before HTTP) so that SoftAP provisioning can work even if
+    // HTTP server fails to start later.
+    // if (!http_server_is_running()) return ESP_ERR_INVALID_STATE;
 
-    s_sta_netif = esp_netif_create_default_wifi_sta();
-    s_ap_netif = esp_netif_create_default_wifi_ap();
+    // WDT-FIX: Guard against duplicate netif creation on retry.
+    // If network_mgr_init was called before and failed partway, s_sta_netif
+    // and s_ap_netif may already exist. Don't create duplicates.
+    if (!s_sta_netif) {
+        s_sta_netif = esp_netif_create_default_wifi_sta();
+    }
+    if (!s_ap_netif) {
+        s_ap_netif = esp_netif_create_default_wifi_ap();
+    }
     if (!s_sta_netif || !s_ap_netif) return ESP_ERR_NO_MEM;
 
     esp_err_t err = generate_provisioning_identity();
@@ -523,31 +538,53 @@ esp_err_t network_mgr_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     cfg.static_rx_buf_num = 2;
     cfg.dynamic_rx_buf_num = 8;
+    // HEAP-FIX: Reduce WiFi internal RAM footprint further.
+    // ESP-IDF default: static_rx_buf_num=16, dynamic_rx_buf_num=32.
+    // We set 2/8 to save ~20KB internal RAM. RX buffers MUST be internal
+    // (hardware DMA requirement) — cannot use PSRAM.
+    cfg.tx_buf_type = 1;  // Use dynamic TX buffers (saves internal RAM)
+    cfg.dynamic_tx_buf_num = 8;
+    cfg.cache_tx_buf_num = 4;
     err = esp_wifi_init(&cfg);
-    if (err != ESP_OK) return err;
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &provisioning_event_handler, NULL));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_init failed (0x%x) — WiFi unavailable. System continues in offline mode.", err);
+        return err;
+    }
+    // HEAP-FIX: Don't ESP_ERROR_CHECK these — if registration fails, WiFi
+    // events won't fire but system should not abort. Log and continue.
+    esp_err_t ev1 = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL);
+    esp_err_t ev2 = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL);
+    esp_err_t ev3 = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, &event_handler, NULL);
+    esp_err_t ev4 = esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &provisioning_event_handler, NULL);
+    if (ev1 != ESP_OK || ev2 != ESP_OK || ev3 != ESP_OK || ev4 != ESP_OK) {
+        ESP_LOGW(TAG, "Some WiFi event handlers failed to register (0x%x,0x%x,0x%x,0x%x) — continuing.", ev1, ev2, ev3, ev4);
+    }
 
     err = init_mdns();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS init failed (0x%x) — continuing without mDNS.", err);
+    }
 
     char ssid[33] = {0}, pass[65] = {0};
     s_sta_provisioned = load_sta_credentials(ssid, sizeof(ssid), pass, sizeof(pass));
     if (s_sta_provisioned) {
         apply_sta_config(ssid, pass);
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        err = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (err != ESP_OK) ESP_LOGW(TAG, "esp_wifi_set_mode STA failed (0x%x)", err);
         s_state = NETWORK_STATE_CONNECTING;
     } else {
         set_ap_config();
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+        err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+        if (err != ESP_OK) ESP_LOGW(TAG, "esp_wifi_set_mode APSTA failed (0x%x)", err);
         s_state = NETWORK_STATE_UNPROVISIONED;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_start());
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed (0x%x) — WiFi unavailable. System continues in offline mode.", err);
+        return err;
+    }
     (void)esp_wifi_set_ps(WIFI_PS_NONE);
-    s_wifi_started = true;
 
     if (!s_sta_provisioned) {
         start_factory_web_setup();
@@ -559,7 +596,14 @@ esp_err_t network_mgr_init(void)
              (unsigned int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
-    if (xTaskCreate(reconnect_task, "net_reconnect", 2048, NULL, 4, &s_reconnect_task) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreate(reconnect_task, "net_reconnect", 4096, NULL, 4, &s_reconnect_task) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create reconnect_task — deinitializing WiFi.");
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_wifi_started = true;
     return ESP_OK;
 }
 
@@ -607,6 +651,18 @@ const char *network_mgr_get_hostname(void) { return s_hostname; }
 esp_err_t network_mgr_get_sta_ssid(char *out, size_t out_len)
 {
     if (!out || out_len < 2) return ESP_ERR_INVALID_ARG;
+    /* Read from WiFi driver config (internal RAM) — safe from any task stack,
+     * including PSRAM-stack tasks. Calling nvs_get_str from a PSRAM-stack task
+     * triggers spi_flash cache assertion panic (cache_utils.c:127). */
+    if (s_wifi_started) {
+        wifi_config_t cfg = {0};
+        if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0]) {
+            strncpy(out, (const char *)cfg.sta.ssid, out_len - 1);
+            out[out_len - 1] = '\0';
+            return ESP_OK;
+        }
+    }
+    /* Fallback: NVS (only safe from normal internal-stack tasks at init time) */
     char pass[65];
     return load_sta_credentials(out, out_len, pass, sizeof(pass)) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }

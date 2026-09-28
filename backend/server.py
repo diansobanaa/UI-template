@@ -50,6 +50,36 @@ except ImportError:
 TOPOLOGY_POOL = SystemTopologyPool(os.getenv("AGROTECH_OPERATIONAL_DB", "./agrotech_operational.sqlite3"), local_device_id="BACKEND-MIRROR")
 
 
+def _esp32_api_token() -> str:
+    """Return the ESP32 peer-auth bearer token.
+
+    Per PRD-NET-001 / ESP32_BACKEND_SPEC §8, the ESP32 public API surface does
+    NOT require authentication on the trusted local network. However, the
+    peer-auth endpoints (`/api/v1/topology-pool/sync` and `/mutate`) require a
+    Bearer token that is provisioned via the ESP32 `/setup` embedded web UI
+    and stored in NVS key `api_key`.
+
+    The backend reads this token from env `ESP32_API_TOKEN`. There is NO
+    default — if the env is unset, the backend cannot authenticate peer
+    mutations and will receive 401/503 from the ESP32. This is intentional:
+    a hardcoded default like `agrotech-secret-key` would be a security risk
+    (anyone with source access could forge peer mutations).
+
+    For non-peer endpoints (configuration, commands, crop-cycle, etc.), the
+    ESP32 accepts requests without Authorization header, so an empty token
+    is fine — we just send an empty Bearer that the ESP32 ignores.
+    """
+    return os.getenv("ESP32_API_TOKEN", "")
+
+
+def _esp32_auth_header() -> dict:
+    """Build Authorization header for ESP32 peer requests. Empty token is OK
+    for non-peer endpoints (ESP32 ignores it); peer endpoints will 401/503."""
+    token = _esp32_api_token()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+
 def _decode_bytes_tolerantly(raw: bytes) -> str:
     """Decode bytes to str, trying UTF-8 first, falling back to Latin-1, then errors='replace'."""
     if not raw:
@@ -341,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"{clean_ep}/api/v1/health",
                 headers={
                     "Accept": "application/json",
-                    "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"
+                    "Authorization": f"Bearer {_esp32_api_token()}"
                 }
             )
             with urlopen(req, timeout=1.5) as res:
@@ -520,7 +550,7 @@ class Handler(BaseHTTPRequestHandler):
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                "Authorization": f"Bearer {_esp32_api_token()}",
             },
         )
         try:
@@ -629,7 +659,7 @@ class Handler(BaseHTTPRequestHandler):
             method="GET",
             headers={
                 "Accept": "application/json",
-                "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                "Authorization": f"Bearer {_esp32_api_token()}",
             },
         )
         with urlopen(request, timeout=8) as response:
@@ -658,7 +688,7 @@ class Handler(BaseHTTPRequestHandler):
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                "Authorization": f"Bearer {_esp32_api_token()}",
             },
         )
         with urlopen(request, timeout=5) as response:
@@ -780,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
             f"{esp32_base}/api/v1/commands",
             data=json.dumps(payload).encode("utf-8"),
             method="POST",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"},
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {_esp32_api_token()}"},
         )
         try:
             with urlopen(request, timeout=8) as response:
@@ -1040,7 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
             request = Request(
                 f"{esp32_base}{upstream_path}",
                 method="GET",
-                headers={"Accept": "application/json", "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"},
+                headers={"Accept": "application/json", "Authorization": f"Bearer {_esp32_api_token()}"},
             )
             try:
                 with urlopen(request, timeout=3) as response:
@@ -1116,15 +1146,32 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, RECOVERY_STORE.get_deployment(cid))
             return
         if parts in (["api", "v1", "configuration", "deployment"], ["api", "configuration", "deployment"]):
-            self._json(200, RECOVERY_STORE.get_deployment("complex-01"))
+            # PRD §6.1: no hardcoded complex-01 fallback. Resolve from active operational store.
+            all_complexes = OPERATIONAL_STORE.context().get("complexes", [])
+            if not all_complexes:
+                self._json(404, {"error": {"code": "NO_ACTIVE_COMPLEX", "message": "No active complex configured. Use POST /api/complexes to create one, or PUT /api/complexes/{cid}/esp32/configuration with explicit complexId."}})
+                return
+            if len(all_complexes) > 1:
+                self._json(400, {"error": {"code": "COMPLEX_ID_REQUIRED", "message": "Multiple complexes exist. Use /api/complexes/{cid}/esp32/configuration/deployment with explicit complexId.", "availableComplexIds": [c.get("id") for c in all_complexes]}})
+                return
+            self._json(200, RECOVERY_STORE.get_deployment(all_complexes[0]["id"]))
             return
         if parts in (["api", "v1", "configuration"], ["api", "configuration"]):
-            c_rec = OPERATIONAL_STORE.get_complex("complex-01")
+            # PRD §6.1: no hardcoded complex-01 fallback. Resolve from active operational store.
+            all_complexes = OPERATIONAL_STORE.context().get("complexes", [])
+            if not all_complexes:
+                self._json(404, {"error": {"code": "NO_ACTIVE_COMPLEX", "message": "No active complex configured. Use POST /api/complexes to create one, or PUT /api/complexes/{cid}/esp32/configuration with explicit complexId."}})
+                return
+            if len(all_complexes) > 1:
+                self._json(400, {"error": {"code": "COMPLEX_ID_REQUIRED", "message": "Multiple complexes exist. Use /api/complexes/{cid}/esp32/configuration with explicit complexId.", "availableComplexIds": [c.get("id") for c in all_complexes]}})
+                return
+            active_cid = all_complexes[0]["id"]
+            c_rec = OPERATIONAL_STORE.get_complex(active_cid)
             saved_cfg = (c_rec or {}).get("configuration") if isinstance(c_rec, dict) else None
             if saved_cfg:
                 self._json(200, saved_cfg)
                 return
-            self._json(200, {"complexId": "complex-01", "version": 0, "components": [], "assignments": [], "schedules": [], "recipes": [], "topology": [], "settings": {}})
+            self._json(200, {"complexId": active_cid, "version": 0, "components": [], "assignments": [], "schedules": [], "recipes": [], "topology": [], "settings": {}})
             return
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "complexes" and parts[3] == "telemetry" and parts[4] == "history":
             complex_id = parts[2]
@@ -1292,7 +1339,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 request = Request(upstream, data=json.dumps(payload).encode("utf-8"), method="POST",
                                   headers={"Content-Type": "application/json", "Accept": "application/json",
-                                           "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"})
+                                           "Authorization": f"Bearer {_esp32_api_token()}"})
                 with urlopen(request, timeout=8) as response:
                     device = _decode_and_load_json(response.read())
                     envelope_data = device.get("data", device) if isinstance(device, dict) else device
@@ -1481,7 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
                     headers={
                         "Content-Type": "application/json",
                         "Accept": "application/json",
-                        "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}",
+                        "Authorization": f"Bearer {_esp32_api_token()}",
                     },
                 )
                 with urlopen(request, timeout=8) as response:
@@ -2139,7 +2186,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"{esp32_base}/api/v1/schedules/compiled",
                 data=json.dumps({"requestId": body.get("requestId", "backend-schedule-deploy"), "client": {"type": "PythonBackend", "version": "0.1.0"}, "payload": payload}).encode("utf-8"),
                 method="POST",
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"},
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {_esp32_api_token()}"},
             )
             try:
                 with urlopen(request, timeout=8) as response:
@@ -2160,7 +2207,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if parts in (["api", "v1", "configuration"], ["api", "configuration"]):
-            parts = ["api", "complexes", "complex-01", "esp32", "configuration"]
+            # PRD §6.1: no hardcoded complex-01 fallback. Resolve from active operational store.
+            all_complexes = OPERATIONAL_STORE.context().get("complexes", [])
+            if not all_complexes:
+                self._json(404, {"error": {"code": "NO_ACTIVE_COMPLEX", "message": "No active complex configured. Use POST /api/complexes to create one, or PUT /api/complexes/{cid}/esp32/configuration with explicit complexId."}})
+                return
+            if len(all_complexes) > 1:
+                self._json(400, {"error": {"code": "COMPLEX_ID_REQUIRED", "message": "Multiple complexes exist. Use /api/complexes/{cid}/esp32/configuration with explicit complexId.", "availableComplexIds": [c.get("id") for c in all_complexes]}})
+                return
+            parts = ["api", "complexes", all_complexes[0]["id"], "esp32", "configuration"]
         if len(parts) == 5 and parts[0:3] == ["api", "complexes", parts[2] if len(parts) > 2 else ""] and parts[3:5] == ["esp32", "configuration"]:
             cid = parts[2]
             if not self._assert_complex_unlocked(cid):
@@ -2245,7 +2300,7 @@ class Handler(BaseHTTPRequestHandler):
                     }
                     raw_bytes = json.dumps(pl, separators=(',', ':')).encode("utf-8")
                     req = Request(f"{esp32_base}/api/v1/configuration", data=raw_bytes, method="PUT",
-                                  headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {os.getenv('ESP32_API_TOKEN', 'agrotech-secret-key')}"})
+                                  headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {_esp32_api_token()}"})
                     with urlopen(req, timeout=2.5) as response:
                         return response.status, _decode_and_load_json(response.read())
 

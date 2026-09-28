@@ -14,6 +14,22 @@ export type Id = string;
 
 export type SystemStatus = "NORMAL" | "WARNING" | "CRITICAL";
 
+/**
+ * F-H8: Network lifecycle states per PRD §30.10 L1770-1778.
+ * UI harus membedakan 5 state untuk menggambarkan siklus hidup koneksi ESP32:
+ * - FACTORY_UNCONFIGURED: perangkat baru, belum dikonfigurasi (factory defaults)
+ * - NORMAL_STA: terhubung ke WiFi station sebagai client (mode produksi normal)
+ * - DIRECT_LOCAL_AP: perangkat memancarkan AP sendiri untuk onboarding (belum ada client)
+ * - DIRECT_LOCAL_CONNECTED: client terhubung ke AP lokal perangkat (mode onboarding aktif)
+ * - CONNECTING_STA: sedang mencoba connect ke WiFi station (transisi)
+ */
+export type Esp32NetworkLifecycleState =
+  | "FACTORY_UNCONFIGURED"
+  | "NORMAL_STA"
+  | "DIRECT_LOCAL_AP"
+  | "DIRECT_LOCAL_CONNECTED"
+  | "CONNECTING_STA";
+
 export interface Esp32State {
   online: boolean;
   lastSync: string; // "2 Sep 2026 13:14:32"
@@ -27,6 +43,10 @@ export interface Esp32State {
   endpoint?: string;
   firmwareVersion?: string;
   hardwareModel?: string;
+  // F-H8: Network lifecycle state — optional agar UI backward-compatible dengan snapshot lama.
+  networkLifecycleState?: Esp32NetworkLifecycleState;
+  // F-H8: true jika perangkat sudah bound ke sebuah Complex di SystemTopologyPool.
+  complexBound?: boolean;
 }
 
 export interface Complex {
@@ -185,9 +205,17 @@ export interface Recipe {
   name: string; // "Tomato Growth A"
   waterL: number;
   targetWaterL?: number;
-  dosingAml: number;
-  dosingBml: number;
-  dosingChannels?: Array<{ componentId: string; requestedMl: number }>;
+  /**
+   * PRD §8.6 / DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3.5: dosing is registry-driven.
+   * `dosingChannels` is the authoritative field; `dosingAml`/`dosingBml` are kept as
+   * DEPRECATED backwards-compat mirrors and are populated from dosingChannels[0]/[1]
+   * only for legacy consumers. New code MUST read dosingChannels[] and never assume A/B.
+   */
+  /** @deprecated Use dosingChannels[] — registry-driven, supports A..G + I2C PCA9685. */
+  dosingAml?: number;
+  /** @deprecated Use dosingChannels[] — registry-driven, supports A..G + I2C PCA9685. */
+  dosingBml?: number;
+  dosingChannels: Array<{ componentId: string; requestedMl: number }>;
   targetEc: string; // "-" when not set
   targetPpm?: number;
   description?: string;
@@ -226,9 +254,15 @@ export interface FertigationSchedule {
   targetMode: "volume" | "ppm";
   targetWaterL: number;
   rawWaterStartThresholdPercent?: number; // Configurable raw water threshold percentage before serial dosing starts (default 20%)
-  dosingAml: number;
-  dosingBml: number;
-  dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }>;
+  /**
+   * PRD §8.6: dosing is registry-driven. dosingChannels[] is authoritative.
+   * Legacy dosingAml/dosingBml are kept as deprecated optional mirrors for older consumers.
+   */
+  /** @deprecated Use dosingChannels[] — registry-driven. */
+  dosingAml?: number;
+  /** @deprecated Use dosingChannels[] — registry-driven. */
+  dosingBml?: number;
+  dosingChannels: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }>;
   targetPpm?: number;
   fallbackEnabled: boolean;
   fallbackScheduleId?: Id;
@@ -306,22 +340,35 @@ export interface CurrentFertigation {
   ghId: Id;
   recipeName: string;
   targetWaterL: number;
-  dosingAml: number;
-  dosingBml: number;
+  /**
+   * PRD §8.6: dosing is registry-driven. dosingChannels[] is authoritative.
+   * Legacy dosingAml/dosingBml/dosingADoneMl/dosingBDoneMl are kept as deprecated
+   * optional mirrors for older consumers and may be undefined when the active
+   * run uses channel labels other than A/B.
+   */
+  /** @deprecated Use dosingChannels[]. */
+  dosingAml?: number;
+  /** @deprecated Use dosingChannels[]. */
+  dosingBml?: number;
+  dosingChannels?: Array<{ componentId: string; requestedMl: number; doneMl?: number; calibrationId?: string; calibrationVersion?: number }>;
   startedAt: string; // "13:05:21"
   elapsedLabel: string; // "9 min 11 sec"
   estimatedFinish: string; // "13:28:00"
   progressPct: number;
   waterDoneL: number;
-  dosingADoneMl: number;
-  dosingBDoneMl: number;
+  /** @deprecated Use dosingChannels[].doneMl. */
+  dosingADoneMl?: number;
+  /** @deprecated Use dosingChannels[].doneMl. */
+  dosingBDoneMl?: number;
   steps: { name: string; status: "done" | "active" | "pending" }[];
   tank: {
     currentL: number;
     capacityL: number;
     waterL: number;
-    nutrientAml: number;
-    nutrientBml: number;
+    /** @deprecated Use dosingChannels[]. */
+    nutrientAml?: number;
+    /** @deprecated Use dosingChannels[]. */
+    nutrientBml?: number;
     temperatureC: number;
   };
 }
@@ -340,8 +387,11 @@ export interface FertigationRunRow {
   time: string; // "10:00"
   recipeName: string;
   waterL: number;
-  dosingAml: number;
-  dosingBml: number;
+  /** @deprecated Use dosingChannels[]. */
+  dosingAml?: number;
+  /** @deprecated Use dosingChannels[]. */
+  dosingBml?: number;
+  dosingChannels?: Array<{ componentId: string; requestedMl: number; doneMl?: number }>;
   durationMin?: number;
   result: "completed" | "partial" | "failed";
 }
@@ -525,4 +575,169 @@ export interface DosingBatchRuntimeSnapshot {
   mixing?: { status: string };
   delivery?: { status: string };
 }
+
+/* ------------------------------------------------------------------ */
+/* LAYER-A: Fertigation State Machine (1:1 with firmware)             */
+/* Matches esp32/main/services/fertigation_mgr.h:10-23                */
+/* ------------------------------------------------------------------ */
+
+export type FertigationRuntimeState =
+  | "IDLE"
+  | "RECOVERY_HOLD"
+  | "PRECHECK"
+  | "FILLING"
+  | "DOSING"
+  | "FINAL_MIXING"
+  | "MIX_READY"
+  | "DELIVERY"
+  | "COMPLETE"
+  | "INTERRUPTED"
+  | "FAULTED"
+  | "ABORTED";
+
+export type FertigationPhaseName =
+  | "PRECHECK"
+  | "FILLING"
+  | "DOSING"
+  | "FINAL_MIXING"
+  | "MIX_READY"
+  | "DELIVERY"
+  | "COMPLETE";
+
+export type OccurrenceState =
+  | "PENDING"
+  | "PREPARING"
+  | "WAITING_BATCH"
+  | "READY_TO_SEND"
+  | "DISTRIBUTING"
+  | "COMPLETED"
+  | "FAILED";
+
+export type DosingQueueEntryState =
+  | "PENDING"
+  | "DISPATCHED"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "FAILED";
+
+export type DeliverySlotState =
+  | "FREE"
+  | "READY_TO_SEND"
+  | "DISTRIBUTING"
+  | "COMPLETE"
+  | "FAULTED";
+
+export interface OccurrenceEntry {
+  occurrenceId: string;
+  scheduleId: string;
+  complexId?: string;
+  ghId: string;
+  scheduledTimestamp: number;
+  state: OccurrenceState;
+  queueId?: string;
+  batchId?: string;
+  waitingReason?: string;
+}
+
+export interface DosingQueueEntry {
+  queueId: string;
+  occurrenceId: string;
+  scheduleId: string;
+  ghId: string;
+  batchId: string;
+  state: DosingQueueEntryState;
+  dispatchedAtMs?: number;
+  waitingReason?: string;
+}
+
+export interface MixingBatch {
+  runId: string;
+  batchId: string;
+  complexId: string;
+  ghId: string;
+  scheduleId?: string;
+  recipeId?: string;
+  recipeVersion?: number;
+  configurationVersion: number;
+  state: FertigationRuntimeState;
+  phaseTimestamps?: Partial<Record<FertigationPhaseName, number>>;
+  startTimestampMs: number;
+  endTimestampMs?: number;
+  targetWaterMl: number;
+  actualWaterMl: number;
+  thresholdPercent?: number;
+  dosingChannels: Array<{
+    componentId: string;
+    requestedMl: number;
+    rateMlPerSec?: number;
+    runtimeMs?: number;
+    observedRuntimeMs?: number;
+    actualDosedMl?: number;
+    calibrationId?: string;
+    calibrationVersion?: number;
+  }>;
+  mixingDurationSec?: number;
+  fault?: string;
+  triggerType?: string;
+  source?: string;
+}
+
+export interface FertigationRun {
+  runId: string;
+  batchId?: string;
+  complexId: string;
+  ghId: string;
+  scheduleId?: string;
+  occurrenceId?: string;
+  recipeId?: string;
+  deliveryState?: DeliverySlotState;
+  terminalState?: "COMPLETE" | "FAULTED" | "ABORTED" | "INTERRUPTED";
+  startTimestampMs: number;
+  endTimestampMs?: number;
+  durationSec?: number;
+  targetWaterMl?: number;
+  actualWaterMl?: number;
+  deliveryTargetMl?: number;
+  actualDeliveredMl?: number;
+  actualFlowLpm?: number;
+  targetFlowLpm?: number;
+  deliveryMode?: string;
+  deliveryPumpId?: string;
+  dosingChannels?: Array<{
+    componentId: string;
+    requestedMl: number;
+    actualDosedMl?: number;
+    observedRuntimeMs?: number;
+    rateMlPerSec?: number;
+    calibrationId?: string;
+    calibrationVersion?: number;
+  }>;
+  fault?: string;
+  failureType?: FertigationFailureType;
+  phaseTimestamps?: Partial<Record<FertigationPhaseName, number>>;
+  triggerType?: string;
+  source?: string;
+  deliveredVolumeVerified?: boolean;
+}
+
+export interface DeliverySlotEntry {
+  ghId: string;
+  occurrenceId: string;
+  batchId: string;
+  state: DeliverySlotState;
+  deliveryPumpId?: string;
+  fault?: string;
+}
+
+export type FertigationFailureType =
+  | "CONFIG_ERROR"
+  | "RESOURCE_UNAVAILABLE"
+  | "PRECHECK_FAILED"
+  | "MIXING_FAILED"
+  | "DOSING_FAILED"
+  | "DISTRIBUTION_FAILED"
+  | "FLOW_ERROR"
+  | "SAFETY_STOP"
+  | "NETWORK_INTERRUPTION"
+  | "ESP32_OFFLINE";
 

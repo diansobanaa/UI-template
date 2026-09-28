@@ -117,6 +117,19 @@ static esp_err_t status_handler(httpd_req_t *req){
         return ESP_FAIL;
     }
     attach_queue_and_today_schedule(out);
+
+    // ITEM-4: Wire dailyStats to /fertigation/status response.
+    // Firmware has fertigation_mgr_get_daily_stats() (fertigation_mgr.h:152)
+    // but it wasn't exposed via HTTP. Web UI TodayFertigationStatsCard was
+    // computing client-side approximation; now it can use authoritative data.
+    fertigation_daily_stats_t stats = {0};
+    if (fertigation_mgr_get_daily_stats(&stats) == ESP_OK) {
+        cJSON *ds = cJSON_AddObjectToObject(out, "dailyStats");
+        cJSON_AddNumberToObject(ds, "runCountToday", stats.run_count_today);
+        cJSON_AddNumberToObject(ds, "deliveredLitersToday", stats.delivered_liters_today);
+        cJSON_AddNumberToObject(ds, "targetLitersToday", stats.target_liters_today);
+    }
+
     return http_send_enveloped_response(req, 200, NULL, out);
 }
 
@@ -132,6 +145,16 @@ static esp_err_t queue_handler(httpd_req_t *req){
         cJSON_AddItemToObject(out, "activeBatch", active_batch);
     }
     attach_queue_and_today_schedule(out);
+
+    // ITEM-4: Wire dailyStats to /fertigation/queue response too (same data).
+    fertigation_daily_stats_t stats = {0};
+    if (fertigation_mgr_get_daily_stats(&stats) == ESP_OK) {
+        cJSON *ds = cJSON_AddObjectToObject(out, "dailyStats");
+        cJSON_AddNumberToObject(ds, "runCountToday", stats.run_count_today);
+        cJSON_AddNumberToObject(ds, "deliveredLitersToday", stats.delivered_liters_today);
+        cJSON_AddNumberToObject(ds, "targetLitersToday", stats.target_liters_today);
+    }
+
     return http_send_enveloped_response(req, 200, NULL, out);
 }
 

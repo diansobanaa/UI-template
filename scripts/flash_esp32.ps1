@@ -22,7 +22,7 @@ $toolsBin = @(
     "D:\Espressif-tool\Espressif\tools\idf-exe\1.0.3\",
     "D:\Espressif-tool\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64",
     "D:\Espressif-tool\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64",
-    "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts",
+    "D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env\Scripts",
     "D:\Espressif\tools",
     "D:\Espressif-tool\Espressif\tools\idf-git\2.44.0\cmd"
 ) -join ";"

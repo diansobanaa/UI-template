@@ -1,9 +1,11 @@
 #include "storage/telemetry_store.h"
+#include "utils/psram_task.h"
 #include "hal/sdcard_hal.h"
 #include "config/system_config.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_rom_crc.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -237,15 +239,32 @@ esp_err_t telemetry_store_flush(void)
 {
     if (!s_store_mutex) return ESP_ERR_INVALID_STATE;
 
-    telemetry_record_t local_batch[BATCH_BUFFER_CAPACITY];
+    /* HEAP-FIX (audit 2026-09-28): telemetry_record_t local_batch[32]
+     * (1920 B) lived on the caller's stack. Both callers -- telem_store_tsk
+     * and tele_persist_task -- run on 4096-byte stacks, and this function
+     * then enters the deep FatFS fopen/fwrite/fflush chain
+     * (CONFIG_FATFS_MAX_LFN=255), pushing peak stack usage to an estimated
+     * 4-6 KB: a stack overflow that corrupts the adjacent heap block / TCB
+     * (observed in the field as tlsf_walk_pool LoadProhibited and
+     * xTaskPriorityDisinherit asserts). Move the batch to PSRAM heap.
+     * Deliberately, NO task stack size is changed by this patch. */
+    telemetry_record_t *local_batch =
+        (telemetry_record_t *)heap_caps_malloc(BATCH_BUFFER_CAPACITY * sizeof(telemetry_record_t),
+                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!local_batch) {
+        ESP_LOGE(TAG, "Flush batch PSRAM alloc failed; batch kept staged");
+        return ESP_ERR_NO_MEM;
+    }
     size_t count = 0;
 
     if (xSemaphoreTake(s_store_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        heap_caps_free(local_batch);
         return ESP_ERR_TIMEOUT;
     }
 
     if (s_batch_count == 0) {
         xSemaphoreGive(s_store_mutex);
+        heap_caps_free(local_batch);
         return ESP_OK;
     }
 
@@ -258,6 +277,7 @@ esp_err_t telemetry_store_flush(void)
     if (!sdcard_hal_is_mounted()) {
         s_status.is_mounted = false;
         s_status.is_degraded = true;
+        heap_caps_free(local_batch);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -279,6 +299,7 @@ esp_err_t telemetry_store_flush(void)
         sdcard_hal_unlock();
         s_status.is_degraded = true;
         ESP_LOGW(TAG, "Failed to open segment file '%s' for append", path);
+        heap_caps_free(local_batch);
         return ESP_FAIL;
     }
 
@@ -290,6 +311,7 @@ esp_err_t telemetry_store_flush(void)
     if (written < count) {
         s_status.is_degraded = true;
         ESP_LOGE(TAG, "Short write on segment file: %zu/%zu records", written, count);
+        heap_caps_free(local_batch);
         return ESP_FAIL;
     }
 
@@ -297,6 +319,7 @@ esp_err_t telemetry_store_flush(void)
     s_status.last_flush_ms = esp_timer_get_time() / 1000;
     s_status.is_degraded = false;
 
+    heap_caps_free(local_batch);
     return ESP_OK;
 }
 
@@ -503,12 +526,26 @@ static void telemetry_store_task(void *pvParameters)
         (void)telemetry_store_load_recent_history();
     }
 
+    uint32_t cycle = 0;
     while (1) {
         /* Wait up to 5s for batch timeout or explicit task notification */
         (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
 
         /* Perform durable batch flush to microSD */
         (void)telemetry_store_flush();
+
+        /* HEAP-AUDIT (2026-09-28): report stack high-water mark + internal
+         * heap watermarks every ~60s. A stack_hwm of 0 means this task has
+         * PROVABLY overflowed its stack -- that is the evidence required
+         * before any task stack size may be changed. */
+        if (++cycle % 12 == 0) {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGW(TAG, "MEM telem_store_tsk stack_hwm=%u B free_int=%u largest=%u min_free=%u",
+                     (unsigned)(hwm * sizeof(StackType_t)),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        }
     }
 }
 
@@ -522,7 +559,7 @@ esp_err_t telemetry_store_init(void)
 
     reset_daily_history(get_current_date_int());
 
-    xTaskCreatePinnedToCore(telemetry_store_task, "telem_store_tsk", 4096, NULL, TASK_TELEMETRY_PRIO - 1, &s_store_task_handle, 1);
+    psram_task_create_pinned(telemetry_store_task, "telem_store_tsk", 4096, NULL, TASK_TELEMETRY_PRIO - 1, &s_store_task_handle, 1);
     ESP_LOGI(TAG, "TelemetryStore initialized (append-oriented, CRC32-validated, 288-slot RAM cache).");
     return ESP_OK;
 }

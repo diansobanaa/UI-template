@@ -1,5 +1,6 @@
 #include "services/crop_cycle_mgr.h"
 #include "storage/crop_history_storage.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include <string.h>
@@ -255,13 +256,18 @@ esp_err_t crop_cycle_mgr_import_active(const char *gh_id, const char *tanggal_ta
     return ESP_OK;
 }
 
-esp_err_t crop_cycle_mgr_set_pollination(const char *gh_id, const char *tanggal_polinasi, const char *method)
+esp_err_t crop_cycle_mgr_set_pollination_with_version(const char *gh_id, const char *tanggal_polinasi, const char *method, uint32_t expected_version)
 {
     (void)method;
     if (!gh_id || !tanggal_polinasi || strlen(tanggal_polinasi) < 10) return ESP_ERR_INVALID_ARG;
 
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Pollination update rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
     if (strcmp(tanggal_polinasi, rec.tanggal_tanam) < 0) return ESP_ERR_INVALID_ARG;
 
     snprintf(rec.tanggal_polinasi, sizeof(rec.tanggal_polinasi), "%s", tanggal_polinasi);
@@ -270,10 +276,20 @@ esp_err_t crop_cycle_mgr_set_pollination(const char *gh_id, const char *tanggal_
     return save_active_nvs(gh_id, &rec);
 }
 
-esp_err_t crop_cycle_mgr_delete_pollination(const char *gh_id)
+esp_err_t crop_cycle_mgr_set_pollination(const char *gh_id, const char *tanggal_polinasi, const char *method)
+{
+    return crop_cycle_mgr_set_pollination_with_version(gh_id, tanggal_polinasi, method, 0);
+}
+
+esp_err_t crop_cycle_mgr_delete_pollination_with_version(const char *gh_id, uint32_t expected_version)
 {
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Pollination delete rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
 
     rec.tanggal_polinasi[0] = '\0';
     rec.version++;
@@ -281,12 +297,22 @@ esp_err_t crop_cycle_mgr_delete_pollination(const char *gh_id)
     return save_active_nvs(gh_id, &rec);
 }
 
-esp_err_t crop_cycle_mgr_update_planting_date(const char *gh_id, const char *new_tanggal_tanam)
+esp_err_t crop_cycle_mgr_delete_pollination(const char *gh_id)
+{
+    return crop_cycle_mgr_delete_pollination_with_version(gh_id, 0);
+}
+
+esp_err_t crop_cycle_mgr_update_planting_date_with_version(const char *gh_id, const char *new_tanggal_tanam, uint32_t expected_version)
 {
     if (!gh_id || !new_tanggal_tanam || strlen(new_tanggal_tanam) < 10) return ESP_ERR_INVALID_ARG;
 
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Planting date update rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
     if (rec.tanggal_polinasi[0] && strcmp(rec.tanggal_polinasi, new_tanggal_tanam) < 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -300,8 +326,13 @@ esp_err_t crop_cycle_mgr_update_planting_date(const char *gh_id, const char *new
         ESP_LOGE(TAG, "Failed to save active planting date to NVS (err=0x%x)", err);
         return err;
     }
-    ESP_LOGI(TAG, "Updated active planting date to %s for %s (HST=%ld)", rec.tanggal_tanam, gh_id, (long)rec.hst);
+    ESP_LOGI(TAG, "Updated active planting date to %s for %s (HST=%ld, v=%lu)", rec.tanggal_tanam, gh_id, (long)rec.hst, (unsigned long)rec.version);
     return ESP_OK;
+}
+
+esp_err_t crop_cycle_mgr_update_planting_date(const char *gh_id, const char *new_tanggal_tanam)
+{
+    return crop_cycle_mgr_update_planting_date_with_version(gh_id, new_tanggal_tanam, 0);
 }
 
 esp_err_t crop_cycle_mgr_save_timeline(const char *gh_id, const char *timeline_json_str)
@@ -328,6 +359,14 @@ esp_err_t crop_cycle_mgr_save_timeline(const char *gh_id, const char *timeline_j
 esp_err_t crop_cycle_mgr_get_timeline(const char *gh_id, char *out_buf, size_t max_len)
 {
     if (!gh_id || !gh_id[0] || !out_buf || max_len < 2) return ESP_ERR_INVALID_ARG;
+
+    // CRASH-FIX: fopen needs internal heap for FILE struct. When internal heap
+    // is critically low (<8KB), fopen can crash inside VFS/SPIFFS layer.
+    // Skip fopen and return NOT_FOUND — timeline is optional, not safety-critical.
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < 8192) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
     char nvs_key[16];
     snprintf(nvs_key, sizeof(nvs_key), "tl_%.12s", gh_id);
     nvs_handle_t h;
@@ -351,10 +390,15 @@ esp_err_t crop_cycle_mgr_get_timeline(const char *gh_id, char *out_buf, size_t m
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t crop_cycle_mgr_update_metadata_v2(const char *gh_id, const char *variety, uint32_t plant_count, const char *notes, uint32_t target_harvest_hst, const char *timeline_json_str)
+esp_err_t crop_cycle_mgr_update_metadata_v2_with_version(const char *gh_id, const char *variety, uint32_t plant_count, const char *notes, uint32_t target_harvest_hst, const char *timeline_json_str, uint32_t expected_version)
 {
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Metadata update rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
 
     if (variety && variety[0]) snprintf(rec.variety, sizeof(rec.variety), "%s", variety);
     if (plant_count > 0) rec.plant_count = plant_count;
@@ -368,15 +412,25 @@ esp_err_t crop_cycle_mgr_update_metadata_v2(const char *gh_id, const char *varie
     return save_active_nvs(gh_id, &rec);
 }
 
+esp_err_t crop_cycle_mgr_update_metadata_v2(const char *gh_id, const char *variety, uint32_t plant_count, const char *notes, uint32_t target_harvest_hst, const char *timeline_json_str)
+{
+    return crop_cycle_mgr_update_metadata_v2_with_version(gh_id, variety, plant_count, notes, target_harvest_hst, timeline_json_str, 0);
+}
+
 esp_err_t crop_cycle_mgr_update_metadata(const char *gh_id, const char *variety, uint32_t plant_count, const char *notes)
 {
     return crop_cycle_mgr_update_metadata_v2(gh_id, variety, plant_count, notes, 0, NULL);
 }
 
-esp_err_t crop_cycle_mgr_cancel(const char *gh_id)
+esp_err_t crop_cycle_mgr_cancel_with_version(const char *gh_id, uint32_t expected_version)
 {
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Cancel rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
 
     rec.status = CYCLE_STATE_CANCELLED;
     rec.version++;
@@ -398,10 +452,20 @@ esp_err_t crop_cycle_mgr_cancel(const char *gh_id)
     return ESP_OK;
 }
 
-esp_err_t crop_cycle_mgr_harvest(const char *gh_id, const char *harvest_date, float yield_kg, bool has_yield, const char *grade, const char *notes)
+esp_err_t crop_cycle_mgr_cancel(const char *gh_id)
+{
+    return crop_cycle_mgr_cancel_with_version(gh_id, 0);
+}
+
+esp_err_t crop_cycle_mgr_harvest_with_version(const char *gh_id, const char *harvest_date, float yield_kg, bool has_yield, const char *grade, const char *notes, uint32_t expected_version)
 {
     crop_cycle_record_t rec;
     if (load_active_nvs(gh_id, &rec) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (expected_version != 0 && rec.version != expected_version) {
+        ESP_LOGW(TAG, "Harvest rejected: version mismatch (expected=%lu, actual=%lu) for gh=%s",
+                 (unsigned long)expected_version, (unsigned long)rec.version, gh_id);
+        return ESP_ERR_INVALID_VERSION;
+    }
 
     rec.status = CYCLE_STATE_HARVESTED;
     rec.has_harvest = true;
@@ -429,6 +493,11 @@ esp_err_t crop_cycle_mgr_harvest(const char *gh_id, const char *harvest_date, fl
         save_active_nvs(gh_id, &rec);
     }
     return ESP_OK;
+}
+
+esp_err_t crop_cycle_mgr_harvest(const char *gh_id, const char *harvest_date, float yield_kg, bool has_yield, const char *grade, const char *notes)
+{
+    return crop_cycle_mgr_harvest_with_version(gh_id, harvest_date, yield_kg, has_yield, grade, notes, 0);
 }
 
 cJSON *crop_cycle_mgr_to_json(const crop_cycle_record_t *c)
@@ -469,8 +538,14 @@ cJSON *crop_cycle_mgr_to_json(const crop_cycle_record_t *c)
         cJSON_AddNullToObject(r, "targetHarvestHst");
     }
 
-    char tl_buf[2048];
-    if (crop_cycle_mgr_get_timeline(c->gh_id, tl_buf, sizeof(tl_buf)) == ESP_OK) {
+    /* HEAP-FIX (audit 2026-09-28): char tl_buf[2048] lived on the httpd
+     * worker stack (4096 B) underneath the SPIFFS fopen chain -- estimated
+     * peak ~5 KB, the overflow path behind the observed
+     * "xTaskPriorityDisinherit (pxTCB->uxMutexesHeld)" panic in
+     * handler_get_crop_cycle. Move it to PSRAM heap. Deliberately, NO task
+     * stack size is changed by this patch. */
+    char *tl_buf = (char *)heap_caps_malloc(2048, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (tl_buf && crop_cycle_mgr_get_timeline(c->gh_id, tl_buf, 2048) == ESP_OK) {
         cJSON *tl_obj = cJSON_Parse(tl_buf);
         if (tl_obj) {
             cJSON_AddItemToObject(r, "cropTimelineConfig", tl_obj);
@@ -480,6 +555,7 @@ cJSON *crop_cycle_mgr_to_json(const crop_cycle_record_t *c)
     } else {
         cJSON_AddNullToObject(r, "cropTimelineConfig");
     }
+    heap_caps_free(tl_buf); /* safe when NULL */
 
     cJSON_AddNumberToObject(r, "version", c->version);
 

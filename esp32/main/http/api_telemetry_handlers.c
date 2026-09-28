@@ -1,10 +1,12 @@
 #include "http/api_telemetry_handlers.h"
+#include "utils/psram_task.h"
 #include "http/api_device_handlers.h"
 #include "http/http_server.h"
 #include "services/telemetry_mgr.h"
 #include "services/event_mgr.h"
 #include "cJSON.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -285,6 +287,7 @@ static void telemetry_stream_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "Telemetry stream worker started.");
 
+    uint32_t cycle = 0;
     while (1) {
         telemetry_active_process_t proc;
         telemetry_mgr_get_active_process(&proc);
@@ -294,6 +297,19 @@ static void telemetry_stream_task(void *pvParameters)
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(cadence_sec * 1000));
 
         ws_broadcast_batch();
+
+        /* HEAP-AUDIT (2026-09-28): report stack high-water mark + internal
+         * heap watermarks every ~60s. A stack_hwm of 0 means this task has
+         * PROVABLY overflowed its stack -- that is the evidence required
+         * before any task stack size may be changed. */
+        if (++cycle % 6 == 0) {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGW(TAG, "MEM tele_stream_task stack_hwm=%u B free_int=%u largest=%u min_free=%u",
+                     (unsigned)(hwm * sizeof(StackType_t)),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        }
     }
 }
 
@@ -311,7 +327,7 @@ void telemetry_stream_init(httpd_handle_t server)
     }
 
     if (!s_stream_task_handle) {
-        xTaskCreatePinnedToCore(telemetry_stream_task, "tele_stream_task", 4096, NULL, TASK_TELEMETRY_PRIO, &s_stream_task_handle, 0);
+        psram_task_create_pinned(telemetry_stream_task, "tele_stream_task", 4096, NULL, TASK_TELEMETRY_PRIO, &s_stream_task_handle, 0);
     }
     ESP_LOGI(TAG, "Telemetry WebSocket streaming worker initialized.");
 }

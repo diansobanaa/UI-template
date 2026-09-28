@@ -53,6 +53,35 @@ typedef struct {
     char polarity[16];
 } hw_wiring_info_t;
 
+/* RC-5: Pre-parsed sensor parameters cache. Diisi SATU kali saat
+ * hardware_registry_load_from_json dari cJSON object `parameters`, sehingga
+ * poll_generic_sensor_inputs / generic_parse_descriptor tidak perlu memanggil
+ * cJSON_Parse setiap 2s untuk setiap sensor. */
+typedef struct {
+    bool   valid;                       // true jika cache sudah di-populate
+    char   unit[16];                    // "unit" field
+    uint32_t sampling_interval_ms;      // "samplingIntervalMs"
+    char   calibration_reference[40];   // "calibrationReference"
+    char   calibration_type[24];        // "calibrationType"
+    uint32_t calibration_version;       // "calibrationVersion"
+    float  min_value;                   // "minValue"
+    float  max_value;                   // "maxValue"
+    bool   has_validity_range;          // derived from min/max presence
+    float  raw_scale;                   // "rawScale" (default 1.0f)
+    float  raw_offset;                  // "rawOffset" (default 0.0f)
+    int8_t active_level;                // "activeLevel" (default 1; -1 = unset)
+} sensor_parsed_params_t;
+
+/* RC-8: Pre-parsed safety parameters cache. Diisi SATU kali saat registry load.
+ * safety_monitor membaca dari struct ini setiap 500ms alih-alih cJSON_Parse. */
+typedef struct {
+    bool     valid;                              // true jika cache sudah di-populate
+    uint32_t max_runtime_sec;                    // "safety.maxRuntimeSec"
+    uint32_t flow_timeout_sec;                   // "safety.flowTimeoutSec"
+    bool     require_high_level_protection;      // "safety.requireHighLevelProtection"
+    bool     external_high_level_interlock;      // "safety.externalHighLevelInterlock"
+} safety_parsed_params_t;
+
 typedef struct {
     char component_id[32];
     char supported_type_id[32];
@@ -64,6 +93,9 @@ typedef struct {
     char parameters_json[256];
     char role[32];
     char resource_id[32];
+    // RC-5 + RC-8: Pre-parsed parameter caches (diisi saat registry load).
+    sensor_parsed_params_t parsed_params;
+    safety_parsed_params_t safety_params;
 } hw_component_info_t;
 
 

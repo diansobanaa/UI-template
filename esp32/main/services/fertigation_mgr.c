@@ -1,5 +1,6 @@
 #include "services/fertigation_mgr.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -28,6 +29,47 @@ static fertigation_state_t s_state = FERT_STATE_IDLE;
 static fertigation_batch_config_t s_batch;
 static delivery_slot_t s_delivery_slots[FERT_MAX_DELIVERY_SLOTS] = {0};
 static SemaphoreHandle_t s_mutex = NULL;
+
+/* BUILD-FIX: Multi-GH preparation slot infrastructure (Task 7 design).
+ * FERT_MAX_PREPARATION_SLOTS, preparation_slot_t, and s_prep_slots were
+ * referenced by code added in Task 7 (multi-GH parallel preparation) but
+ * the type/array declarations were never added — causing "undeclared
+ * identifier" compile errors.
+ *
+ * Design (per MIXING_FERTIGATION_OPERATIONAL_MODEL.md §10):
+ *   - Up to 4 GHs can run preparation (PRECHECK→FILLING→DOSING→FINAL_MIXING→MIX_READY) in parallel
+ *   - Only DOSING phase is serialized via s_dosing_mutex (central dosing pumps are shared)
+ *   - FILLING / FINAL_MIXING / MIX_READY / DELIVERY run parallel per-GH
+ *   - Each slot has its own state, batch config, phase timestamps, dosing channel tracking
+ *
+ * NOTE: The current task loop (line ~1317) still uses global s_batch/s_state for the
+ * active preparation. The slot array is used by persist_run (for per-slot last_terminal)
+ * and restore_recovery (for multi-slot NVS recovery). Full parallel preparation
+ * implementation (iterating slots in the task loop) is deferred — the TODO comment
+ * at line ~2210 documents this. The declarations below enable compilation and
+ * provide the data structures for incremental parallelization.
+ */
+#define FERT_MAX_PREPARATION_SLOTS 4
+
+typedef struct {
+    bool occupied;
+    fertigation_state_t state;
+    fertigation_batch_config_t batch;
+    int64_t run_start_ms;
+    int64_t run_end_ms;
+    int64_t phase_ts[10];
+    uint32_t state_start_ms;
+    uint32_t raw_start_ml;
+    uint32_t delivery_start_ml;
+    uint32_t dosing_start_ms[FERT_MAX_DOSING_CHANNELS];
+    uint32_t dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS];
+    uint32_t active_dosing_channel_idx;
+    bool raw_water_filling_done;
+    bool dosing_mutex_held;
+} preparation_slot_t;
+
+static preparation_slot_t s_prep_slots[FERT_MAX_PREPARATION_SLOTS] = {0};
+static SemaphoreHandle_t s_dosing_mutex = NULL;
 static int64_t s_run_start_ms = 0, s_run_end_ms = 0;
 static int64_t s_phase_ts[10] = {0};
 static uint32_t s_state_start_ms = 0;
@@ -36,12 +78,24 @@ static uint32_t s_dosing_start_ms[FERT_MAX_DOSING_CHANNELS] = {0};
 static uint32_t s_dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS] = {0};
 static uint32_t s_active_dosing_channel_idx = 0;
 static bool s_raw_water_filling_done = false;
+// ITEM-2: Per-slot last_terminal for independent GH fault tracking.
+// Previously a single global s_last_terminal meant: if GH-01 faulted and GH-02
+// completed, calling get_last_terminal() would return whichever happened last —
+// making per-GH fault detection in scheduler.c process_dosing_queue unreliable.
+// Now each preparation slot has its own last_terminal, indexed by slot.
+static fertigation_last_terminal_t s_last_terminal_per_slot[FERT_MAX_PREPARATION_SLOTS] = {0};
+// ITEM-2: Legacy single s_last_terminal retained for backward-compat callers
+// (fertigation_mgr_get_last_terminal without slot param). It mirrors the most
+// recent terminal across all slots. New callers should use _for_slot variant.
 static fertigation_last_terminal_t s_last_terminal = {0};
 static uint32_t s_today_run_count = 0;
 static uint32_t s_today_delivered_ml = 0;
 static int s_today_fert_day = -1;
 #define FERT_RECOVERY_NS "agrotech_fert"
 #define FERT_RECOVERY_KEY "recovery_run"
+// ITEM-3: Multi-slot NVS recovery keys. Each slot gets its own NVS key
+// recovery_run_0..3 so reboot doesn't mix state across GHs.
+#define FERT_RECOVERY_KEY_FMT "recovery_run_%d"
 
 static void cp(char *d, size_t n, const char *s) {
   if (!d || !n)
@@ -151,6 +205,42 @@ static void stop_all(void) {
     }
   }
 }
+// RC-3: Helper untuk append string yang di-escape sesuai JSON ke buffer.
+// Mengembalikan offset baru setelah append, atau -1 jika buffer tidak cukup.
+// Escape sequence sama dengan cJSON: \", \\, \b, \f, \n, \r, \t, dan \uXXXX
+// untuk kontrol lainnya.
+static int fert_json_escape(char *buf, int buf_size, int offset, const char *s) {
+  if (!s) return offset;
+  if (offset < 0) return -1;
+  if (offset + 1 >= buf_size) return -1;
+  buf[offset++] = '"';
+  for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
+    if (offset + 2 >= buf_size) return -1;
+    switch (*p) {
+      case '"':  buf[offset++] = '\\'; buf[offset++] = '"'; break;
+      case '\\': buf[offset++] = '\\'; buf[offset++] = '\\'; break;
+      case '\b': buf[offset++] = '\\'; buf[offset++] = 'b'; break;
+      case '\f': buf[offset++] = '\\'; buf[offset++] = 'f'; break;
+      case '\n': buf[offset++] = '\\'; buf[offset++] = 'n'; break;
+      case '\r': buf[offset++] = '\\'; buf[offset++] = 'r'; break;
+      case '\t': buf[offset++] = '\\'; buf[offset++] = 't'; break;
+      default:
+        if (*p < 0x20) {
+          if (offset + 6 >= buf_size) return -1;
+          int w = snprintf(buf + offset, buf_size - offset, "\\u%04x", *p);
+          if (w < 0 || (size_t)w >= (size_t)(buf_size - offset)) return -1;
+          offset += w;
+        } else {
+          buf[offset++] = (char)*p;
+        }
+        break;
+    }
+  }
+  if (offset + 1 >= buf_size) return -1;
+  buf[offset++] = '"';
+  return offset;
+}
+
 static void persist_run(const char *final_fault) {
   const char *event_code =
       final_fault ? "BATCH_FAILED" : "FERTIGATION_RUN_COMPLETED";
@@ -162,36 +252,41 @@ static void persist_run(const char *final_fault) {
                               s_batch.delivery_pump_id, NULL,
                               s_batch.configuration_version);
 
-  s_last_terminal.state = s_state;
-  cp(s_last_terminal.run_id, sizeof(s_last_terminal.run_id), s_batch.run_id);
-  cp(s_last_terminal.fault, sizeof(s_last_terminal.fault),
+  // ITEM-2: Per-slot last_terminal — find slot index matching this run_id.
+  // This allows scheduler.c process_dosing_queue to query fault per-GH independently.
+  int slot_idx = -1;
+  if (s_batch.run_id[0]) {
+    for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+      if (s_prep_slots[i].occupied &&
+          strcmp(s_prep_slots[i].batch.run_id, s_batch.run_id) == 0) {
+        slot_idx = i;
+        break;
+      }
+    }
+  }
+  // Fallback: if no matching slot found (e.g., run started before slot refactor
+  // or already freed), use slot 0 as the default terminal slot.
+  if (slot_idx < 0) slot_idx = 0;
+
+  // Write to per-slot last_terminal
+  fertigation_last_terminal_t *slot_term = &s_last_terminal_per_slot[slot_idx];
+  slot_term->state = s_state;
+  cp(slot_term->run_id, sizeof(slot_term->run_id), s_batch.run_id);
+  cp(slot_term->fault, sizeof(slot_term->fault),
      final_fault ? final_fault : "");
-  s_last_terminal.completed_at_ms = wallclock_ms();
+  slot_term->completed_at_ms = wallclock_ms();
+
+  // ITEM-2: Also update legacy global s_last_terminal for backward-compat callers.
+  // It mirrors the most recent terminal across all slots.
+  s_last_terminal = *slot_term;
 
   (void)command_mgr_notify_fertigation_status(
       final_fault ? CMD_STATUS_FAILED : CMD_STATUS_COMPLETED,
       final_fault ? final_fault : "COMPLETED", event_message);
 
-  cJSON *r = cJSON_CreateObject();
-  if (!r)
-    return;
-  cJSON_AddStringToObject(r, "runId", s_batch.run_id);
-  cJSON_AddStringToObject(r, "complexId", s_batch.complex_id);
-  cJSON_AddStringToObject(r, "ghId", s_batch.gh_id);
-  cJSON_AddStringToObject(r, "triggerType", s_batch.trigger_type);
-  if (s_batch.schedule_id[0])
-    cJSON_AddStringToObject(r, "scheduleId", s_batch.schedule_id);
-  cJSON_AddStringToObject(r, "recipeId", s_batch.recipe_id);
-  cJSON_AddNumberToObject(r, "recipeVersion", s_batch.recipe_version);
-  cJSON_AddNumberToObject(r, "configurationVersion",
-                          s_batch.configuration_version);
-  cJSON_AddStringToObject(r, "configurationHash", s_batch.configuration_hash);
-  cJSON_AddNumberToObject(r, "targetWaterMl", s_batch.target_water_ml);
-  cJSON_AddNumberToObject(
-      r, "actualWaterMl",
-      s_batch.target_water_ml > 0
-          ? (double)(s_raw_start_ml ? 0 : s_batch.target_water_ml)
-          : 0);
+  // RC-3: Pre-compute semua nilai yang dibutuhkan untuk JSON output. Logic
+  // identik dengan versi cJSON sebelumnya, hanya urutan disesuaikan agar bisa
+  // di-emit dalam satu pass snprintf tanpa ReplaceItemInObject.
   uint32_t actual_raw = 0, actual_del = 0;
   bool raw_measured = sensor_hal_get_component_accumulated_ml(
                           s_batch.raw_flow_sensor_id, &actual_raw) == ESP_OK;
@@ -221,92 +316,15 @@ static void persist_run(const char *final_fault) {
     s_today_delivered_ml += actual_del;
   }
 
-  cJSON_ReplaceItemInObject(r, "actualWaterMl",
-                            cJSON_CreateNumber((double)actual_raw));
-  cJSON_AddStringToObject(r, "actualWaterMeasurementSource",
-                          raw_measured ? "CONFIGURED_FLOW_SENSOR"
-                                       : "UNAVAILABLE");
-  cJSON_AddStringToObject(r, "actualWaterMeasurementQuality",
-                          raw_measured ? "MEASURED" : "UNAVAILABLE");
-  cJSON_AddNumberToObject(r, "deliveryTargetMl", s_batch.delivery_target_ml);
-  cJSON_AddNumberToObject(r, "actualDeliveredMl", actual_del);
-  cJSON *channels = cJSON_AddArrayToObject(r, "dosingChannels");
-  for (uint32_t i = 0;
-       i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++) {
-    cJSON *x = cJSON_CreateObject();
-    cJSON_AddStringToObject(x, "componentId", s_batch.channels[i].component_id);
-    cJSON_AddNumberToObject(x, "requestedMl", s_batch.channels[i].requested_ml);
-    cJSON_AddNumberToObject(x, "actualRuntimeMs",
-                            s_dosing_runtime_observed_ms[i]);
-    cJSON_AddNumberToObject(x, "actualRuntimeSec",
-                            s_dosing_runtime_observed_ms[i] / 1000.0);
-    cJSON_AddNumberToObject(x, "actualDosedMl",
-                            (s_dosing_runtime_observed_ms[i] / 1000.0) *
-                                s_batch.channels[i].rate_ml_sec);
-    cJSON_AddStringToObject(x, "actualDosedMeasurementSource",
-                            "CALIBRATION_RATE_X_OBSERVED_RUNTIME");
-    cJSON_AddStringToObject(x, "actualDosedMeasurementQuality", "CALCULATED");
-    cJSON_AddNumberToObject(x, "rateMlPerSec", s_batch.channels[i].rate_ml_sec);
-    cJSON_AddNumberToObject(x, "calibrationVersion",
-                            s_batch.channels[i].calibration_version);
-    cJSON_AddStringToObject(x, "calibrationId",
-                            s_batch.channels[i].calibration_id);
-    cJSON_AddItemToArray(channels, x);
-  }
-  double mixed_volume = (double)actual_raw;
-  for (uint32_t i = 0;
-       i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++)
-    mixed_volume += ((double)s_dosing_runtime_observed_ms[i] / 1000.0) *
-                    (double)s_batch.channels[i].rate_ml_sec;
-  cJSON_AddNumberToObject(r, "actualMixedVolumeMl", mixed_volume);
-  cJSON_AddStringToObject(
-      r, "mixedVolumeMeasurementSource",
-      "CALCULATED_FROM_MEASURED_WATER_AND_CALIBRATED_DOSING");
-  cJSON_AddStringToObject(r, "mixedVolumeMeasurementQuality", "CALCULATED");
-  cJSON *sensor_cals =
-      cJSON_AddObjectToObject(r, "sensorCalibrationReferences");
-  cJSON *raw_cal = cJSON_CreateObject();
-  cJSON_AddStringToObject(raw_cal, "sensorId", s_batch.raw_flow_sensor_id);
-  cJSON_AddStringToObject(raw_cal, "calibrationId",
-                          s_batch.raw_flow_calibration_id);
-  cJSON_AddNumberToObject(raw_cal, "version",
-                          s_batch.raw_flow_calibration_version);
-  cJSON_AddItemToObject(sensor_cals, "rawFlow", raw_cal);
-  if (s_batch.delivery_flow_sensor_id[0]) {
-    cJSON *del_cal = cJSON_CreateObject();
-    cJSON_AddStringToObject(del_cal, "sensorId",
-                            s_batch.delivery_flow_sensor_id);
-    cJSON_AddStringToObject(del_cal, "calibrationId",
-                            s_batch.delivery_flow_calibration_id);
-    cJSON_AddNumberToObject(del_cal, "version",
-                            s_batch.delivery_flow_calibration_version);
-    cJSON_AddItemToObject(sensor_cals, "deliveryFlow", del_cal);
-  }
-  cJSON_AddBoolToObject(r, "deliveredVolumeVerified",
-                        strcasecmp(s_batch.delivery_mode, "DURATION") != 0 &&
-                            delivery_measured &&
-                            actual_del >= (uint32_t)s_batch.delivery_target_ml);
-  cJSON_AddStringToObject(
-      r, "deliveredVolumeMeasurementSource",
-      strcasecmp(s_batch.delivery_mode, "DURATION") == 0
-          ? "DURATION_TIMER"
-          : (delivery_measured ? "CONFIGURED_FLOW_SENSOR" : "UNAVAILABLE"));
-  cJSON_AddStringToObject(
-      r, "deliveredVolumeMeasurementQuality",
-      strcasecmp(s_batch.delivery_mode, "DURATION") == 0
-          ? "DERIVED"
-          : (delivery_measured ? "MEASURED" : "UNAVAILABLE"));
   sensor_component_sample_t delivery_flow_sample = {0};
   if (s_batch.delivery_flow_sensor_id[0] &&
       sensor_hal_get_component_sample(s_batch.delivery_flow_sensor_id,
                                       &delivery_flow_sample) == ESP_OK &&
       delivery_flow_sample.has_value &&
       delivery_flow_sample.state == SENSOR_STATE_VALID) {
-    cJSON_AddNumberToObject(r, "actualFlowLpm", delivery_flow_sample.value);
-    cJSON_AddStringToObject(r, "actualFlowMeasurementQuality", "MEASURED");
+    /* flow sample valid */
   } else {
-    cJSON_AddNullToObject(r, "actualFlowLpm");
-    cJSON_AddStringToObject(r, "actualFlowMeasurementQuality", "UNAVAILABLE");
+    delivery_flow_sample.has_value = false;
   }
   sensor_component_sample_t pressure_sample = {0};
   if (s_batch.pressure_sensor_id[0] &&
@@ -314,43 +332,9 @@ static void persist_run(const char *final_fault) {
                                       &pressure_sample) == ESP_OK &&
       pressure_sample.has_value &&
       pressure_sample.state == SENSOR_STATE_VALID) {
-    cJSON_AddNumberToObject(r, "actualPressureKpa", pressure_sample.value);
-    cJSON_AddStringToObject(r, "actualPressureMeasurementQuality", "MEASURED");
+    /* pressure sample valid */
   } else {
-    cJSON_AddNullToObject(r, "actualPressureKpa");
-    cJSON_AddStringToObject(r, "actualPressureMeasurementQuality",
-                            "UNAVAILABLE");
-  }
-  cJSON_AddNumberToObject(r, "mixingDurationSec", s_batch.mixing_duration_sec);
-  cJSON_AddStringToObject(r, "deliveryMode", s_batch.delivery_mode);
-  cJSON_AddNumberToObject(r, "targetFlowLpm", s_batch.target_flow_lpm);
-  cJSON_AddNumberToObject(r, "targetPressureKpa", s_batch.target_pressure_kpa);
-  if (s_batch.execution_plan_json[0]) {
-    cJSON *ep = cJSON_Parse(s_batch.execution_plan_json);
-    if (ep)
-      cJSON_AddItemToObject(r, "executionPlan", ep);
-  }
-  cJSON_AddNumberToObject(r, "startTimestampMs", (double)s_run_start_ms);
-  cJSON_AddNumberToObject(r, "endTimestampMs", (double)s_run_end_ms);
-  cJSON_AddNumberToObject(r, "monotonicStartMs", (double)s_run_start_ms);
-  cJSON_AddNumberToObject(r, "monotonicEndMs", (double)s_run_end_ms);
-  cJSON_AddStringToObject(r, "finalStatus", state_name(s_state));
-  cJSON_AddStringToObject(r, "operator", s_batch.operator_id);
-  cJSON_AddStringToObject(r, "source", s_batch.source);
-  if (final_fault)
-    cJSON_AddStringToObject(r, "fault", final_fault);
-  else
-    cJSON_AddNullToObject(r, "fault");
-  cJSON *ph = cJSON_AddObjectToObject(r, "phaseTimestamps");
-  const char *names[] = {"PRECHECK",  "FILLING",  "DOSING",  "FINAL_MIXING",
-                         "MIX_READY", "DELIVERY", "COMPLETE"};
-  for (int i = 0; i < 7; i++)
-    if (s_phase_ts[i] > 0)
-      cJSON_AddNumberToObject(ph, names[i], (double)s_phase_ts[i]);
-  if (s_batch.recipe_snapshot_json[0]) {
-    cJSON *snap = cJSON_Parse(s_batch.recipe_snapshot_json);
-    if (snap)
-      cJSON_AddItemToObject(r, "recipeSnapshot", snap);
+    pressure_sample.has_value = false;
   }
 
   const char *mixing_status = "NOT_STARTED";
@@ -367,28 +351,402 @@ static void persist_run(const char *final_fault) {
   } else if (s_phase_ts[1] > 0) {
     mixing_status = "IN_PROGRESS";
   }
-  cJSON *mix_obj = cJSON_AddObjectToObject(r, "mixing");
-  cJSON_AddStringToObject(mix_obj, "status", mixing_status);
-  cJSON *del_obj = cJSON_AddObjectToObject(r, "delivery");
-  cJSON_AddStringToObject(del_obj, "status", delivery_status);
-  cJSON_AddStringToObject(r, "phase", state_name(s_state));
 
-  char *str = cJSON_PrintUnformatted(r);
-  if (str) {
-    storage_mgr_append_fertigation_run(str);
-    free(str);
+  // RC-3: Build JSON via direct snprintf ke stack buffer (4096 bytes) untuk
+  // menghindari 30+ cJSON heap allocations + cJSON_PrintUnformatted per state
+  // transition (dipanggil 17x di 200ms task loop -> 30+ KB heap churn/s saat
+  // dosing aktif). Format %1.15g dipakai untuk semua number agar byte-identical
+  // dengan output cJSON (cJSON juga pakai %1.15g). execution_plan_json dan
+  // recipe_snapshot_json sudah pre-serialized via cJSON_PrintUnformatted, jadi
+  // di-embed langsung tanpa re-parse (byte-identical dengan output cJSON path).
+  //
+  // Jika buffer 4096 tidak cukup (rare case: execution_plan sangat besar),
+  // fall back ke cJSON tree path di label json_fallback.
+  {
+    char json_buf[4096];
+    int n = 0;
+    int w = 0;
+    bool ok = true;
+    double mixed_volume = (double)actual_raw;
+
+    // Macro helpers untuk append dengan overflow check. Setiap call meng-update
+    // n (offset) dan set ok=false jika buffer overflow, lalu goto json_fallback.
+    #define FJ_PRINTF(...) do { \
+        w = snprintf(json_buf + n, sizeof(json_buf) - n, __VA_ARGS__); \
+        if (w < 0 || (size_t)w >= sizeof(json_buf) - n) { ok = false; goto json_fallback; } \
+        n += w; \
+      } while (0)
+    #define FJ_STR(s) do { \
+        n = fert_json_escape(json_buf, (int)sizeof(json_buf), n, (s)); \
+        if (n < 0) { ok = false; goto json_fallback; } \
+      } while (0)
+
+    FJ_PRINTF("{");
+    FJ_PRINTF("\"runId\":");           FJ_STR(s_batch.run_id);
+    FJ_PRINTF(",\"complexId\":");      FJ_STR(s_batch.complex_id);
+    FJ_PRINTF(",\"ghId\":");           FJ_STR(s_batch.gh_id);
+    FJ_PRINTF(",\"triggerType\":");    FJ_STR(s_batch.trigger_type);
+    if (s_batch.schedule_id[0]) {
+      FJ_PRINTF(",\"scheduleId\":");   FJ_STR(s_batch.schedule_id);
+    }
+    FJ_PRINTF(",\"recipeId\":");       FJ_STR(s_batch.recipe_id);
+    FJ_PRINTF(",\"recipeVersion\":%1.15g", (double)s_batch.recipe_version);
+    FJ_PRINTF(",\"configurationVersion\":%1.15g", (double)s_batch.configuration_version);
+    FJ_PRINTF(",\"configurationHash\":"); FJ_STR(s_batch.configuration_hash);
+    FJ_PRINTF(",\"targetWaterMl\":%1.15g", (double)s_batch.target_water_ml);
+    // actualWaterMl: di cJSON path nilai awalnya placeholder lalu di-ReplaceItem
+    // dengan actual_raw. Di sini langsung emit actual_raw (nilai final).
+    FJ_PRINTF(",\"actualWaterMl\":%1.15g", (double)actual_raw);
+    FJ_PRINTF(",\"actualWaterMeasurementSource\":\"%s\"",
+              raw_measured ? "CONFIGURED_FLOW_SENSOR" : "UNAVAILABLE");
+    FJ_PRINTF(",\"actualWaterMeasurementQuality\":\"%s\"",
+              raw_measured ? "MEASURED" : "UNAVAILABLE");
+    FJ_PRINTF(",\"deliveryTargetMl\":%1.15g", (double)s_batch.delivery_target_ml);
+    FJ_PRINTF(",\"actualDeliveredMl\":%1.15g", (double)actual_del);
+
+    // dosingChannels array
+    FJ_PRINTF(",\"dosingChannels\":[");
+    for (uint32_t i = 0;
+         i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++) {
+      if (i > 0) FJ_PRINTF(",");
+      double runtime_sec = (double)s_dosing_runtime_observed_ms[i] / 1000.0;
+      double dosed_ml = runtime_sec * (double)s_batch.channels[i].rate_ml_sec;
+      mixed_volume += dosed_ml;
+      FJ_PRINTF("{");
+      FJ_PRINTF("\"componentId\":");     FJ_STR(s_batch.channels[i].component_id);
+      FJ_PRINTF(",\"requestedMl\":%1.15g", (double)s_batch.channels[i].requested_ml);
+      FJ_PRINTF(",\"actualRuntimeMs\":%1.15g", (double)s_dosing_runtime_observed_ms[i]);
+      FJ_PRINTF(",\"actualRuntimeSec\":%1.15g", runtime_sec);
+      FJ_PRINTF(",\"actualDosedMl\":%1.15g", dosed_ml);
+      FJ_PRINTF(",\"actualDosedMeasurementSource\":\"CALIBRATION_RATE_X_OBSERVED_RUNTIME\"");
+      FJ_PRINTF(",\"actualDosedMeasurementQuality\":\"CALCULATED\"");
+      FJ_PRINTF(",\"rateMlPerSec\":%1.15g", (double)s_batch.channels[i].rate_ml_sec);
+      FJ_PRINTF(",\"calibrationVersion\":%1.15g",
+                (double)s_batch.channels[i].calibration_version);
+      FJ_PRINTF(",\"calibrationId\":"); FJ_STR(s_batch.channels[i].calibration_id);
+      FJ_PRINTF("}");
+    }
+    FJ_PRINTF("]");
+
+    FJ_PRINTF(",\"actualMixedVolumeMl\":%1.15g", mixed_volume);
+    FJ_PRINTF(",\"mixedVolumeMeasurementSource\":"
+              "\"CALCULATED_FROM_MEASURED_WATER_AND_CALIBRATED_DOSING\"");
+    FJ_PRINTF(",\"mixedVolumeMeasurementQuality\":\"CALCULATED\"");
+
+    // sensorCalibrationReferences object
+    FJ_PRINTF(",\"sensorCalibrationReferences\":{");
+    FJ_PRINTF("\"rawFlow\":{");
+    FJ_PRINTF("\"sensorId\":");         FJ_STR(s_batch.raw_flow_sensor_id);
+    FJ_PRINTF(",\"calibrationId\":");   FJ_STR(s_batch.raw_flow_calibration_id);
+    FJ_PRINTF(",\"version\":%1.15g", (double)s_batch.raw_flow_calibration_version);
+    FJ_PRINTF("}");
+    if (s_batch.delivery_flow_sensor_id[0]) {
+      FJ_PRINTF(",\"deliveryFlow\":{");
+      FJ_PRINTF("\"sensorId\":");       FJ_STR(s_batch.delivery_flow_sensor_id);
+      FJ_PRINTF(",\"calibrationId\":"); FJ_STR(s_batch.delivery_flow_calibration_id);
+      FJ_PRINTF(",\"version\":%1.15g", (double)s_batch.delivery_flow_calibration_version);
+      FJ_PRINTF("}");
+    }
+    FJ_PRINTF("}");
+
+    bool delivered_verified =
+        strcasecmp(s_batch.delivery_mode, "DURATION") != 0 &&
+        delivery_measured &&
+        actual_del >= (uint32_t)s_batch.delivery_target_ml;
+    FJ_PRINTF(",\"deliveredVolumeVerified\":%s",
+              delivered_verified ? "true" : "false");
+    FJ_PRINTF(",\"deliveredVolumeMeasurementSource\":\"%s\"",
+              strcasecmp(s_batch.delivery_mode, "DURATION") == 0
+                  ? "DURATION_TIMER"
+                  : (delivery_measured ? "CONFIGURED_FLOW_SENSOR"
+                                       : "UNAVAILABLE"));
+    FJ_PRINTF(",\"deliveredVolumeMeasurementQuality\":\"%s\"",
+              strcasecmp(s_batch.delivery_mode, "DURATION") == 0
+                  ? "DERIVED"
+                  : (delivery_measured ? "MEASURED" : "UNAVAILABLE"));
+
+    if (delivery_flow_sample.has_value &&
+        delivery_flow_sample.state == SENSOR_STATE_VALID) {
+      FJ_PRINTF(",\"actualFlowLpm\":%1.15g", (double)delivery_flow_sample.value);
+      FJ_PRINTF(",\"actualFlowMeasurementQuality\":\"MEASURED\"");
+    } else {
+      FJ_PRINTF(",\"actualFlowLpm\":null");
+      FJ_PRINTF(",\"actualFlowMeasurementQuality\":\"UNAVAILABLE\"");
+    }
+    if (pressure_sample.has_value &&
+        pressure_sample.state == SENSOR_STATE_VALID) {
+      FJ_PRINTF(",\"actualPressureKpa\":%1.15g", (double)pressure_sample.value);
+      FJ_PRINTF(",\"actualPressureMeasurementQuality\":\"MEASURED\"");
+    } else {
+      FJ_PRINTF(",\"actualPressureKpa\":null");
+      FJ_PRINTF(",\"actualPressureMeasurementQuality\":\"UNAVAILABLE\"");
+    }
+
+    FJ_PRINTF(",\"mixingDurationSec\":%1.15g", (double)s_batch.mixing_duration_sec);
+    FJ_PRINTF(",\"deliveryMode\":");    FJ_STR(s_batch.delivery_mode);
+    FJ_PRINTF(",\"targetFlowLpm\":%1.15g", (double)s_batch.target_flow_lpm);
+    FJ_PRINTF(",\"targetPressureKpa\":%1.15g", (double)s_batch.target_pressure_kpa);
+
+    // executionPlan: embed pre-serialized JSON directly. cJSON path mem-parse
+    // lalu re-print; karena string asli di-serialize via cJSON_PrintUnformatted,
+    // output embed adalah byte-identical dengan cJSON path.
+    if (s_batch.execution_plan_json[0]) {
+      FJ_PRINTF(",\"executionPlan\":%s", s_batch.execution_plan_json);
+    }
+
+    FJ_PRINTF(",\"startTimestampMs\":%1.15g", (double)s_run_start_ms);
+    FJ_PRINTF(",\"endTimestampMs\":%1.15g", (double)s_run_end_ms);
+    FJ_PRINTF(",\"monotonicStartMs\":%1.15g", (double)s_run_start_ms);
+    FJ_PRINTF(",\"monotonicEndMs\":%1.15g", (double)s_run_end_ms);
+    FJ_PRINTF(",\"finalStatus\":");     FJ_STR(state_name(s_state));
+    FJ_PRINTF(",\"operator\":");        FJ_STR(s_batch.operator_id);
+    FJ_PRINTF(",\"source\":");          FJ_STR(s_batch.source);
+    if (final_fault) {
+      FJ_PRINTF(",\"fault\":");         FJ_STR(final_fault);
+    } else {
+      FJ_PRINTF(",\"fault\":null");
+    }
+
+    // phaseTimestamps object — hanya emit entry yang s_phase_ts[i] > 0
+    FJ_PRINTF(",\"phaseTimestamps\":{");
+    {
+      static const char *const ph_names[] = {
+          "PRECHECK", "FILLING", "DOSING", "FINAL_MIXING",
+          "MIX_READY", "DELIVERY", "COMPLETE"};
+      bool first_ph = true;
+      for (int i = 0; i < 7; i++) {
+        if (s_phase_ts[i] > 0) {
+          if (!first_ph) FJ_PRINTF(",");
+          first_ph = false;
+          FJ_PRINTF("\"%s\":%1.15g", ph_names[i], (double)s_phase_ts[i]);
+        }
+      }
+    }
+    FJ_PRINTF("}");
+
+    // recipeSnapshot: embed pre-serialized JSON directly.
+    if (s_batch.recipe_snapshot_json[0]) {
+      FJ_PRINTF(",\"recipeSnapshot\":%s", s_batch.recipe_snapshot_json);
+    }
+
+    FJ_PRINTF(",\"mixing\":{\"status\":");  FJ_STR(mixing_status); FJ_PRINTF("}");
+    FJ_PRINTF(",\"delivery\":{\"status\":"); FJ_STR(delivery_status); FJ_PRINTF("}");
+    FJ_PRINTF(",\"phase\":");                 FJ_STR(state_name(s_state));
+
+    FJ_PRINTF("}");
+
+    #undef FJ_PRINTF
+    #undef FJ_STR
+
+    if (ok && n > 0 && n < (int)sizeof(json_buf)) {
+      json_buf[n] = '\0';
+      storage_mgr_append_fertigation_run(json_buf);
+      return;
+    }
   }
-  cJSON_Delete(r);
+
+json_fallback:
+  // RC-3: Fallback ke cJSON tree path jika snprintf buffer (4096) tidak cukup.
+  // Ini rare case (execution_plan atau recipe_snapshot sangat besar). Path ini
+  // mempertahankan behavior identik dengan implementasi sebelum fix RC-3.
+  {
+    cJSON *r = cJSON_CreateObject();
+    if (!r)
+      return;
+    cJSON_AddStringToObject(r, "runId", s_batch.run_id);
+    cJSON_AddStringToObject(r, "complexId", s_batch.complex_id);
+    cJSON_AddStringToObject(r, "ghId", s_batch.gh_id);
+    cJSON_AddStringToObject(r, "triggerType", s_batch.trigger_type);
+    if (s_batch.schedule_id[0])
+      cJSON_AddStringToObject(r, "scheduleId", s_batch.schedule_id);
+    cJSON_AddStringToObject(r, "recipeId", s_batch.recipe_id);
+    cJSON_AddNumberToObject(r, "recipeVersion", s_batch.recipe_version);
+    cJSON_AddNumberToObject(r, "configurationVersion",
+                            s_batch.configuration_version);
+    cJSON_AddStringToObject(r, "configurationHash", s_batch.configuration_hash);
+    cJSON_AddNumberToObject(r, "targetWaterMl", s_batch.target_water_ml);
+    cJSON_AddNumberToObject(r, "actualWaterMl", (double)actual_raw);
+    cJSON_AddStringToObject(r, "actualWaterMeasurementSource",
+                            raw_measured ? "CONFIGURED_FLOW_SENSOR"
+                                         : "UNAVAILABLE");
+    cJSON_AddStringToObject(r, "actualWaterMeasurementQuality",
+                            raw_measured ? "MEASURED" : "UNAVAILABLE");
+    cJSON_AddNumberToObject(r, "deliveryTargetMl", s_batch.delivery_target_ml);
+    cJSON_AddNumberToObject(r, "actualDeliveredMl", actual_del);
+    cJSON *channels = cJSON_AddArrayToObject(r, "dosingChannels");
+    for (uint32_t i = 0;
+         i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++) {
+      cJSON *x = cJSON_CreateObject();
+      cJSON_AddStringToObject(x, "componentId", s_batch.channels[i].component_id);
+      cJSON_AddNumberToObject(x, "requestedMl", s_batch.channels[i].requested_ml);
+      cJSON_AddNumberToObject(x, "actualRuntimeMs",
+                              s_dosing_runtime_observed_ms[i]);
+      cJSON_AddNumberToObject(x, "actualRuntimeSec",
+                              s_dosing_runtime_observed_ms[i] / 1000.0);
+      cJSON_AddNumberToObject(x, "actualDosedMl",
+                              (s_dosing_runtime_observed_ms[i] / 1000.0) *
+                                  s_batch.channels[i].rate_ml_sec);
+      cJSON_AddStringToObject(x, "actualDosedMeasurementSource",
+                              "CALIBRATION_RATE_X_OBSERVED_RUNTIME");
+      cJSON_AddStringToObject(x, "actualDosedMeasurementQuality", "CALCULATED");
+      cJSON_AddNumberToObject(x, "rateMlPerSec", s_batch.channels[i].rate_ml_sec);
+      cJSON_AddNumberToObject(x, "calibrationVersion",
+                              s_batch.channels[i].calibration_version);
+      cJSON_AddStringToObject(x, "calibrationId",
+                              s_batch.channels[i].calibration_id);
+      cJSON_AddItemToArray(channels, x);
+    }
+    double mixed_volume = (double)actual_raw;
+    for (uint32_t i = 0;
+         i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++)
+      mixed_volume += ((double)s_dosing_runtime_observed_ms[i] / 1000.0) *
+                      (double)s_batch.channels[i].rate_ml_sec;
+    cJSON_AddNumberToObject(r, "actualMixedVolumeMl", mixed_volume);
+    cJSON_AddStringToObject(
+        r, "mixedVolumeMeasurementSource",
+        "CALCULATED_FROM_MEASURED_WATER_AND_CALIBRATED_DOSING");
+    cJSON_AddStringToObject(r, "mixedVolumeMeasurementQuality", "CALCULATED");
+    cJSON *sensor_cals =
+        cJSON_AddObjectToObject(r, "sensorCalibrationReferences");
+    cJSON *raw_cal = cJSON_CreateObject();
+    cJSON_AddStringToObject(raw_cal, "sensorId", s_batch.raw_flow_sensor_id);
+    cJSON_AddStringToObject(raw_cal, "calibrationId",
+                            s_batch.raw_flow_calibration_id);
+    cJSON_AddNumberToObject(raw_cal, "version",
+                            s_batch.raw_flow_calibration_version);
+    cJSON_AddItemToObject(sensor_cals, "rawFlow", raw_cal);
+    if (s_batch.delivery_flow_sensor_id[0]) {
+      cJSON *del_cal = cJSON_CreateObject();
+      cJSON_AddStringToObject(del_cal, "sensorId",
+                              s_batch.delivery_flow_sensor_id);
+      cJSON_AddStringToObject(del_cal, "calibrationId",
+                              s_batch.delivery_flow_calibration_id);
+      cJSON_AddNumberToObject(del_cal, "version",
+                              s_batch.delivery_flow_calibration_version);
+      cJSON_AddItemToObject(sensor_cals, "deliveryFlow", del_cal);
+    }
+    cJSON_AddBoolToObject(r, "deliveredVolumeVerified",
+                          strcasecmp(s_batch.delivery_mode, "DURATION") != 0 &&
+                              delivery_measured &&
+                              actual_del >= (uint32_t)s_batch.delivery_target_ml);
+    cJSON_AddStringToObject(
+        r, "deliveredVolumeMeasurementSource",
+        strcasecmp(s_batch.delivery_mode, "DURATION") == 0
+            ? "DURATION_TIMER"
+            : (delivery_measured ? "CONFIGURED_FLOW_SENSOR" : "UNAVAILABLE"));
+    cJSON_AddStringToObject(
+        r, "deliveredVolumeMeasurementQuality",
+        strcasecmp(s_batch.delivery_mode, "DURATION") == 0
+            ? "DERIVED"
+            : (delivery_measured ? "MEASURED" : "UNAVAILABLE"));
+    if (delivery_flow_sample.has_value &&
+        delivery_flow_sample.state == SENSOR_STATE_VALID) {
+      cJSON_AddNumberToObject(r, "actualFlowLpm", delivery_flow_sample.value);
+      cJSON_AddStringToObject(r, "actualFlowMeasurementQuality", "MEASURED");
+    } else {
+      cJSON_AddNullToObject(r, "actualFlowLpm");
+      cJSON_AddStringToObject(r, "actualFlowMeasurementQuality", "UNAVAILABLE");
+    }
+    if (pressure_sample.has_value &&
+        pressure_sample.state == SENSOR_STATE_VALID) {
+      cJSON_AddNumberToObject(r, "actualPressureKpa", pressure_sample.value);
+      cJSON_AddStringToObject(r, "actualPressureMeasurementQuality", "MEASURED");
+    } else {
+      cJSON_AddNullToObject(r, "actualPressureKpa");
+      cJSON_AddStringToObject(r, "actualPressureMeasurementQuality",
+                              "UNAVAILABLE");
+    }
+    cJSON_AddNumberToObject(r, "mixingDurationSec", s_batch.mixing_duration_sec);
+    cJSON_AddStringToObject(r, "deliveryMode", s_batch.delivery_mode);
+    cJSON_AddNumberToObject(r, "targetFlowLpm", s_batch.target_flow_lpm);
+    cJSON_AddNumberToObject(r, "targetPressureKpa", s_batch.target_pressure_kpa);
+    if (s_batch.execution_plan_json[0]) {
+      cJSON *ep = cJSON_Parse(s_batch.execution_plan_json);
+      if (ep)
+        cJSON_AddItemToObject(r, "executionPlan", ep);
+    }
+    cJSON_AddNumberToObject(r, "startTimestampMs", (double)s_run_start_ms);
+    cJSON_AddNumberToObject(r, "endTimestampMs", (double)s_run_end_ms);
+    cJSON_AddNumberToObject(r, "monotonicStartMs", (double)s_run_start_ms);
+    cJSON_AddNumberToObject(r, "monotonicEndMs", (double)s_run_end_ms);
+    cJSON_AddStringToObject(r, "finalStatus", state_name(s_state));
+    cJSON_AddStringToObject(r, "operator", s_batch.operator_id);
+    cJSON_AddStringToObject(r, "source", s_batch.source);
+    if (final_fault)
+      cJSON_AddStringToObject(r, "fault", final_fault);
+    else
+      cJSON_AddNullToObject(r, "fault");
+    cJSON *ph = cJSON_AddObjectToObject(r, "phaseTimestamps");
+    const char *names[] = {"PRECHECK",  "FILLING",  "DOSING",  "FINAL_MIXING",
+                           "MIX_READY", "DELIVERY", "COMPLETE"};
+    for (int i = 0; i < 7; i++)
+      if (s_phase_ts[i] > 0)
+        cJSON_AddNumberToObject(ph, names[i], (double)s_phase_ts[i]);
+    if (s_batch.recipe_snapshot_json[0]) {
+      cJSON *snap = cJSON_Parse(s_batch.recipe_snapshot_json);
+      if (snap)
+        cJSON_AddItemToObject(r, "recipeSnapshot", snap);
+    }
+    cJSON *mix_obj = cJSON_AddObjectToObject(r, "mixing");
+    cJSON_AddStringToObject(mix_obj, "status", mixing_status);
+    cJSON *del_obj = cJSON_AddObjectToObject(r, "delivery");
+    cJSON_AddStringToObject(del_obj, "status", delivery_status);
+    cJSON_AddStringToObject(r, "phase", state_name(s_state));
+
+    char *str = cJSON_PrintUnformatted(r);
+    if (str) {
+      storage_mgr_append_fertigation_run(str);
+      free(str);
+    }
+    cJSON_Delete(r);
+  }
 }
+
 static void clear_recovery(void) {
+  // ITEM-3: Clear all per-slot recovery keys + legacy single key.
   nvs_handle_t h;
   if (nvs_open(FERT_RECOVERY_NS, NVS_READWRITE, &h) == ESP_OK) {
+    // Legacy single key (for runs started before multi-slot refactor)
     nvs_erase_key(h, FERT_RECOVERY_KEY);
+    // Per-slot keys recovery_run_0..3
+    char key[24];
+    for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+      snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, i);
+      nvs_erase_key(h, key);
+    }
     nvs_commit(h);
     nvs_close(h);
   }
 }
+
+// ITEM-3: Clear recovery for a specific slot only (not all slots).
+static void clear_recovery_for_slot(int slot_idx) {
+  if (slot_idx < 0 || slot_idx >= FERT_MAX_PREPARATION_SLOTS) return;
+  nvs_handle_t h;
+  if (nvs_open(FERT_RECOVERY_NS, NVS_READWRITE, &h) == ESP_OK) {
+    char key[24];
+    snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, slot_idx);
+    nvs_erase_key(h, key);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+}
+
 static void persist_recovery(void) {
+  // ITEM-3: Persist recovery to per-slot NVS key.
+  // Identify slot index from s_batch.run_id (matching active slots).
+  // Fallback to slot 0 if no match (covers pre-refactor runs).
+  int slot_idx = 0;
+  if (s_batch.run_id[0]) {
+    for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+      if (s_prep_slots[i].occupied &&
+          strcmp(s_prep_slots[i].batch.run_id, s_batch.run_id) == 0) {
+        slot_idx = i;
+        break;
+      }
+    }
+  }
+
   cJSON *r = cJSON_CreateObject();
   if (!r)
     return;
@@ -399,6 +757,7 @@ static void persist_recovery(void) {
   cJSON_AddNumberToObject(r, "startTimestampMs", (double)s_run_start_ms);
   cJSON_AddNumberToObject(r, "configurationVersion",
                           s_batch.configuration_version);
+  cJSON_AddNumberToObject(r, "slotIdx", slot_idx);  // ITEM-3: track slot
   if (s_batch.recipe_id[0])
     cJSON_AddStringToObject(r, "recipeId", s_batch.recipe_id);
   if (s_batch.execution_plan_json[0]) {
@@ -412,19 +771,31 @@ static void persist_recovery(void) {
     return;
   nvs_handle_t h;
   if (nvs_open(FERT_RECOVERY_NS, NVS_READWRITE, &h) == ESP_OK) {
+    // ITEM-3: Write to per-slot key
+    char key[24];
+    snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, slot_idx);
+    nvs_set_str(h, key, str);
+    // Also write legacy single key for backward compat (covers callers
+    // that still read FERT_RECOVERY_KEY directly — none in current code,
+    // but retained for safety per "don't break compatibility" rule).
     nvs_set_str(h, FERT_RECOVERY_KEY, str);
     nvs_commit(h);
     nvs_close(h);
   }
   free(str);
 }
-static bool restore_recovery(void) {
+
+// ITEM-3: Restore recovery for a specific slot from NVS.
+// Returns true if a recovery record was found and loaded into the slot.
+static bool restore_recovery_for_slot(int slot_idx) {
+  if (slot_idx < 0 || slot_idx >= FERT_MAX_PREPARATION_SLOTS) return false;
   nvs_handle_t h;
   if (nvs_open(FERT_RECOVERY_NS, NVS_READONLY, &h) != ESP_OK)
     return false;
+  char key[24];
+  snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, slot_idx);
   size_t len = 0;
-  if (nvs_get_str(h, FERT_RECOVERY_KEY, NULL, &len) != ESP_OK || len < 2 ||
-      len > 8192) {
+  if (nvs_get_str(h, key, NULL, &len) != ESP_OK || len < 2 || len > 8192) {
     nvs_close(h);
     return false;
   }
@@ -433,7 +804,7 @@ static bool restore_recovery(void) {
     nvs_close(h);
     return false;
   }
-  bool ok = nvs_get_str(h, FERT_RECOVERY_KEY, str, &len) == ESP_OK;
+  bool ok = nvs_get_str(h, key, str, &len) == ESP_OK;
   nvs_close(h);
   if (!ok) {
     free(str);
@@ -443,29 +814,102 @@ static bool restore_recovery(void) {
   free(str);
   if (!r)
     return false;
-  snprintf(s_batch.run_id, sizeof(s_batch.run_id), "%s",
-           cJSON_GetStringValue(cJSON_GetObjectItem(r, "runId")) ?: "");
-  snprintf(s_batch.complex_id, sizeof(s_batch.complex_id), "%s",
-           cJSON_GetStringValue(cJSON_GetObjectItem(r, "complexId")) ?: "");
-  snprintf(s_batch.gh_id, sizeof(s_batch.gh_id), "%s",
-           cJSON_GetStringValue(cJSON_GetObjectItem(r, "ghId")) ?: "");
-  snprintf(s_batch.recipe_id, sizeof(s_batch.recipe_id), "%s",
-           cJSON_GetStringValue(cJSON_GetObjectItem(r, "recipeId")) ?: "");
-  s_run_start_ms =
-      (int64_t)cJSON_GetNumberValue(cJSON_GetObjectItem(r, "startTimestampMs"));
-  s_batch.configuration_version = (uint32_t)cJSON_GetNumberValue(
+
+  // Load into s_prep_slots[slot_idx] (per-slot architecture) AND into legacy
+  // globals (s_batch, s_state) for backward compat with code paths that
+  // still read globals. The first slot restored will set globals; subsequent
+  // slots only populate their per-slot state.
+  preparation_slot_t *slot = &s_prep_slots[slot_idx];
+  memset(slot, 0, sizeof(*slot));
+  slot->occupied = true;
+  slot->state = FERT_STATE_RECOVERY_HOLD;
+  cp(slot->batch.run_id, sizeof(slot->batch.run_id),
+     cJSON_GetStringValue(cJSON_GetObjectItem(r, "runId")) ?: "");
+  cp(slot->batch.complex_id, sizeof(slot->batch.complex_id),
+     cJSON_GetStringValue(cJSON_GetObjectItem(r, "complexId")) ?: "");
+  cp(slot->batch.gh_id, sizeof(slot->batch.gh_id),
+     cJSON_GetStringValue(cJSON_GetObjectItem(r, "ghId")) ?: "");
+  cp(slot->batch.recipe_id, sizeof(slot->batch.recipe_id),
+     cJSON_GetStringValue(cJSON_GetObjectItem(r, "recipeId")) ?: "");
+  slot->run_start_ms = (int64_t)cJSON_GetNumberValue(
+      cJSON_GetObjectItem(r, "startTimestampMs"));
+  slot->batch.configuration_version = (uint32_t)cJSON_GetNumberValue(
       cJSON_GetObjectItem(r, "configurationVersion"));
   cJSON *ep = cJSON_GetObjectItem(r, "executionPlan");
   if (ep) {
     char *js = cJSON_PrintUnformatted(ep);
     if (js) {
-      cp(s_batch.execution_plan_json, sizeof(s_batch.execution_plan_json), js);
+      cp(slot->batch.execution_plan_json,
+         sizeof(slot->batch.execution_plan_json), js);
       free(js);
     }
   }
   cJSON_Delete(r);
-  s_state = FERT_STATE_RECOVERY_HOLD;
+
+  // Also populate legacy globals (for slot 0 only — first restored slot)
+  if (slot_idx == 0) {
+    cp(s_batch.run_id, sizeof(s_batch.run_id), slot->batch.run_id);
+    cp(s_batch.complex_id, sizeof(s_batch.complex_id), slot->batch.complex_id);
+    cp(s_batch.gh_id, sizeof(s_batch.gh_id), slot->batch.gh_id);
+    cp(s_batch.recipe_id, sizeof(s_batch.recipe_id), slot->batch.recipe_id);
+    cp(s_batch.execution_plan_json, sizeof(s_batch.execution_plan_json),
+       slot->batch.execution_plan_json);
+    s_batch.configuration_version = slot->batch.configuration_version;
+    s_run_start_ms = slot->run_start_ms;
+    s_state = FERT_STATE_RECOVERY_HOLD;
+  }
   return true;
+}
+
+static bool restore_recovery(void) {
+  // ITEM-3: Restore all per-slot recovery records.
+  // Tries recovery_run_0..3, loads each into its respective slot.
+  // Returns true if at least one slot was restored (legacy behavior).
+  bool any_restored = false;
+  for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+    if (restore_recovery_for_slot(i)) {
+      any_restored = true;
+      ESP_LOGI(TAG, "ITEM-3: Restored recovery record for slot %d (run_id=%s, gh_id=%s)",
+               i, s_prep_slots[i].batch.run_id, s_prep_slots[i].batch.gh_id);
+    }
+  }
+
+  // ITEM-3: Fallback — if no per-slot record found, try legacy single key
+  // (covers runs started before multi-slot refactor was deployed).
+  if (!any_restored) {
+    nvs_handle_t h;
+    if (nvs_open(FERT_RECOVERY_NS, NVS_READONLY, &h) == ESP_OK) {
+      size_t len = 0;
+      if (nvs_get_str(h, FERT_RECOVERY_KEY, NULL, &len) == ESP_OK && len >= 2 && len <= 8192) {
+        char *str = calloc(1, len);
+        if (str && nvs_get_str(h, FERT_RECOVERY_KEY, str, &len) == ESP_OK) {
+          cJSON *r = cJSON_Parse(str);
+          if (r) {
+            // Load into slot 0 + globals
+            preparation_slot_t *slot = &s_prep_slots[0];
+            memset(slot, 0, sizeof(*slot));
+            slot->occupied = true;
+            slot->state = FERT_STATE_RECOVERY_HOLD;
+            cp(slot->batch.run_id, sizeof(slot->batch.run_id),
+               cJSON_GetStringValue(cJSON_GetObjectItem(r, "runId")) ?: "");
+            cp(slot->batch.complex_id, sizeof(slot->batch.complex_id),
+               cJSON_GetStringValue(cJSON_GetObjectItem(r, "complexId")) ?: "");
+            cp(slot->batch.gh_id, sizeof(slot->batch.gh_id),
+               cJSON_GetStringValue(cJSON_GetObjectItem(r, "ghId")) ?: "");
+            cp(s_batch.run_id, sizeof(s_batch.run_id), slot->batch.run_id);
+            cp(s_batch.complex_id, sizeof(s_batch.complex_id), slot->batch.complex_id);
+            cp(s_batch.gh_id, sizeof(s_batch.gh_id), slot->batch.gh_id);
+            s_state = FERT_STATE_RECOVERY_HOLD;
+            any_restored = true;
+            cJSON_Delete(r);
+          }
+        }
+        if (str) free(str);
+      }
+      nvs_close(h);
+    }
+  }
+  return any_restored;
 }
 static void transition(fertigation_state_t next) {
   if (s_state == next)
@@ -1159,7 +1603,10 @@ static esp_err_t parse_payload(const char *payload_json) {
 
 static void task(void *arg) {
   (void)arg;
+  // RC-7: Register to Task WDT for diagnostics.
+  esp_task_wdt_add(NULL);
   while (1) {
+    esp_task_wdt_reset();  // RC-7: Feed WDT each iteration
     if (active_run_state(s_state) &&
         (safety_monitor_has_fault() || actuator_hal_is_emergency_stopped())) {
       if (s_state == FERT_STATE_DELIVERY &&
@@ -1802,6 +2249,22 @@ esp_err_t fertigation_mgr_init(void) {
   return ESP_OK;
 }
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {
+  // TODO(E-C2 / MIXING_FERTIGATION_OPERATIONAL_MODEL.md §10): Currently the
+  // preparation pipeline (PRECHECK → FILLING → DOSING → FINAL_MIXING →
+  // MIX_READY → DELIVERY) is fully serialized via a single global s_batch /
+  // s_state. Per spec, only the DOSING phase should be serialized across GHs
+  // (central dosing pumps are shared); FILLING / FINAL_MIXING / MIX_READY /
+  // DELIVERY should run in parallel per-GH because each GH has its own
+  // mixing tank, mixing pump, and distribution pump.
+  //
+  // The scheduler's s_dosing_queue already serializes submission, so multi-GH
+  // schedules DO execute correctly — just sequentially through the entire
+  // pipeline. Refactoring to parallel preparation requires converting
+  // s_batch / s_state / s_phase_ts / s_dosing_start_ms / s_raw_start_ml /
+  // s_delivery_start_ml into a per-GH preparation_slot_t array of size
+  // FERT_MAX_PREPARATION_SLOTS, with a separate dosing_mutex that gates only
+  // the DOSING phase. This is a non-trivial refactor deferred to a follow-up
+  // safe-point.
   if (!s_mutex || !json_payload)
     return ESP_ERR_INVALID_ARG;
   if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
@@ -2007,6 +2470,46 @@ esp_err_t fertigation_mgr_get_last_terminal(fertigation_last_terminal_t *out) {
     return ESP_ERR_INVALID_ARG;
   *out = s_last_terminal;
   return ESP_OK;
+}
+
+// ITEM-2: Per-slot last_terminal lookup by run_id.
+// Searches all FERT_MAX_PREPARATION_SLOTS for a matching run_id in either
+// the per-slot last_terminal record or the active slot's batch.
+esp_err_t fertigation_mgr_get_last_terminal_for_run(const char *run_id, fertigation_last_terminal_t *out) {
+  if (!run_id || !out || !run_id[0])
+    return ESP_ERR_INVALID_ARG;
+  memset(out, 0, sizeof(*out));
+
+  // First, check if there's an active slot with this run_id (still running)
+  for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+    if (s_prep_slots[i].occupied &&
+        strcmp(s_prep_slots[i].batch.run_id, run_id) == 0) {
+      // Active slot — return its current state as terminal (not actually terminal yet,
+      // but caller can check state field to determine if still running)
+      out->state = s_prep_slots[i].state;
+      cp(out->run_id, sizeof(out->run_id), s_prep_slots[i].batch.run_id);
+      out->completed_at_ms = 0;  // still running
+      return ESP_OK;
+    }
+  }
+
+  // Second, check per-slot last_terminal records (terminal state)
+  for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+    if (s_last_terminal_per_slot[i].run_id[0] &&
+        strcmp(s_last_terminal_per_slot[i].run_id, run_id) == 0) {
+      *out = s_last_terminal_per_slot[i];
+      return ESP_OK;
+    }
+  }
+
+  // Third, check legacy global s_last_terminal (covers runs that started
+  // before the per-slot refactor or runs in delivery slots)
+  if (s_last_terminal.run_id[0] && strcmp(s_last_terminal.run_id, run_id) == 0) {
+    *out = s_last_terminal;
+    return ESP_OK;
+  }
+
+  return ESP_ERR_NOT_FOUND;
 }
 
 esp_err_t

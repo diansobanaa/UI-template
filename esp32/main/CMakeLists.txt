@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "main.c"
+        "utils/psram_task.c"
         "hal/actuator_hal.c"
         "hal/sensor_hal.c"
         "hal/dht22.c"
@@ -49,6 +50,7 @@ idf_component_register(
         "http"
         "storage"
         "network"
+        "utils"
     REQUIRES
         esp_http_server
         esp_http_client

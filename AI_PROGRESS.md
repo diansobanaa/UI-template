@@ -1,7 +1,30 @@
+## SP-SPI-FLASH-VERIFY-002 — Build & Flash Verification, ROM Download Recovery, and E2E Equipment Apply Validation
+- **Date**: 2026-09-28
+- **Git Commit**: `f108f7c`
+- **Status**: `PRODUCTION VERIFIED — ESP32 ONLINE AT 192.168.0.151 — 13/13 E2E TESTS PASSED`
+
+### Root Causes & Resolution
+1. **Stale Firmware & ROM Download Mode**:
+   - In the prior session, code changes (`s_tx_buf[64]`, POSIX open/write, socket limit) were committed to git but the actual binary was not re-compiled and flashed to COM3; `agrotech_esp32.bin` was still the old build from 23:21 that used 256-byte SPI transfers.
+   - When the user ran `idf.py monitor`, DTR asserted GPIO 0 low during a reset, trapping the chip in ROM bootloader mode (`boot:0x0 (DOWNLOAD(USB/UART0)) waiting for download`), rendering the controller unreachable at `192.168.0.151`.
+2. **Firmware Compilation & Flashing**:
+   - Recompiled cleanly via `scripts/build_esp32.ps1` (`agrotech_esp32.bin` size: 1,514,864 bytes).
+   - Fixed Python environment path in `scripts/flash_esp32.ps1` to use `idf5.5_py3.12_env`.
+   - Flashed to physical ESP32-S3 via COM3 @ 460800 baud and performed clean hard reset.
+3. **Serial & Peripheral Health**:
+   - Live boot verified: zero `check_trans_valid: txdata transfer > host maximum` errors.
+   - Live sensor verified: `SENSOR_HAL: DHT22 read success on GPIO 41: Temp=26.0 C, Humidity=77.3 %`.
+   - Network verified: STA connected, IP `192.168.0.151` active and responding to `/api/v1/health`.
+4. **UI Direct Endpoint Configuration**:
+   - Configured `VITE_ESP32_API_BASE=http://192.168.0.151` in `.env.local` to provide authoritative direct IP to the Vite dev server and browser clients.
+5. **E2E Equipment Draft + Apply Automation**:
+   - Ran `node scripts/test_equipment_draft_apply.mjs` against `192.168.0.151`: **13 PASSED, 0 FAILED**.
+   - Verified RAM draft isolation, cancel, single PUT apply atomic commit, multi-browser consistency, and reboot persistence.
+
 ## SP-SPI-DMA-STORAGE-001 — Elimination of SPI Master Non-DMA Transfer Overflow, newlib lock_init_generic Abort, and Socket Exhaustion
 - **Date**: 2026-09-28
-- **Git Commit**: `ceccc6c`
-- **Status**: `ALL BUGS RESOLVED — FIRMWARE FLASHED AND RUNTIME VERIFIED — APPLY EQUIPMENT MUTATION OPERATIONAL`
+- **Git Commit**: `531baad`
+- **Status**: `ALL BUGS RESOLVED — CODE COMMITTED`
 
 ### Root Causes & Fixes
 1. **SPI Master Non-DMA Transfer Overflow (`spi_master: check_trans_valid(1123): txdata transfer > host maximum`)**:

@@ -1,4 +1,30 @@
-# AI HANDOVER — SP-SPI-DMA-STORAGE-001 (latest)
+# AI HANDOVER — SP-SPI-FLASH-VERIFY-002 (latest)
+
+## Status — SP-SPI-FLASH-VERIFY-002
+**Build & Flash Verification, ROM Download Recovery, and E2E Equipment Apply Validation**
+**Safe Point**: `SP-SPI-FLASH-VERIFY-002`
+**Date**: 2026-09-28
+**Verdict**: `PRODUCTION VERIFIED`, `ESP32 FLASHED AND RUNNING AT 192.168.0.151`, `13/13 E2E TESTS PASSED`, `ZERO SPI TRANSFER OVERFLOW ERRORS`, `EQUIPMENT APPLY FULLY FUNCTIONAL`
+
+### Summary of What Was Done
+1. **Diagnosis of Serial Spam & Unreachable Controller**:
+   - The error `spi_master: check_trans_valid(1123): txdata transfer > host maximum` appeared in the serial monitor buffer because the previous session committed code fixes but never recompiled or flashed the physical binary (`agrotech_esp32.bin` remained the stale 23:21 build).
+   - In addition, running `idf.py monitor` triggered DTR/RTS assertions that held GPIO 0 low during reset, forcing the ESP32 into ROM download bootloader mode (`boot:0x0 waiting for download`), making it unreachable at `192.168.0.151`.
+2. **Firmware Compilation & Flashing**:
+   - Built fresh firmware via `scripts/build_esp32.ps1` (`agrotech_esp32.bin` 1,514,864 bytes).
+   - Updated `scripts/flash_esp32.ps1` toolchain path to Python 3.12 (`idf5.5_py3.12_env`).
+   - Flashed to physical hardware via COM3 @ 460800 baud and performed hard reset.
+3. **Live Hardware Verification**:
+   - Verified zero SPI errors on serial output (`tft_write_data` with 64-byte chunks conforms to hardware FIFO).
+   - Verified live DHT22 sensor readings: `Temp=26.0 C, Humidity=77.3 %`.
+   - Verified WiFi STA connection active at `192.168.0.151`.
+4. **Direct Endpoint UI Integration**:
+   - Set `VITE_ESP32_API_BASE=http://192.168.0.151` in `.env.local` for instant direct controller access.
+5. **Automated End-to-End Validation**:
+   - Executed `node scripts/test_equipment_draft_apply.mjs` against `192.168.0.151`: **13 PASSED, 0 FAILED**.
+   - Verified draft in RAM only, zero storage persistence, cancel draft, atomic apply with exactly 1 PUT request, multi-browser consistency, and hardware reboot SPIFFS persistence.
+
+# AI HANDOVER — SP-SPI-DMA-STORAGE-001 (previous)
 
 ## Status — SP-SPI-DMA-STORAGE-001
 **Resolution of SPI Non-DMA Transfer Overflow, newlib lock_init_generic Abort, and Socket Exhaustion — SOFTWARE & RUNTIME VERIFIED**

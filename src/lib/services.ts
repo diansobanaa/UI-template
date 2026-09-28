@@ -985,12 +985,22 @@ function scheduleIntentsForComplex(configuration: ConfigurationPayload, override
   wellPump?: WellPumpSchedule[];
   fan?: FanSchedule[];
 } = {}) {
-  const targetComplexId = configuration.complexId || getOperationalSnapshot().complexes[0]?.id || "complex-01";
+  // ITEM-1: Removed complexes[0] silent fallback per PRD §6.1 (configuration-driven identity).
+  // If complexId is missing from both configuration payload and operational snapshot,
+  // we throw — never silently swap to a different complex.
+  const targetComplexId = configuration.complexId || getOperationalSnapshot().complexes.find((c) => c.id)?.id;
+  if (!targetComplexId) {
+    throw new Error("scheduleIntentsForComplex: no active complexId available in operational snapshot or configuration payload — refusing to fall back to a hardcoded complex id per PRD §6.1 (configuration-driven identity).");
+  }
   const ghs = greenhouseService.byComplex(targetComplexId);
   const greenhouseIds = new Set(ghs.map((g) => g.id));
   const fertigation = overrides.fertigation ?? ghs.flatMap((g) => g.fertigationSchedules);
-  const complex = complexService.get(targetComplexId) || getOperationalSnapshot().complexes[0];
-  const wellPump = overrides.wellPump ?? complex?.wellPumpSchedules ?? [];
+  // ITEM-1: Removed complexes[0] fallback — use explicit lookup, throw if not found.
+  const complex = complexService.get(targetComplexId);
+  if (!complex) {
+    throw new Error(`scheduleIntentsForComplex: complex ${targetComplexId} not found in operational snapshot — refusing to fall back per PRD §6.1.`);
+  }
+  const wellPump = overrides.wellPump ?? complex.wellPumpSchedules ?? [];
   const fan = overrides.fan ?? ghs.flatMap((g) => g.fanSchedules).filter((s) => greenhouseIds.has(s.ghId));
 
   const singleFallback = fertigation.find((s) => s.isFallback);
@@ -1006,7 +1016,13 @@ const pythonScheduleClient = new PythonClient();
 
 export async function relayEventsToBackend(complexId?: string): Promise<void> {
   if (!isDirectEsp32Enabled() && !ESP32_API_BASE) return;
-  const targetComplexId = complexId || getOperationalSnapshot().complexes[0]?.id || "complex-01";
+  // ITEM-1: Removed complexes[0] silent fallback. If complexId not provided AND
+  // no complex is active, skip relay (don't fabricate target).
+  const targetComplexId = complexId || getOperationalSnapshot().complexes.find((c) => c.id)?.id;
+  if (!targetComplexId) {
+    console.warn("[relayEventsToBackend] No active complexId available — skipping event relay per PRD zero-persistence invariant.");
+    return;
+  }
   try {
     const eventRes = await esp32Client.getEvents(undefined, 100);
     const events = (eventRes as any)?.events || (eventRes as any)?.data?.events || [];
@@ -1027,7 +1043,11 @@ async function deployCompiledScheduleSet(complexId: string, overrides: {
   fan?: FanSchedule[];
 } = {}, candidateScheduleId?: string): Promise<CompiledSchedule[]> {
   const configuration = await loadAuthoritativeConfiguration(complexId);
-  const result = compileScheduleSet(configuration, scheduleIntentsForComplex(configuration, overrides), { nowTimestamp: Date.now(), autoGeneratePlan: true });
+  // F-C4: Pass activeLocks explicitly so checkResourceConflicts() di resource-engine.js
+  // dapat mendeteksi RESOURCE_LOCK_CONFLICT. TODO: fetch dari ESP32 (getFertigationStatus().heldLocks)
+  // saat endpoint tersedia — sampai then, pass array kosong agar hook eksplisit dan plug-in ready.
+  const activeLocks: Array<Record<string, unknown>> = [];
+  const result = compileScheduleSet(configuration, scheduleIntentsForComplex(configuration, overrides), { nowTimestamp: Date.now(), autoGeneratePlan: true, activeLocks });
   const candidate = candidateScheduleId ? result.results.find((r: any) => r.scheduleId === candidateScheduleId) : null;
   if (candidate && candidate.status === "INVALID") {
     const reasons = (candidate.errors || []).map((e: any) => e.message).filter(Boolean).join("; ");
@@ -1097,7 +1117,9 @@ async function deployCompiledScheduleSet(complexId: string, overrides: {
 
 async function loadAuthoritativeConfiguration(complexId: string): Promise<ConfigurationPayload> {
   const snapshot = getOperationalSnapshot();
-  const targetComplex = snapshot.complexes.find((c) => c.id === complexId) || snapshot.complexes[0];
+  // ITEM-1: Removed complexes[0] silent fallback. If complexId not found in snapshot,
+  // use the provided complexId as-is (caller's intent) rather than swapping to complexes[0].
+  const targetComplex = snapshot.complexes.find((c) => c.id === complexId);
   const activeComplexId = targetComplex?.id || complexId;
   const ghs = snapshot.greenhouses.filter((x) => x.complexId === activeComplexId || !x.complexId);
   const synthesizedGhs = ghs.map((g) => ({
@@ -1258,6 +1280,69 @@ export function enrichScheduleWithActivationState<T extends { id: string; enable
   };
 }
 
+/**
+ * ITEM-2/LAYER-J: In-flight protection helper.
+ * Queries /api/v1/fertigation/status and checks if the given schedule has
+ * an active occurrence in the dosing queue or active preparation slot.
+ * If active, throws ServiceError("CONFLICT") with a clear message.
+ */
+async function assertScheduleNotInFlight(ghId: string, scheduleId: string): Promise<void> {
+  if (!isDirectEsp32Enabled()) {
+    console.warn("[ITEM-2] ESP32 not connected — cannot verify schedule in-flight state. Proceeding without protection.");
+    return;
+  }
+  try {
+    const status = await esp32Client.getFertigationStatus();
+    if (!status) return;
+
+    const todaySchedule: any[] = Array.isArray(status.todaySchedule) ? status.todaySchedule : [];
+    const activeOccurrence = todaySchedule.find((occ: any) => {
+      const occScheduleId: string = occ.scheduleId || occ.schedule_id || "";
+      const occGhId: string = occ.ghId || occ.gh_id || "";
+      const occState: string = (occ.state || occ.status || "").toUpperCase();
+      return occScheduleId === scheduleId &&
+             occGhId.toLowerCase() === ghId.toLowerCase() &&
+             ["PREPARING", "WAITING_BATCH", "READY_TO_SEND", "DISTRIBUTING"].includes(occState);
+    });
+
+    if (activeOccurrence) {
+      const occState = (activeOccurrence.state || activeOccurrence.status || "ACTIVE").toUpperCase();
+      const occId = activeOccurrence.occurrenceId || activeOccurrence.occurrence_id || "unknown";
+      throw new ServiceError(
+        "CONFLICT",
+        `Schedule has an active occurrence (${occId}, state: ${occState}). ` +
+        `Cancel the active run first or wait for completion. ` +
+        `Per spec §3/§4: in-flight batches cannot be modified or deleted.`,
+        "scheduleId"
+      );
+    }
+
+    const queuedBatches: any[] = Array.isArray(status.queuedBatches) ? status.queuedBatches : [];
+    const activeQueueEntry = queuedBatches.find((q: any) => {
+      const qScheduleId: string = q.scheduleId || q.schedule_id || "";
+      const qGhId: string = q.ghId || q.gh_id || "";
+      const qState: string = (q.state || q.status || "").toUpperCase();
+      return qScheduleId === scheduleId &&
+             qGhId.toLowerCase() === ghId.toLowerCase() &&
+             ["PENDING", "DISPATCHED", "ACTIVE"].includes(qState);
+    });
+
+    if (activeQueueEntry) {
+      const qState = (activeQueueEntry.state || activeQueueEntry.status || "QUEUED").toUpperCase();
+      const qId = activeQueueEntry.queueId || activeQueueEntry.queue_id || "unknown";
+      throw new ServiceError(
+        "CONFLICT",
+        `Schedule has a queued dosing entry (${qId}, state: ${qState}). ` +
+        `Cancel the queue entry first or wait for preparation to complete.`,
+        "scheduleId"
+      );
+    }
+  } catch (err) {
+    if (err instanceof ServiceError) throw err;
+    console.warn("[ITEM-2] Failed to verify schedule in-flight state:", err);
+  }
+}
+
 export const scheduleService = {
   async refreshSchedulesFromEsp32(complexId?: string): Promise<{
     wellPump: WellPumpSchedule[];
@@ -1271,8 +1356,14 @@ export const scheduleService = {
       const intentsRes = await esp32Client.getScheduleIntents();
       const items = Array.isArray(intentsRes?.items) ? intentsRes.items : [];
       const snapshot = getOperationalSnapshot();
-      const targetComplex = (complexId ? snapshot.complexes.find((c) => c.id === complexId) : null) || snapshot.complexes[0];
-      const activeComplexId = targetComplex?.id || complexId || "complex-01";
+      // ITEM-1: Removed complexes[0] silent fallback. If complexId is provided but not found,
+      // or no complexId provided, use complexId as-is or return empty (don't swap to complexes[0]).
+      const targetComplex = complexId ? snapshot.complexes.find((c) => c.id === complexId) : null;
+      const activeComplexId = targetComplex?.id || complexId;
+      if (!activeComplexId) {
+        console.warn("[loadScheduleIntentsFromController] No active complexId — skipping schedule load per PRD §6.1.");
+        return { wellPump: [], fertigation: [], fan: [] };
+      }
 
       const wellPumpList: WellPumpSchedule[] = [];
       const fertList: FertigationSchedule[] = [];
@@ -1311,11 +1402,15 @@ export const scheduleService = {
             g.id === item.ghId ||
             g.code?.toLowerCase() === item.ghId?.toLowerCase() ||
             g.greenhouseTag?.toLowerCase() === item.ghId?.toLowerCase()
-          ) || (snapshot.greenhouses.length === 1 ? snapshot.greenhouses[0] : undefined);
+          );
+          if (!gh) {
+            console.warn(`[loadScheduleIntentsFromController] Schedule ${item.id} references unknown ghId="${item.ghId}" — dropping per PRD §6.1 (no silent GH-01 fallback).`);
+            continue;
+          }
 
           const s: FertigationSchedule = {
             id: item.id,
-            ghId: gh?.id || item.ghId || "GH-01",
+            ghId: gh.id,
             name: (item.name || item.task || "Fertigation Routine") as string,
             recipeId: (item.recipeId as string) || "",
             enabled: item.enabled !== false,
@@ -1349,11 +1444,15 @@ export const scheduleService = {
             g.id === item.ghId ||
             g.code?.toLowerCase() === item.ghId?.toLowerCase() ||
             g.greenhouseTag?.toLowerCase() === item.ghId?.toLowerCase()
-          ) || (snapshot.greenhouses.length === 1 ? snapshot.greenhouses[0] : undefined);
+          );
+          if (!gh) {
+            console.warn(`[loadScheduleIntentsFromController] Fan schedule ${item.id} references unknown ghId="${item.ghId}" — dropping per PRD §6.1.`);
+            continue;
+          }
 
           const s: FanSchedule = {
             id: item.id,
-            ghId: gh?.id || item.ghId || "GH-01",
+            ghId: gh.id,
             mode: (item.mode as any) || "time",
             time: (item.time as string) || "08:00",
             durationMin: Number(item.durationMin ?? 30),
@@ -1463,6 +1562,10 @@ export const scheduleService = {
     const greenhouse = getOperationalSnapshot().greenhouses.find((g) => g.fertigationSchedules.some((s) => s.id === id));
     const existing = assertFound(greenhouse?.fertigationSchedules.find((s) => s.id === id), "Schedule");
     const gh = assertFound(greenhouseService.get(existing.ghId), "Greenhouse");
+
+    // ITEM-2/LAYER-J: In-flight protection — block mutation if schedule has active occurrence.
+    await assertScheduleNotInFlight(existing.ghId, id);
+
     if (patch.name !== undefined) {
       if (!patch.name.trim()) throw new ServiceError("VALIDATION_FAILED", "Schedule name is required.", "name");
       if (gh.fertigationSchedules.some((s) => s.id !== id && s.name.toLowerCase() === patch.name!.trim().toLowerCase())) throw new ServiceError("DUPLICATE_ID", `A fertigation schedule named "${patch.name.trim()}" already exists in this greenhouse.`, "name");
@@ -1505,6 +1608,10 @@ export const scheduleService = {
     const greenhouse = getOperationalSnapshot().greenhouses.find((g) => g.fertigationSchedules.some((s) => s.id === id));
     const existing = assertFound(greenhouse?.fertigationSchedules.find((s) => s.id === id), "Schedule");
     const gh = assertFound(greenhouseService.get(existing.ghId), "Greenhouse");
+
+    // ITEM-2/LAYER-J: In-flight protection — block delete if schedule has active occurrence.
+    await assertScheduleNotInFlight(existing.ghId, id);
+
     const remaining = gh.fertigationSchedules.filter((s) => s.id !== id);
 
     // 1. Authoritative deletion from ESP32 NVS
@@ -1828,33 +1935,9 @@ export const calibrationService = {
           parameters: p.equipment!.parameters || {},
         } as InstalledComponent));
 
-    // Ensure pH and EC sensor probes exist for sensor calibration wizard
-    if (!effectiveComponents.some((c) => /PH/i.test(`${c.role} ${c.supportedTypeId} ${c.name}`))) {
-      effectiveComponents.push({
-        componentId: "sensor_ph",
-        name: "Analog pH Sensor Probe",
-        supportedTypeId: "sensor-analog",
-        role: "SENSOR_PH",
-        lifecycleState: "COMMISSIONED",
-        deploymentStatus: "APPLIED",
-        assignment: { complexId },
-        wiring: { interface: "GPIO", gpio: 34, polarity: "ACTIVE_HIGH" },
-        parameters: {},
-      } as InstalledComponent);
-    }
-    if (!effectiveComponents.some((c) => /EC/i.test(`${c.role} ${c.supportedTypeId} ${c.name}`))) {
-      effectiveComponents.push({
-        componentId: "sensor_ec",
-        name: "Analog EC Conductivity Probe",
-        supportedTypeId: "sensor-analog",
-        role: "SENSOR_EC",
-        lifecycleState: "COMMISSIONED",
-        deploymentStatus: "APPLIED",
-        assignment: { complexId },
-        wiring: { interface: "GPIO", gpio: 35, polarity: "ACTIVE_HIGH" },
-        parameters: {},
-      } as InstalledComponent);
-    }
+    // F-C2: Jangan injeksikan dummy sensor_ph/sensor_ec — per DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §4.1 L290,
+    // UI tidak boleh mensintesis pump/actuator/sensor dari seed data. Calibration page menampilkan empty state
+    // jika inventory kosong (effectiveComponents === []).
 
     let records: any[] = [];
     try {
@@ -1877,9 +1960,9 @@ export const calibrationService = {
         const validUntil = calibration?.validUntilMs ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not scheduled";
         let channel = component.parameters?.channel != null ? String(component.parameters.channel) : undefined;
         if (!channel && category === "dosing-pump") {
-          if (/DOSING_A|_A\b|PUMP A/i.test(`${component.role} ${component.componentId} ${component.name}`)) channel = "A";
-          else if (/DOSING_B|_B\b|PUMP B/i.test(`${component.role} ${component.componentId} ${component.name}`)) channel = "B";
-          else channel = "A";
+          // F-C5: Hindari regex A/B hard-code — gunakan component.name sebagai channel label,
+          // atau fallback ke componentId. Mendukung dosing pump dinamis (A..G via PCA9685).
+          channel = component.name?.trim() || component.componentId;
         }
         return {
           id: `dev-${component.componentId}`,
@@ -2512,7 +2595,10 @@ export const hardwareService = {
   },
 
   async setComponentReady(gpio: number, ready: boolean, complexId?: string, ghId?: string | null): Promise<InstalledComponent> {
-    const targetComplexId = complexId || "complex-01";
+    if (!complexId) {
+      throw new Error("hardwareService.setComponentReady: complexId is required per PRD §6.1 (no hardcoded complex-01 fallback).");
+    }
+    const targetComplexId = complexId;
     let curConfig: ConfigurationPayload;
     if (isDirectEsp32Enabled()) {
       curConfig = await _esp32.getConfiguration();

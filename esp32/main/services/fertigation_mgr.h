@@ -105,6 +105,21 @@ esp_err_t fertigation_mgr_get_status(fertigation_runtime_snapshot_t *out);
 fertigation_state_t fertigation_mgr_get_state(void);
 esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out_json);
 esp_err_t fertigation_mgr_get_last_terminal(fertigation_last_terminal_t *out);
+
+/**
+ * ITEM-2: Per-slot last_terminal lookup by run_id.
+ *
+ * Returns the terminal state record for the given run_id, searching across
+ * all preparation slots. This allows callers (e.g., scheduler.c
+ * process_dosing_queue) to query fault per-GH independently rather than
+ * getting whichever slot happened to terminal last.
+ *
+ * @param run_id  The run_id to look up (matches batch_id in queue entries)
+ * @param out     Output terminal record
+ * @return ESP_OK if found, ESP_ERR_NOT_FOUND if no slot has this run_id
+ */
+esp_err_t fertigation_mgr_get_last_terminal_for_run(const char *run_id, fertigation_last_terminal_t *out);
+
 esp_err_t fertigation_mgr_get_correlation(char *out_queue_id, size_t queue_id_len,
                                           char *out_occurrence_id, size_t occ_id_len,
                                           char *out_batch_id, size_t batch_id_len,

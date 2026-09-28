@@ -8,6 +8,7 @@
 #include "hal/hardware_registry.h"
 #include "storage/storage_mgr.h"
 #include "config/system_config.h"
+#include "esp_task_wdt.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -124,15 +125,29 @@ static void component_safety_policy(const hw_component_info_t *component,
     bool high_required = false;
     bool external_high_ok = false;
 
-    cJSON *params = cJSON_Parse(component->parameters_json[0] ? component->parameters_json : "{}");
-    if (params) {
-        cJSON *safety = cJSON_GetObjectItem(params, "safety");
-        if (!safety) safety = params; /* backward-compatible parameter placement */
-        max_runtime = json_u32(safety, "maxRuntimeSec", max_runtime);
-        flow_timeout = json_u32(safety, "flowTimeoutSec", flow_timeout);
-        high_required = json_bool(safety, "requireHighLevelProtection", false);
-        external_high_ok = json_bool(safety, "externalHighLevelInterlock", false);
-        cJSON_Delete(params);
+    // RC-8: Baca safety fields dari pre-parsed cache (diisi saat registry load)
+    // alih-alih cJSON_Parse setiap 500ms untuk setiap aktuator (40+ cJSON_Parse
+    // calls per second dengan 20 aktuator). Cache menyimpan nilai mentah dari
+    // JSON; nilai 0 di sini berarti "tidak di-set di JSON, pakai default
+    // role-based". Fallback cJSON_Parse hanya jika cache invalid.
+    if (component->safety_params.valid) {
+        if (component->safety_params.max_runtime_sec != 0)
+            max_runtime = component->safety_params.max_runtime_sec;
+        if (component->safety_params.flow_timeout_sec != 0)
+            flow_timeout = component->safety_params.flow_timeout_sec;
+        high_required = component->safety_params.require_high_level_protection;
+        external_high_ok = component->safety_params.external_high_level_interlock;
+    } else {
+        cJSON *params = cJSON_Parse(component->parameters_json[0] ? component->parameters_json : "{}");
+        if (params) {
+            cJSON *safety = cJSON_GetObjectItem(params, "safety");
+            if (!safety) safety = params; /* backward-compatible parameter placement */
+            max_runtime = json_u32(safety, "maxRuntimeSec", max_runtime);
+            flow_timeout = json_u32(safety, "flowTimeoutSec", flow_timeout);
+            high_required = json_bool(safety, "requireHighLevelProtection", false);
+            external_high_ok = json_bool(safety, "externalHighLevelInterlock", false);
+            cJSON_Delete(params);
+        }
     }
 
     if (max_runtime == 0) max_runtime = 1;
@@ -198,7 +213,10 @@ static void safety_monitor_task(void *arg)
 {
     (void)arg;
     ESP_LOGI(TAG, "Safety monitor task running at priority %d", TASK_SAFETY_MONITOR_PRIO);
+    // RC-7: Register to Task WDT for diagnostics.
+    esp_task_wdt_add(NULL);
             while (1) {
+                esp_task_wdt_reset();  // RC-7: Feed WDT each iteration
                 sensor_readings_t sensors;
                 if (sensor_hal_get_readings(&sensors) != ESP_OK) {
                     vTaskDelay(pdMS_TO_TICKS(500));

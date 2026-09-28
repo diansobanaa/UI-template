@@ -1,4 +1,5 @@
 #include "services/manual_actuator_mgr.h"
+#include "utils/psram_task.h"
 #include "config/system_config.h"
 #include "config/pin_config.h"
 #include "driver/gpio.h"
@@ -68,7 +69,7 @@ esp_err_t manual_actuator_mgr_init(void)
     for (int i = 0; i < ACTUATOR_MAX_COUNT; i++) {
         s_states[i].is_active = false;
     }
-    xTaskCreatePinnedToCore(manual_actuator_task, "manual_actuator", 3072, NULL, 3, NULL, 1);
+    psram_task_create_pinned(manual_actuator_task, "manual_actuator", 3072, NULL, 3, NULL, 1);
     return ESP_OK;
 }
 

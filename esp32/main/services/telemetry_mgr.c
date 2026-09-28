@@ -8,6 +8,8 @@
 #include "storage/telemetry_store.h"
 #include "config/system_config.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -353,11 +355,17 @@ cJSON *telemetry_mgr_build_stream_batch_json(const char *greenhouse_id, uint64_t
     char to_ts[32] = {0};
     int gathered = 0;
 
-    /* Pull from RAM ring buffer */
-    telemetry_snapshot_t local_items[16];
+    /* Pull from RAM ring buffer.
+     * HEAP-FIX (audit 2026-09-28): telemetry_snapshot_t local_items[16]
+     * (1728 B) lived on the caller's stack (tele_stream_task and the httpd
+     * worker both run on 4096-byte stacks). Move it to PSRAM heap.
+     * Deliberately, NO task stack size is changed by this patch. */
+    telemetry_snapshot_t *local_items =
+        (telemetry_snapshot_t *)heap_caps_malloc(16 * sizeof(telemetry_snapshot_t),
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     int local_count = 0;
 
-    if (s_ring_mutex && xSemaphoreTake(s_ring_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    if (local_items && s_ring_mutex && xSemaphoreTake(s_ring_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         size_t count = s_ring_count;
         size_t head = s_ring_head;
         size_t start_idx = (head + TELEMETRY_RING_CAPACITY - count) % TELEMETRY_RING_CAPACITY;
@@ -458,6 +466,7 @@ cJSON *telemetry_mgr_build_stream_batch_json(const char *greenhouse_id, uint64_t
     cJSON_AddStringToObject(root, "fromTs", from_ts[0] ? from_ts : "");
     cJSON_AddStringToObject(root, "toTs", to_ts[0] ? to_ts : "");
     cJSON_AddNumberToObject(root, "droppedBeforeSequence", (double)s_dropped_samples);
+    heap_caps_free(local_items); /* safe when NULL; then the fallback latest-snapshot path was used */
     return root;
 }
 
@@ -482,6 +491,7 @@ static void telemetry_persistence_task(void *pvParameters)
     /* Drain any boot events immediately */
     (void)event_mgr_flush_to_storage();
 
+    uint32_t cycle = 0;
     while (1) {
         /* Wait up to 5s for an event notification or next periodic check */
         (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
@@ -491,6 +501,19 @@ static void telemetry_persistence_task(void *pvParameters)
 
         /* Flush queued telemetry batch to segmented microSD storage */
         (void)telemetry_store_flush();
+
+        /* HEAP-AUDIT (2026-09-28): report stack high-water mark + internal
+         * heap watermarks every ~60s. A stack_hwm of 0 means this task has
+         * PROVABLY overflowed its stack -- that is the evidence required
+         * before any task stack size may be changed. */
+        if (++cycle % 12 == 0) {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGW(TAG, "MEM tele_persist_task stack_hwm=%u B free_int=%u largest=%u min_free=%u",
+                     (unsigned)(hwm * sizeof(StackType_t)),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        }
     }
 }
 
@@ -499,9 +522,12 @@ static void telemetry_sampler_task(void *pvParameters)
 {
     (void)pvParameters;
     ESP_LOGI(TAG, "Telemetry sampler task started at priority %d", TASK_TELEMETRY_PRIO);
+    // RC-7: Register to Task WDT for diagnostics.
+    esp_task_wdt_add(NULL);
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     while (1) {
+        esp_task_wdt_reset();  // RC-7: Feed WDT each iteration
         sensor_hal_poll();
         sensor_readings_t sensors;
         sensor_hal_get_readings(&sensors);
@@ -524,6 +550,7 @@ static void telemetry_sampler_task(void *pvParameters)
             if (current_state == SENSOR_STATE_VALID) {
                 /* Reading is healthy */
                 latch->fail_streak = 0;
+                latch->ever_seen = true;
                 if (latch->fault_latched) {
                     /* Recover from previous latched fault - log SENSOR_RECOVERED EXACTLY ONCE */
                     latch->fault_latched = false;
@@ -543,9 +570,12 @@ static void telemetry_sampler_task(void *pvParameters)
                        current_state == SENSOR_STATE_DISCONNECTED ||
                        current_state == SENSOR_STATE_TIMEOUT ||
                        current_state == SENSOR_STATE_OUT_OF_RANGE) {
-                /* Genuine sensor failure (timeout, disconnect, electrical/range error).
-                   Note: SENSOR_STATE_UNAVAILABLE indicates an uncalibrated / idle flow meter or pending sensor,
-                   which is an expected initial or standby condition, not a hardware fault. */
+                /* Boot grace: don't fault a sensor that has never succeeded yet.
+                 * Slow-start sensors (e.g. DHT22 at 60s poll) fail their first
+                 * read, and telemetry_mgr samples state every 2s — without this
+                 * guard, fail_streak hits 3 in 6s before the sensor can retry. */
+                if (!latch->ever_seen) continue;
+
                 if (latch->fail_streak < 255) latch->fail_streak++;
 
                 /* Hysteresis: Require at least 3 consecutive failures before logging SENSOR_FAULT */
@@ -565,7 +595,6 @@ static void telemetry_sampler_task(void *pvParameters)
                                                 storage ? storage->config_version : 0);
                 }
             }
-            latch->ever_seen = true;
         }
 
         /* Update in-memory latest snapshot */
@@ -680,7 +709,7 @@ esp_err_t telemetry_mgr_init(void)
     (void)telemetry_store_init();
 
     xTaskCreatePinnedToCore(telemetry_sampler_task, "telemetry_task", TASK_TELEMETRY_STACK, NULL, TASK_TELEMETRY_PRIO, NULL, 1);
-    xTaskCreatePinnedToCore(telemetry_persistence_task, "tele_persist_task", 8192, NULL, TASK_TELEMETRY_PRIO - 1, &s_tele_persist_task_handle, 1);
+    xTaskCreatePinnedToCore(telemetry_persistence_task, "tele_persist_task", 4096, NULL, TASK_TELEMETRY_PRIO - 1, &s_tele_persist_task_handle, 1);
     ESP_LOGI(TAG, "Telemetry manager V2 initialized (RAM ring: %d, unified persistence worker).", TELEMETRY_RING_CAPACITY);
     return ESP_OK;
 }

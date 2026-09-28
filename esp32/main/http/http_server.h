@@ -58,10 +58,29 @@ esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json);
 
 
 /**
- * @brief Check Bearer token in Authorization header against NVS stored token.
- * Returns ESP_OK if valid, or sends 401 response and returns ESP_FAIL.
+ * @brief Auth check for the public API surface.
+ *
+ * Per PRD-NET-001 / ESP32_BACKEND_SPEC §8 / §39 (Explicit Non-Goal): the MVP
+ * runs on a trusted local network without authentication. This function is
+ * intentionally a no-op and exists only so legacy handler code that calls
+ * `if (http_check_auth(req) != ESP_OK) return ESP_FAIL;` keeps compiling
+ * without altering its control flow.
+ *
+ * Routes that genuinely require peer authentication (topology-pool /sync and
+ * /mutate) must call http_check_auth_peer() instead.
  */
 esp_err_t http_check_auth(httpd_req_t *req);
+
+/**
+ * @brief Peer auth check for topology-pool mutations only.
+ *
+ * Validates the Bearer token in the Authorization header against the NVS
+ * stored "api_key" (provisioned via /setup embedded web UI). Returns ESP_OK
+ * if valid, or sends 401/503 and returns ESP_FAIL. There is NO default token
+ * — if api_key is not provisioned, peer mutation is rejected with 503
+ * SERVICE_UNAVAILABLE so the operator knows to complete provisioning.
+ */
+esp_err_t http_check_auth_peer(httpd_req_t *req);
 
 #ifdef __cplusplus
 }

@@ -653,7 +653,9 @@ esp_err_t handler_get_topology_pool_meta(httpd_req_t *req)
 
 esp_err_t handler_post_topology_pool_sync(httpd_req_t *req)
 {
-    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    // Peer auth: topology-pool /sync requires Bearer token (provisioned via /setup).
+    // Public API auth (http_check_auth) is a no-op per PRD-NET-001.
+    if (http_check_auth_peer(req) != ESP_OK) return ESP_OK;
     cJSON *body = NULL;
     esp_err_t err = http_parse_json_body(req, &body);
     if (err != ESP_OK || !body) {
@@ -686,7 +688,9 @@ esp_err_t handler_post_topology_pool_sync(httpd_req_t *req)
 
 esp_err_t handler_post_topology_pool_mutate(httpd_req_t *req)
 {
-    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    // Peer auth: topology-pool /mutate requires Bearer token (provisioned via /setup).
+    // Public API auth (http_check_auth) is a no-op per PRD-NET-001.
+    if (http_check_auth_peer(req) != ESP_OK) return ESP_OK;
     cJSON *body = NULL;
     esp_err_t err = http_parse_json_body(req, &body);
     if (err != ESP_OK || !body) {

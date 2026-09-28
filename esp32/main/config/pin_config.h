@@ -96,7 +96,11 @@ extern "C" {
 #define PIN_IN_FLOW_YFB1            PIN_IN_FLOW_RAW_ZJB1
 #define PIN_IN_FLOW_FS400A          PIN_IN_FLOW_FERT_FS400A
 #define PIN_IN_TEMP_DS18B20         17   /* 1-Wire Temperature Bus */
-#define PIN_IN_DHT22                41   /* DHT22 / AM2302 Single-Wire Digital Environmental Sensor (Temp & Humidity) */
+/* FIX(FIX-EQUIPMENT-DHT22): DHT22 re-enabled on GPIO 41 per SSOT
+ * docs/HARDWARE_WIRING_MAP.md W-23 (GPIO 41 = DHT22 DATA pin). GPIO 41 is
+ * owned EXCLUSIVELY by DHT22 — Button 4 / Network Change Mode is disabled
+ * (see PIN_BTN_RESERVED = -1 below). Driver gracefully no-ops when pin < 0. */
+#define PIN_IN_DHT22                41   /* DHT22 / AM2302 Ambient Temp & Humidity Sensor (Single-Wire Data Pin) */
 #define PIN_IN_FLOAT_LOWER          38   /* Digital Lower Float Switch (Safety Interlock) */
 #define PIN_IN_TAMPER_LOOP          47   /* Anti-Theft Pump Security Loop */
 
@@ -110,7 +114,15 @@ extern "C" {
 /* ========================================================================== */
 #define PIN_BTN_MODE                0    /* Onboard BOOT Button / External NO Push Button */
 #define PIN_BTN_MANUAL_A            39
-#define PIN_BTN_RESERVED            -1   /* Button 4 is unassigned / liberated for DHT22 (GPIO 41) */
+/* FIX(FIX-EQUIPMENT-DHT22): Button 4 / Network Change Mode DISABLED because
+ * GPIO 41 is reclaimed by DHT22 per SSOT docs/HARDWARE_WIRING_MAP.md W-23.
+ * Network Change Mode (2x press = force router connect, 3x press = toggle
+ * SoftAP) is still accessible via the embedded /setup web UI served by the
+ * ESP32 SoftAP — operator connects a phone/laptop to the AGROTECH-SETUP-XXXX
+ * SSID and uses the browser-based setup page. Physical Button 4 is
+ * intentionally unassigned; do not reassign to any other GPIO without
+ * updating the SSOT wiring map first. */
+#define PIN_BTN_RESERVED            -1   /* Button 4 DISABLED: GPIO 41 owned by DHT22 (W-23). Network Change Mode still available via embedded /setup web UI on SoftAP. */
 
 #define BUTTON_LEVEL_PRESSED        0
 #define BUTTON_LEVEL_RELEASED       1
