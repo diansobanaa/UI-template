@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "utils/psram_task.h"
+#include "cJSON.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -143,7 +144,26 @@ static void print_system_diagnostics(void) {
  * declaration and the function may not be linked correctly. */
 static void diagnostics_task(void *arg);
 
+static void *cjson_psram_malloc(size_t sz) {
+  void *p = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) {
+    p = malloc(sz);
+  }
+  return p;
+}
+
+static void cjson_psram_free(void *ptr) {
+  free(ptr);
+}
+
 void app_main(void) {
+  /* Route all cJSON allocations to 8MB PSRAM to keep internal SRAM free */
+  cJSON_Hooks cjson_hooks = {
+      .malloc_fn = cjson_psram_malloc,
+      .free_fn = cjson_psram_free,
+  };
+  cJSON_InitHooks(&cjson_hooks);
+
   /* 0. Extinguish onboard WS2812 RGB LED (flash) on GPIO 48 immediately at boot
    */
   sdcard_hal_clear_onboard_led();

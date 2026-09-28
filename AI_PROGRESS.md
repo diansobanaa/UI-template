@@ -1,6 +1,26 @@
+## SP-HTTP-WS-PSRAM-001 — Elimination of WebSocket Zombie Sockets, PSRAM cJSON Routing, and Socket Exhaustion Resolution
+- **Date**: 2026-09-29
+- **Git Commit**: `cdf7492`
+- **Status**: `PRODUCTION VERIFIED — ESP32 ONLINE AT 192.168.0.151 — 13/13 E2E TESTS PASSED`
+
+### Root Causes & Resolution
+1. **WebSocket Zombie Socket Leak (`httpd_sock_err: error in send : 11` / `WS async send error -1 on socket 51`)**:
+   - **Root Cause**: When a WebSocket async frame send failed with errno 11 (`EAGAIN`) or error -1, `ws_transfer_complete_cb` and `ws_send_frame_to_fd` in `api_telemetry_handlers.c` logged a warning but never called `httpd_sess_trigger_close()`. The broken socket remained in the HTTP server's active client list indefinitely, repeatedly attempting transmission every 10-second cadence and consuming available socket slots.
+   - **Fix**: Added `ws_client_remove()` and `httpd_sess_trigger_close()` in `ws_transfer_complete_cb` and `ws_send_frame_to_fd`. Failed WS sessions are immediately closed and their sockets released to the system.
+2. **Socket Pool Starvation**:
+   - **Root Cause**: `max_open_sockets = 4` was too low for concurrent browser operations (WebSocket + parallel requests for health, telemetry, clock, and configuration from multi-connection browsers).
+   - **Fix**: Increased `config.max_open_sockets = 7` and `config.backlog_conn = 8` in `http_server.c`, well within `CONFIG_LWIP_MAX_SOCKETS = 16`.
+3. **Internal SRAM Fragmentation & cJSON Starvation**:
+   - **Root Cause**: cJSON nodes and HTTP request body buffer were allocated via standard `malloc()` from the internal SRAM (~31KB free, ~13KB largest block). Large configuration JSON payloads (~4KB-8KB) plus hundreds of parsed cJSON structs caused heap exhaustion and allocation failures.
+   - **Fix**: Registered custom `cJSON_InitHooks` in `main.c` routing all cJSON allocations to 8MB PSRAM (`MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`), and updated `http_parse_json_body` to allocate the payload buffer from PSRAM.
+4. **Validation**:
+   - Built firmware cleanly and flashed to physical ESP32-S3 via COM3 @ 460800 baud.
+   - Executed full Playwright E2E suite `test_equipment_draft_apply.mjs`: **13 PASSED, 0 FAILED**.
+   - Verified that "Terapkan (Apply)" executes cleanly with `HTTP 200 OK` on `PUT /api/v1/configuration`, persists in SPIFFS across hardware reboot, and maintains zero socket leaks.
+
 ## SP-SPI-FLASH-VERIFY-002 — Build & Flash Verification, ROM Download Recovery, and E2E Equipment Apply Validation
 - **Date**: 2026-09-28
-- **Git Commit**: `f108f7c`
+- **Git Commit**: `b0b9118`
 - **Status**: `PRODUCTION VERIFIED — ESP32 ONLINE AT 192.168.0.151 — 13/13 E2E TESTS PASSED`
 
 ### Root Causes & Resolution

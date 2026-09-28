@@ -1,4 +1,24 @@
-# AI HANDOVER — SP-SPI-FLASH-VERIFY-002 (latest)
+# AI HANDOVER — SP-HTTP-WS-PSRAM-001 (latest)
+
+## Status — SP-HTTP-WS-PSRAM-001
+**Elimination of WebSocket Zombie Sockets, PSRAM cJSON Routing, and Socket Exhaustion Resolution**
+**Safe Point**: `SP-HTTP-WS-PSRAM-001`
+**Date**: 2026-09-29
+**Verdict**: `PRODUCTION VERIFIED`, `ESP32 FLASHED AND RUNNING AT 192.168.0.151`, `13/13 E2E TESTS PASSED`, `ZERO ZOMBIE WEBSOCKET LEAKS`, `APPLY EQUIPMENT ATOMIC COMMIT 200 OK`
+
+### Summary of What Was Done
+1. **Purged Dead WebSocket Sockets on Failure**:
+   - `ws_transfer_complete_cb` and `ws_send_frame_to_fd` in `api_telemetry_handlers.c` now call `ws_client_remove()` and `httpd_sess_trigger_close()` on async send errors. Dead sockets (errno 11 `EAGAIN` / -1) are immediately freed rather than lingering as zombies and locking socket slots.
+2. **PSRAM-backed cJSON and Request Body Allocation**:
+   - Initialized `cJSON_InitHooks` in `main.c` directing cJSON tree allocations to 8MB PSRAM (`MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT`), preserving scarce internal SRAM for OS and network buffers.
+   - Updated `http_parse_json_body` in `http_server.c` to allocate request payload buffers from PSRAM with internal SRAM fallback.
+3. **Optimized Socket Limits**:
+   - Set `max_open_sockets = 7` and `backlog_conn = 8` in `http_server.c` (within `CONFIG_LWIP_MAX_SOCKETS = 16`).
+4. **Validation**:
+   - Recompiled and flashed firmware to COM3.
+   - Full Playwright E2E suite (`scripts/test_equipment_draft_apply.mjs`) passed 13/13 with zero failures.
+
+# AI HANDOVER — SP-SPI-FLASH-VERIFY-002 (previous)
 
 ## Status — SP-SPI-FLASH-VERIFY-002
 **Build & Flash Verification, ROM Download Recovery, and E2E Equipment Apply Validation**

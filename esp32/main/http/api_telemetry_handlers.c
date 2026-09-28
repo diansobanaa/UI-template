@@ -97,6 +97,8 @@ esp_err_t handler_get_events(httpd_req_t *req)
 
 /* ---------------- WebSocket Telemetry Stream Implementation ---------------- */
 
+static void ws_client_remove(int fd);
+
 static void ws_transfer_complete_cb(esp_err_t err, int socket, void *arg)
 {
     ws_async_frame_t *frame = (ws_async_frame_t *)arg;
@@ -107,7 +109,11 @@ static void ws_transfer_complete_cb(esp_err_t err, int socket, void *arg)
         free(frame);
     }
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "WS async send error %d on socket %d", err, socket);
+        ESP_LOGW(TAG, "WS async send error %d on socket %d -- closing dead session", err, socket);
+        ws_client_remove(socket);
+        if (s_server_handle && socket >= 0) {
+            httpd_sess_trigger_close(s_server_handle, socket);
+        }
     }
 }
 
@@ -183,9 +189,13 @@ static void ws_send_frame_to_fd(int fd, const char *json_str)
 
     esp_err_t err = httpd_ws_send_data_async(s_server_handle, fd, &ws_frame, ws_transfer_complete_cb, frame_payload);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "httpd_ws_send_data_async failed (0x%x) for fd %d", err, fd);
+        ESP_LOGW(TAG, "httpd_ws_send_data_async failed (0x%x) for fd %d -- closing dead session", err, fd);
         free(frame_payload->json_str);
         free(frame_payload);
+        ws_client_remove(fd);
+        if (s_server_handle && fd >= 0) {
+            httpd_sess_trigger_close(s_server_handle, fd);
+        }
     }
 }
 

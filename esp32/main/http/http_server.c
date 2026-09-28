@@ -245,7 +245,10 @@ esp_err_t http_parse_json_body(httpd_req_t *req, cJSON **out_json) {
     return ESP_ERR_NO_MEM; // SP-REMED-004 Memory Bounds — 16KB for
                            // configuration payloads
 
-  char *buf = (char *)malloc(total_len + 1);
+  char *buf = (char *)heap_caps_malloc(total_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) {
+    buf = (char *)malloc(total_len + 1);
+  }
   if (!buf)
     return ESP_ERR_NO_MEM;
 
@@ -316,8 +319,8 @@ esp_err_t http_server_start(void) {
   config.stack_size = TASK_HTTP_SERVER_STACK;
   config.uri_match_fn = http_uri_match_wildcard_custom;
   config.core_id = 0;
-  config.max_open_sockets = 4;
-  config.backlog_conn = 4;
+  config.max_open_sockets = 7;
+  config.backlog_conn = 8;
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 5;
   config.send_wait_timeout = 5;
