@@ -205,10 +205,11 @@ ESP32 GPIO 41 (Right-7) ───────────────┴──�
 ESP32 GND (Signal GND_LV) ──────────────────────── Pin 4: GND
 ```
 * **Protocol:** Single-wire bidirectional digital protocol (40-bit frame: 16-bit RH, 16-bit Temp, 8-bit checksum).
-* **Sampling Rate:** Non-blocking 3-second minimum poll interval in `sensor_hal.c`.
+* **Sampling Rate:** Nominal poll interval 60 seconds (`DHT22_POLL_INTERVAL_MS`). On transient noise (`ESP_ERR_INVALID_CRC` or `ESP_ERR_INVALID_RESPONSE`), an immediate back-off retry is scheduled in 3 seconds (`DHT22_RETRY_INTERVAL_MS`) instead of waiting for the full 60s cycle.
 * **Telemetry Flow:** DHT22 $\longrightarrow$ `sensor_hal` $\longrightarrow$ `telemetry_mgr` RAM snapshot $\longrightarrow$ API/WebSocket (`temperatureAirC`, `humidityPct`). Decoupled from TFT rendering and FreeRTOS task scheduling.
 * **Failure & Hysteresis Policy:**
   - Success: update `temperatureAirC` and `humidityPct`.
+  - Transient noise (CRC / bit pulse jitter): snapshot retains last valid value across the 3s retry window; no screen blanking (`--.-`) on TFT.
   - Failure 1 & 2: quality marked `INVALID` in sample; snapshot retains last valid value; NO SPIFFS write.
   - Failure 3+ consecutive: logs `SENSOR_FAULT` event to SPIFFS **once** (latched).
   - Recovery: logs `SENSOR_RECOVERED` event to SPIFFS **once** (unlatched).

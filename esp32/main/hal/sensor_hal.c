@@ -644,21 +644,21 @@ esp_err_t sensor_hal_poll(void) {
     const int dht_gpio = PIN_IN_DHT22;
     if (dht_gpio >= 0) {
       dht_err = dht22_read((gpio_num_t)dht_gpio, &dht_temp, &dht_hum);
-      s_last_dht22_poll_ms = dht_now_ms;
       if (dht_err == ESP_OK) {
+        s_last_dht22_poll_ms = dht_now_ms;
         ESP_LOGI(TAG,
                  "DHT22 read success on GPIO %d: Temp=%.1f C, Humidity=%.1f %%",
                  dht_gpio, dht_temp, dht_hum);
+      } else if (dht_err == ESP_ERR_INVALID_CRC || dht_err == ESP_ERR_INVALID_RESPONSE) {
+        /* Transient noise (CRC mismatch / bit pulse glitch): schedule immediate back-off retry in 3 seconds
+         * instead of waiting the full 60-second cycle. */
+        s_last_dht22_poll_ms = dht_now_ms - (DHT22_POLL_INTERVAL_MS - DHT22_RETRY_INTERVAL_MS);
+        ESP_LOGD(TAG, "DHT22 transient on GPIO %d: err=%d (%s) -> retrying in %d ms", dht_gpio,
+                 dht_err, esp_err_to_name(dht_err), (int)DHT22_RETRY_INTERVAL_MS);
       } else {
-        /* Transient noise (CRC mismatch, range check): next read usually OK → LOGD.
-         * Timeout = sensor not responding at all → keep LOGW for real issues. */
-        if (dht_err == ESP_ERR_INVALID_CRC || dht_err == ESP_ERR_INVALID_RESPONSE) {
-          ESP_LOGD(TAG, "DHT22 transient on GPIO %d: err=%d (%s)", dht_gpio,
-                   dht_err, esp_err_to_name(dht_err));
-        } else {
-          ESP_LOGW(TAG, "DHT22 read failed on GPIO %d: err=%d (%s)", dht_gpio,
-                   dht_err, esp_err_to_name(dht_err));
-        }
+        s_last_dht22_poll_ms = dht_now_ms;
+        ESP_LOGW(TAG, "DHT22 read failed on GPIO %d: err=%d (%s)", dht_gpio,
+                 dht_err, esp_err_to_name(dht_err));
       }
     } else {
       s_last_dht22_poll_ms = dht_now_ms;
@@ -674,6 +674,12 @@ esp_err_t sensor_hal_poll(void) {
       s_current_readings.dht22_temperature_c = dht_temp;
       s_current_readings.dht22_humidity_rh = dht_hum;
       s_current_readings.dht22_state = SENSOR_STATE_VALID;
+    } else if (dht_err == ESP_ERR_INVALID_CRC || dht_err == ESP_ERR_INVALID_RESPONSE) {
+      /* On transient noise, do NOT invalidate existing valid reading during the 3s retry window.
+       * If sensor was never valid yet, preserve or set UNAVAILABLE. */
+      if (s_current_readings.dht22_state != SENSOR_STATE_VALID) {
+        s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
+      }
     } else if (dht_err == ESP_ERR_TIMEOUT) {
       s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
     } else {

@@ -1,3 +1,25 @@
+## SP-DHT22-NOISE-RETRY-001 — DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching
+- **Date**: 2026-09-29
+- **Git Commit**: `PENDING`
+- **Status**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY`
+- **Objective**:
+  1. Fix TFT screen flashing `--.-` for 60 seconds whenever DHT22 encounters a transient single-wire CRC error or bit glitch.
+  2. Implement `DHT22_RETRY_INTERVAL_MS` (3000 ms) back-off retry on `ESP_ERR_INVALID_CRC` and `ESP_ERR_INVALID_RESPONSE`.
+  3. Prevent transient single-poll noise from clearing previously valid sensor readings during the 3-second retry window.
+
+### Completed Work
+1. **`esp32/main/config/system_config.h`**:
+   - Added `#define DHT22_RETRY_INTERVAL_MS 3000` (3 s back-off retry interval on noise).
+2. **`esp32/main/hal/sensor_hal.c`**:
+   - On `ESP_ERR_INVALID_CRC` or `ESP_ERR_INVALID_RESPONSE`, set `s_last_dht22_poll_ms` to `dht_now_ms - (DHT22_POLL_INTERVAL_MS - DHT22_RETRY_INTERVAL_MS)` so the next poll triggers in exactly 3 seconds instead of 60 seconds.
+   - Preserved `s_current_readings.dht22_state == SENSOR_STATE_VALID` during the 3-second retry window to eliminate false `--.-` flicker on TFT and web UI.
+3. **`docs/HARDWARE_WIRING_MAP.md`**:
+   - Updated DHT22 failure, retry cadence, and hysteresis policy documentation.
+4. **Verification**:
+   - ESP32 firmware compiled successfully with 0 errors (`agrotech_esp32.bin` size `0x17fce0` bytes, 50% flash free).
+
+---
+
 ## SP-MICROSD-MIGRATION-001 — Complete MicroSD Card Migration, SPI Compatibility Audit & Hardware Driver Overhaul
 - **Date**: 2026-09-29
 - **Git Commit**: `51dbfb0`

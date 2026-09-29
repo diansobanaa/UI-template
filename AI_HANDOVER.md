@@ -1,11 +1,26 @@
-# AI HANDOVER — SP-MICROSD-MIGRATION-001 (latest)
+# AI HANDOVER — SP-DHT22-NOISE-RETRY-001 (latest)
+
+## Status — SP-DHT22-NOISE-RETRY-001
+**DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching**
+**Safe Point**: `SP-DHT22-NOISE-RETRY-001`
+**Date**: 2026-09-29
+**Git Commit**: `PENDING`
+**Verdict**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — READY FOR FLASH`
+
+### Summary of What Was Done
+1. **Penyebab Teridentifikasi**:
+   - Polling DHT22 berjalan setiap 60 detik (`DHT22_POLL_INTERVAL_MS`). Saat terjadi transient bit glitch atau CRC mismatch (`ESP_ERR_INVALID_CRC`), state sensor langsung diubah ke `INVALID`, mematikan flag `temp_valid = false` dan menyebabkan layar TFT menampilkan `--.-` selama 60 detik penuh.
+2. **Solusi Diimplementasikan**:
+   - Menambahkan `#define DHT22_RETRY_INTERVAL_MS 3000` (3 detik) di `system_config.h`.
+   - Pada `sensor_hal.c`, jika terjadi `ESP_ERR_INVALID_CRC` atau `ESP_ERR_INVALID_RESPONSE`, timer polling berikutnya dijadwalkan maju dalam 3 detik (`dht_now_ms - (DHT22_POLL_INTERVAL_MS - DHT22_RETRY_INTERVAL_MS)`).
+   - Menambahkan *sample retention*: jika pembacaan sebelumnya valid, status `SENSOR_STATE_VALID` dipertahankan selama jendela retry 3 detik agar tampilan TFT tidak berkedip `--.-`.
+3. **Dokumentasi & Build**:
+   - `docs/HARDWARE_WIRING_MAP.md` disinkronkan dengan kebijakan retry 3s ini.
+   - Kompilasi `idf.py build` sukses 100% tanpa error (`agrotech_esp32.bin` 0x17fce0 bytes).
+
+---
 
 ## Status — SP-MICROSD-MIGRATION-001
-**Complete MicroSD Card Migration, SPI Compatibility Audit & Hardware Driver Overhaul**
-**Safe Point**: `SP-MICROSD-MIGRATION-001`
-**Date**: 2026-09-29
-**Git Commit**: `51dbfb0`
-**Verdict**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE & VITE UI COMPILED — ALL 28 REST CONTRACTS PASS — READY FOR PHYSICAL COM FLASH`
 
 ### Summary of What Was Done
 1. **Diagnosis & Validation of User Suspicion**:
