@@ -16,6 +16,7 @@ extern void register_api_schedule_handlers(httpd_handle_t server);
 extern void register_api_fertigation_handlers(httpd_handle_t server);
 extern void register_api_recipe_handlers(httpd_handle_t server);
 extern void register_api_export_handlers(httpd_handle_t server);
+extern void register_api_storage_handlers(httpd_handle_t server);
 
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -601,6 +602,7 @@ esp_err_t http_server_start(void) {
   register_api_fertigation_handlers(s_server);
   register_api_recipe_handlers(s_server);
   register_api_export_handlers(s_server);
+  register_api_storage_handlers(s_server);
   telemetry_stream_init(s_server);
 
   ESP_LOGI(TAG, "HTTP Server successfully started with all canonical OpenAPI "

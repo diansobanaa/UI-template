@@ -12,8 +12,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include <stdio.h>
+#include <string.h>
+
+
 static const char *TAG = "SDCARD_HAL";
 static bool s_sd_mounted = false;
+static bool s_format_in_progress = false;
 static SemaphoreHandle_t s_sd_lock = NULL;
 #if FEATURE_SDCARD_ENABLED
 static sdmmc_card_t *s_card = NULL;
@@ -138,6 +143,9 @@ esp_err_t sdcard_hal_init(void)
 #else
     ESP_LOGI(TAG, "Mounting MicroSD Card (EasyWare EP000094, CS GPIO %d)...", PIN_SD_CS);
 
+    /* RUNTIME-FORMAT: format_if_mount_failed set to false so normal boot
+     * never auto-formats the card. Formatting is triggered explicitly via
+     * the Web UI POST /api/v1/storage/format endpoint. */
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 5,
@@ -156,7 +164,7 @@ esp_err_t sdcard_hal_init(void)
      * THE CARD: many EP000094-class modules have a 5V->3.3V LDO and brown
      * out when fed 3.3V on VCC. */
     host.max_freq_khz = 10000;
-    host.command_timeout_ms = 100; // Bounded timeout (100 ms)
+    host.command_timeout_ms = 500; // Allow sufficient write/format response time
 
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_SD_CS;
@@ -243,4 +251,186 @@ void sdcard_hal_clear_onboard_led(void)
     // Keep CS high (inactive for SD card, steady DC without pulses does not affect WS2812)
     gpio_set_direction(PIN_SD_CS, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_SD_CS, 1);
+}
+
+void sdcard_hal_get_card_info(sdcard_card_info_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->format_in_progress = s_format_in_progress;
+    out->mounted = s_sd_mounted;
+#if FEATURE_SDCARD_ENABLED
+    if (s_card != NULL) {
+        out->detected = true;
+        out->capacity_mb = ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024);
+        strncpy(out->card_name, s_card->cid.name, sizeof(out->card_name) - 1);
+    }
+#endif
+}
+
+esp_err_t sdcard_hal_format_fat32(void)
+{
+#if !FEATURE_SDCARD_ENABLED
+    ESP_LOGE(TAG, "FORMAT: FEATURE_SDCARD_ENABLED=0. Cannot format.");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    /* Prevent concurrent format operations */
+    if (s_format_in_progress) {
+        ESP_LOGW(TAG, "FORMAT: Already in progress. Ignoring duplicate request.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGW(TAG, "============================================================");
+    ESP_LOGW(TAG, "  RUNTIME MICROSD FAT32 FORMAT — INITIATED VIA API");
+    ESP_LOGW(TAG, "  ALL DATA ON THE MICROSD CARD WILL BE ERASED!");
+    ESP_LOGW(TAG, "============================================================");
+
+    /* ---- Step 1: Verify card was initialized ---- */
+    if (!s_sd_mounted || s_card == NULL) {
+        ESP_LOGE(TAG, "FORMAT: Card not initialized/mounted. Cannot format.");
+        ESP_LOGE(TAG, "FORMAT: Check physical card seating, adapter wiring, and 5V power.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_format_in_progress = true;
+
+    /* Log card info before format */
+    uint64_t capacity_mb = ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024);
+    ESP_LOGI(TAG, "FORMAT: Card detected — Capacity: %llu MB (%llu GB)",
+             capacity_mb, capacity_mb / 1024);
+    ESP_LOGI(TAG, "FORMAT: Card name: %s, Speed: %d kHz, Sector size: %d",
+             s_card->cid.name, s_card->max_freq_khz, s_card->csd.sector_size);
+
+    /* ---- Step 2: Block concurrent writers and unmount ---- */
+    /* Setting s_sd_mounted=false under lock prevents all other tasks
+     * (telemetry_store, export_mgr, recipe_storage, crop_history_storage)
+     * from attempting file I/O — they all check sdcard_hal_is_mounted()
+     * before acquiring the lock. */
+    sdcard_hal_lock();
+    s_sd_mounted = false;
+    sdcard_hal_unlock();
+
+    /* Give in-flight I/O a moment to complete */
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    ESP_LOGI(TAG, "FORMAT: Unmounting /sdcard for format...");
+    esp_err_t ret = esp_vfs_fat_sdcard_unmount("/sdcard", s_card);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "FORMAT: Unmount failed (0x%x: %s). Aborting.", ret, esp_err_to_name(ret));
+        /* Try to restore mount state */
+        sdcard_hal_lock();
+        s_sd_mounted = (s_card != NULL);
+        sdcard_hal_unlock();
+        s_format_in_progress = false;
+        return ret;
+    }
+    ESP_LOGI(TAG, "FORMAT: Unmounted successfully.");
+
+    /* ---- Step 3: Remount with format_if_mount_failed=true ---- */
+    ESP_LOGI(TAG, "FORMAT: Mounting with format_if_mount_failed=true...");
+
+    esp_vfs_fat_sdmmc_mount_config_t fmt_mount_config = {
+        .format_if_mount_failed = true,
+        .max_files = 5,
+        .allocation_unit_size = 16 * 1024
+    };
+
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI2_HOST;
+    host.max_freq_khz = 10000;
+    host.command_timeout_ms = 500;
+
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.gpio_cs = PIN_SD_CS;
+    slot_config.host_id = host.slot;
+
+    esp_log_level_set("sdmmc_sd",       ESP_LOG_WARN);
+    esp_log_level_set("vfs_fat_sdmmc",  ESP_LOG_WARN);
+    esp_log_level_set("sdmmc_common",   ESP_LOG_WARN);
+
+    s_card = NULL;
+    ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot_config, &fmt_mount_config, &s_card);
+
+    if (ret != ESP_OK || s_card == NULL) {
+        ESP_LOGE(TAG, "FORMAT: Mount+format failed (0x%x: %s).", ret, esp_err_to_name(ret));
+        esp_log_level_set("sdmmc_sd",       ESP_LOG_INFO);
+        esp_log_level_set("vfs_fat_sdmmc",  ESP_LOG_INFO);
+        esp_log_level_set("sdmmc_common",   ESP_LOG_INFO);
+        s_format_in_progress = false;
+        return ret;
+    }
+
+    /* ---- Step 4: Explicit clean format ---- */
+    ESP_LOGI(TAG, "FORMAT: Running esp_vfs_fat_sdcard_format()...");
+    ret = esp_vfs_fat_sdcard_format("/sdcard", s_card);
+
+    esp_log_level_set("sdmmc_sd",       ESP_LOG_INFO);
+    esp_log_level_set("vfs_fat_sdmmc",  ESP_LOG_INFO);
+    esp_log_level_set("sdmmc_common",   ESP_LOG_INFO);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "FORMAT: esp_vfs_fat_sdcard_format() failed (0x%x: %s).",
+                 ret, esp_err_to_name(ret));
+        sdcard_hal_lock();
+        s_sd_mounted = true; /* card is mounted even though format failed */
+        sdcard_hal_unlock();
+        s_format_in_progress = false;
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "FORMAT: *** FAT32 FORMAT SUCCESSFUL ***");
+
+    /* ---- Step 5: Write + Read verification ---- */
+    ESP_LOGI(TAG, "FORMAT: Running write+read verification test...");
+
+    static const char *test_path = "/sdcard/_fmt_test.txt";
+    static const char *test_data = "AgroTech runtime format verification";
+    esp_err_t verify_ret = ESP_OK;
+
+    FILE *f = fopen(test_path, "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "FORMAT: VERIFY FAILED — Cannot create test file.");
+        verify_ret = ESP_FAIL;
+    } else {
+        int written = fprintf(f, "%s", test_data);
+        fclose(f);
+        if (written <= 0) {
+            ESP_LOGE(TAG, "FORMAT: VERIFY FAILED — Write returned %d.", written);
+            verify_ret = ESP_FAIL;
+        } else {
+            f = fopen(test_path, "r");
+            if (f == NULL) {
+                ESP_LOGE(TAG, "FORMAT: VERIFY FAILED — Cannot reopen for read.");
+                verify_ret = ESP_FAIL;
+            } else {
+                char read_buf[128] = {0};
+                size_t read_len = fread(read_buf, 1, sizeof(read_buf) - 1, f);
+                fclose(f);
+                if (read_len == 0 || strcmp(read_buf, test_data) != 0) {
+                    ESP_LOGE(TAG, "FORMAT: VERIFY FAILED — Read mismatch.");
+                    verify_ret = ESP_FAIL;
+                } else {
+                    ESP_LOGI(TAG, "FORMAT: Write+read verification passed (%d bytes).", (int)read_len);
+                }
+            }
+        }
+        remove(test_path);
+    }
+
+    /* ---- Step 6: Restore mounted state ---- */
+    sdcard_hal_lock();
+    s_sd_mounted = true;
+    sdcard_hal_unlock();
+    s_format_in_progress = false;
+
+    capacity_mb = ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024);
+    if (verify_ret == ESP_OK) {
+        ESP_LOGW(TAG, "FORMAT COMPLETE — Card: %s | %llu MB | FAT32 OK | Verify OK",
+                 s_card->cid.name, capacity_mb);
+    } else {
+        ESP_LOGE(TAG, "FORMAT: FAT32 written but verification FAILED.");
+    }
+
+    return verify_ret;
+#endif /* FEATURE_SDCARD_ENABLED */
 }

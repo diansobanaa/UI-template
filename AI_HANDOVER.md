@@ -1,4 +1,45 @@
-# AI HANDOVER — SP-HTTP-WS-PSRAM-001 (latest)
+# AI HANDOVER — SP-SDFORMAT-RUNTIME-001 (latest)
+
+## Status — SP-SDFORMAT-RUNTIME-001
+**Runtime MicroSD FAT32 Format via Web UI**
+**Safe Point**: `SP-SDFORMAT-RUNTIME-001`
+**Date**: 2026-09-29
+**Verdict**: `BUILD VERIFIED — 0 ERRORS, 0 NEW WARNINGS — RUNTIME REQUIRES PHYSICAL HARDWARE`
+
+### Summary of What Was Done
+1. **Removed compile-time FORMAT_SD_ONCE**: Deleted the `FORMAT_SD_ONCE` macro from `system_config.h` and removed the boot-time `sdcard_hal_format_once()` call from `main.c`. Format no longer requires editing source code or reflashing.
+2. **Runtime format API**: New `sdcard_hal_format_fat32()` (no compile-time guards) and `sdcard_hal_get_card_info()` in `sdcard_hal.h/c`. Format sets `s_sd_mounted=false` to block all concurrent SD writers, waits 100ms for in-flight I/O, then unmounts→formats→remounts→write/read verifies.
+3. **Normal boot safety**: Changed `format_if_mount_failed` from `true` to `false` in `sdcard_hal_init()` to prevent accidental auto-formatting of new/empty cards at boot.
+4. **HTTP Storage endpoints** (`api_storage_handlers.h/c`, NEW):
+   - `GET /api/v1/storage/status` — card detected, mounted, capacity, format state
+   - `POST /api/v1/storage/format` — requires `confirm:true`, spawns background FreeRTOS task (4KB stack, priority 3), returns 202 Accepted
+   - `GET /api/v1/storage/format/result` — poll for format completion and result
+5. **Web UI Storage page** (`src/app/storage/page.tsx`, NEW): Status card + Format button + ConfirmDialog + 2-second polling + toast notifications. Dark theme matching existing design system.
+6. **Navigation**: Added "Storage" (HardDrive icon) to AppSidebar and `/storage` route to App.tsx.
+
+### Changed Files (12 total)
+- `esp32/main/hal/sdcard_hal.h` — runtime format API
+- `esp32/main/hal/sdcard_hal.c` — runtime format impl + `format_if_mount_failed=false`
+- `esp32/main/http/api_storage_handlers.h` — NEW
+- `esp32/main/http/api_storage_handlers.c` — NEW (3 endpoints)
+- `esp32/main/http/http_server.c` — register storage handlers
+- `esp32/main/config/system_config.h` — removed FORMAT_SD_ONCE
+- `esp32/main/main.c` — removed boot format call
+- `esp32/main/CMakeLists.txt` — added new source
+- `src/lib/api/esp32-client.ts` — 3 new API methods
+- `src/app/storage/page.tsx` — NEW storage page
+- `src/components/layout/AppSidebar.tsx` — Storage nav item
+- `src/App.tsx` — /storage route
+
+### Known Issues
+- `format_if_mount_failed=false` means a brand-new unformatted card will NOT auto-mount at boot. User must format via Web UI first.
+- Runtime format test requires physical ESP32 + MicroSD card.
+
+### Next Action
+- Flash firmware to physical ESP32 and test format flow end-to-end.
+- Verify telemetry_store resumes writing after format completes (s_sd_mounted=true).
+
+# AI HANDOVER — SP-HTTP-WS-PSRAM-001 (previous)
 
 ## Status — SP-HTTP-WS-PSRAM-001
 **Elimination of WebSocket Zombie Sockets, PSRAM cJSON Routing, and Socket Exhaustion Resolution**

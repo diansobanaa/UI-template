@@ -1,3 +1,53 @@
+## SP-SDFORMAT-RUNTIME-001 — Runtime MicroSD FAT32 Format via Web UI
+- **Date**: 2026-09-29
+- **Git Commit**: `bd30115`
+- **Status**: `BUILD VERIFIED — 0 ERRORS, 0 NEW WARNINGS — RUNTIME REQUIRES PHYSICAL HARDWARE`
+
+### Summary
+Converted compile-time `FORMAT_SD_ONCE` macro to a runtime-callable format triggered from the Web UI.
+Users can now format a 64GB MicroSD card to FAT32 directly through the browser without editing source code or reflashing.
+
+### Changes
+1. **`sdcard_hal.h/c`**: Replaced `sdcard_hal_format_once()` (compile-time gated) with `sdcard_hal_format_fat32()` (runtime callable) and `sdcard_hal_get_card_info()`. Set `format_if_mount_failed=false` on boot to prevent accidental auto-formatting. Added `s_format_in_progress` flag and concurrent-write protection (`s_sd_mounted=false` + `vTaskDelay(100ms)` before unmount).
+2. **`api_storage_handlers.h/c`** (NEW): Three endpoints — `GET /api/v1/storage/status`, `POST /api/v1/storage/format` (requires `confirm:true`), `GET /api/v1/storage/format/result`. Format runs in a dedicated FreeRTOS task (4KB stack) to avoid HTTP worker watchdog/timeout.
+3. **`http_server.c`**: Registered `register_api_storage_handlers()`.
+4. **`system_config.h`**: Removed `FORMAT_SD_ONCE` macro (no longer needed).
+5. **`main.c`**: Removed `sdcard_hal_format_once()` boot-time call.
+6. **`CMakeLists.txt`**: Added `api_storage_handlers.c` to build.
+7. **`esp32-client.ts`**: Added `getStorageStatus()`, `formatSdCard()`, `getFormatResult()`.
+8. **`src/app/storage/page.tsx`** (NEW): Storage page with card status display, Format button, ConfirmDialog, and 2-second polling during format.
+9. **`AppSidebar.tsx`**: Added "Storage" nav item (HardDrive icon).
+10. **`App.tsx`**: Added `/storage` route.
+
+### Verification
+- Build: `agrotech_esp32.bin` 0x173920 bytes (52% flash free), 0 errors, 0 new warnings.
+- Logic: Format rejection without `confirm:true`, card-not-detected guard, duplicate-format guard — all verified in handler code.
+- Runtime: Requires physical ESP32 + MicroSD card.
+
+### Files Changed
+| File | Action |
+|------|--------|
+| `esp32/main/hal/sdcard_hal.h` | Modified |
+| `esp32/main/hal/sdcard_hal.c` | Modified |
+| `esp32/main/http/api_storage_handlers.h` | Created |
+| `esp32/main/http/api_storage_handlers.c` | Created |
+| `esp32/main/http/http_server.c` | Modified |
+| `esp32/main/config/system_config.h` | Modified |
+| `esp32/main/main.c` | Modified |
+| `esp32/main/CMakeLists.txt` | Modified |
+| `src/lib/api/esp32-client.ts` | Modified |
+| `src/app/storage/page.tsx` | Created |
+| `src/components/layout/AppSidebar.tsx` | Modified |
+| `src/App.tsx` | Modified |
+
+### Known Issues
+- Runtime format test requires physical hardware (ESP32 + 64GB MicroSD).
+- `format_if_mount_failed=false` means a brand-new unformatted card will NOT auto-mount at boot. User must use the Web UI format feature first.
+
+### Next Action
+- Flash firmware to physical ESP32 and test full format flow via Web UI.
+- Verify telemetry storage resumes after format without reboot.
+
 ## SP-HTTP-WS-PSRAM-001 — Elimination of WebSocket Zombie Sockets, PSRAM cJSON Routing, and Socket Exhaustion Resolution
 - **Date**: 2026-09-29
 - **Git Commit**: `cdf7492`

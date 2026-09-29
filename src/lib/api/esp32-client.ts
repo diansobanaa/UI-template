@@ -556,6 +556,35 @@ export class Esp32Client {
   async deleteRecipe(recipeId: string): Promise<{ deleted: boolean; recipeId: string }> {
     return this.deleteEnveloped<{ deleted: boolean; recipeId: string }>(`/api/v1/recipes/${encodeURIComponent(recipeId)}`);
   }
+
+  /* ----------------------- Storage (MicroSD) ----------------------- */
+
+  async getStorageStatus(): Promise<{
+    detected: boolean;
+    mounted: boolean;
+    formatInProgress: boolean;
+    capacityMb: number;
+    capacityGb: number;
+    cardName: string | null;
+    status: "NOT_DETECTED" | "DETECTED_NOT_MOUNTED" | "READY" | "FORMATTING";
+  }> {
+    return this.getEnveloped("/api/v1/storage/status");
+  }
+
+  async formatSdCard(): Promise<{ status: string; message: string }> {
+    return this.postEnveloped("/api/v1/storage/format", { confirm: true });
+  }
+
+  async getFormatResult(): Promise<{
+    formatInProgress: boolean;
+    result: "SUCCESS" | "FAILED" | null;
+    status: string;
+    mounted?: boolean;
+    capacityMb?: number;
+    errorCode?: string;
+  }> {
+    return this.getEnveloped("/api/v1/storage/format/result");
+  }
 }
 
 export const esp32Client = new Esp32Client(defaultConfig);

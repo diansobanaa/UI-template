@@ -11,6 +11,7 @@ import SchedulePage from "@/app/schedule/page";
 import ResearchPage from "@/app/research/page";
 import ComplexOnboardingPage from "@/app/onboarding-complex";
 import EquipmentPage from "@/app/equipment/page";
+import StoragePage from "@/app/storage/page";
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/events" element={<EventsPage />} />
         <Route path="/research" element={<ResearchPage />} />
         <Route path="/equipment" element={<EquipmentPage />} />
+        <Route path="/storage" element={<StoragePage />} />
         <Route path="*" element={<ComplexOverviewPage />} />
       </Routes>
     </RootLayout>

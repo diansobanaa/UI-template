@@ -15,6 +15,7 @@ import {
   Clock,
   Droplets,
   FlaskConical,
+  HardDrive,
   Home,
   Leaf,
   ScrollText,
@@ -129,6 +130,7 @@ function SidebarInner({
     },
     { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "equipment", label: "Equipment", icon: Wrench, href: "/equipment" },
+    { id: "storage", label: "Storage", icon: HardDrive, href: "/storage" },
     { id: "settings", label: "Settings", icon: Settings },
     { id: "events", label: "Events & Logs", icon: ScrollText, href: "/events" },
   ];

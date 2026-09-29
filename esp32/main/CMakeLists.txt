@@ -42,6 +42,7 @@ idf_component_register(
         "http/api_fertigation_handlers.c"
         "http/api_recipe_handlers.c"
         "http/api_export_handlers.c"
+        "http/api_storage_handlers.c"
     INCLUDE_DIRS
         "."
         "config"
