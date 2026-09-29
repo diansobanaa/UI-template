@@ -1,6 +1,6 @@
 ## SP-DHT22-NOISE-RETRY-001 — DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching
 - **Date**: 2026-09-29
-- **Git Commit**: `PENDING`
+- **Git Commit**: `dbaf55c`
 - **Status**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY`
 - **Objective**:
   1. Fix TFT screen flashing `--.-` for 60 seconds whenever DHT22 encounters a transient single-wire CRC error or bit glitch.

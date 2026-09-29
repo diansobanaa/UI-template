@@ -4,7 +4,7 @@
 **DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching**
 **Safe Point**: `SP-DHT22-NOISE-RETRY-001`
 **Date**: 2026-09-29
-**Git Commit**: `PENDING`
+**Git Commit**: `dbaf55c`
 **Verdict**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — READY FOR FLASH`
 
 ### Summary of What Was Done
