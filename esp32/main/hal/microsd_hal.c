@@ -127,15 +127,8 @@ esp_err_t microsd_hal_init(void)
     gpio_set_level((gpio_num_t)PIN_MICROSD_CS, 1);
     gpio_set_level((gpio_num_t)PIN_TFT_CS, 1);
 
-    // 2. Configure SPI bus lines with mandatory pull-ups (SD SPI standard)
-    gpio_config_t spi_lines_cfg = {
-        .pin_bit_mask = (1ULL << PIN_MICROSD_MISO) | (1ULL << PIN_MICROSD_MOSI) | (1ULL << PIN_MICROSD_SCK),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&spi_lines_cfg);
+    // 2. Enable pull-up on MISO line only (do NOT alter SCK/MOSI SPI peripheral routing)
+    gpio_pullup_en((gpio_num_t)PIN_MICROSD_MISO);
 
     ESP_LOGI(TAG, "MicroSD HAL: Using MicroSD Card Adapter Module (EasyWare EP000094) on shared SPI (SCK=%d, MOSI=%d, MISO=%d, CS=%d)",
              PIN_MICROSD_SCK, PIN_MICROSD_MOSI, PIN_MICROSD_MISO, PIN_MICROSD_CS);

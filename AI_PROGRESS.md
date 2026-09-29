@@ -1,6 +1,6 @@
 ## SP-MICROSD-MIGRATION-001 — Complete MicroSD Card Migration, SPI Compatibility Audit & Hardware Driver Overhaul
 - **Date**: 2026-09-29
-- **Git Commit**: `67570a7`
+- **Git Commit**: `51dbfb0`
 - **Status**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE & VITE UI COMPILED — ALL 28 REST CONTRACTS PASS — READY FOR PHYSICAL COM FLASH`
 - **Objective**:
   1. Diagnose why MicroSD card reader failed with `0x108` (`ESP_ERR_INVALID_RESPONSE`) during CMD8 and audit previous agent's code defects vs. hardware behavior.
