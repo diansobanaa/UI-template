@@ -41,7 +41,7 @@ esp_err_t event_mgr_log_command(event_level_t level, const char *code, const cha
                                 const char *component_id, const char *resource_id, uint32_t configuration_version);
 
 /**
- * @brief Flush any pending in-memory events to persistent storage (SD card / SPIFFS).
+ * @brief Flush any pending in-memory events to persistent storage (MicroSD card / SPIFFS).
  * Executed safely on a dedicated storage worker stack to avoid stack overflows on caller threads.
  */
 esp_err_t event_mgr_flush_to_storage(void);

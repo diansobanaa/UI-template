@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -718,12 +718,12 @@ esp_err_t storage_mgr_retire_complex(const char *complex_id)
         nvs_close(handle);
     }
 
-    if (sdcard_hal_is_mounted()) {
-        sdcard_hal_lock();
+    if (microsd_hal_is_mounted()) {
+        microsd_hal_lock();
         unlink(EVENT_LOG_FILE);
         unlink(TELEMETRY_LOG_FILE);
         unlink(FERTIGATION_RUN_FILE);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
     }
     unlink(EVENT_LOG_FALLBACK_FILE);
     unlink(TELEMETRY_LOG_FALLBACK_FILE);
@@ -753,10 +753,10 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
     if (!s_event_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(s_event_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
 
-    const char *path = sdcard_hal_is_mounted() ? EVENT_LOG_FILE : EVENT_LOG_FALLBACK_FILE;
+    const char *path = microsd_hal_is_mounted() ? EVENT_LOG_FILE : EVENT_LOG_FALLBACK_FILE;
     bool sd = (path == EVENT_LOG_FILE);
     size_t max_bytes = sd ? MAX_EVENT_LOG_BYTES_SD : MAX_EVENT_LOG_BYTES_SPIFFS;
-    if (sd) sdcard_hal_lock();
+    if (sd) microsd_hal_lock();
 
     struct stat st;
     if (stat(path, &st) == 0 && (size_t)st.st_size > max_bytes) {
@@ -773,7 +773,7 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
      * 16-slot RAM ring (no unbounded growth). Mirrors the existing guard in
      * crop_cycle_mgr_get_timeline(). */
     if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < 8192) {
-        if (sd) sdcard_hal_unlock();
+        if (sd) microsd_hal_unlock();
         xSemaphoreGive(s_event_mutex);
         ESP_LOGW(TAG, "Event log write skipped: internal heap < 8KB");
         return ESP_ERR_NO_MEM;
@@ -781,13 +781,13 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
 
     FILE *f = fopen(path, "a");
     if (!f) {
-        if (sd) sdcard_hal_unlock();
+        if (sd) microsd_hal_unlock();
         xSemaphoreGive(s_event_mutex);
         return ESP_FAIL;
     }
     int rc = fprintf(f, "%s\n", event_json);
     fclose(f);
-    if (sd) sdcard_hal_unlock();
+    if (sd) microsd_hal_unlock();
     xSemaphoreGive(s_event_mutex);
     return rc < 0 ? ESP_FAIL : ESP_OK;
 }
@@ -796,16 +796,16 @@ esp_err_t storage_mgr_append_event_log(const char *event_json)
 esp_err_t storage_mgr_append_telemetry_log(const char *telemetry_json)
 {
     if (!telemetry_json || !telemetry_json[0] || !s_telemetry_mutex) return ESP_ERR_INVALID_ARG;
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         /* Structural mandate: Never write high-frequency time-series telemetry dumps into
-         * internal SPIFFS NOR flash. When external SD card is absent, telemetry is maintained
+         * internal SPIFFS NOR flash. When external MicroSD card is absent, telemetry is maintained
          * safely in the RAM circular ring buffer. */
         return ESP_OK;
     }
     if (xSemaphoreTake(s_telemetry_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
     const char *path = TELEMETRY_LOG_FILE;
     size_t max_bytes = MAX_TELEMETRY_LOG_BYTES_SD;
-    sdcard_hal_lock();
+    microsd_hal_lock();
 
     struct stat st;
     if (stat(path, &st) == 0 && (size_t)st.st_size > max_bytes) {
@@ -815,14 +815,14 @@ esp_err_t storage_mgr_append_telemetry_log(const char *telemetry_json)
 
     FILE *f = fopen(path, "a");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         xSemaphoreGive(s_telemetry_mutex);
         return ESP_FAIL;
     }
     int rc = fprintf(f, "%s\n", telemetry_json);
     fflush(f);
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     xSemaphoreGive(s_telemetry_mutex);
     return rc < 0 ? ESP_FAIL : ESP_OK;
 }
@@ -830,7 +830,7 @@ esp_err_t storage_mgr_append_telemetry_log(const char *telemetry_json)
 esp_err_t storage_mgr_read_telemetry_logs(char *out_buf, size_t max_len, size_t *out_len)
 {
     if (!out_buf || max_len < 2 || !s_telemetry_mutex) return ESP_ERR_INVALID_ARG;
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         out_buf[0] = '\0';
         if (out_len) *out_len = 0;
         return ESP_OK;
@@ -838,19 +838,19 @@ esp_err_t storage_mgr_read_telemetry_logs(char *out_buf, size_t max_len, size_t 
     if (xSemaphoreTake(s_telemetry_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
 
     const char *path = TELEMETRY_LOG_FILE;
-    sdcard_hal_lock();
+    microsd_hal_lock();
     FILE *f = fopen(path, "r");
     if (!f) {
         out_buf[0] = '\0';
         if (out_len) *out_len = 0;
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         xSemaphoreGive(s_telemetry_mutex);
         return ESP_OK;
     }
     size_t bytes_read = fread(out_buf, 1, max_len - 1, f);
     out_buf[bytes_read] = '\0';
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     if (out_len) *out_len = bytes_read;
     xSemaphoreGive(s_telemetry_mutex);
     return ESP_OK;
@@ -910,14 +910,14 @@ esp_err_t storage_mgr_append_fertigation_run(const char *run_json)
 {
     if (!run_json || !run_json[0] || !s_fertigation_mutex) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(s_fertigation_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
-    const char *path = sdcard_hal_is_mounted() ? FERTIGATION_RUN_FILE : FERTIGATION_RUN_FALLBACK_FILE;
+    const char *path = microsd_hal_is_mounted() ? FERTIGATION_RUN_FILE : FERTIGATION_RUN_FALLBACK_FILE;
     bool sd = (path == FERTIGATION_RUN_FILE);
-    if (sd) sdcard_hal_lock();
+    if (sd) microsd_hal_lock();
     FILE *f = fopen(path, "a");
-    if (!f) { if (sd) sdcard_hal_unlock(); xSemaphoreGive(s_fertigation_mutex); return ESP_FAIL; }
+    if (!f) { if (sd) microsd_hal_unlock(); xSemaphoreGive(s_fertigation_mutex); return ESP_FAIL; }
     int rc = fprintf(f, "%s\n", run_json);
     fclose(f);
-    if (sd) sdcard_hal_unlock();
+    if (sd) microsd_hal_unlock();
     xSemaphoreGive(s_fertigation_mutex);
     return rc < 0 ? ESP_FAIL : ESP_OK;
 }
@@ -927,21 +927,21 @@ esp_err_t storage_mgr_read_event_logs(char *out_buf, size_t max_len, size_t *out
     if (!out_buf || max_len < 2 || !s_event_mutex) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(s_event_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
 
-    const char *path = sdcard_hal_is_mounted() ? EVENT_LOG_FILE : EVENT_LOG_FALLBACK_FILE;
+    const char *path = microsd_hal_is_mounted() ? EVENT_LOG_FILE : EVENT_LOG_FALLBACK_FILE;
     bool sd = (path == EVENT_LOG_FILE);
-    if (sd) sdcard_hal_lock();
+    if (sd) microsd_hal_lock();
     FILE *f = fopen(path, "r");
     if (!f) {
         out_buf[0] = '\0';
         if (out_len) *out_len = 0;
-        if (sd) sdcard_hal_unlock();
+        if (sd) microsd_hal_unlock();
         xSemaphoreGive(s_event_mutex);
         return ESP_OK;
     }
     size_t bytes_read = fread(out_buf, 1, max_len - 1, f);
     out_buf[bytes_read] = '\0';
     fclose(f);
-    if (sd) sdcard_hal_unlock();
+    if (sd) microsd_hal_unlock();
     if (out_len) *out_len = bytes_read;
     xSemaphoreGive(s_event_mutex);
     return ESP_OK;
@@ -951,10 +951,10 @@ esp_err_t storage_mgr_clear_event_logs(void)
 {
     if (!s_event_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(s_event_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
-    if (sdcard_hal_is_mounted()) {
-        sdcard_hal_lock();
+    if (microsd_hal_is_mounted()) {
+        microsd_hal_lock();
         unlink(EVENT_LOG_FILE);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
     }
     unlink(EVENT_LOG_FALLBACK_FILE);
     xSemaphoreGive(s_event_mutex);

@@ -1,7 +1,7 @@
 #include "http/api_export_handlers.h"
 #include "http/http_server.h"
 #include "storage/export_mgr.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include <string.h>
@@ -24,7 +24,7 @@ static esp_err_t post_jobs_handler(httpd_req_t *req)
 {
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return http_send_error(req, 503, "STORAGE_UNAVAILABLE",
                                "MicroSD card is absent or unmounted; historical export is unavailable", NULL);
     }
@@ -100,7 +100,7 @@ static esp_err_t get_job_dispatcher_handler(httpd_req_t *req)
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid export job URI", NULL);
     }
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return http_send_error(req, 503, "STORAGE_UNAVAILABLE", "MicroSD card unmounted", NULL);
     }
 
@@ -181,7 +181,7 @@ static esp_err_t post_job_ack_handler(httpd_req_t *req)
         return http_send_error(req, 400, "BAD_REQUEST", "Invalid ACK endpoint URI", NULL);
     }
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return http_send_error(req, 503, "STORAGE_UNAVAILABLE", "MicroSD card unmounted", NULL);
     }
 

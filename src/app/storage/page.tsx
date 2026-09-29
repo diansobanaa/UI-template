@@ -69,11 +69,11 @@ function StorageContent() {
           setFormatting(false);
           if (result.result === "SUCCESS") {
             setFormatResult("SUCCESS");
-            toast.success("MicroSD card formatted successfully (FAT32).");
+            toast("Kartu MicroSD berhasil diformat (FAT32).", "success");
           } else if (result.result === "FAILED") {
             setFormatResult("FAILED");
             setFormatError(result.errorCode || "Unknown error");
-            toast.error("MicroSD format failed: " + (result.errorCode || "unknown"));
+            toast("Format MicroSD gagal: " + (result.errorCode || "unknown"), "error");
           }
           // Refresh status
           fetchStatus(true);
@@ -91,12 +91,12 @@ function StorageContent() {
     setFormatError(null);
     setFormatting(true);
     try {
-      await esp32Client.formatSdCard();
-      toast.info("Format started. Please wait...");
+      await esp32Client.formatMicroSdCard();
+      toast("Format MicroSD dimulai. Mohon tunggu...", "info");
     } catch (e: any) {
       setFormatting(false);
-      const msg = e?.message || "Failed to start format";
-      toast.error(msg);
+      const msg = e?.message || "Gagal memulai format";
+      toast(msg, "error");
       setFormatError(msg);
     }
   };
@@ -113,10 +113,10 @@ function StorageContent() {
 
   const statusLabel = (s: StorageStatus["status"]) => {
     switch (s) {
-      case "READY": return "Kartu Siap Digunakan";
-      case "FORMATTING": return "Format Sedang Berlangsung";
-      case "NOT_DETECTED": return "Kartu Tidak Terdeteksi";
-      case "DETECTED_NOT_MOUNTED": return "Terdeteksi, Tidak Ter-mount";
+      case "READY": return "Kartu MicroSD Siap Digunakan";
+      case "FORMATTING": return "Format MicroSD Sedang Berlangsung";
+      case "NOT_DETECTED": return "Kartu MicroSD Tidak Terdeteksi";
+      case "DETECTED_NOT_MOUNTED": return "MicroSD Terdeteksi, Belum Ter-mount";
       default: return s;
     }
   };
@@ -178,8 +178,8 @@ function StorageContent() {
               <HardDrive className="h-5 w-5 text-blue-400" />
             </span>
             <div>
-              <h3 className="text-[15px] font-bold text-white">Status Kartu</h3>
-              <p className="text-xs text-slate-500">Informasi kartu MicroSD</p>
+              <h3 className="text-[15px] font-bold text-white">Status MicroSD</h3>
+              <p className="text-xs text-slate-500">Informasi modul MicroSD Card</p>
             </div>
           </div>
 
@@ -238,7 +238,7 @@ function StorageContent() {
           <Button
             variant="danger"
             size="md"
-            disabled={!status?.detected || !status?.mounted || formatting}
+            disabled={!status?.detected || formatting}
             onClick={() => setConfirmOpen(true)}
             className="w-full"
           >

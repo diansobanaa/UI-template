@@ -183,7 +183,7 @@ All buttons are momentary switches wired between the GPIO pin and clean `GND_LV`
 - **DISTRIBUTION:** GPIO 41 to Button Pin 1; Button Pin 2 to GND_LV.
 
 ### 4.5. SPI Peripheral Bus Wiring
-The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared by the TFT Display and built-in MicroSD card slot. W5500 is not assigned in the canonical pin map and must not be wired. Keep wire lengths under 15 cm:
+The SPI bus (SCK: 11, MOSI: 12, MISO: 13) is shared by the TFT Display and MicroSD Card Module (EasyWare EP000094). W5500 is not assigned in the canonical pin map and must not be wired. Keep wire lengths under 15 cm:
 - **W5500 Ethernet:** BLOCKED / DO NOT WIRE — the canonical hardware pin map does not assign W5500 CS/INT/RESET.
 - **TFT Display (ST7735 1.8" 128×160 SPI):** SCK → GPIO 11, MOSI → GPIO 12, CS → GPIO 14, DC → GPIO 21, RST → GPIO 42, VCC → 3.3V / 5V, GND → GND_LV. (Hardware controller: ST7735. Do NOT substitute with 2.4" or 2.8" or ILI9341/ST7789).
 - **MicroSD Adapter Module (EasyWare Part#: EP000094):** SCK → GPIO 11, MOSI → GPIO 12, MISO → GPIO 13, CS → GPIO 48, VCC → 5V DC Rail (LM2596 OUT+), GND → GND_LV. (*Standalone module with onboard 3.3V LDO regulator and level converter; VCC must be connected to 5V rail*).
@@ -223,7 +223,7 @@ To prevent miswiring during field servicing, apply heat-shrink or printed wire m
   - `SW-FLOAT-L`: Lower float switch
   - `BTN-MODE`, `BTN-MAN-A`, `BTN-MAN-B`, `BTN-DIST`: Push buttons
   - `SPI-CLK`, `SPI-MOSI`, `SPI-MISO`: SPI Bus lines
-  - `CS-ETH`, `CS-TFT`, `CS-SD`: Chip select lines
+  - `CS-ETH`, `CS-TFT`, `CS-MICROSD`: Chip select lines
 
 ---
 
@@ -404,7 +404,7 @@ Test each output channel individually with dummy loads or multimeter:
 | **W5500 Ethernet not detected** | No canonical physical mapping | Do not wire W5500 in the current commissioning. Use Wi-Fi; W5500 remains BLOCKED until a future authoritative pin-map update. |
 | **DS18B20 reads -127°C or 85°C** | Missing 4.7kΩ pull-up resistor | Solder 4.7kΩ resistor between Data (GPIO 17) and 3.3V. Check for loose terminal connection. |
 | **Flow sensor registers zero pulses** | 5V signal not triggering 3.3V input | Verify voltage divider wiring and pulse input on oscilloscope or LED indicator. |
-| **SD card mount failure** | Card format not FAT32 or loose CS | Format microSD as FAT32 (32KB cluster). Check SD CS pin is wired to GPIO 48 (`PIN_MICROSD_CS`). |
+| **MicroSD Card mount failure** | Card format not FAT32 or loose CS | Format MicroSD as FAT32 (32KB cluster). Check MicroSD CS pin is wired to GPIO 48 (`PIN_MICROSD_CS`). |
 
 ---
 

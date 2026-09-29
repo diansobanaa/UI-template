@@ -66,7 +66,7 @@ This document specifies the exact mapping from the physical pins of each discret
 | **MicroSD Adapter** | **VCC** | Power Supply (4.5V~5.5V)| **5V DC Rail** (LM2596 OUT+) | DC Power | Power Input | 5.05V DC Regulated | **VERIFIED READY** |
 | **MicroSD Adapter** | **GND** | Power Ground | **ESP32 GND** (Signal GND_LV) | Ground | Ground Return | 0V Reference | **VERIFIED READY** |
 
-*Note: GPIO 48 is also connected to the onboard WS2812 DIN line. The firmware implements an explicit WS2812 clear routine (transmitting 24 zero-bits) at boot and immediately following any SPI SD card mount attempts, guaranteeing the onboard RGB LED remains extinguished/dark rather than stuck in high-intensity white illumination. High-voltage protection: Onboard level converter and LDO protect SD card from 5V logic.*
+*Note: GPIO 48 is also connected to the onboard WS2812 DIN line. The firmware implements an explicit WS2812 clear routine (transmitting 24 zero-bits) at boot and immediately following any SPI MicroSD Card mount attempts, guaranteeing the onboard RGB LED remains extinguished/dark rather than stuck in high-intensity white illumination. High-voltage protection: Onboard level converter and LDO protect MicroSD Card from 5V logic.*
 
 ---
 

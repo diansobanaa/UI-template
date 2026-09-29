@@ -38,9 +38,9 @@
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Drives Relay IN3 triggering external Omron relay / contactor for 2x 220V AC blower fans. | **VERIFIED SAFE** |
-| **W-11** | **GPIO 11** | Left-17 | TFT Display & SD | **SCK / SD_SCK** | Shared SPI Clock | 3.3V Logic | Master SPI Clock (SPI2_HOST) | Output | Mode 0 (Rising) | Bus shared between ST7735 TFT and integrated SD slot. | **VERIFIED** |
-| **W-12** | **GPIO 12** | Left-18 | TFT Display & SD | **SDA / SD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and integrated SD slot. | **VERIFIED** |
-| **W-13** | **GPIO 13** | Left-19 | MicroSD Card Slot | **SD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from SD) | Input | Serial Data | Dedicated return line from SD card slot on back of TFT. | **UNVERIFIED** |
+| **W-11** | **GPIO 11** | Left-17 | TFT Display & MicroSD | **SCK / MICROSD_SCK** | Shared SPI Clock | 3.3V Logic | Master SPI Clock (SPI2_HOST) | Output | Mode 0 (Rising) | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
+| **W-12** | **GPIO 12** | Left-18 | TFT Display & MicroSD | **MOSI / MICROSD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
+| **W-13** | **GPIO 13** | Left-19 | MicroSD Card Module | **MICROSD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from MicroSD) | Input | Serial Data | Dedicated return line from MicroSD Card Module (EasyWare EP000094). | **UNVERIFIED** |
 | **W-14** | **GPIO 14** | Left-20 | TFT ST7735 Display| **CS** | Dedicated SPI CS | 3.3V Logic | Display Controller Chip Select | Output | Active-LOW (0=Select)| Dedicated CS for Sitronix ST7735 controller. | **VERIFIED** |
 | **W-15** | **GPIO 15** | Left-8 | Flow Sensor ZJ-B1 | **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Raw Water Transfer Flow Meter (Raw Water → Mixing Tank) | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. Completion criterion. | **UNVERIFIED (CALIBRATION REQUIRED)** |
 | **W-16** | **GPIO 16** | Left-9 | Flow Sensor FS400A| **Signal (Yellow)**| Pulse Divider | 3.3V Pulse | Fertigation Delivery Flow Meter (G1" F=4.8*Q) | Input | Interrupt Pulse | 5V pulse scaled via 2.2kΩ/3.3kΩ voltage divider to 3.3V. Telemetry & monitoring. | **VERIFIED READY** |
@@ -53,7 +53,7 @@
 | **W-23** | **GPIO 41** | Right-7 | Sensor DHT22 / AM2302| **DATA** | Digital Single-Wire | 3.3V–5V Logic | Greenhouse Ambient Temp & Humidity Data | Bi-directional (In) | Single-Wire Bus | Measures ambient temperature (-40°C to +80°C) and RH (0–100%). Non-blocking 3s sample cadence. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
 | **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
-| **W-26** | **GPIO 48** | Right-16 | MicroSD Adapter (EasyWare EP000094) | **SD_CS** | Dedicated SPI CS | 3.3V Logic | Standalone MicroSD Module Chip Select | Output | Active-LOW (0=Select)| Controls EasyWare EP000094 CS. Shared SPI with TFT. VCC connects to 5V rail (onboard 3.3V LDO). | **VERIFIED READY** |
+| **W-26** | **GPIO 48** | Right-16 | MicroSD Card Module (EasyWare EP000094) | **MICROSD_CS** | Dedicated SPI CS | 3.3V Logic | Standalone MicroSD Card Module Chip Select | Output | Active-LOW (0=Select)| Controls EasyWare EP000094 CS. Shared SPI with TFT. VCC connects to 5V rail (onboard 3.3V LDO). | **VERIFIED READY** |
 | **W-27** | **5V (Vin)**| Left-21 | LM2596 Regulator | **OUT+** | Power Conductor | 5.05V DC | ESP32 Board Main DC Power Input | Power In | 5.05V DC Regulated | **MANDATORY:** Pre-calibrate trimpot with DMM before connecting! | **VERIFY DMM** |
 | **W-28** | **3V3 Rail**| Left-1 / 2 | Sensors & Display | **VCC / LED** | Power Conductor | 3.3V DC | 3.3V Sensor & Peripheral Supply Rail | Power Out | 3.30V DC Regulated | Supplies DS3231, DS18B20, ST7735 VCC/LED, pull-up resistors. | **VERIFIED RAIL** |
 | **W-29** | **GND Rail**| Left-22 / R-1 | System Electronics | **GND** | Ground Plane | 0V Reference | Common Low-Voltage Signal Ground | Ground | 0V Reference | Common return for ESP32, sensors, buttons, LM2596 OUT-. | **VERIFIED RAIL** |
@@ -378,9 +378,9 @@ Switched Return (-) from OUT- ────────────────�
 | **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
 | **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
 | **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers external Omron relay / contactor for 2x Greenhouse Blower Fans. | `PIN_OUT_BLOWER_FAN = 10` | **VERIFIED SAFE** |
-| **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and SD card clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
-| **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and SD card MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
-| **W-13** | MicroSD MISO | ESP32 GPIO 13 | No conflict. Shared bus MISO. | Dedicated return data from SD card slot. | `PIN_SPI_MISO = 13` | **UNVERIFIED** |
+| **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and MicroSD Card Module clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
+| **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and MicroSD Card Module MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
+| **W-13** | MicroSD MISO | ESP32 GPIO 13 | No conflict. Shared bus MISO. | Dedicated return data from MicroSD Card Module (EasyWare EP000094). | `PIN_SPI_MISO = 13` | **UNVERIFIED** |
 | **W-14** | TFT CS | ESP32 GPIO 14 | No conflict. Dedicated SPI CS. | Active-LOW display chip select. | `PIN_TFT_CS = 14` | **VERIFIED** |
 | **W-15** | Flow YF-B1 | ESP32 GPIO 15 | No conflict. Pulse input. | Scaled to 3.3V via 2.2kΩ/3.3kΩ divider. | `PIN_IN_FLOW_YFB1 = 15` | **VERIFIED** |
 | **W-16** | Flow FS400A | ESP32 GPIO 16 | No conflict. Pulse input. | Scaled to 3.3V via 2.2kΩ/3.3kΩ divider. | `PIN_IN_FLOW_FS400A = 16` | **VERIFIED** |
@@ -413,9 +413,9 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
 | **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
 | **10** | `PIN_OUT_BLOWER_FAN` | 10 | Greenhouse Dual Blower Fans (Relay IN3 -> Omron Relay) | **MATCH** | 100% Consistent. Active-LOW (0). Triggers external Omron relay / contactor. |
-| **11** | `PIN_SPI_SCK` / `PIN_SD_SCK` | 11 | Shared SPI Clock (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
-| **12** | `PIN_SPI_MOSI` / `PIN_SD_MOSI`| 12 | Shared SPI MOSI (TFT & SD) | **MATCH** | 100% Consistent. Shared bus. |
-| **13** | `PIN_SPI_MISO` / `PIN_SD_MISO`| 13 | Shared SPI MISO (SD Slot) | **MATCH** | 100% Consistent. Dedicated to SD card return. |
+| **11** | `PIN_SPI_SCK` / `PIN_MICROSD_SCK` | 11 | Shared SPI Clock (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
+| **12** | `PIN_SPI_MOSI` / `PIN_MICROSD_MOSI`| 12 | Shared SPI MOSI (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
+| **13** | `PIN_SPI_MISO` / `PIN_MICROSD_MISO`| 13 | Shared SPI MISO (MicroSD Card Module) | **MATCH** | 100% Consistent. Dedicated to MicroSD Card return. |
 | **14** | `PIN_TFT_CS` | 14 | TFT Display Chip Select | **MATCH** | 100% Consistent. Dedicated CS. |
 | **15** | `PIN_IN_FLOW_YFB1` | 15 | Flow Meter YF-B1 Pulse In | **MATCH** | 100% Consistent. |
 | **16** | `PIN_IN_FLOW_FS400A` | 16 | Flow Meter FS400A Pulse In | **MATCH** | 100% Consistent. |
@@ -428,7 +428,7 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **41** | `PIN_IN_DHT22` / `PIN_BTN_RESERVED` | 41 | Greenhouse Temp & Humidity Sensor DHT22 | **MATCH** | 100% Consistent. Single-wire digital bus (Temp & RH). |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
 | **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up (SP-HW-008). |
-| **48** | `PIN_SD_CS` / `PIN_MICROSD_CS` | 48 | Integrated SD Card Slot CS | **MATCH** | 100% Consistent. |
+| **48** | `PIN_MICROSD_CS` / `PIN_SD_CS` | 48 | Standalone MicroSD Card Module CS | **MATCH** | 100% Consistent. |
 
 ### Summary of Firmware Audit:
 - **26 out of 26 pins** match 100% identically between firmware (`pin_config.h`) and this hardware wiring contract.

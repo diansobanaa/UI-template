@@ -17,6 +17,7 @@ tags:
   - name: Calibration
   - name: LocalSetup
   - name: Export
+  - name: Storage
 
 paths:
   /api/v1/health:
@@ -1682,6 +1683,65 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/storage/status:
+    get:
+      tags: [Storage]
+      summary: Return MicroSD Card storage status
+      description: Returns hardware detection, mount state, capacity, and format status of the MicroSD card module.
+      operationId: getStorageStatus
+      responses:
+        "200":
+          description: MicroSD card status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageStatusResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/storage/format:
+    post:
+      tags: [Storage]
+      summary: Initiate runtime FAT32 format on MicroSD Card
+      description: Initiates non-blocking FAT32 formatting of the MicroSD card in a dedicated background task. Requires confirm:true.
+      operationId: formatMicroSdStorage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm:
+                  type: boolean
+                  description: Must be true to confirm erasure of all data on the MicroSD card.
+      responses:
+        "202":
+          description: MicroSD format operation accepted and started in background
+        "409":
+          description: Format operation already in progress
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/storage/format/result:
+    get:
+      tags: [Storage]
+      summary: Poll MicroSD Card format result
+      description: Returns progress and final outcome of the background MicroSD format task.
+      operationId: getStorageFormatResult
+      responses:
+        "200":
+          description: Format operation status and outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageFormatResultResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1735,6 +1795,58 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
+    StorageStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [detected, mounted, formatInProgress, capacityMb, capacityGb, status]
+              properties:
+                detected:
+                  type: boolean
+                  description: MicroSD card hardware detected on SPI bus
+                mounted:
+                  type: boolean
+                  description: MicroSD card FAT32 filesystem mounted
+                formatInProgress:
+                  type: boolean
+                capacityMb:
+                  type: number
+                capacityGb:
+                  type: number
+                cardName:
+                  type: string
+                  nullable: true
+                status:
+                  type: string
+                  enum: [NOT_DETECTED, DETECTED_NOT_MOUNTED, READY, FORMATTING]
+
+    StorageFormatResultResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [formatInProgress, status]
+              properties:
+                formatInProgress:
+                  type: boolean
+                result:
+                  type: string
+                  nullable: true
+                  enum: [SUCCESS, FAILED]
+                status:
+                  type: string
+                mounted:
+                  type: boolean
+                capacityMb:
+                  type: number
+                errorCode:
+                  type: string
+
     EnvelopeBase:
       type: object
       required: [requestId, success, deviceTimestamp]

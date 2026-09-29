@@ -29,7 +29,7 @@ bool recipe_storage_is_available(void);
 
 /**
  * @brief List all recipes stored on SD.
- * If SD card is not mounted, returns ESP_ERR_NOT_FOUND or degraded status with an empty array.
+ * If MicroSD card is not mounted, returns ESP_ERR_NOT_FOUND or degraded status with an empty array.
  * @param[out] out_array Pointer to receive cJSON array of recipe objects (caller must delete with cJSON_Delete).
  */
 esp_err_t recipe_storage_list(cJSON **out_array);
@@ -42,15 +42,15 @@ esp_err_t recipe_storage_list(cJSON **out_array);
 esp_err_t recipe_storage_get(const char *recipe_id, cJSON **out_recipe);
 
 /**
- * @brief Save/update a recipe on SD card.
- * If SD card is absent, executes WRITE_TO_NOTHING fallback and returns ESP_ERR_NOT_FOUND / degraded status.
+ * @brief Save/update a recipe on MicroSD card.
+ * If MicroSD card is absent, executes WRITE_TO_NOTHING fallback and returns ESP_ERR_NOT_FOUND / degraded status.
  * @param recipe_id The recipe identifier.
  * @param recipe_json The complete JSON representation of the recipe.
  */
 esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json);
 
 /**
- * @brief Delete a recipe from SD card by its ID.
+ * @brief Delete a recipe from MicroSD card by its ID.
  * @param recipe_id The recipe identifier.
  */
 esp_err_t recipe_storage_delete(const char *recipe_id);

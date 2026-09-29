@@ -37,10 +37,17 @@ extern "C" {
  */
 esp_err_t tft_hal_init(void);
 
-/**
- * @brief Check if the TFT display was successfully detected and initialized.
- */
 bool tft_hal_is_available(void);
+
+/**
+ * @brief Pause TFT screen refresh task to release shared SPI2 bus.
+ */
+void tft_hal_pause(void);
+
+/**
+ * @brief Resume TFT screen refresh task.
+ */
+void tft_hal_resume(void);
 
 /**
  * @brief Fill the entire 128x160 display area with a solid color.

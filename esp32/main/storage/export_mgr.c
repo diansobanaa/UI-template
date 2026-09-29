@@ -1,6 +1,6 @@
 #include "storage/export_mgr.h"
 #include "storage/crop_history_storage.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "esp_log.h"
 #include "esp_rom_crc.h"
 #include "esp_random.h"
@@ -55,14 +55,14 @@ static void now_iso(char out[32])
 
 esp_err_t export_mgr_init(void)
 {
-    if (sdcard_hal_is_mounted()) {
-        sdcard_hal_lock();
+    if (microsd_hal_is_mounted()) {
+        microsd_hal_lock();
         ensure_dir(EXPORT_DIR_PENDING);
         ensure_dir(EXPORT_DIR_COMPLETED);
-        sdcard_hal_unlock();
-        ESP_LOGI(TAG, "Export manager initialized on SD card");
+        microsd_hal_unlock();
+        ESP_LOGI(TAG, "Export manager initialized on MicroSD card");
     } else {
-        ESP_LOGW(TAG, "Export manager running in degraded mode (SD card unmounted)");
+        ESP_LOGW(TAG, "Export manager running in degraded mode (MicroMicroSD card unmounted)");
     }
     return ESP_OK;
 }
@@ -73,7 +73,7 @@ cJSON *export_mgr_get_capabilities(void)
     cJSON_AddStringToObject(root, "version", "1.0.0");
 
     cJSON *storage = cJSON_AddObjectToObject(root, "storage");
-    bool mounted = sdcard_hal_is_mounted();
+    bool mounted = microsd_hal_is_mounted();
     cJSON_AddBoolToObject(storage, "sdMounted", mounted);
     cJSON_AddBoolToObject(storage, "degraded", !mounted);
     cJSON_AddStringToObject(storage, "storageMedium", mounted ? "MICROSD" : "NONE");
@@ -205,8 +205,8 @@ static void json_to_job(const cJSON *r, export_job_t *job)
 esp_err_t export_mgr_create_job(const cJSON *req, export_job_t *out_job)
 {
     if (!req || !out_job) return ESP_ERR_INVALID_ARG;
-    if (!sdcard_hal_is_mounted()) {
-        ESP_LOGW(TAG, "Cannot create export job: SD card unmounted");
+    if (!microsd_hal_is_mounted()) {
+        ESP_LOGW(TAG, "Cannot create export job: MicroSD card unmounted");
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -242,7 +242,7 @@ esp_err_t export_mgr_create_job(const cJSON *req, export_job_t *out_job)
     out_job->deletion_eligible = true;
 
     /* Scan target dataset to compute record count, byte count, and CRC32 */
-    sdcard_hal_lock();
+    microsd_hal_lock();
     ensure_dir(EXPORT_DIR_PENDING);
     ensure_dir(EXPORT_DIR_COMPLETED);
 
@@ -356,7 +356,7 @@ esp_err_t export_mgr_create_job(const cJSON *req, export_job_t *out_job)
         free(job_str);
     }
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     ESP_LOGI(TAG, "Created export job %s for dataset '%s': %zu records, %zu bytes, CRC=0x%08lx",
              out_job->export_id, dataset, count, bytes, (unsigned long)running_crc);
     return ESP_OK;
@@ -364,23 +364,23 @@ esp_err_t export_mgr_create_job(const cJSON *req, export_job_t *out_job)
 
 esp_err_t export_mgr_get_job(const char *export_id, export_job_t *out_job)
 {
-    if (!export_id || !out_job || !sdcard_hal_is_mounted()) return ESP_ERR_INVALID_ARG;
+    if (!export_id || !out_job || !microsd_hal_is_mounted()) return ESP_ERR_INVALID_ARG;
 
     char path[128];
     snprintf(path, sizeof(path), "%s/%s.json", EXPORT_DIR_PENDING, export_id);
-    sdcard_hal_lock();
+    microsd_hal_lock();
     struct stat st;
     if (stat(path, &st) != 0) {
         snprintf(path, sizeof(path), "%s/%s.json", EXPORT_DIR_COMPLETED, export_id);
         if (stat(path, &st) != 0) {
-            sdcard_hal_unlock();
+            microsd_hal_unlock();
             return ESP_ERR_NOT_FOUND;
         }
     }
 
     FILE *f = fopen(path, "r");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -391,13 +391,13 @@ esp_err_t export_mgr_get_job(const char *export_id, export_job_t *out_job)
     char *buf = malloc(sz + 1);
     if (!buf) {
         fclose(f);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_ERR_NO_MEM;
     }
     size_t r = fread(buf, 1, sz, f);
     buf[r] = '\0';
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     cJSON *parsed = cJSON_Parse(buf);
     free(buf);
@@ -452,7 +452,7 @@ esp_err_t export_mgr_read_chunk(const char *export_id, uint32_t chunk_index, siz
         return ESP_OK;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     size_t bytes_read = 0;
 
     if (strcmp(job.dataset, "crop_cycles") == 0 || strcmp(job.dataset, "plants") == 0) {
@@ -505,7 +505,7 @@ esp_err_t export_mgr_read_chunk(const char *export_id, uint32_t chunk_index, siz
         }
     }
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     *out_len = bytes_read;
     *chunk_crc = esp_rom_crc32_le(0, (const uint8_t *)out_buf, bytes_read);
@@ -515,7 +515,7 @@ esp_err_t export_mgr_read_chunk(const char *export_id, uint32_t chunk_index, siz
 
 esp_err_t export_mgr_ack_job(const char *export_id, size_t *out_deleted_records, size_t *out_deleted_bytes)
 {
-    if (!export_id || !sdcard_hal_is_mounted()) return ESP_ERR_INVALID_ARG;
+    if (!export_id || !microsd_hal_is_mounted()) return ESP_ERR_INVALID_ARG;
 
     export_job_t job;
     esp_err_t err = export_mgr_get_job(export_id, &job);
@@ -529,7 +529,7 @@ esp_err_t export_mgr_ack_job(const char *export_id, size_t *out_deleted_records,
         return ESP_OK;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     size_t del_records = 0;
     size_t del_bytes = 0;
 
@@ -628,7 +628,7 @@ esp_err_t export_mgr_ack_job(const char *export_id, size_t *out_deleted_records,
         free(comp_str);
     }
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     if (out_deleted_records) *out_deleted_records = del_records;
     if (out_deleted_bytes) *out_deleted_bytes = del_bytes;

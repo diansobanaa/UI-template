@@ -61,8 +61,11 @@ extern "C" {
 #define DS18B20_POLL_INTERVAL_MS  20000  /* 20 s — water temperature */
 
 /* Hardware Feature Flags */
+#ifndef FEATURE_MICROSD_ENABLED
+#define FEATURE_MICROSD_ENABLED  1  /* 1 = Enabled; degrades gracefully if MicroSD absent */
+#endif
 #ifndef FEATURE_SDCARD_ENABLED
-#define FEATURE_SDCARD_ENABLED   1  /* 1 = Enabled; degrades gracefully if SD absent */
+#define FEATURE_SDCARD_ENABLED   FEATURE_MICROSD_ENABLED  /* Backward compatibility alias */
 #endif
 
 #ifndef FEATURE_SENSORS_ENABLED

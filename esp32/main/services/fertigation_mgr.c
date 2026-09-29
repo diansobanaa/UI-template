@@ -7,7 +7,7 @@
 #include "freertos/task.h"
 #include "hal/actuator_hal.h"
 #include "hal/hardware_registry.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "hal/sensor_hal.h"
 #include "services/calibration_mgr.h"
 #include "services/command_mgr.h"
@@ -2203,7 +2203,7 @@ static void task(void *arg) {
 }
 
 static void scan_today_runs_from_storage(void) {
-  const char *path = sdcard_hal_is_mounted() ? "/sdcard/fertigation_runs.jsonl"
+  const char *path = microsd_hal_is_mounted() ? "/sdcard/fertigation_runs.jsonl"
                                              : "/spiffs/fertigation_runs.jsonl";
   FILE *f = fopen(path, "r");
   if (!f)

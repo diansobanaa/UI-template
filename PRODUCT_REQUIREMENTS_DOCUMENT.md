@@ -2003,7 +2003,7 @@ Capability discovery may include:
 - installed valves;
 - fan availability;
 - RTC availability;
-- SD card/storage availability;
+- MicroSD Card/storage availability;
 - Ethernet/W5500;
 - supported schedule modes;
 - firmware version;
@@ -2900,9 +2900,9 @@ The controller shall persist at minimum the data required for autonomous recover
 - unsent events/telemetry;
 - power/recovery state where necessary.
 
-## 35.2 SD Card
+## 35.2 MicroSD Card
 
-An SD card may provide higher-volume local logging for:
+A MicroSD card may provide higher-volume local logging for:
 
 - telemetry;
 - events;
@@ -3064,7 +3064,7 @@ The product architecture supports, as configured per Complex:
 ### Storage
 
 - internal non-volatile storage;
-- optional SD card.
+- optional MicroSD card.
 
 ### Timekeeping
 

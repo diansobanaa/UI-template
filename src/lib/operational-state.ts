@@ -389,7 +389,7 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
           console.warn("[operational-state] Direct ESP32 live status reconciliation failed:", directErr);
         }
 
-        // Authoritative Recipe Store: fetch recipes directly from ESP32 SD card storage (zero Python dependency)
+        // Authoritative Recipe Store: fetch recipes directly from ESP32 MicroSD card storage (zero Python dependency)
         try {
           const recipeRes = await esp32Client.getRecipes();
           const remoteRecipes = Array.isArray(recipeRes?.recipes) ? recipeRes.recipes : [];
@@ -470,7 +470,7 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                 if (remoteG.plants) g.plants = remoteG.plants;
                 if (remoteG.crop) g.crop = remoteG.crop;
                 if (remoteG.equipment) g.equipment = remoteG.equipment;
-                // Note: Recipes are authoritative on ESP32 SD card, not Python backend.
+                // Note: Recipes are authoritative on ESP32 MicroSD card, not Python backend.
                 if (Array.isArray(remoteG.fertigationSchedules)) {
                   g.fertigationSchedules = remoteG.fertigationSchedules;
                 }

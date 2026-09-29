@@ -19,7 +19,7 @@ This specification establishes the **Canonical 3-Tier Storage Model**:
                       │
           ┌───────────┼────────────┐
           │           │            │
-         NVS          SD          RAM
+         NVS       MicroSD        RAM
           │           │            │
      ACTIVE ONLY   HISTORICAL    TRANSIENT
      CROP CYCLE    DATA STORE    WORKING STATE
@@ -27,7 +27,7 @@ This specification establishes the **Canonical 3-Tier Storage Model**:
 
 - **RAM = Transient Working State:** Transient memory buffer only. Temporarily holds a single active record during request handling. Must NEVER store historical datasets.
 - **NVS = Active Operational State:** Stores ONLY the currently active crop cycle per greenhouse under isolated keys (`cc_<ghId>`, ~466 bytes). Small, bounded, boot-critical.
-- **SD = Historical Bulk Data Store:** Completed/closed crop cycles, historical plant records, telemetry logs, event logs, fertigation logs, and export chunks under deterministic paths (`/agrotech/...`).
+- **MicroSD = Historical Bulk Data Store:** Completed/closed crop cycles, historical plant records, telemetry logs, event logs, fertigation logs, and export chunks under deterministic paths (`/agrotech/...`).
 - **Backend Python = Future Receiver/Mirror/Archive:** Autonomous consumer that polls capabilities, pulls chunked export jobs, verifies manifests via CRC32, and issues explicit cryptographic/safe acknowledgements.
 
 ---
@@ -71,9 +71,9 @@ When no crop cycle is active, the NVS key is erased or stores `status = CYCLE_ST
 
 ---
 
-## 4. SD Historical Storage Organization
+## 4. MicroSD Historical Storage Organization
 
-The SD card uses a deterministic filesystem hierarchy:
+The MicroSD card uses a deterministic filesystem hierarchy:
 
 ```text
 /sdcard/

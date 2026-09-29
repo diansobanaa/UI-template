@@ -1105,7 +1105,7 @@ GET /api/v1/telemetry/stream (WebSocket upgrade)
 ```http
 GET /api/v1/telemetry/history?afterSequence={seq}&limit={count}
 ```
-- **Execution Path:** Deferred persistence log on SD card (`/sdcard/telemetry.jsonl`) or LittleFS/SPIFFS fallback (`/spiffs/telemetry.jsonl`).
+- **Execution Path:** Deferred persistence log on MicroSD card (`/sdcard/telemetry.jsonl`) or LittleFS/SPIFFS fallback (`/spiffs/telemetry.jsonl`).
 - **Concurrency Isolation:** Guarded by dedicated `s_telemetry_mutex`, completely isolated from `s_event_mutex`, `s_sequence_mutex`, and `s_fertigation_mutex`.
 
 ---
@@ -1445,7 +1445,7 @@ Never silently change only one side.
 
 ---
 
-# 51. Canonical Data Storage & Historical SD Export Pipeline
+# 51. Canonical Data Storage & Historical MicroSD Export Pipeline
 
 ## 51.1 Storage Architecture & Memory Ownership
 The controller enforces a strict 3-tier memory model:
@@ -1454,27 +1454,27 @@ The controller enforces a strict 3-tier memory model:
                       │
           ┌───────────┼────────────┐
           │           │            │
-         NVS          SD          RAM
+         NVS       MicroSD        RAM
           │           │            │
      ACTIVE ONLY   HISTORICAL    TRANSIENT
      CROP CYCLE    DATA STORE    WORKING STATE
 ```
 - **RAM**: Transient working memory only. Holds only the active record during execution. Never stores full historical datasets.
 - **NVS**: Small, bounded storage. Stores only the single active crop cycle per greenhouse under `cc_<ghId>` (~466 bytes). Large historical cycle arrays are prohibited from NVS.
-- **SD Card**: Durable bulk store for completed/closed crop cycles, historical plant records, telemetry, events, fertigation logs, and export chunks under `/agrotech/...`.
+- **MicroSD Card**: Durable bulk store for completed/closed crop cycles, historical plant records, telemetry, events, fertigation logs, and export chunks under `/agrotech/...`.
 - **Backend Python (Future)**: Autonomous receiver and mirror. Requests export jobs, downloads chunks, verifies CRC32 checksums, and issues ACKs.
 
 ## 51.2 Crop Cycle Lifecycle & Archive Protocol
 ```text
-ACTIVE (NVS) -> COMPLETING -> ARCHIVE_TO_SD -> VERIFY_ARCHIVE -> ARCHIVED -> REMOVE_FROM_NVS -> NEW ACTIVE (NVS)
+ACTIVE (NVS) -> COMPLETING -> ARCHIVE_TO_MICROSD -> VERIFY_ARCHIVE -> ARCHIVED -> REMOVE_FROM_NVS -> NEW ACTIVE (NVS)
 ```
 1. Active cycle persists in NVS under key `cc_<ghId>`.
 2. When harvested or cancelled, record is written to `/sdcard/agrotech/crop_cycles/history/<cycleId>.json` via atomic `.tmp` file and size verified.
-3. If archive succeeds, NVS active key is erased. If archive fails and SD is mounted, NVS active record is preserved to prevent data loss.
-4. If SD is absent, system operates in degraded mode, preserving active cycle in NVS and returning `STORAGE_UNAVAILABLE` on bulk operations.
+3. If archive succeeds, NVS active key is erased. If archive fails and MicroSD is mounted, NVS active record is preserved to prevent data loss.
+4. If MicroSD is absent, system operates in degraded mode, preserving active cycle in NVS and returning `STORAGE_UNAVAILABLE` on bulk operations.
 
 ## 51.3 Export REST API Contract
-- `GET /api/v1/export/capabilities`: Returns dataset types, formats, max chunk size (32 KB), and SD mount status.
+- `GET /api/v1/export/capabilities`: Returns dataset types, formats, max chunk size (32 KB), and MicroSD mount status.
 - `POST /api/v1/export/jobs`: Creates deterministic export job (`exp-<timestamp>`), builds file manifest, and computes CRC32.
 - `GET /api/v1/export/jobs/{exportId}`: Returns job state, progress, total bytes, and total chunks.
 - `GET /api/v1/export/jobs/{exportId}/manifest`: Returns record count, total bytes, CRC32 checksum, and file list.

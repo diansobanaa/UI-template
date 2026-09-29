@@ -1311,6 +1311,22 @@ tft_screen_id_t tft_get_current_screen(void)
     return s_current_screen;
 }
 
+void tft_hal_pause(void)
+{
+    if (s_tft_task_handle) {
+        vTaskSuspend(s_tft_task_handle);
+    }
+    gpio_set_direction((gpio_num_t)PIN_TFT_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)PIN_TFT_CS, 1);
+}
+
+void tft_hal_resume(void)
+{
+    if (s_tft_task_handle) {
+        vTaskResume(s_tft_task_handle);
+    }
+}
+
 
 esp_err_t tft_hal_init(void)
 {

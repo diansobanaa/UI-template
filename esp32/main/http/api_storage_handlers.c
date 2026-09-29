@@ -1,6 +1,6 @@
 #include "http/api_storage_handlers.h"
 #include "http/http_server.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "cJSON.h"
@@ -17,8 +17,8 @@ static esp_err_t handler_get_storage_status(httpd_req_t *req)
 {
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
 
-    sdcard_card_info_t info;
-    sdcard_hal_get_card_info(&info);
+    microsd_card_info_t info;
+    microsd_hal_get_card_info(&info);
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "detected", info.detected);
@@ -46,22 +46,6 @@ static esp_err_t handler_get_storage_status(httpd_req_t *req)
 }
 
 /* ---------- POST /api/v1/storage/format ---------- */
-
-/* Format result stored by the background task so the status endpoint
- * can report success/failure after format completes. */
-static volatile int s_format_result = -1; /* -1 = no result, 0 = OK, >0 = error */
-static volatile bool s_format_running = false;
-
-static void format_task(void *arg)
-{
-    (void)arg;
-    ESP_LOGI(TAG, "Format task started on dedicated stack.");
-    esp_err_t ret = sdcard_hal_format_fat32();
-    s_format_result = (ret == ESP_OK) ? 0 : (int)ret;
-    s_format_running = false;
-    ESP_LOGI(TAG, "Format task finished: %s (0x%x)", esp_err_to_name(ret), (int)ret);
-    vTaskDelete(NULL);
-}
 
 static esp_err_t handler_post_storage_format(httpd_req_t *req)
 {
@@ -96,42 +80,25 @@ static esp_err_t handler_post_storage_format(httpd_req_t *req)
     cJSON_Delete(body);
 
     /* Check card state */
-    sdcard_card_info_t info;
-    sdcard_hal_get_card_info(&info);
+    microsd_card_info_t info;
+    microsd_hal_get_card_info(&info);
 
-    if (info.format_in_progress || s_format_running) {
+    if (info.format_in_progress) {
         return http_send_error(req, 409, "FORMAT_IN_PROGRESS",
                                "A format operation is already running.", req_id_ptr);
     }
 
-    if (!info.detected) {
-        return http_send_error(req, 503, "CARD_NOT_DETECTED",
-                               "No MicroSD card detected. Insert card and retry.", req_id_ptr);
-    }
-
-    if (!info.mounted) {
-        return http_send_error(req, 503, "CARD_NOT_MOUNTED",
-                               "Card detected but filesystem not mounted. "
-                               "Card may need physical reinsertion.", req_id_ptr);
-    }
-
-    /* Launch format in a dedicated task with sufficient stack.
-     * The HTTP handler returns 202 Accepted immediately;
-     * the client polls GET /api/v1/storage/status to track progress. */
-    s_format_result = -1;
-    s_format_running = true;
-
-    BaseType_t created = xTaskCreate(format_task, "sd_fmt", 4096, NULL, 3, NULL);
-    if (created != pdPASS) {
-        s_format_running = false;
-        return http_send_error(req, 503, "TASK_CREATE_FAILED",
-                               "Cannot start format task (insufficient memory).", req_id_ptr);
+    /* Request runtime format via HAL (runs in background FreeRTOS task, zero reboot) */
+    esp_err_t ret = microsd_hal_format_fat32();
+    if (ret != ESP_OK) {
+        return http_send_error(req, 500, "FORMAT_FAILED",
+                               "Failed to initiate MicroSD card format.", req_id_ptr);
     }
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "status", "FORMATTING");
     cJSON_AddStringToObject(root, "message",
-        "Format started. Poll GET /api/v1/storage/status to track progress.");
+        "MicroSD FAT32 format initiated in background task. Poll /api/v1/storage/format/result for completion.");
     return http_send_enveloped_response(req, 202, req_id_ptr, root);
 }
 
@@ -141,27 +108,26 @@ static esp_err_t handler_get_format_result(httpd_req_t *req)
 {
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
 
-    sdcard_card_info_t info;
-    sdcard_hal_get_card_info(&info);
+    microsd_card_info_t info;
+    microsd_hal_get_card_info(&info);
 
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddBoolToObject(root, "formatInProgress", info.format_in_progress || s_format_running);
+    cJSON_AddBoolToObject(root, "formatInProgress", info.format_in_progress);
 
-    if (s_format_result == -1) {
+    if (info.format_in_progress) {
         cJSON_AddNullToObject(root, "result");
-        cJSON_AddStringToObject(root, "status",
-            (info.format_in_progress || s_format_running) ? "FORMATTING" : "IDLE");
-    } else if (s_format_result == 0) {
+        cJSON_AddStringToObject(root, "status", "FORMATTING");
+    } else if (info.mounted) {
         cJSON_AddStringToObject(root, "result", "SUCCESS");
         cJSON_AddStringToObject(root, "status", "FORMAT_SUCCESS");
-        cJSON_AddBoolToObject(root, "mounted", info.mounted);
+        cJSON_AddBoolToObject(root, "mounted", true);
         cJSON_AddNumberToObject(root, "capacityMb", (double)info.capacity_mb);
+    } else if (info.detected) {
+        cJSON_AddNullToObject(root, "result");
+        cJSON_AddStringToObject(root, "status", "IDLE");
     } else {
         cJSON_AddStringToObject(root, "result", "FAILED");
-        cJSON_AddStringToObject(root, "status", "FORMAT_FAILED");
-        char err_buf[32];
-        snprintf(err_buf, sizeof(err_buf), "0x%x", s_format_result);
-        cJSON_AddStringToObject(root, "errorCode", err_buf);
+        cJSON_AddStringToObject(root, "status", "CARD_NOT_DETECTED");
     }
 
     return http_send_enveloped_response(req, 200, NULL, root);

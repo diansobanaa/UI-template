@@ -25,9 +25,9 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-12** | **8** | I2C SDA (Data) | RTC DS3231 | I2C Bus | Bi-directional | VERIFIED SAFE | Dedicated I2C Data line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-15** | **9** | I2C SCL (Clock) | RTC DS3231 | I2C Bus | Output | VERIFIED SAFE | Dedicated I2C Clock line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-16** | **10** | Greenhouse Blower Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Drives 4-Ch Relay IN3 triggering external Omron relay / contactor for 2x 220V AC Greenhouse circulation blower fans. |
-| **Left-17** | **11** | Shared SPI SCK | TFT ST7735 & SD Slot | SPI Clock | Output | VERIFIED SAFE | Shared SPI2_HOST clock for TFT display and built-in SD slot. |
-| **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & SD Slot | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and built-in SD slot. |
-| **Left-19** | **13** | Shared SPI MISO | MicroSD Card Slot | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from built-in SD slot. |
+| **Left-17** | **11** | Shared SPI SCK | TFT ST7735 & MicroSD | SPI Clock | Output | VERIFIED SAFE | Shared SPI2_HOST clock for TFT display and MicroSD Card Module. |
+| **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & MicroSD | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and MicroSD Card Module. |
+| **Left-19** | **13** | Shared SPI MISO | MicroSD Card Module | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from MicroSD Card Module (EasyWare EP000094). |
 | **Left-20** | **14** | TFT Chip Select | TFT ST7735 Display | SPI Chip Select | Output (Active-LOW) | VERIFIED SAFE | Dedicated SPI CS for 1.8" TFT display controller. |
 | **Left-8** | **15** | Flow Pulse Raw Water | Sensor ZJ-B1 (DN15) | Pulse Counter | Input (Interrupt) | VERIFIED SAFE (CALIBRATION REQUIRED) | 5V Hall sensor signal level-shifted to 3.3V. Transfer line: Raw Water → Mixing Tank. Completion criterion. Calibration factor unverified. |
 | **Left-9** | **16** | Flow Pulse Fertigation | Sensor FS400A (G1") | Pulse Counter | Input (Interrupt) | VERIFIED SAFE | 5V Hall sensor signal level-shifted to 3.3V. Fertigation delivery loop. F=4.8*Q (288 pulses/L). Telemetry & delivery monitoring. |
@@ -51,7 +51,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-15** | **45** | *RESERVED: Strapping VDD* | SoC Internal | Strapping (VDD_SPI)| N/A | **FATAL (DO NOT USE)** | Pulling HIGH drops Flash voltage to 1.8V, bricking boot. |
 | **Left-14** | **46** | *RESERVED: Strapping ROM* | SoC Internal | Strapping (ROM Log)| N/A | **HIGH RISK (DO NOT USE)** | Pulling HIGH alters ROM bootloader debug logging. |
 | **Right-17** | **47** | **Anti-Theft Tamper Loop** | Physical Pump Chassis / Cable Loop | Digital Input | Input (Active-HIGH trip) | **VERIFIED SAFE (SECURITY)** | Closed loop to GND through pump cable/chassis. Cut/open = 1, triggers Rule 4 Emergency Stop. |
-| **Right-16** | **48** | MicroSD Chip Select | Built-in SD Card Slot | SPI Chip Select | Output (Active-LOW) | ACCEPTABLE WITH CAVEAT | Dedicated SD CS line. Caveat: Drives onboard WS2812 DIN line. Firmware explicitly clears WS2812 (RGB=0,0,0) at boot and after SPI mount probes to prevent persistent white illumination. |
+| **Right-16** | **48** | MicroSD Chip Select | MicroSD Card Module (EasyWare EP000094) | SPI Chip Select | Output (Active-LOW) | ACCEPTABLE WITH CAVEAT | Dedicated MicroSD CS line. Caveat: Drives onboard WS2812 DIN line. Firmware explicitly clears WS2812 (RGB=0,0,0) at boot and after SPI mount probes to prevent persistent white illumination. |
 
 ---
 
@@ -75,8 +75,8 @@ Pin 13: GPIO3  -> [FORBIDDEN: Strapping JTAG]
 Pin 14: GPIO46 -> [FORBIDDEN: Strapping ROM]
 Pin 15: GPIO9  -> RTC DS3231 SCL (I2C Clock)
 Pin 16: GPIO10 -> Greenhouse Blower Fans Contactor (4-Ch Relay IN3)
-Pin 17: GPIO11 -> Shared SPI SCK (TFT & SD)
-Pin 18: GPIO12 -> Shared SPI MOSI (TFT & SD)
+Pin 17: GPIO11 -> Shared SPI SCK (TFT & MicroSD)
+Pin 18: GPIO12 -> Shared SPI MOSI (TFT & MicroSD)
 Pin 19: GPIO13 -> Shared SPI MISO (MicroSD Adapter EasyWare EP000094)
 Pin 20: GPIO14 -> TFT Display CS
 Pin 21: 5V (VBUS / Vin Power Input)

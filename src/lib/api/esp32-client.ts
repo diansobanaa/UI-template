@@ -571,8 +571,13 @@ export class Esp32Client {
     return this.getEnveloped("/api/v1/storage/status");
   }
 
-  async formatSdCard(): Promise<{ status: string; message: string }> {
+  async formatMicroSdCard(): Promise<{ status: string; message: string }> {
     return this.postEnveloped("/api/v1/storage/format", { confirm: true });
+  }
+
+  /** @deprecated Use formatMicroSdCard */
+  async formatSdCard(): Promise<{ status: string; message: string }> {
+    return this.formatMicroSdCard();
   }
 
   async getFormatResult(): Promise<{

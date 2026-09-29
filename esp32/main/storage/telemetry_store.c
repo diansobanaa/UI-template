@@ -1,6 +1,6 @@
 #include "storage/telemetry_store.h"
 #include "utils/psram_task.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "config/system_config.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -274,7 +274,7 @@ esp_err_t telemetry_store_flush(void)
     xSemaphoreGive(s_store_mutex);
 
     /* Check physical microSD mount status */
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         s_status.is_mounted = false;
         s_status.is_degraded = true;
         heap_caps_free(local_batch);
@@ -293,10 +293,10 @@ esp_err_t telemetry_store_flush(void)
     char path[128];
     get_segment_path(date_int, path, sizeof(path));
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     FILE *f = fopen(path, "ab");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         s_status.is_degraded = true;
         ESP_LOGW(TAG, "Failed to open segment file '%s' for append", path);
         heap_caps_free(local_batch);
@@ -306,7 +306,7 @@ esp_err_t telemetry_store_flush(void)
     size_t written = fwrite(local_batch, sizeof(telemetry_record_t), count, f);
     fflush(f);
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     if (written < count) {
         s_status.is_degraded = true;
@@ -325,7 +325,7 @@ esp_err_t telemetry_store_flush(void)
 
 esp_err_t telemetry_store_recover(void)
 {
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         s_status.is_mounted = false;
         s_status.is_degraded = true;
         return ESP_ERR_NOT_FOUND;
@@ -343,10 +343,10 @@ esp_err_t telemetry_store_recover(void)
         return ESP_OK;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     FILE *f = fopen(path, "r+b");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_FAIL;
     }
 
@@ -386,7 +386,7 @@ esp_err_t telemetry_store_recover(void)
     }
 
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     s_status.total_recovered = valid_count;
     ESP_LOGI(TAG, "TelemetryStore recovery complete: %" PRIu32 " valid records in '%s'", valid_count, path);
@@ -395,7 +395,7 @@ esp_err_t telemetry_store_recover(void)
 
 esp_err_t telemetry_store_load_recent_history(void)
 {
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -410,10 +410,10 @@ esp_err_t telemetry_store_load_recent_history(void)
         return ESP_OK;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     FILE *f = fopen(path, "rb");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_FAIL;
     }
 
@@ -436,7 +436,7 @@ esp_err_t telemetry_store_load_recent_history(void)
     if (s_cache_mutex) xSemaphoreGive(s_cache_mutex);
 
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     ESP_LOGI(TAG, "Restored %zu historical telemetry records into 288-slot RAM cache from '%s'", loaded, path);
     return ESP_OK;
@@ -502,7 +502,7 @@ esp_err_t telemetry_store_get_status(telemetry_store_status_t *out_status)
 {
     if (!out_status) return ESP_ERR_INVALID_ARG;
     *out_status = s_status;
-    out_status->is_mounted = sdcard_hal_is_mounted();
+    out_status->is_mounted = microsd_hal_is_mounted();
     return ESP_OK;
 }
 
@@ -521,7 +521,7 @@ static void telemetry_store_task(void *pvParameters)
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     /* Initial boot recovery and cache restoration */
-    if (sdcard_hal_is_mounted()) {
+    if (microsd_hal_is_mounted()) {
         (void)telemetry_store_recover();
         (void)telemetry_store_load_recent_history();
     }

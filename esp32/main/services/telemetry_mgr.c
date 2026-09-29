@@ -2,7 +2,7 @@
 #include "hal/sensor_hal.h"
 #include "hal/actuator_hal.h"
 #include "hal/hardware_registry.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "storage/storage_mgr.h"
 #include "services/event_mgr.h"
 #include "storage/telemetry_store.h"

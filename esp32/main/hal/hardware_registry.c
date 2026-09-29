@@ -625,24 +625,17 @@ esp_err_t hardware_hal_init_all(void)
         hardware_registry_clear();
     }
 
-    /* Initialize buses & peripherals.
-     * SPI_DMA_DISABLED: the TFT uses spi_device_polling_transmit exclusively,
-     * with SPI_TRANS_USE_TXDATA for <=4-byte writes and a static DRAM-resident
-     * s_tx_buf[64] for larger pixel bursts (fits in 64-byte hardware FIFO).
-     * Using SPI_DMA_CH_AUTO caused spi_master to allocate a private DMA TX
-     * bounce buffer (max_transfer_sz bytes, DMA-capable internal SRAM) per
-     * spi_bus_add_device() call. With ~7-14 KB internal heap free at boot,
-     * these allocations fail with "setup_dma_priv_buffer: Failed to allocate
-     * priv TX buffer". SPI_DMA_DISABLED eliminates the allocation entirely. */
+    /* Initialize shared SPI2 bus with DMA support (4096 bytes) for MicroSD card & TFT.
+     * Internal heap is abundant (~90KB+) after early WiFi init and PSRAM task routing. */
     spi_bus_config_t buscfg = {
         .miso_io_num = PIN_SPI_MISO,
         .mosi_io_num = PIN_SPI_MOSI,
         .sclk_io_num = PIN_SPI_SCK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 64  /* 64 bytes matches non-DMA hardware FIFO limit / s_tx_buf[64] in tft_hal */
+        .max_transfer_sz = 4096  /* 4096 bytes for MicroSD card multi-sector DMA transfers */
     };
-    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_DISABLED);
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
     }

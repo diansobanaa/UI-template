@@ -1,5 +1,5 @@
 #include "storage/recipe_storage.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
@@ -27,7 +27,7 @@ static bool is_safe_recipe_id(const char *id)
 
 static esp_err_t ensure_recipes_dir(void)
 {
-    if (!sdcard_hal_is_mounted()) return ESP_ERR_NOT_FOUND;
+    if (!microsd_hal_is_mounted()) return ESP_ERR_NOT_FOUND;
     struct stat st;
     if (stat(RECIPES_DIR, &st) != 0) {
         if (mkdir(RECIPES_DIR, 0755) != 0) {
@@ -41,37 +41,37 @@ static esp_err_t ensure_recipes_dir(void)
 esp_err_t recipe_storage_init(void)
 {
     ESP_LOGI(TAG, "Initializing recipe storage subsystem...");
-    if (sdcard_hal_is_mounted()) {
-        sdcard_hal_lock();
+    if (microsd_hal_is_mounted()) {
+        microsd_hal_lock();
         ensure_recipes_dir();
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         ESP_LOGI(TAG, "MicroSD mounted. Recipe store active at %s", RECIPES_DIR);
     } else {
-        ESP_LOGW(TAG, "MicroSD not mounted. Recipe store in degraded WRITE_TO_NOTHING mode.");
+        ESP_LOGW(TAG, "MicroSD card not mounted. Recipe store in degraded WRITE_TO_NOTHING mode.");
     }
     return ESP_OK;
 }
 
 bool recipe_storage_is_available(void)
 {
-    return sdcard_hal_is_mounted();
+    return microsd_hal_is_mounted();
 }
 
 esp_err_t recipe_storage_list(cJSON **out_array)
 {
     if (!out_array) return ESP_ERR_INVALID_ARG;
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         *out_array = cJSON_CreateArray();
         return ESP_ERR_NOT_FOUND;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     ensure_recipes_dir();
 
     DIR *d = opendir(RECIPES_DIR);
     if (!d) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         *out_array = cJSON_CreateArray();
         return ESP_OK;
     }
@@ -105,7 +105,7 @@ esp_err_t recipe_storage_list(cJSON **out_array)
         }
     }
     closedir(d);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     *out_array = arr;
     return ESP_OK;
@@ -115,17 +115,17 @@ esp_err_t recipe_storage_get(const char *recipe_id, cJSON **out_recipe)
 {
     if (!is_safe_recipe_id(recipe_id) || !out_recipe) return ESP_ERR_INVALID_ARG;
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         *out_recipe = NULL;
         return ESP_ERR_NOT_FOUND;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     char filepath[320];
     snprintf(filepath, sizeof(filepath), "%s/%s.json", RECIPES_DIR, recipe_id);
     FILE *f = fopen(filepath, "r");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         *out_recipe = NULL;
         return ESP_ERR_NOT_FOUND;
     }
@@ -135,7 +135,7 @@ esp_err_t recipe_storage_get(const char *recipe_id, cJSON **out_recipe)
     fseek(f, 0, SEEK_SET);
     if (sz <= 0 || sz >= 32768) {
         fclose(f);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         *out_recipe = NULL;
         return ESP_ERR_INVALID_SIZE;
     }
@@ -143,7 +143,7 @@ esp_err_t recipe_storage_get(const char *recipe_id, cJSON **out_recipe)
     char *buf = malloc((size_t)sz + 1);
     if (!buf) {
         fclose(f);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         *out_recipe = NULL;
         return ESP_ERR_NO_MEM;
     }
@@ -151,7 +151,7 @@ esp_err_t recipe_storage_get(const char *recipe_id, cJSON **out_recipe)
     size_t rd = fread(buf, 1, (size_t)sz, f);
     buf[rd] = '\0';
     fclose(f);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     cJSON *parsed = cJSON_Parse(buf);
     free(buf);
@@ -168,15 +168,15 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
 {
     if (!is_safe_recipe_id(recipe_id) || !recipe_json) return ESP_ERR_INVALID_ARG;
 
-    if (!sdcard_hal_is_mounted()) {
-        ESP_LOGW(TAG, "SD Card unavailable. Discarding recipe save (WRITE_TO_NOTHING) for '%s'.", recipe_id);
+    if (!microsd_hal_is_mounted()) {
+        ESP_LOGW(TAG, "MicroSD Card unavailable. Discarding recipe save (WRITE_TO_NOTHING) for '%s'.", recipe_id);
         return ESP_ERR_NOT_FOUND;
     }
 
     char *serialized = cJSON_PrintUnformatted(recipe_json);
     if (!serialized) return ESP_ERR_NO_MEM;
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     ensure_recipes_dir();
 
     // Atomic write pattern: .tmp + fwrite + fflush + fclose + stat size-verify + rename.
@@ -191,7 +191,7 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
 
     FILE *f = fopen(tmp_filepath, "w");
     if (!f) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         free(serialized);
         ESP_LOGE(TAG, "Failed to open '%s' for writing", tmp_filepath);
         return ESP_FAIL;
@@ -202,7 +202,7 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
     if (written != len) {
         fclose(f);
         unlink(tmp_filepath);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         free(serialized);
         ESP_LOGE(TAG, "Incomplete write to '%s' (%u of %u bytes)", tmp_filepath, (unsigned)written, (unsigned)len);
         return ESP_FAIL;
@@ -215,7 +215,7 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
     struct stat st;
     if (stat(tmp_filepath, &st) != 0 || (size_t)st.st_size != len) {
         unlink(tmp_filepath);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         free(serialized);
         ESP_LOGE(TAG, "Size verification failed for '%s' (expected=%u, actual=%lld)",
                  tmp_filepath, (unsigned)len, (long long)(st.st_size));
@@ -225,13 +225,13 @@ esp_err_t recipe_storage_save(const char *recipe_id, const cJSON *recipe_json)
     // Atomic rename (POSIX guarantees atomicity on same filesystem)
     if (rename(tmp_filepath, filepath) != 0) {
         unlink(tmp_filepath);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         free(serialized);
         ESP_LOGE(TAG, "Failed to rename '%s' -> '%s'", tmp_filepath, filepath);
         return ESP_FAIL;
     }
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     free(serialized);
 
     ESP_LOGI(TAG, "Successfully persisted recipe '%s' to MicroSD (%u bytes, atomic)", recipe_id, (unsigned)written);
@@ -242,16 +242,16 @@ esp_err_t recipe_storage_delete(const char *recipe_id)
 {
     if (!is_safe_recipe_id(recipe_id)) return ESP_ERR_INVALID_ARG;
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     char filepath[320];
     snprintf(filepath, sizeof(filepath), "%s/%s.json", RECIPES_DIR, recipe_id);
 
     int ret = unlink(filepath);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
 
     if (ret != 0) {
         return ESP_ERR_NOT_FOUND;

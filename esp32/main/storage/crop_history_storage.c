@@ -1,5 +1,5 @@
 #include "storage/crop_history_storage.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include <stdio.h>
@@ -41,21 +41,21 @@ static esp_err_t ensure_dir(const char *dir)
 
 esp_err_t crop_history_storage_init(void)
 {
-    if (!sdcard_hal_is_mounted()) {
-        ESP_LOGI(TAG, "SD card not mounted. Historical storage operating in degraded mode.");
+    if (!microsd_hal_is_mounted()) {
+        ESP_LOGI(TAG, "MicroSD card not mounted. Historical storage operating in degraded mode.");
         return ESP_OK;
     }
-    sdcard_hal_lock();
+    microsd_hal_lock();
     ensure_dir(CROP_HIST_CYCLES_DIR);
     ensure_dir(CROP_HIST_PLANTS_DIR);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     ESP_LOGI(TAG, "Crop history SD storage initialized at %s", CROP_HIST_SD_BASE_DIR);
     return ESP_OK;
 }
 
 bool crop_history_storage_is_available(void)
 {
-    return sdcard_hal_is_mounted();
+    return microsd_hal_is_mounted();
 }
 
 esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, const char *timeline_json)
@@ -63,19 +63,19 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
     if (!record || !record->cycle_id[0] || !record->gh_id[0]) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!sdcard_hal_is_mounted()) {
-        ESP_LOGW(TAG, "Cannot archive cycle %s: SD card not mounted (degraded mode)", record->cycle_id);
+    if (!microsd_hal_is_mounted()) {
+        ESP_LOGW(TAG, "Cannot archive cycle %s: MicroSD card not mounted (degraded mode)", record->cycle_id);
         return ESP_ERR_NOT_FOUND;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     ensure_dir(CROP_HIST_CYCLES_DIR);
     ensure_dir(CROP_HIST_PLANTS_DIR);
 
     /* Build JSON representation for the archived cycle */
     cJSON *root = crop_cycle_mgr_to_json(record);
     if (!root) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_ERR_NO_MEM;
     }
     if (timeline_json && timeline_json[0]) {
@@ -89,7 +89,7 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
     char *json_str = cJSON_Print(root);
     cJSON_Delete(root);
     if (!json_str) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_ERR_NO_MEM;
     }
 
@@ -102,7 +102,7 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
     FILE *f = fopen(temp_path, "w");
     if (!f) {
         free(json_str);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         ESP_LOGE(TAG, "Failed to open temporary archive file %s", temp_path);
         return ESP_FAIL;
     }
@@ -117,7 +117,7 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
     struct stat st;
     if (written != expected || stat(temp_path, &st) != 0 || (size_t)st.st_size != expected) {
         unlink(temp_path);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         ESP_LOGE(TAG, "Archive verification failed for %s: written=%zu, expected=%zu", temp_path, written, expected);
         return ESP_FAIL;
     }
@@ -125,7 +125,7 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
     /* Atomic rename */
     if (rename(temp_path, path) != 0) {
         unlink(temp_path);
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         ESP_LOGE(TAG, "Failed to rename %s to %s", temp_path, path);
         return ESP_FAIL;
     }
@@ -156,7 +156,7 @@ esp_err_t crop_history_storage_archive_cycle(const crop_cycle_record_t *record, 
         }
     }
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     ESP_LOGI(TAG, "Successfully archived cycle %s to SD (%zu bytes verified)", record->cycle_id, expected);
     return ESP_OK;
 }
@@ -167,14 +167,14 @@ esp_err_t crop_history_storage_list_historical(const char *gh_id, cJSON **out_ar
     *out_array = cJSON_CreateArray();
     if (!*out_array) return ESP_ERR_NO_MEM;
 
-    if (!sdcard_hal_is_mounted()) {
+    if (!microsd_hal_is_mounted()) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     DIR *d = opendir(CROP_HIST_CYCLES_DIR);
     if (!d) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return ESP_OK;
     }
 
@@ -226,17 +226,17 @@ esp_err_t crop_history_storage_list_historical(const char *gh_id, cJSON **out_ar
     }
 
     closedir(d);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     return ESP_OK;
 }
 
 esp_err_t crop_history_storage_delete_cycle(const char *gh_id, const char *cycle_id)
 {
-    if (!gh_id || !cycle_id || !sdcard_hal_is_mounted()) {
+    if (!gh_id || !cycle_id || !microsd_hal_is_mounted()) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     char path[256];
     snprintf(path, sizeof(path), "%s/%s_%s.json", CROP_HIST_CYCLES_DIR, gh_id, cycle_id);
     int rc = unlink(path);
@@ -245,18 +245,18 @@ esp_err_t crop_history_storage_delete_cycle(const char *gh_id, const char *cycle
     snprintf(plant_path, sizeof(plant_path), "%s/%s_%s_plants.json", CROP_HIST_PLANTS_DIR, gh_id, cycle_id);
     unlink(plant_path);
 
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     return rc == 0 ? ESP_OK : ESP_FAIL;
 }
 
 size_t crop_history_storage_count_historical(const char *gh_id)
 {
-    if (!sdcard_hal_is_mounted()) return 0;
+    if (!microsd_hal_is_mounted()) return 0;
 
-    sdcard_hal_lock();
+    microsd_hal_lock();
     DIR *d = opendir(CROP_HIST_CYCLES_DIR);
     if (!d) {
-        sdcard_hal_unlock();
+        microsd_hal_unlock();
         return 0;
     }
 
@@ -275,6 +275,6 @@ size_t crop_history_storage_count_historical(const char *gh_id)
     }
 
     closedir(d);
-    sdcard_hal_unlock();
+    microsd_hal_unlock();
     return count;
 }

@@ -1,4 +1,83 @@
-# AI HANDOVER — SP-SDFORMAT-RUNTIME-001 (latest)
+# AI HANDOVER — SP-MICROSD-MIGRATION-001 (latest)
+
+## Status — SP-MICROSD-MIGRATION-001
+**Complete MicroSD Card Migration, SPI Compatibility Audit & Hardware Driver Overhaul**
+**Safe Point**: `SP-MICROSD-MIGRATION-001`
+**Date**: 2026-09-29
+**Git Commit**: `67570a7`
+**Verdict**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE & VITE UI COMPILED — ALL 28 REST CONTRACTS PASS — READY FOR PHYSICAL COM FLASH`
+
+### Summary of What Was Done
+1. **Diagnosis & Validation of User Suspicion**:
+   - Confirmed code defect in prior `sdcard_hal.c`: When `esp_vfs_fat_sdspi_mount()` failed with `0x108` (`ESP_ERR_INVALID_RESPONSE`), code unconditionally set `s_card_detected = true;`, reporting false positive detection to `/api/v1/storage/status`.
+   - Identified format reboot hack loop: `sd_fmt_req = 1` triggered reboot, but failed before formatting could run.
+   - Identified format button disabled condition in UI (`!status?.mounted`), which locked out users from formatting unmounted cards.
+2. **Firmware Modernization (`microsd_hal.h/c`)**:
+   - Replaced `sdcard_hal.c` with clean `microsd_hal.c` and `microsd_hal.h`.
+   - Accurate detection (`s_microsd_detected` only set when card genuinely responds).
+   - Added explicit pull-ups on MISO (GPIO 13), MOSI (GPIO 12), and SCK (GPIO 11).
+   - Fixed SPI init frequency strictly to $\le 400\text{ kHz}$ per SD spec.
+   - Added WS2812 DIN clearing on GPIO 48 to avoid LED lockup.
+   - Integrated non-rebooting FreeRTOS background format worker task (`microsd_format_task`).
+   - Retained backward-compatibility header `sdcard_hal.h` as an alias forwarder.
+3. **Storage Handlers & Managers Updated**:
+   - `api_storage_handlers.c`, `api_export_handlers.c`, `telemetry_mgr.c`, `storage_mgr.c`, `recipe_storage.c`, `crop_history_storage.c`, `export_mgr.c`, `main.c`.
+4. **Web UI & OpenAPI**:
+   - Added storage schemas and endpoints to `contracts/UI_ESP32_OPENAPI.yaml`.
+   - Renamed nav to "MicroSD" in `AppSidebar.tsx`.
+   - Updated `src/app/storage/page.tsx` with MicroSD branding and enabled format for detected unmounted cards.
+5. **Canonical Documentation**:
+   - Synchronized all 8 canonical markdown files in `docs/` and root specifications (`HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `ESP32_GPIO_PIN_MAP.md`, `ESP32_ASSEMBLY_GUIDE.md`, `CROP_DATA_STORAGE_AND_EXPORT_ARCHITECTURE.md`, `ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `HARDWARE_INVENTORY.md`, `POWER_MAP.md`, `PRD.md`, `UI_ESP32_COMMUNICATION_SPEC.md`).
+6. **Verification Results**:
+   - `npx tsc --noEmit`: 0 errors.
+   - `npm test`: 28/28 endpoints PASS.
+   - `npm run build`: Singlefile bundle generated (`dist/index.html` 1,125.48 kB).
+   - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: `agrotech_esp32.bin` built cleanly (0 errors).
+
+### Changed Files
+- `esp32/main/hal/microsd_hal.h` (NEW)
+- `esp32/main/hal/microsd_hal.c` (NEW)
+- `esp32/main/hal/sdcard_hal.h` (Modified to forwarder)
+- `esp32/main/hal/sdcard_hal.c` (Deleted)
+- `esp32/main/CMakeLists.txt`
+- `esp32/main/config/pin_config.h`
+- `esp32/main/config/system_config.h`
+- `esp32/main/main.c`
+- `esp32/main/http/api_storage_handlers.c`
+- `esp32/main/http/api_export_handlers.c`
+- `esp32/main/services/telemetry_mgr.c`
+- `esp32/main/storage/telemetry_store.c`
+- `esp32/main/storage/storage_mgr.c`
+- `esp32/main/storage/recipe_storage.c`
+- `esp32/main/storage/crop_history_storage.c`
+- `esp32/main/storage/export_mgr.c`
+- `contracts/UI_ESP32_OPENAPI.yaml`
+- `src/app/storage/page.tsx`
+- `src/components/layout/AppSidebar.tsx`
+- `src/components/schedule/AddFertigationDrawer.tsx`
+- `src/lib/api/esp32-client.ts`
+- `docs/HARDWARE_WIRING_MAP.md`
+- `docs/COMPONENT_PIN_MAP.md`
+- `docs/ESP32_GPIO_PIN_MAP.md`
+- `docs/ESP32_ASSEMBLY_GUIDE.md`
+- `docs/CROP_DATA_STORAGE_AND_EXPORT_ARCHITECTURE.md`
+- `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+- `docs/HARDWARE_INVENTORY.md`
+- `docs/POWER_MAP.md`
+- `PRODUCT_REQUIREMENTS_DOCUMENT.md`
+- `UI_ESP32_COMMUNICATION_SPEC.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+
+### Next Action
+- Flash the compiled firmware (`D:\agrochatgpt\esp32\build\agrotech_esp32.bin`) to the physical ESP32-S3 via COM3 using `powershell -ExecutionPolicy Bypass -File scripts/flash_esp32.ps1`.
+- Verify runtime serial logs:
+  - If card mounts: verify `MICROSD_HAL: MicroSD Card mounted successfully at /sdcard`.
+  - If `0x108` persists: inspect hardware 3.3V LDO on EasyWare EP000094 breakout and MISO line buffer Output Enable (OE) continuity to ground.
+
+---
+
+# AI HANDOVER — SP-SDFORMAT-RUNTIME-001 (previous)
 
 ## Status — SP-SDFORMAT-RUNTIME-001
 **Runtime MicroSD FAT32 Format via Web UI**

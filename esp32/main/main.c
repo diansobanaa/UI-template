@@ -19,7 +19,7 @@
 #include "config/system_config.h"
 #include "hal/hardware_registry.h"
 #include "hal/rtc_ds3231.h"
-#include "hal/sdcard_hal.h"
+#include "hal/microsd_hal.h"
 #include "hal/tft_hal.h"
 #include "http/http_server.h"
 #include "network/network_mgr.h"
@@ -166,7 +166,7 @@ void app_main(void) {
 
   /* 0. Extinguish onboard WS2812 RGB LED (flash) on GPIO 48 immediately at boot
    */
-  sdcard_hal_clear_onboard_led();
+  microsd_hal_clear_onboard_led();
 
   /* 1. Safe boot first — outputs locked to safe OFF immediately */
   safe_boot_actuators();
@@ -297,7 +297,7 @@ void app_main(void) {
 
   /* 4. Initialize Hardware Abstraction Layer (SP-003) */
   ESP_ERROR_CHECK(hardware_hal_init_all());
-  sdcard_hal_init();
+  microsd_hal_init();
   recipe_storage_init();
   setenv("TZ", "WIB-7", 1);
   tzset();

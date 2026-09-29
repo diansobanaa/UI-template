@@ -1528,7 +1528,7 @@ NVS
 LittleFS on internal flash
 → bounded emergency/fallback spool
 
-SD card via SDMMC + FatFS when hardware permits
+MicroSD Card via SDMMC + FatFS when hardware permits
 → primary high-volume telemetry history
 ```
 

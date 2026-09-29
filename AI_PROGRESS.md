@@ -1,3 +1,51 @@
+## SP-MICROSD-MIGRATION-001 — Complete MicroSD Card Migration, SPI Compatibility Audit & Hardware Driver Overhaul
+- **Date**: 2026-09-29
+- **Git Commit**: `67570a7`
+- **Status**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE & VITE UI COMPILED — ALL 28 REST CONTRACTS PASS — READY FOR PHYSICAL COM FLASH`
+- **Objective**:
+  1. Diagnose why MicroSD card reader failed with `0x108` (`ESP_ERR_INVALID_RESPONSE`) during CMD8 and audit previous agent's code defects vs. hardware behavior.
+  2. Perform comprehensive project-wide migration from legacy "SD Card" terminology to "MicroSD Card" across firmware, canonical documentation (`docs/`), OpenAPI contracts, Web UI, and build scripts.
+  3. Re-architect storage HAL into `microsd_hal.h/c` with proper SPI bus isolation, settling delays, pull-ups, $\le 400\text{ kHz}$ init speed, non-rebooting FreeRTOS format worker, and accurate card detection logic.
+  4. Preserve protocol standards (`sdmmc_*`, `esp_vfs_fat_*`, `/sdcard` VFS mount path).
+
+### Root Causes & Code Defects Identified
+1. **False Positive Card Detection Bug in `sdcard_hal.c`**:
+   - The previous agent hardcoded `s_card_detected = true;` when `esp_vfs_fat_sdspi_mount()` failed with `0x108` (`ESP_ERR_INVALID_RESPONSE`). This caused the REST API `/api/v1/storage/status` to report `"detected": true, "status": "DETECTED_NOT_MOUNTED"`, leading the previous agent to mistakenly insist the card was physically detected but corrupt/faulty, when in fact the SPI line had not even established communication with the card during CMD8 (`sdmmc_cmd_send_if_cond: received=0x0 expected=0xaa`).
+2. **Format Reboot Loop Hack**:
+   - The previous agent attempted to bypass runtime formatting by setting an NVS flag `sd_fmt_req = 1` and calling `esp_restart()`. However, on boot `sdmmc_card_init()` failed before `f_mount`, trapping the system in an unrecoverable failure loop.
+3. **Web UI Format Button Deadlock**:
+   - In `src/app/storage/page.tsx`, the format button was gated with `disabled={!status?.detected || !status?.mounted || formatting}`, which made it physically impossible for a user to format an unmounted or raw card from the UI.
+4. **SPI Timing & Pull-Up Flaws**:
+   - MISO (GPIO 13) lacked an explicit input pull-up before mounting, leaving the bus floating when the card was idle. Furthermore, on failure the previous driver ramped SPI frequency up to 4 MHz and 10 MHz rather than enforcing the $\le 400\text{ kHz}$ clock speed required by SD card specification during identification mode.
+
+### Completed Work
+1. **Firmware Overhaul (`esp32/main/hal/microsd_hal.h/c`)**:
+   - Implemented canonical `microsd_hal_*` API with `microsd_card_info_t`, log tag `MICROSD_HAL`, and backward-compatibility macros.
+   - Enforced true hardware detection: `s_microsd_detected` is only set to `true` when `sdmmc_card_init()` / `esp_vfs_fat_sdspi_mount()` succeeds or returns a valid card structure.
+   - Configured explicit pull-ups on MISO (GPIO 13), MOSI (GPIO 12), and SCK (GPIO 11).
+   - Enforced 400 kHz initialization speed with 10 MHz normal operating clock.
+   - De-asserted CS (GPIO 48 HIGH) before bus transactions with proper line settling delay.
+   - Added `microsd_hal_clear_onboard_led()` transmitting 24 zero-bits on GPIO 48 to prevent onboard WS2812 RGB LED from freezing in high-intensity white state.
+   - Built a dedicated background FreeRTOS task (`microsd_format_task`, 4KB stack) that performs FAT32 formatting at runtime without rebooting the ESP32.
+   - Converted legacy `sdcard_hal.h` into a backward-compatibility forwarder to `microsd_hal.h`.
+   - Removed deprecated `sdcard_hal.c`.
+2. **Firmware Integration**:
+   - Updated `CMakeLists.txt`, `pin_config.h` (`PIN_MICROSD_*`), `system_config.h` (`FEATURE_MICROSD_ENABLED`), `main.c`, `api_storage_handlers.c`, `api_export_handlers.c`, `telemetry_mgr.c`, `storage_mgr.c`, `recipe_storage.c`, `crop_history_storage.c`, and `export_mgr.c`.
+3. **Web UI & OpenAPI**:
+   - Updated `contracts/UI_ESP32_OPENAPI.yaml` with Storage endpoints (`/api/v1/storage/status`, `/api/v1/storage/format`, `/api/v1/storage/format/result`) and schemas.
+   - Updated `src/app/storage/page.tsx` with MicroSD Card branding, status badges, and fixed button disable condition (`!status?.detected || formatting`).
+   - Updated `src/components/layout/AppSidebar.tsx` navigation label to "MicroSD".
+   - Fixed `AddFertigationDrawer.tsx` type exports and toast invocation semantics.
+4. **Canonical Documentation (`docs/`)**:
+   - Updated `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/ESP32_GPIO_PIN_MAP.md`, `docs/ESP32_ASSEMBLY_GUIDE.md`, `docs/CROP_DATA_STORAGE_AND_EXPORT_ARCHITECTURE.md`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `docs/HARDWARE_INVENTORY.md`, `docs/POWER_MAP.md`, `PRODUCT_REQUIREMENTS_DOCUMENT.md`, and `UI_ESP32_COMMUNICATION_SPEC.md`.
+5. **Verification**:
+   - `npx tsc --noEmit`: 0 errors.
+   - `npm test`: 28/28 endpoints PASS.
+   - `npm run build`: Production singlefile bundle generated (`dist/index.html` 1,125.48 kB).
+   - ESP32 Firmware Build: `agrotech_esp32.bin` (0x17fcb0 bytes, 50% flash free, 0 errors).
+
+---
+
 ## SP-SDFORMAT-RUNTIME-001 — Runtime MicroSD FAT32 Format via Web UI
 - **Date**: 2026-09-29
 - **Git Commit**: `bd30115`

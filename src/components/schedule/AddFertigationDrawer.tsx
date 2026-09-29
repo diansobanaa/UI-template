@@ -6,7 +6,7 @@ import { AlertCircle, BookmarkPlus, CalendarClock, CheckCircle2, Droplets, Shiel
 import { Button, Checkbox, FieldError, InfoNote, Input, Label, RadioCard, Select, Textarea, Toggle } from "@/components/ui/primitives";
 import { ConfirmDialog, Drawer } from "@/components/ui/overlay";
 import { number, required, time as timeValid, assertValid, type FieldErrors } from "@/lib/validation";
-import type { FertigationSchedule, RepeatMode, TriggerType } from "@/lib/types";
+import type { FertigationSchedule, Recipe, RepeatMode, TriggerType } from "@/lib/types";
 import { recipeService } from "@/lib/services";
 import { useDrawerForm } from "./useDrawerForm";
 
@@ -28,7 +28,7 @@ export function AddFertigationDrawer({
   onClose: () => void;
   ghId: string;
   ghCode: string;
-  recipes: { id: string; name: string; waterL: number; dosingAml: number; dosingBml: number; dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }> }[];
+  recipes: Array<Recipe | { id: string; name: string; waterL: number; dosingAml?: number; dosingBml?: number; dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }> }>;
   dosingComponents: Array<{ componentId: string; name: string; channel?: string; calibrationId?: string; calibrationVersion?: number }>;
   /** When provided the drawer runs in EDIT mode pre-filled with this schedule. */
   initial?: FertigationSchedule | null;
@@ -40,7 +40,7 @@ export function AddFertigationDrawer({
 
   const [name, setName] = useState("");
   const [recipeId, setRecipeId] = useState(initial?.recipeId ?? "");
-  const [recipeList, setRecipeList] = useState(recipes);
+  const [recipeList, setRecipeList] = useState<Array<Recipe | { id: string; name: string; waterL: number; dosingAml?: number; dosingBml?: number; dosingChannels?: Array<{ componentId: string; requestedMl: number; calibrationId?: string; calibrationVersion?: number }> }>>(recipes);
   const [recipeName, setRecipeName] = useState("");
   const [savingRecipe, setSavingRecipe] = useState(false);
   const [recipeMessage, setRecipeMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -154,7 +154,7 @@ export function AddFertigationDrawer({
   useEffect(() => {
     if (open && !editing && targetMode === "volume" && recipe) {
       setWater(String(recipe.waterL));
-      setDosingChannels(Object.fromEntries((recipe.dosingChannels ?? []).map((c) => [c.componentId, String(c.requestedMl)])));
+      setDosingChannels(Object.fromEntries((recipe.dosingChannels ?? []).map((c: { componentId: string; requestedMl: number }) => [c.componentId, String(c.requestedMl)])));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipeId, open]);

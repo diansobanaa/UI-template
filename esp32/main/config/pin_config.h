@@ -31,11 +31,16 @@ extern "C" {
 
 /* MicroSD Card Adapter Signals (EasyWare Part#: EP000094, 6-Pin SPI Module) */
 /* VCC: 4.5V-5.5V (Connect to 5V Rail), GND: Signal GND, Level Converter Onboard */
-#define PIN_SD_SCK                  PIN_SPI_SCK
-#define PIN_SD_MOSI                 PIN_SPI_MOSI
-#define PIN_SD_MISO                 PIN_SPI_MISO
-#define PIN_SD_CS                   48
-#define PIN_MICROSD_CS              PIN_SD_CS   /* Backward compatibility alias */
+#define PIN_MICROSD_SCK             PIN_SPI_SCK
+#define PIN_MICROSD_MOSI            PIN_SPI_MOSI
+#define PIN_MICROSD_MISO            PIN_SPI_MISO
+#define PIN_MICROSD_CS              48
+
+/* Backward compatibility aliases */
+#define PIN_SD_SCK                  PIN_MICROSD_SCK
+#define PIN_SD_MOSI                 PIN_MICROSD_MOSI
+#define PIN_SD_MISO                 PIN_MICROSD_MISO
+#define PIN_SD_CS                   PIN_MICROSD_CS
 
 
 /* ========================================================================== */
