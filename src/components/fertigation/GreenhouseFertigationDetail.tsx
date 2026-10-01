@@ -18,12 +18,21 @@ import {
 import type { Greenhouse, FertigationSchedule } from "@/lib/types";
 import type { DosingQueueJob, OperationalStep } from "./DosingQueueSection";
 import type { GreenhouseTankInfo, HumanMixingState } from "./GreenhouseMixingTanks";
+import { formatGreenhouseName } from "@/lib/format";
 
 interface GreenhouseFertigationDetailProps {
   gh: Greenhouse;
-  status: "READY" | "MIXING" | "DISTRIBUTING" | "WAITING" | "ERROR";
+  status:
+    | "READY"
+    | "MIXING"
+    | "DISTRIBUTING"
+    | "QUEUED"
+    | "WAITING_SCHEDULE"
+    | "STANDBY"
+    | "COMPLETED"
+    | "ERROR";
   statusLabel: string;
-  statusTone: "emerald" | "cyan" | "purple" | "slate" | "rose";
+  statusTone: "emerald" | "cyan" | "purple" | "amber" | "slate" | "rose";
   statusDesc: string;
   currentOperationText: string;
   nextScheduleTime: string | null;
@@ -62,6 +71,9 @@ export function GreenhouseFertigationDetail({
   isActionLoading = false,
   className = "",
 }: GreenhouseFertigationDetailProps) {
+  const ghCode = gh.code || formatGreenhouseName(gh);
+  const displayName = formatGreenhouseName(gh);
+
   return (
     <div className={`space-y-4 rounded-2xl border border-slate-800 bg-[#0e1a2a] p-5 shadow-sm ${className}`}>
       {/* ---------------- 1. Top Status Banner (GH Summary) ---------------- */}
@@ -69,7 +81,8 @@ export function GreenhouseFertigationDetail({
         <div>
           <div className="flex items-center gap-2.5">
             <h3 className="text-base font-bold text-slate-100">
-              Operasi Fertigasi & Nutrisi {gh.code || gh.greenhouseTag || gh.id}
+              Operasi Fertigasi & Nutrisi {ghCode}
+              <span className="text-xs font-normal text-slate-400 ml-1.5">({displayName})</span>
             </h3>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${
@@ -79,6 +92,8 @@ export function GreenhouseFertigationDetail({
                   ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-300"
                   : statusTone === "purple"
                   ? "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                  : statusTone === "amber"
+                  ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
                   : statusTone === "rose"
                   ? "border-rose-500/40 bg-rose-500/15 text-rose-300"
                   : "border-slate-700 bg-slate-800 text-slate-300"
@@ -89,9 +104,11 @@ export function GreenhouseFertigationDetail({
                   statusTone === "emerald"
                     ? "bg-emerald-400"
                     : statusTone === "cyan"
-                    ? "bg-cyan-400 animate-pulse"
+                    ? "bg-cyan-400 animate-ping"
                     : statusTone === "purple"
-                    ? "bg-purple-400 animate-pulse"
+                    ? "bg-purple-400 animate-ping"
+                    : statusTone === "amber"
+                    ? "bg-amber-400"
                     : statusTone === "rose"
                     ? "bg-rose-400"
                     : "bg-slate-500"
@@ -127,7 +144,7 @@ export function GreenhouseFertigationDetail({
               className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
-              Racik Awal (Pre-Mix)
+              Masuk Antrean Dosing
             </button>
           )}
 
@@ -139,7 +156,7 @@ export function GreenhouseFertigationDetail({
               className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/30 active:scale-95 disabled:opacity-50"
             >
               <StopCircle className="h-3.5 w-3.5" />
-              Batalkan
+              Batalkan Batch
             </button>
           )}
         </div>
@@ -155,13 +172,13 @@ export function GreenhouseFertigationDetail({
           </div>
           <div className="mt-1.5 text-xl font-bold text-slate-100">
             {nextScheduleTime ? (
-              <span className="text-amber-300">{nextScheduleTime}</span>
+              <span className="text-amber-300">Pukul {nextScheduleTime}</span>
             ) : (
               <span className="text-slate-500 text-sm">Tidak Ada Jadwal Hari Ini</span>
             )}
           </div>
           <div className="mt-0.5 text-[11px] text-slate-400 truncate">
-            {nextRecipeName ? `Resep: ${nextRecipeName}` : "Siaga manual"}
+            {nextRecipeName ? `Resep: ${nextRecipeName}` : "Siaga"}
           </div>
         </div>
 
@@ -183,26 +200,26 @@ export function GreenhouseFertigationDetail({
         <div className="rounded-xl border border-slate-800 bg-[#091522] p-3.5">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Beaker className="h-3.5 w-3.5 text-cyan-400" />
-            Tangki Batch {gh.code || gh.id}
+            {mixingTank.tankName}
           </div>
           <div className="mt-1.5 text-xl font-bold text-slate-100 flex items-center justify-between">
-            <span className={mixingTank.status === "Ready" ? "text-emerald-300" : "text-slate-200"}>
+            <span className={mixingTank.status === "Ready for fertigation" ? "text-emerald-300" : "text-slate-200"}>
               {mixingTank.status}
             </span>
             <span className="text-xs font-semibold text-slate-400 font-mono">
-              {mixingTank.levelPct.toFixed(0)}% ({mixingTank.currentVolumeL} L)
+              {mixingTank.volumeDisplayValue}
             </span>
           </div>
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
             <div
               className={`h-full transition-all duration-300 ${
-                mixingTank.status === "Ready"
+                mixingTank.status === "Ready for fertigation"
                   ? "bg-emerald-400"
-                  : mixingTank.status === "Mixing"
+                  : mixingTank.status === "Mixing" || mixingTank.status === "Dosing nutrients"
                   ? "bg-cyan-400 animate-pulse"
                   : "bg-blue-500"
               }`}
-              style={{ width: `${mixingTank.levelPct}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, mixingTank.levelPct))}%` }}
             />
           </div>
         </div>
@@ -255,7 +272,7 @@ export function GreenhouseFertigationDetail({
       {queuedJobs.length > 0 && (
         <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3.5">
           <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Antrean Jadwal Berikutnya untuk {gh.code || gh.id} ({queuedJobs.length} Batch)
+            Antrean Jadwal Berikutnya untuk {ghCode} ({queuedJobs.length} Batch)
           </div>
           <div className="space-y-1.5">
             {queuedJobs.map((q, idx) => (
@@ -264,7 +281,7 @@ export function GreenhouseFertigationDetail({
                 className="flex items-center justify-between text-xs rounded-lg border border-slate-800/60 bg-[#0e1a2a]/60 px-3 py-2"
               >
                 <span className="font-semibold text-slate-300">
-                  #{idx + 1} {q.jobTitle} • Jam {q.scheduledTimeStr}
+                  #{idx + 1} {q.jobTitle} • Jadwal: {q.scheduledTimeStr}
                 </span>
                 <span className="text-slate-400">
                   {q.targetWaterL} L ({q.recipeName})

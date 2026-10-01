@@ -27,6 +27,7 @@ import { esp32Client } from "@/lib/api/esp32-client";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useToast } from "@/components/ui/toast";
 import type { FertigationSchedule, Greenhouse, Recipe } from "@/lib/types";
+import { formatGreenhouseName } from "@/lib/format";
 
 import {
   ComplexFertigationOverview,
@@ -36,6 +37,8 @@ import {
   DosingQueueSection,
   type DosingQueueJob,
   type OperationalStep,
+  type NextScheduledOperation,
+  type DosingErrorInfo,
 } from "./DosingQueueSection";
 import {
   GreenhouseMixingTanks,
@@ -123,7 +126,7 @@ export function FertigationQueueDashboard({
   const fwState = fwStateRaw.replace(/^FERT_STATE_/, "");
 
   // -------------------------------------------------------------------------
-  // Construct Active Dosing Queue Job with 5 Real Operational Steps
+  // Construct Active Dosing Queue Job with 5 Real Operational Steps (Section 5)
   // -------------------------------------------------------------------------
   const activeJob: DosingQueueJob | null = useMemo(() => {
     if (!liveStatus || fwState === "IDLE" || fwState === "COMPLETE" || fwState === "FAULTED" || fwState === "ABORTED") {
@@ -132,7 +135,9 @@ export function FertigationQueueDashboard({
 
     const targetGhId = liveStatus.ghId || liveStatus.targetGhId || ghs[0]?.id || "";
     const gh = greenhouseService.get(targetGhId);
-    const ghCode = gh?.code || gh?.greenhouseTag || targetGhId;
+    const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+    const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+    const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
     const schedId = liveStatus.scheduleId || "";
     const sched = allSchedules.find((s) => s.id === schedId);
@@ -208,6 +213,7 @@ export function FertigationQueueDashboard({
       scheduleId: schedId,
       ghId: targetGhId,
       ghCode,
+      ghName,
       jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
       recipeName: recipe?.name || "Nutrisi Standar",
       targetWaterL,
@@ -224,147 +230,334 @@ export function FertigationQueueDashboard({
   }, [liveStatus, fwState, ghs, allSchedules]);
 
   // -------------------------------------------------------------------------
-  // Construct Upcoming FIFO Jobs
+  // Construct Next Scheduled Operation (Section 5 & 8)
+  // -------------------------------------------------------------------------
+  const nextScheduledOp: NextScheduledOperation | null = useMemo(() => {
+    // 1. Check liveStatus.todaySchedule for earliest pending occurrence
+    const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    const pendingOcc = occurrences
+      .filter((o) => (o.state === "PENDING" || o.state === 0) && (o.scheduled_timestamp || o.scheduledTimestamp))
+      .sort((a, b) => (a.scheduled_timestamp || a.scheduledTimestamp) - (b.scheduled_timestamp || b.scheduledTimestamp))[0];
+
+    if (pendingOcc) {
+      const targetGhId = pendingOcc.gh_id || pendingOcc.ghId;
+      const gh = greenhouseService.get(targetGhId);
+      const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+      const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
+      const sched = allSchedules.find((s) => s.id === (pendingOcc.schedule_id || pendingOcc.scheduleId));
+      const timeStr =
+        sched?.time ||
+        (pendingOcc.scheduled_timestamp
+          ? new Date(pendingOcc.scheduled_timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : "—");
+
+      return {
+        ghCode,
+        ghName,
+        time: timeStr,
+        jobTitle: sched?.name || "Jadwal Penyiraman",
+      };
+    }
+
+    // 2. Fallback to allSchedules
+    const enabledSched = allSchedules.find((s) => s.enabled);
+    if (enabledSched) {
+      const gh = greenhouseService.get(enabledSched.ghId);
+      const ghIndex = ghs.findIndex((g) => g.id === enabledSched.ghId);
+      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+      const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
+
+      return {
+        ghCode,
+        ghName,
+        time: enabledSched.time,
+        jobTitle: enabledSched.name,
+      };
+    }
+
+    return null;
+  }, [liveStatus, allSchedules, ghs]);
+
+  // -------------------------------------------------------------------------
+  // Construct Error Information (Section 5 Spec)
+  // -------------------------------------------------------------------------
+  const errorInfo: DosingErrorInfo | null = useMemo(() => {
+    if (fwState === "FAULTED" || fwState === "ABORTED" || fwState === "INTERRUPTED") {
+      const targetGhId = liveStatus.ghId || liveStatus.targetGhId || ghs[0]?.id || "";
+      const gh = greenhouseService.get(targetGhId);
+      const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+
+      return {
+        ghCode,
+        operation: liveStatus.activeChannel ? `Injeksi Nutrisi Stok ${liveStatus.activeChannel}` : fwState,
+        message: liveStatus.errorMessage || liveStatus.message || "Proses terhenti secara aman oleh sistem keamanan hardware.",
+      };
+    }
+    return null;
+  }, [liveStatus, fwState, ghs]);
+
+  // -------------------------------------------------------------------------
+  // Construct Upcoming FIFO Jobs (Section 6 Spec)
   // -------------------------------------------------------------------------
   const queuedJobs: DosingQueueJob[] = useMemo(() => {
     const list: DosingQueueJob[] = [];
-    const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
 
-    // Filter pending occurrences for today
-    occurrences
-      .filter((o) => o.state === 0 || o.state === "PENDING" || o.state === "WAITING_BATCH" || o.status === "PENDING")
-      .forEach((occ, idx) => {
-        const gh = greenhouseService.get(occ.gh_id || occ.ghId);
-        const ghCode = gh?.code || occ.gh_id || occ.ghId;
-        const sched = allSchedules.find((s) => s.id === (occ.schedule_id || occ.scheduleId));
-        const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
-        const targetWaterL = sched?.targetWaterL || 50;
+    // Filter queued batches from authoritative liveQueue
+    if (Array.isArray(liveQueue) && liveQueue.length > 0) {
+      liveQueue
+        .filter((q) => q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1)
+        .forEach((q, idx) => {
+          const targetGhId = q.ghId || q.gh_id;
+          const gh = greenhouseService.get(targetGhId);
+          const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+          const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+          const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
-        list.push({
-          id: occ.occurrence_id || occ.occurrenceId || `occ-${idx}`,
-          scheduleId: occ.schedule_id || occ.scheduleId,
-          ghId: occ.gh_id || occ.ghId,
-          ghCode,
-          jobTitle: sched?.name || "Jadwal Siap Antrean",
-          recipeName: recipe?.name || "Nutrisi Pertumbuhan",
-          targetWaterL,
-          targetWaterMl: targetWaterL * 1000,
-          dosingAml: sched?.dosingAml ?? 150,
-          dosingBml: sched?.dosingBml ?? 150,
-          mixingDurationSec: 180,
-          scheduledTimeStr: sched?.time || (occ.scheduled_timestamp ? new Date(occ.scheduled_timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"),
-          queuePosition: idx + 1,
-          status: "PENDING_FIFO",
-          statusLabel: "Menunggu Antrean",
-          steps: [],
+          const sched = allSchedules.find((s) => s.id === (q.scheduleId || q.schedule_id));
+          const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
+          const targetWaterL = sched?.targetWaterL || 50;
+
+          list.push({
+            id: q.queueId || q.queue_id || `q-${idx}`,
+            scheduleId: q.scheduleId || q.schedule_id,
+            ghId: targetGhId,
+            ghCode,
+            ghName,
+            jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
+            recipeName: recipe?.name || "Nutrisi Standar",
+            targetWaterL,
+            targetWaterMl: targetWaterL * 1000,
+            dosingAml: sched?.dosingAml ?? 150,
+            dosingBml: sched?.dosingBml ?? 150,
+            mixingDurationSec: 180,
+            scheduledTimeStr: sched?.time || "Dalam Antrean",
+            queuePosition: idx + 1,
+            status: "PENDING_FIFO",
+            statusLabel: "Menunggu Antrean",
+            steps: [],
+          });
         });
-      });
+    }
 
     return list;
-  }, [liveStatus, allSchedules]);
+  }, [liveQueue, allSchedules, ghs]);
 
   // -------------------------------------------------------------------------
   // Construct Independent Greenhouse Mixing Tanks (Section 7 Spec)
   // -------------------------------------------------------------------------
   const mixingTanks: GreenhouseTankInfo[] = useMemo(() => {
-    return ghs.map((gh) => {
+    return ghs.map((gh, idx) => {
+      const ghCode = gh.code || `GH-${String(idx + 1).padStart(2, "0")}`;
+      const displayName = formatGreenhouseName(gh, idx);
+      const technicalId = gh.id;
+      const tankName = `${ghCode} Mixing Tank`;
+
       const isTargetActive = activeJob?.ghId === gh.id;
       const ghDeliveries: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
       const hasDelivery = ghDeliveries.some((d) => (d.ghId || d.gh_id || "").toLowerCase() === gh.id.toLowerCase());
 
       // Check occurrences for this GH
       const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
-      const ghOcc = occurrences.find((o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "READY_TO_SEND" || o.state === 3));
+      const ghOccReady = occurrences.find(
+        (o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "READY_TO_SEND" || o.state === 3)
+      );
+      const ghOccCompleted = occurrences.filter(
+        (o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "COMPLETED" || o.state === 5)
+      );
 
-      let status: HumanMixingState = "Waiting";
+      // Check if queued in FIFO queue
+      const queueItem = liveQueue.find(
+        (q) => (q.ghId || q.gh_id || "").toLowerCase() === gh.id.toLowerCase() && (q.status === "PENDING" || q.state === 0)
+      );
+      const queuePosition = queueItem ? liveQueue.indexOf(queueItem) + 1 : null;
+
+      const nextSched = allSchedules.find((s) => s.ghId === gh.id && s.enabled);
+      const capacityL = 300;
+
+      let status: HumanMixingState = "Standby";
       let statusTone: GreenhouseTankInfo["statusTone"] = "slate";
-      let statusDesc = "Standby jadwal berikutnya";
+      let statusDesc = "Siaga — belum ada proses aktif";
       let canDeliverNow = false;
       let canPreMixNow = true;
+      let isActionDisabled = false;
+      let actionDisabledReason: string | undefined = undefined;
+
+      let timingLabel = "Status";
+      let timingValue = "Siaga";
 
       if (hasDelivery) {
-        status = "Delivering";
+        status = "Fertigation in progress";
         statusTone = "purple";
-        statusDesc = "Pompa irigasi sedang menyiram tanaman";
+        statusDesc = "Pompa distribusi sedang menyiram ke tanaman";
+        timingLabel = "Penyiraman";
+        timingValue = "Pompa Aktif Menyiram";
         canPreMixNow = false;
-      } else if (ghOcc || isTargetActive && fwState === "MIX_READY") {
-        status = "Ready";
+        isActionDisabled = true;
+        actionDisabledReason = "Penyiraman sedang berlangsung";
+      } else if (ghOccReady || (isTargetActive && fwState === "MIX_READY")) {
+        status = "Ready for fertigation";
         statusTone = "emerald";
-        statusDesc = "Larutan homogen & siap disiram";
+        statusDesc = "Larutan homogen & siap dialirkan ke dripper";
+        timingLabel = "Kesiapan Larutan";
+        timingValue = "Siap Dialirkan Sekarang";
         canDeliverNow = true;
         canPreMixNow = false;
       } else if (isTargetActive) {
         if (fwState === "FILLING" || fwState === "PRECHECK") {
-          status = "Preparing Water";
+          status = "Preparing water";
           statusTone = "blue";
-          statusDesc = "Sedang mengisi air baku dari toren";
+          statusDesc = "Mengisi air baku dari toren ke tangki batch";
         } else if (fwState === "DOSING") {
-          status = "Adding Nutrients";
+          status = "Dosing nutrients";
           statusTone = "cyan";
-          statusDesc = "Injeksi nutrisi A & B berlangsung";
+          statusDesc = "Injeksi nutrisi A & B berlangsung di central unit";
         } else if (fwState === "FINAL_MIXING") {
           status = "Mixing";
           statusTone = "cyan";
-          statusDesc = "Pengadukan larutan nutrisi";
+          statusDesc = "Pengadukan & homogenisasi larutan di tangki";
         }
+        timingLabel = "Status Operasi";
+        timingValue = "Sedang Berjalan";
+        canPreMixNow = false;
+        isActionDisabled = true;
+        actionDisabledReason = "Peracikan batch sedang berjalan";
+      } else if (queueItem) {
+        status = "Waiting in queue";
+        statusTone = "amber";
+        statusDesc = `Menunggu giliran di Unit Dosing Sentral (Urutan #${queuePosition})`;
+        timingLabel = "Posisi Antrean";
+        timingValue = `Urutan #${queuePosition} di Central`;
+        canPreMixNow = false;
+        isActionDisabled = true;
+        actionDisabledReason = "Sudah terdaftar dalam antrean peracikan";
+      } else if (nextSched) {
+        status = "Waiting for schedule";
+        statusTone = "slate";
+        statusDesc = `Standby menunggu jadwal berikutnya (Pukul ${nextSched.time})`;
+        timingLabel = "Jadwal Mulai";
+        timingValue = `Pukul ${nextSched.time}`;
+        canPreMixNow = true;
+      } else if (ghOccCompleted.length > 0) {
+        status = "Completed";
+        statusTone = "emerald";
+        statusDesc = "Semua siklus fertigasi hari ini telah selesai";
+        timingLabel = "Status Siklus";
+        timingValue = "Selesai Hari Ini";
         canPreMixNow = false;
       }
 
-      const nextSched = allSchedules.find((s) => s.ghId === gh.id && s.enabled);
-      const capacityL = 300;
-      const currentVolumeL = status === "Ready" ? (nextSched?.targetWaterL || 50) : isTargetActive ? Math.round((liveStatus?.actualWaterMl || 0) / 1000) : 0;
-      const levelPct = capacityL > 0 ? (currentVolumeL / capacityL) * 100 : 0;
+      // Volume calculation & sensor availability check (Section 7 Spec)
+      const telemetryTankL = gh.telemetry?.tankL;
+      const isSensorAvailable = typeof telemetryTankL === "number" && !isNaN(telemetryTankL);
+      const measuredVolumeL = isSensorAvailable ? telemetryTankL : null;
+      const targetWaterL = nextSched?.targetWaterL || 50;
+
+      let volumeDisplayLabel = "Target Pencampuran";
+      let volumeDisplayValue = `Target: ${targetWaterL} L (Kapasitas: ${capacityL} L)`;
+      let levelPct = 0;
+
+      if (isSensorAvailable && measuredVolumeL !== null) {
+        levelPct = capacityL > 0 ? (measuredVolumeL / capacityL) * 100 : 0;
+        volumeDisplayLabel = "Volume Aktual Terukur";
+        volumeDisplayValue = `${measuredVolumeL} / ${capacityL} L (${levelPct.toFixed(0)}%)`;
+      } else if (status === "Ready for fertigation") {
+        levelPct = (targetWaterL / capacityL) * 100;
+        volumeDisplayLabel = "Volume Larutan Siap";
+        volumeDisplayValue = `${targetWaterL} L (Siap Disiram)`;
+      } else if (isTargetActive) {
+        const actualWaterL = Math.round((liveStatus?.actualWaterMl || 0) / 1000);
+        levelPct = (actualWaterL / capacityL) * 100;
+        volumeDisplayLabel = "Volume Terisi Saat Ini";
+        volumeDisplayValue = `${actualWaterL} / ${targetWaterL} L (Proses)`;
+      } else {
+        levelPct = (targetWaterL / capacityL) * 100;
+        volumeDisplayLabel = "Target Pencampuran";
+        volumeDisplayValue = `Target: ${targetWaterL} L (Sensor tidak terpasang)`;
+      }
 
       return {
         ghId: gh.id,
-        ghCode: gh.code || gh.greenhouseTag || gh.id,
-        tankName: `Tangki Pencampur ${gh.code || gh.id}`,
+        ghCode,
+        displayName,
+        technicalId,
+        crop: gh.crop,
+        tankName,
         status,
         statusTone,
         statusDescription: statusDesc,
-        currentVolumeL,
+        measuredVolumeL,
+        targetWaterL,
         capacityL,
         levelPct,
-        remainingTimeStr: isTargetActive && fwState !== "MIX_READY" ? "02:15" : null,
-        expectedReadyTimeStr: nextSched?.time ? `Sebelum ${nextSched.time}` : null,
-        targetWaterL: nextSched?.targetWaterL,
+        isSensorAvailable,
+        volumeDisplayLabel,
+        volumeDisplayValue,
+        timingLabel,
+        timingValue,
+        queuePosition,
         recipeName: gh.recipes?.[0]?.name,
         canDeliverNow,
         canPreMixNow,
+        isActionDisabled,
+        actionDisabledReason,
       };
     });
-  }, [ghs, activeJob, fwState, liveStatus, allSchedules]);
+  }, [ghs, activeJob, fwState, liveStatus, liveQueue, allSchedules]);
 
   // -------------------------------------------------------------------------
-  // Construct Complex Overview Summaries (Section 8 Spec)
+  // Construct Complex Overview Summaries (Section 10 Spec)
   // -------------------------------------------------------------------------
   const ghSummaries: GreenhouseFertigationSummary[] = useMemo(() => {
-    return ghs.map((gh) => {
+    return ghs.map((gh, idx) => {
       const tank = mixingTanks.find((t) => t.ghId === gh.id);
       const scheds = allSchedules.filter((s) => s.ghId === gh.id);
       const nextSched = scheds.find((s) => s.enabled);
+      const ghCode = gh.code || `GH-${String(idx + 1).padStart(2, "0")}`;
+      const displayName = formatGreenhouseName(gh, idx);
+      const technicalId = gh.id;
 
-      let status: GreenhouseFertigationSummary["status"] = "WAITING";
-      let statusLabel = "Menunggu Jadwal";
+      let status: GreenhouseFertigationSummary["status"] = "STANDBY";
+      let statusLabel = "Siaga";
       let statusTone: GreenhouseFertigationSummary["statusTone"] = "slate";
-      let statusDesc = "Standby menunggu jam jadwal";
+      let statusDesc = "Standby jam operasional";
 
-      if (tank?.status === "Ready") {
+      if (tank?.status === "Ready for fertigation") {
         status = "READY";
         statusLabel = "Larutan Siap";
         statusTone = "emerald";
         statusDesc = "Larutan nutrisi sudah siap di tangki batch";
-      } else if (tank?.status === "Delivering") {
+      } else if (tank?.status === "Fertigation in progress") {
         status = "DISTRIBUTING";
         statusLabel = "Sedang Menyiram";
         statusTone = "purple";
         statusDesc = "Penyiraman ke tanaman sedang aktif";
-      } else if (tank?.status === "Mixing" || tank?.status === "Adding Nutrients" || tank?.status === "Preparing Water") {
+      } else if (
+        tank?.status === "Mixing" ||
+        tank?.status === "Dosing nutrients" ||
+        tank?.status === "Preparing water"
+      ) {
         status = "MIXING";
         statusLabel = "Sedang Meracik";
         statusTone = "cyan";
         statusDesc = "Peracikan air & nutrisi aktif di central unit";
-      } else if (tank?.status === "Failed") {
+      } else if (tank?.status === "Waiting in queue") {
+        status = "QUEUED";
+        statusLabel = "Dalam Antrean";
+        statusTone = "amber";
+        statusDesc = `Menunggu giliran di Dosing Central (#${tank.queuePosition || 1})`;
+      } else if (tank?.status === "Waiting for schedule") {
+        status = "WAITING_SCHEDULE";
+        statusLabel = "Menunggu Jadwal";
+        statusTone = "slate";
+        statusDesc = `Menunggu jadwal berikutnya (Pukul ${nextSched?.time || "—"})`;
+      } else if (tank?.status === "Completed") {
+        status = "COMPLETED";
+        statusLabel = "Selesai";
+        statusTone = "emerald";
+        statusDesc = "Semua siklus fertigasi hari ini selesai";
+      } else if (tank?.status === "Failed" || tank?.status === "Interrupted") {
         status = "ERROR";
         statusLabel = "Kendala Operasi";
         statusTone = "rose";
@@ -373,6 +566,9 @@ export function FertigationQueueDashboard({
 
       return {
         gh,
+        ghCode,
+        displayName,
+        technicalId,
         status,
         statusLabel,
         statusTone,
@@ -381,8 +577,9 @@ export function FertigationQueueDashboard({
         nextRecipeName: gh.recipes?.find((r) => r.id === nextSched?.recipeId)?.name || null,
         targetWaterL: nextSched?.targetWaterL || null,
         cyclesCompletedToday: 2,
-        totalCyclesToday: scheds.length || 3,
+        totalCyclesToday: scheds.length || 2,
         tankLevelPct: tank?.levelPct || 0,
+        volumeDisplay: tank?.volumeDisplayValue,
         canPreMix: tank?.canPreMixNow ?? true,
         canDeliver: tank?.canDeliverNow ?? false,
       };
@@ -390,7 +587,7 @@ export function FertigationQueueDashboard({
   }, [ghs, mixingTanks, allSchedules]);
 
   // -------------------------------------------------------------------------
-  // Actions: Pre-Mix, Deliver, Abort, Trigger Daily
+  // Actions: Enqueue Manual, Deliver, Abort, Trigger Daily
   // -------------------------------------------------------------------------
   const handlePreMixGh = async (ghId: string) => {
     setActionInProgress(`premix-${ghId}`);
@@ -401,11 +598,20 @@ export function FertigationQueueDashboard({
       const targetWater = sched?.targetWaterL || recipe?.waterL || 50;
 
       if (!recipe) throw new Error("Belum ada resep nutrisi untuk greenhouse ini.");
+
+      // Check if already in queue or active to prevent duplicate submissions
+      const isAlreadyInQueue = liveQueue.some(
+        (q) => (q.ghId || q.gh_id) === ghId && (q.status === "PENDING" || q.status === "DISPATCHED" || q.status === "ACTIVE")
+      );
+      if (isAlreadyInQueue) {
+        throw new Error(`${gh?.code || ghId} sudah terdaftar dalam antrean dosing.`);
+      }
+
       await fertigationService.startManual(ghId, recipe.id, targetWater);
-      toast(`Peracikan nutrisi untuk ${gh?.code || ghId} berhasil dimulai di kontroler!`, "success");
+      toast(`Peracikan nutrisi untuk ${gh?.code || ghId} berhasil dimasukkan ke antrean!`, "success");
       await fetchStatus(true);
     } catch (err: any) {
-      toast(`Gagal memulai peracikan: ${err?.message || "Kesalahan kontroler"}`, "error");
+      toast(`Gagal menambahkan antrean: ${err?.message || "Kesalahan kontroler"}`, "error");
     } finally {
       setActionInProgress(null);
     }
@@ -525,7 +731,7 @@ export function FertigationQueueDashboard({
               className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300"
             >
               <Sparkles className="h-3 w-3 text-sky-400" />
-              Trigger Harian: Aktif
+              Otomasi Harian: Aktif
             </span>
           ) : !offline ? (
             <button
@@ -546,7 +752,7 @@ export function FertigationQueueDashboard({
               : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
           }`}>
             <span className={`h-1.5 w-1.5 rounded-full ${offline ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`} />
-            {offline ? "ESP32 Offline (Local Cache)" : "ESP32 Telemetri Otoritatif"}
+            {offline ? "ESP32 Offline (Cache Lokal)" : "ESP32 Telemetri Otoritatif"}
           </span>
 
           <button
@@ -562,7 +768,7 @@ export function FertigationQueueDashboard({
       </div>
 
       <div className="p-4 md:p-5 space-y-6">
-        {/* 1. Complex-Level Overview for all Greenhouses */}
+        {/* 1. Complex-Level Overview for all Greenhouses (Section 10) */}
         <ComplexFertigationOverview
           complexName={complex?.name || "Complex"}
           greenhouses={ghSummaries}
@@ -571,16 +777,18 @@ export function FertigationQueueDashboard({
           loadingActionGhId={actionInProgress ? actionInProgress.replace(/^(premix-|deliver-)/, "") : null}
         />
 
-        {/* 2. Dosing Queue Section (Central Unit 5-Step Progress & FIFO List) */}
+        {/* 2. Dosing Queue Section (Central Unit 5-Step Progress & FIFO List - Section 5 & 6) */}
         <DosingQueueSection
           activeJob={activeJob}
           queuedJobs={queuedJobs}
+          nextScheduledOp={nextScheduledOp}
+          errorInfo={errorInfo}
           onAbortActive={handleAbort}
           onPreMixJob={(job) => handlePreMixGh(job.ghId)}
           isActionLoading={actionInProgress !== null}
         />
 
-        {/* 3. Independent Greenhouse Mixing Tanks */}
+        {/* 3. Independent Greenhouse Mixing Tanks (Section 7) */}
         <GreenhouseMixingTanks
           tanks={mixingTanks}
           onPreMix={handlePreMixGh}

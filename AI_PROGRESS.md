@@ -1,3 +1,53 @@
+## SP-FERT-AUTOMATION-001 — Fully Automated FIFO Queue, Status Consistency & Human-Centered UX
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (10/10)`
+- **Objective**:
+  1. Fix the Fertigation & Mixing Queue logic, status consistency, and human-centered UI/UX:
+     - Resolve the contradiction where queue is reported as empty while greenhouse mixing tanks show "Waiting".
+     - Strictly distinguish Scheduled (future start), Queued (waiting in central FIFO queue), and Active operations.
+     - Redesign Central Dosing Unit panel for immediate human comprehension with clear Standby/Active/Error states without technical IDs.
+     - Rebuild FIFO Queue presentation in execution order (#1, #2, ...) with neutral, non-contradictory empty states.
+     - Fix Greenhouse Mixing Tank cards: human-readable greenhouse names (`GH-01 Mixing Tank` instead of `gh-mui7dtg`), 11 distinct operational states, honest volume labeling (measured vs target vs unmetered), realistic timing without fake duration placeholders, and clarified action buttons.
+  2. Implement fully automated FIFO dosing and mixing workflow:
+     - End-to-end automation without requiring manual button clicks for scheduled jobs.
+     - Prevent duplicate batch jobs and race conditions while preserving FIFO integrity.
+  3. Eliminate FreeRTOS scheduler 1-second log spam in `esp32/main/services/scheduler.c`.
+  4. Build and flash firmware to physical ESP32-S3 (COM3), pass automated test suite (10/10), and update canonical documentation (`docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` §54).
+
+### Completed Work & Verification
+- `esp32/main/services/scheduler.c`:
+  - Eliminated Condition 3 infinite 1-second re-trigger loop (`s_today_occurrence_count == 0 && s_runtime_count > 0`).
+  - Gated daily schedule evaluation strictly to calendar day boundary rollover, boot/midday recovery, or authoritative API trigger.
+- `src/lib/format.ts`:
+  - Added `formatGreenhouseName(gh, fallbackIndex)` resolver to translate technical IDs (`gh-mui7dtg`) to clean user-facing names (`GH-01`).
+- `src/components/fertigation/DosingQueueSection.tsx`:
+  - Redesigned Central Dosing Unit panel with human-first information hierarchy (Standby status, no technical IDs/states like `IDLE`, clear next operation context).
+  - Active execution displays greenhouse served, 5-step process pipeline, target volumes, and progress bar.
+  - Rebuilt FIFO queue presentation with sequential execution positions (`#1`, `#2`...) and neutral empty states with next scheduled time.
+- `src/components/fertigation/GreenhouseMixingTanks.tsx`:
+  - 11 distinct human-centered operational states (`Standby`, `Waiting for schedule`, `Waiting in queue`, `Preparing water`, `Dosing nutrients`, `Mixing`, `Ready for fertigation`, `Fertigation in progress`, `Completed`, `Failed`, `Interrupted`).
+  - Replaced technical IDs with resolved greenhouse display names (`GH-01 Mixing Tank`).
+  - Honest volume labeling: clearly distinguishes measured actual volume from recipe target volume, explicitly indicating unmetered when sensor is absent.
+  - Accurate timing information: displays actual scheduled start time (`Pukul 07:00`) or queue position; removed fake `"02:15"` and misleading `"Sebelum 06:00"`.
+  - Clarified action buttons: `Siram ke Tanaman Sekarang` when ready, `Masuk Antrean Dosing` when waiting; in-flight batches disable manual clicks.
+- `src/components/fertigation/ComplexFertigationOverview.tsx`:
+  - Aggregated multi-greenhouse status cards using human-readable names and clean status pills without state bleeding.
+- `src/components/fertigation/GreenhouseFertigationDetail.tsx`:
+  - Scoped greenhouse view with isolated mixing tank state, cycle progress, and queue position.
+- `src/components/fertigation/FertigationQueueDashboard.tsx`:
+  - Unified orchestrator cleanly separating `liveQueue` from `todaySchedule`.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 54 documenting all architectural, logic, and UX updates.
+- `scripts/test_fertigation_queue_consistency.mjs`:
+  - Added automated test suite verifying 10 critical criteria (all 10 PASSED).
+- Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+  - ESP32 Firmware Build (`scripts/build_esp32.ps1`): EXIT CODE 0 (`agrotech_esp32.bin` 0x180ce0 bytes, 50% flash partition free).
+  - Physical Flash (`scripts/flash_esp32.ps1 -Port COM3`): EXIT CODE 0 (1,576,160 bytes flashed at 460800 baud, data hash verified, hard reset RTS complete).
+  - Automated Consistency Test (`scripts/test_fertigation_queue_consistency.mjs`): EXIT CODE 0 (10/10 tests passed).
+
+---
+
 ## SP-FERT-REBUILD-001 — Human-Centered Fertigation & Mixing Queue Architecture Rebuild
 - **Date**: 2026-10-02
 - **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`

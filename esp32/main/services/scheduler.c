@@ -1926,14 +1926,9 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     daily_trigger_needed = true;
   }
 
-  /* Condition 2: Belum di-trigger pada hari ini (Booted mid-day, clock just locked, or daily trigger uncompleted) */
+  /* Condition 2: Untriggered day recovery (Booted mid-day, clock locked, or daily trigger uncompleted for today) */
   if (s_daily_trigger_completed_yday != tm_now.tm_yday ||
       s_daily_trigger_completed_year != tm_now.tm_year) {
-    daily_trigger_needed = true;
-  }
-
-  /* Condition 3: Schedules exist in runtime, but today's occurrence list is empty */
-  if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
     daily_trigger_needed = true;
   }
 
@@ -1942,9 +1937,9 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     s_daily_trigger_completed_yday = tm_now.tm_yday;
     s_daily_trigger_completed_year = tm_now.tm_year;
     if (s_runtime_count > 0) {
-      ESP_LOGI(TAG, "Daily schedule trigger executing for yday %d (schedules=%u, occurrences=%u)",
-               tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
       materialize_today_schedule(now);
+      ESP_LOGI(TAG, "Daily schedule trigger executed for yday %d (schedules=%u, occurrences=%u)",
+               tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
       try_enqueue_pending_preparations(now);
     }
   }

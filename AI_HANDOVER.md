@@ -1,4 +1,47 @@
-# AI HANDOVER — SP-FERT-REBUILD-001 (latest)
+# AI HANDOVER — SP-FERT-AUTOMATION-001 (latest)
+
+## Status — SP-FERT-AUTOMATION-001
+**Fertigation & Mixing Queue Logic, Status Consistency, and Fully Automated FIFO Architecture**
+**Safe Point**: `SP-FERT-AUTOMATION-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (10/10)`
+
+### Summary of What Was Done
+1. **Penyelesaian Kontradiksi Status Antrean & Tangki Mixing**:
+   - Menghapus pesan membingungkan *"Semua jadwal hari ini yang tersisa sudah siap atau selesai diracik"* ketika tangki berstatus `Waiting`.
+   - Membedakan 3 status operasional inti:
+     - **Scheduled**: Jadwal masa depan hari ini, belum masuk antrean eksekusi (menampilkan `Jadwal Mulai: 07:00`).
+     - **Queued**: Masuk antrean dosing FIFO sentral, menunggu giliran peracikan (menampilkan `Posisi Antrean: #1 di Central`).
+     - **Active**: Sedang mengeksekusi operasi dosing fisik, peracikan, atau distribusi fertigasi.
+   - Pesan antrean kosong akurat dan kontekstual: jika ada jadwal mendatang, menampilkan *"Tidak ada operasi peracikan dalam antrean saat ini. Jadwal berikutnya: 07:00 (GH-01)"*; jika semua tuntas, menyatakan tuntas; jika tidak ada jadwal terdaftar, menyatakan belum ada jadwal.
+2. **Redesain Panel Central Dosing Unit**:
+   - Status idle ramah manusia: `Standby (Siaga)`, pesan utama *"Tidak ada operasi dosing yang sedang berjalan saat ini"*, dan info kontekstual *"Operasi berikutnya: GH-01 pukul 07:00"*. Menghapus ID teknis mentah atau kode internal seperti `IDLE` dari pandangan utama.
+   - Status running menampilkan greenhouse yang dilayani (`Melayani: GH-01`), tahap proses aktif (Persiapan Air Baku, Injeksi Nutrisi Stok A/B, Pengadukan Homogenisasi), target volume, dan progress bar.
+   - Status error menampilkan identifikasi greenhouse dan penyebab trip secara transparan.
+3. **Rekonstruksi Presentasi Antrean FIFO**:
+   - Menampilkan urutan eksekusi sequential (`#1`, `#2`, ...).
+   - Menyertakan nama greenhouse tujuan, formula resep, target volume air & nutrisi, dan posisi antrean.
+4. **Perbaikan Kartu Tangki Pencampur Greenhouse**:
+   - Mengganti ID teknis (misal `Tangki Pencampur gh-mui7dtg`) dengan nama manusia terdaftar (`GH-01 Mixing Tank`).
+   - 11 status operasional manusia: `Standby`, `Waiting for schedule`, `Waiting in queue`, `Preparing water`, `Dosing nutrients`, `Mixing`, `Ready for fertigation`, `Fertigation in progress`, `Completed`, `Failed`, `Interrupted`.
+   - Pelabelan volume jujur: memisahkan volume terukur aktual (`Volume Terukur: -- L`) dari volume target resep (`Target: 300 L`). Jika sensor level tidak terpasang, menampilkan *"Sensor level fisik tidak terpasang"* alih-alih mengklaim tangki kosong `0 / 300 L (0%)`.
+   - Realitas estimasi waktu: menghapus placeholder durasi palsu `"02:15"` dan estimasi tidak valid `"Sebelum 06:00"`. Menampilkan jadwal aktual (`Pukul 07:00`).
+   - Tombol aksi jelas: `Siram ke Tanaman Sekarang` saat larutan siap, `Masuk Antrean Dosing` saat menunggu jadwal. Menonaktifkan tombol saat batch sedang berjalan guna mencegah duplikasi.
+5. **Otomasi Penuh FIFO Dosing & Mixing**:
+   - Alur `Jadwal -> Terpicu -> Antrean Dosing FIFO -> Injeksi Nutrisi -> Mixing Homogenisasi -> Ready di Tangki GH -> Distribusi Pompa -> Selesai` berjalan otomatis tanpa memerlukan klik manual tombol batch.
+6. **Eliminasi Log Spam FreeRTOS Scheduler (`esp32/main/services/scheduler.c`)**:
+   - Menghapus infinite 1-second loop Condition 3 (`s_today_occurrence_count == 0 && s_runtime_count > 0`).
+   - Evaluasi jadwal harian dieksekusi secara bersih saat rollover tengah malam (00:00), pemulihan boot siang hari, atau trigger API otoritatif.
+7. **Verifikasi & Flashing**:
+   - TypeScript Check: `npx tsc --noEmit` -> PASS (0 error).
+   - ESP32 Firmware Build: `scripts/build_esp32.ps1` -> PASS (`agrotech_esp32.bin` 0x180ce0 bytes, 50% flash partition free).
+   - Flashing COM3: `scripts/flash_esp32.ps1 -Port COM3` -> PASS (1,576,160 bytes flashed at 460800 baud, data hash verified, hard reset RTS sukses).
+   - Test Suite: `node scripts/test_fertigation_queue_consistency.mjs` -> PASS (10/10 tests passed).
+   - Dokumentasi Kanonikal: `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 54 ditambahkan.
+
+---
+
+# AI HANDOVER — SP-FERT-REBUILD-001 (previous)
 
 ## Status — SP-FERT-REBUILD-001
 **Rebuild Fertigation & Mixing Queue System From Zero (Human-Centered UX & Scheduler Spam Fix)**

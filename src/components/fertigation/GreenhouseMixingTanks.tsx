@@ -9,37 +9,54 @@ import {
   Clock,
   Droplets,
   FlaskConical,
+  ListOrdered,
   Play,
+  RotateCcw,
+  Sparkles,
   Waves,
 } from "lucide-react";
-import type { Greenhouse } from "@/lib/types";
 
 export type HumanMixingState =
-  | "Waiting"
-  | "Preparing Water"
-  | "Adding Nutrients"
+  | "Standby"
+  | "Waiting for schedule"
+  | "Waiting in queue"
+  | "Preparing water"
+  | "Dosing nutrients"
   | "Mixing"
-  | "Ready"
-  | "Delivering"
+  | "Ready for fertigation"
+  | "Fertigation in progress"
   | "Completed"
-  | "Failed";
+  | "Failed"
+  | "Interrupted";
 
 export interface GreenhouseTankInfo {
   ghId: string;
   ghCode: string;
+  displayName: string;
+  technicalId: string;
+  crop?: string;
   tankName: string;
   status: HumanMixingState;
-  statusTone: "slate" | "blue" | "cyan" | "emerald" | "purple" | "green" | "rose";
+  statusTone: "slate" | "blue" | "cyan" | "emerald" | "purple" | "green" | "rose" | "amber";
   statusDescription: string;
-  currentVolumeL: number;
+  // Volume details per Spec Section 7
+  measuredVolumeL: number | null;
+  targetWaterL?: number;
   capacityL: number;
   levelPct: number;
-  remainingTimeStr: string | null;
-  expectedReadyTimeStr: string | null;
-  targetWaterL?: number;
+  isSensorAvailable: boolean;
+  volumeDisplayLabel: string;
+  volumeDisplayValue: string;
+  // Timing details per Spec Section 8
+  timingLabel: string;
+  timingValue: string;
+  queuePosition?: number | null;
   recipeName?: string;
+  // Action details per Spec Section 9
   canDeliverNow: boolean;
   canPreMixNow: boolean;
+  isActionDisabled?: boolean;
+  actionDisabledReason?: string;
 }
 
 interface GreenhouseMixingTanksProps {
@@ -71,11 +88,11 @@ export function GreenhouseMixingTanks({
                 Tangki Pencampur Tiap Greenhouse (Independent Mixing Tanks)
               </h3>
               <span className="rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
-                {tanks.length} Tangki Terisolasi
+                {tanks.length} Tangki Fisik Mandiri
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Setiap greenhouse memiliki tangki batch fisik mandiri — larutan nutrisi tidak bercampur antar greenhouse.
+              Setiap greenhouse memiliki tangki batch fisik mandiri — larutan nutrisi terisolasi dan tidak bercampur antar greenhouse.
             </p>
           </div>
         </div>
@@ -84,15 +101,21 @@ export function GreenhouseMixingTanks({
       {/* Tanks Grid */}
       {tanks.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-[#0e1a2a]/40 p-6 text-center text-xs text-slate-400">
-          Belum ada data tangki batch pencampur terhubung.
+          Belum ada data tangki batch pencampur terhubung pada complex ini.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-3">
           {tanks.map((tank) => {
-            const isReady = tank.status === "Ready";
-            const isMixing = tank.status === "Mixing" || tank.status === "Adding Nutrients" || tank.status === "Preparing Water";
-            const isDelivering = tank.status === "Delivering";
-            const isFailed = tank.status === "Failed";
+            const isReady = tank.status === "Ready for fertigation";
+            const isMixing =
+              tank.status === "Mixing" ||
+              tank.status === "Dosing nutrients" ||
+              tank.status === "Preparing water";
+            const isDelivering = tank.status === "Fertigation in progress";
+            const isQueued = tank.status === "Waiting in queue";
+            const isWaitingSchedule = tank.status === "Waiting for schedule";
+            const isCompleted = tank.status === "Completed";
+            const isFailed = tank.status === "Failed" || tank.status === "Interrupted";
 
             return (
               <div
@@ -104,19 +127,32 @@ export function GreenhouseMixingTanks({
                     ? "border-cyan-500/40 bg-gradient-to-b from-[#0a232f] to-[#0a1722] shadow-[0_4px_20px_rgba(6,182,212,0.08)]"
                     : isDelivering
                     ? "border-purple-500/40 bg-gradient-to-b from-[#181329] to-[#0a1722] shadow-[0_4px_20px_rgba(168,85,247,0.08)]"
+                    : isQueued
+                    ? "border-amber-500/40 bg-gradient-to-b from-[#211a0d] to-[#0a1722] shadow-[0_4px_20px_rgba(245,158,11,0.08)]"
                     : isFailed
                     ? "border-rose-500/40 bg-gradient-to-b from-[#251119] to-[#0a1722]"
                     : "border-slate-800 bg-[#0e1a2a]/80"
                 }`}
               >
-                {/* Tank Header */}
+                {/* Tank Header: Prominent Human-Readable Greenhouse Name & Tank */}
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5">
                       <Beaker className="h-4 w-4 text-cyan-400" />
-                      {tank.tankName}
-                    </h4>
-                    <p className="mt-0.5 text-[11px] text-slate-400">{tank.ghCode} • {tank.statusDescription}</p>
+                      <h4 className="text-sm font-bold text-slate-100">
+                        {tank.tankName}
+                      </h4>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                      <span className="font-semibold text-slate-300">{tank.displayName}</span>
+                      {tank.crop && (
+                        <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-300">
+                          {tank.crop}
+                        </span>
+                      )}
+                      <span className="text-slate-500">•</span>
+                      <span>{tank.statusDescription}</span>
+                    </div>
                   </div>
 
                   {/* Status Badge */}
@@ -128,6 +164,10 @@ export function GreenhouseMixingTanks({
                         ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-300 animate-pulse"
                         : isDelivering
                         ? "border-purple-500/40 bg-purple-500/15 text-purple-300 animate-pulse"
+                        : isQueued
+                        ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+                        : isCompleted
+                        ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
                         : isFailed
                         ? "border-rose-500/40 bg-rose-500/15 text-rose-300"
                         : "border-slate-700 bg-slate-800/80 text-slate-300"
@@ -138,9 +178,13 @@ export function GreenhouseMixingTanks({
                         isReady
                           ? "bg-emerald-400"
                           : isMixing
-                          ? "bg-cyan-400"
+                          ? "bg-cyan-400 animate-ping"
                           : isDelivering
-                          ? "bg-purple-400"
+                          ? "bg-purple-400 animate-ping"
+                          : isQueued
+                          ? "bg-amber-400"
+                          : isCompleted
+                          ? "bg-emerald-400"
                           : isFailed
                           ? "bg-rose-400"
                           : "bg-slate-500"
@@ -150,15 +194,15 @@ export function GreenhouseMixingTanks({
                   </span>
                 </div>
 
-                {/* Tank Volume Visual Level */}
+                {/* Tank Volume Visual Level (Section 7 Spec) */}
                 <div className="mt-4 rounded-lg border border-slate-800/80 bg-slate-950/50 p-3 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-400 font-medium flex items-center gap-1.5">
                       <Waves className="h-3.5 w-3.5 text-blue-400" />
-                      Volume Larutan
+                      {tank.volumeDisplayLabel}
                     </span>
                     <span className="font-bold text-slate-200">
-                      {tank.currentVolumeL} <span className="text-[10px] text-slate-400 font-normal">/ {tank.capacityL} L ({tank.levelPct.toFixed(0)}%)</span>
+                      {tank.volumeDisplayValue}
                     </span>
                   </div>
 
@@ -171,6 +215,8 @@ export function GreenhouseMixingTanks({
                           ? "bg-cyan-400 animate-pulse"
                           : isDelivering
                           ? "bg-purple-400 animate-pulse"
+                          : isQueued
+                          ? "bg-amber-400/60"
                           : isFailed
                           ? "bg-rose-400"
                           : "bg-blue-500/50"
@@ -180,60 +226,75 @@ export function GreenhouseMixingTanks({
                   </div>
                 </div>
 
-                {/* Human Timing Information (Section 7 Spec) */}
+                {/* Human Timing & Formula Information (Section 8 Spec) */}
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                   <div className="rounded-lg border border-slate-800/50 bg-[#08131e] p-2">
-                    <div className="text-[10px] text-slate-500 font-medium">Sisa Waktu Proses</div>
+                    <div className="text-[10px] text-slate-500 font-medium">{tank.timingLabel}</div>
                     <div className="mt-0.5 font-bold text-slate-200">
-                      {tank.remainingTimeStr ? (
-                        <span className="text-cyan-300">{tank.remainingTimeStr}</span>
-                      ) : isReady ? (
-                        <span className="text-emerald-400">Siap Dialirkan</span>
-                      ) : (
-                        <span className="text-slate-500">—</span>
-                      )}
+                      <span className={
+                        isReady
+                          ? "text-emerald-400"
+                          : isQueued
+                          ? "text-amber-300"
+                          : isMixing || isDelivering
+                          ? "text-cyan-300"
+                          : "text-slate-300"
+                      }>
+                        {tank.timingValue}
+                      </span>
                     </div>
                   </div>
 
                   <div className="rounded-lg border border-slate-800/50 bg-[#08131e] p-2">
-                    <div className="text-[10px] text-slate-500 font-medium">Estimasi Siap</div>
-                    <div className="mt-0.5 font-bold text-slate-200">
-                      {tank.expectedReadyTimeStr ? (
-                        <span className="text-amber-300">{tank.expectedReadyTimeStr}</span>
-                      ) : isReady ? (
-                        <span className="text-emerald-400">Siap Sekarang</span>
-                      ) : (
-                        <span className="text-slate-500">Menunggu Jadwal</span>
-                      )}
+                    <div className="text-[10px] text-slate-500 font-medium">Resep Nutrisi</div>
+                    <div className="mt-0.5 font-bold text-slate-200 truncate" title={tank.recipeName || "Resep Standar"}>
+                      {tank.recipeName || "Nutrisi Standar"}
                     </div>
                   </div>
                 </div>
 
-                {/* Action Row */}
-                <div className="mt-3.5 flex items-center justify-end gap-2 border-t border-slate-800/60 pt-3">
-                  {tank.canDeliverNow && onDeliver && (
-                    <button
-                      type="button"
-                      onClick={() => onDeliver(tank.ghId)}
-                      disabled={isActionLoading}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-600/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 active:scale-95 disabled:opacity-50"
-                    >
-                      <Droplets className="h-3.5 w-3.5" />
-                      Siram ke Tanaman Sekarang
-                    </button>
-                  )}
+                {/* Action Row & Automation Clarity (Section 9 Spec) */}
+                <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-slate-800/60 pt-3">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    ID: {tank.technicalId}
+                  </span>
 
-                  {tank.canPreMixNow && onPreMix && (
-                    <button
-                      type="button"
-                      onClick={() => onPreMix(tank.ghId)}
-                      disabled={isActionLoading}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-600/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      Mulai Racik Batch
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {tank.canDeliverNow && onDeliver && (
+                      <button
+                        type="button"
+                        onClick={() => onDeliver(tank.ghId)}
+                        disabled={isActionLoading}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 active:scale-95 disabled:opacity-50"
+                      >
+                        <Droplets className="h-3.5 w-3.5" />
+                        Siram ke Tanaman Sekarang
+                      </button>
+                    )}
+
+                    {tank.canPreMixNow && onPreMix && (
+                      <button
+                        type="button"
+                        onClick={() => onPreMix(tank.ghId)}
+                        disabled={isActionLoading || tank.isActionDisabled}
+                        title={
+                          tank.actionDisabledReason ||
+                          "Tambahkan ke antrean peracikan dosing central agar larutan siap sebelum jadwal"
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-600/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        Masuk Antrean Dosing
+                      </button>
+                    )}
+
+                    {(isMixing || isDelivering || isQueued) && (
+                      <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                        <Activity className="h-3 w-3 text-cyan-400 animate-spin" />
+                        Alur Otomatis Aktif
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );

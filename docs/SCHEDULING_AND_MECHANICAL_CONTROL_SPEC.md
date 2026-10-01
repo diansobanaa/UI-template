@@ -3685,5 +3685,41 @@ PYTHON SAVE + ANALYSIS
    - **Greenhouse Scoped View**: Focused telemetry for a single greenhouse (Today's cycles, next scheduled time, current mixing tank status, 5-step dosing progress).
    - **Fertigation Schedule Manager**: Human-readable schedule cards with natural language timings, target volume, and one-click pre-mix.
 
+54. Fertigation & Mixing Queue Logic, Status Consistency, and Fully Automated FIFO Architecture (SP-FERT-AUTOMATION-001)
 
+1. **Complete Resolution of Queue & Tank Status Contradictions**
+   - Eliminated the misleading message *"All remaining schedules for today are ready or completed"* when operations or mixing tanks were actually waiting.
+   - Replaced ambiguous generic `"Waiting"` status with 3 strictly distinguished lifecycle phases:
+     - **Scheduled**: A fertigation operation has a future scheduled start today, but has not yet entered the execution queue (displays `Jadwal Mulai: 07:00`).
+     - **Queued**: An operation has been accepted and is waiting for its turn in the central FIFO queue (displays `Posisi Antrean: #1 di Central`).
+     - **Active**: An operation is currently executing physical dosing, mixing, or fertigation distribution.
+   - Neutral and accurate empty queue state:
+     - When queue is empty and future schedules exist: *"Tidak ada operasi peracikan dalam antrean saat ini. Jadwal berikutnya: 07:00 (GH-01)"*.
+     - When queue is empty and all runs today have finished: *"Semua jadwal fertigasi hari ini telah selesai dilaksanakan"*.
+     - When no schedules are configured: *"Belum ada jadwal fertigasi aktif yang terdaftar untuk hari ini"*.
 
+2. **Redesigned Central Dosing Unit Panel**
+   - **Idle State**: Displays Status: `Standby (Siaga)`, primary message *"Tidak ada operasi dosing yang sedang berjalan saat ini"*, and dynamically displays next operation context (*"Operasi berikutnya: GH-01 pukul 07:00"*). Technical values (`IDLE`, raw pointer IDs, container counters) are removed from primary view.
+   - **Running State**: Identifies target greenhouse (`Melayani: GH-01`), active operation step (`Persiapan Air Baku`, `Injeksi Nutrisi Stok A/B`, `Pengadukan Homogenisasi`), target volumes, step progress bar, and real process state.
+   - **Error State**: Identifies affected greenhouse, exact failed stage, and safety trip reason without masking errors.
+
+3. **Rebuilt FIFO Queue Presentation**
+   - Pending jobs are displayed in strict chronological execution order (`#1`, `#2`, ...).
+   - Each item identifies target greenhouse name, recipe formula, target water & nutrient volumes, and execution position.
+
+4. **Human-Centered Greenhouse Mixing Tank Cards**
+   - Replaced technical IDs (e.g. `Tangki Pencampur gh-mui7dtg`) with registered human display names (`GH-01 Mixing Tank`).
+   - Implemented 11 distinct operational states: `Standby`, `Waiting for schedule`, `Waiting in queue`, `Preparing water`, `Dosing nutrients`, `Mixing`, `Ready for fertigation`, `Fertigation in progress`, `Completed`, `Failed`, `Interrupted`.
+   - Honest volume labeling: clearly distinguishes `Volume Terukur` (from physical level sensor) from `Target Pencampuran` (configured in recipe). When unmetered, explicitly indicates *"Sensor level fisik tidak terpasang"* instead of misleadingly declaring tank empty (`0 / 300 L (0%)`).
+   - Time estimation reality: eliminated ambiguous `"Sebelum 06:00"` and fabricated `"02:15"` duration placeholders. Displays actual scheduled start time (`Pukul 07:00`).
+
+5. **Fully Automated Workflow & Clarified Controls**
+   - End-to-end automation: `Schedule -> Occurrence -> Central FIFO Queue -> Dosing -> Mixing -> Ready in GH Tank -> Delivery Pump -> Completed`. Scheduled operations proceed autonomously without manual button clicks.
+   - Clarified manual controls:
+     - `Siram ke Tanaman Sekarang` (Deliver Now) when solution is `Ready for fertigation`.
+     - `Masuk Antrean Dosing` (Add to Queue) when waiting for future schedule.
+     - In-flight operations disable manual start buttons to prevent duplicate jobs or pump conflicts.
+
+6. **FreeRTOS Scheduler Log Spam Elimination (`esp32/main/services/scheduler.c`)**
+   - Removed infinite 1-second Condition 3 re-trigger when occurrences equal zero.
+   - Daily schedule evaluation executes cleanly on midnight rollover, midday boot recovery, or authoritative API trigger, emitting informative logs only on actionable events.

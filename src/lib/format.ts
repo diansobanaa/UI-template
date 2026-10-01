@@ -43,3 +43,31 @@ export function lux(value: number | null): string {
   if (value === null) return "–";
   return `${n(value)} lux`;
 }
+
+/** Human-readable greenhouse display name resolver */
+export function formatGreenhouseName(
+  gh: { id?: string; code?: string; greenhouseTag?: string; crop?: string } | undefined | null,
+  fallbackIndex?: number
+): string {
+  if (!gh) return fallbackIndex !== undefined ? `GH-${String(fallbackIndex + 1).padStart(2, "0")}` : "Greenhouse";
+
+  const candidate = (gh.code || gh.greenhouseTag || "").trim();
+  // If candidate is already a human-friendly label like "GH-01", "GH-1", "Greenhouse 1"
+  if (candidate && !/^[a-z0-9]{6,}$/i.test(candidate) && !/^gh-[a-z0-9]{4,}$/i.test(candidate)) {
+    return candidate;
+  }
+
+  // If fallback index is provided, format as GH-01, GH-02
+  if (fallbackIndex !== undefined) {
+    return `GH-${String(fallbackIndex + 1).padStart(2, "0")}`;
+  }
+
+  // If id matches gh-01 or gh-1
+  if (gh.id && /^gh-?(\d+)$/i.test(gh.id)) {
+    const num = gh.id.match(/^gh-?(\d+)$/i)?.[1];
+    return `GH-${String(num).padStart(2, "0")}`;
+  }
+
+  return candidate || (gh.id ? `GH-${gh.id.replace(/^gh-/, "").toUpperCase().slice(0, 4)}` : "Greenhouse");
+}
+
