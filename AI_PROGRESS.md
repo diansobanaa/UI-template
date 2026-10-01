@@ -1,5 +1,6 @@
 ## SP-FERT-CALIB-002 — Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization
 - **Date**: 2026-10-01
+- **Git Commit**: `0dc07bf`
 - **Status**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
 - **Objective**:
   1. Redesign dosing pump calibration UI/UX into an intuitive, human-centered 4-step workflow (`IDLE` -> `RUNNING` -> `INPUT_VOLUME` -> `REVIEW` -> `SAVED`).

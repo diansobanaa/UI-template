@@ -4,6 +4,7 @@
 **Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization**
 **Safe Point**: `SP-FERT-CALIB-002`
 **Date**: 2026-10-01
+**Git Commit**: `0dc07bf`
 **Verdict**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
 
 ### Summary of What Was Done
