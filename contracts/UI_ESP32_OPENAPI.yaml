@@ -1267,6 +1267,39 @@ paths:
         "409":
           $ref: "#/components/responses/ConflictError"
 
+  /api/v1/fertigation/deliver:
+    post:
+      tags: [Fertigation]
+      summary: Trigger distribution for ready batch
+      description: Activates GH distribution pump to deliver mixed nutrient solution from GH batch tank to drippers
+      operationId: triggerFertigationDistribution
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ghId:
+                  type: string
+                  example: "gh-muii7dtg"
+                occurrenceId:
+                  type: string
+                  example: "occ-fert-001-1790890000"
+      responses:
+        "200":
+          description: Distribution started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
   /api/v1/recipes:
     get:
       tags: [Recipe]

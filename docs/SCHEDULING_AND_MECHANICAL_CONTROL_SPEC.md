@@ -3578,22 +3578,28 @@ PYTHON SAVE + ANALYSIS
 51. Fertigation & Mixing Queue Lifecycle Dashboard Specification (SP-FERT-QUEUE-001)
 
 1. Purpose & Overview
-- Transforms the static schedule queue container into an informative, real-time Fertigation & Mixing Queue Dashboard.
+- Transforms the static schedule queue container into an authoritative, real-time Fertigation & Mixing Queue Dashboard.
 - Bridges the gap between static user schedules (`schedules[]`), authoritative hardware runtime (`/api/v1/fertigation/status` & `/api/v1/fertigation/queue`), and mechanical execution rules (§8 - §13).
 - Directly answers the core operator question: **"Apakah larutan nutrisi sudah siap di tangki (MIX_READY), sedang diracik, atau masih mengantri giliran dosing central (QUEUED)?"**
 
-2. State Decomposition & Visual Mapping
-- **WAITING_SCHEDULE (Menunggu Jadwal)**: Scheduled for a future time slot (e.g. 06:00). Batch has not started preparation yet.
-- **QUEUED (Mengantri Dosing Central)**: Batch preparation has been generated and is queued, waiting for exclusive serial access to central dosing pumps DP-A/DP-B (§10.3).
-- **MIXING_RAW_WATER (Pengisian Air Baku)**: Raw water is actively filling the GH batch tank until the configurable threshold (default 20%) is reached (§9.3).
-- **DOSING (Dosing Serial)**: Central dosing pumps are actively dispensing nutrient stock solutions in strict serial sequence (DP-A $\to$ DP-B $\to$ DP-N) (§10.1).
-- **FINAL_MIXING (Homogenisasi)**: Agitator / recirculation is active in the GH batch tank to ensure uniform EC and pH.
-- **MIX_READY (Siap di Tangki)**: Nutrient solution is 100% prepared, homogeneous, and resting in the GH batch tank. Ready for scheduled distribution time or immediate manual trigger (§11, §12.2).
-- **DISTRIBUTING (Distribusi / Menyiram)**: GH fertigation pump is actively pumping solution to the drippers until the lower float switch trips (§12.4).
-- **BLOCKED (Terblokir)**: Held due to missing calibration snapshot or missing hardware (§8.1).
+2. Holistic End-to-End Mechanical Lifecycle
+- **Step 1 (Pembuatan & Deployment Jadwal)**:
+  - Dibuat di UI (`AddFertigationDrawer`), disimpan di NVS/MicroSD (`/api/v1/schedules/compiled` atau `schedule-intents`).
+  - ESP32 Scheduler mematerialisasi kejadian hari ini ke dalam `todaySchedule[]` (`s_today_occurrences`) berstatus `PENDING`.
+- **Step 2 (Antrean Dosing Central / Serial Exclusive)**:
+  - Unit pompa dosing central (DP-A dan DP-B) bersifat *shared resource* yang dieksekusi secara serial eksklusif antar-Greenhouse (§10.1).
+  - Saat waktu persiapan tiba, batch masuk ke `queuedBatches[]` (`s_dosing_queue`).
+- **Step 3 (Peracikan Batch di Tangki GH)**:
+  - `MIXING_RAW_WATER`: Pengisian air baku dipantau flow meter hingga mencapai ambang batas konfigurasi (default 20%).
+  - `DOSING`: Pompa dosing central menginjeksi nutrisi stok secara berurutan: DP-A $\to$ DP-B.
+  - `FINAL_MIXING`: Homogenisasi/agitasi larutan di tangki batch GH.
+  - `MIX_READY`: Larutan 100% siap di tangki batch GH. Menunggu waktu distribusi tiba (`READY_TO_SEND`) atau siap disiram langsung.
+  - `WAITING_BATCH` (§12.3): Jika jam jadwal tiba sebelum peracikan selesai, kontroler menahan distribusi hingga larutan benar-benar siap (tidak akan menyiram air kosong).
+- **Step 4 (Distribusi / Fertigasi ke Tanaman)**:
+  - Pemicuan distribusi mengaktifkan pompa fertigasi GH hingga sensor pelampung bawah (*lower float switch*) trip (§12.4).
+  - Status berubah menjadi `COMPLETED`.
 
-3. Operator Actions & Safety Interlocks
-- **Siram Sekarang (Distribute Now)**: Unlocked exclusively when batch state is `MIX_READY`. Sends authoritative `FERTIGATION_DELIVER` command via `/api/v1/commands`.
-- **Racik Sekarang (Pre-Mix Now)**: Unlocked when batch is `WAITING_SCHEDULE` or `QUEUED`. Allows the operator to prepare the batch into the GH tank ahead of time per Section 13 ("Pre-Dosing dan Batch Preparation").
-- **Hentikan Operasi (Abort)**: Emergency stop during active filling, dosing, or distribution via `/api/v1/fertigation/stop`.
-
+3. Authoritative API & Command Handlers
+- `POST /api/v1/fertigation/deliver`: Pemicu langsung distribusi larutan yang berstatus `MIX_READY` via `fertigation_mgr_trigger_distribution(ghId, occurrenceId)`.
+- `POST /api/v1/commands` (`FERTIGATION_START`): Pemicuan peracikan awal (*pre-mix*) menggunakan execution plan terkompilasi via `fertigationService.startManual`.
+- `POST /api/v1/fertigation/stop`: Pembatalan darurat operasional batch via `fertigationService.stopManual`.

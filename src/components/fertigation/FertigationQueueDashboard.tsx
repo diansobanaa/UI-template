@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   StopCircle,
@@ -23,7 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import { esp32Client } from "@/lib/api/esp32-client";
-import { greenhouseService } from "@/lib/services";
+import { fertigationService, greenhouseService } from "@/lib/services";
 import { useToast } from "@/components/ui/toast";
 import type { FertigationSchedule, Recipe } from "@/lib/types";
 
@@ -42,6 +43,7 @@ export type MixingLifecycleState =
   | "DOSING"
   | "FINAL_MIXING"
   | "MIX_READY"
+  | "WAITING_BATCH"
   | "DISTRIBUTING"
   | "COMPLETED"
   | "BLOCKED"
@@ -97,7 +99,7 @@ export function FertigationQueueDashboard({
     return () => clearInterval(interval);
   }, [complexId]);
 
-  // Determine active hardware batch
+  // Determine active hardware batch on ESP32
   const activeFwState = useMemo(() => {
     if (!liveStatus) return "IDLE";
     const raw = (liveStatus.runtimeState || liveStatus.state || liveStatus.phase || "").toUpperCase();
@@ -109,6 +111,8 @@ export function FertigationQueueDashboard({
     return {
       batchId: liveStatus.batchId || liveStatus.runId || "NONE",
       ghId: liveStatus.ghId || "",
+      scheduleId: liveStatus.scheduleId || "",
+      occurrenceId: liveStatus.occurrenceId || "",
       state: activeFwState,
       targetWaterMl: liveStatus.targetWaterMl ?? liveStatus.rawWaterTargetMl ?? 0,
       actualWaterMl: liveStatus.actualWaterMl ?? liveStatus.rawWaterActualMl ?? 0,
@@ -119,123 +123,163 @@ export function FertigationQueueDashboard({
     };
   }, [liveStatus, activeFwState]);
 
-  // Helper to resolve lifecycle state for a specific schedule item
+  /**
+   * Authoritative correlation: matches schedule with occurrence in todaySchedule,
+   * queuedBatches, activeDeliveries, or activeBatch.
+   */
+  const resolveScheduleCorrelation = (s: FertigationSchedule) => {
+    const sId = s.id;
+    const sGh = s.ghId.toLowerCase();
+
+    // 1. Look for matching occurrence in todaySchedule[]
+    const occs: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    const occ = occs.find((o) => {
+      if (o.scheduleId && o.scheduleId === sId) return true;
+      if (o.schedule_id && o.schedule_id === sId) return true;
+      return false;
+    });
+
+    // 2. Look for matching entry in queuedBatches[]
+    const qItem = liveQueue.find((q) => {
+      if (q.scheduleId && q.scheduleId === sId) return true;
+      if (q.schedule_id && q.schedule_id === sId) return true;
+      if (occ && (q.occurrenceId === occ.occurrenceId || q.occurrence_id === occ.occurrenceId)) return true;
+      return false;
+    });
+
+    // 3. Look for active delivery slot in activeDeliveries[]
+    const deliveries: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
+    const delivery = deliveries.find((d) => {
+      if (occ && (d.occurrenceId === occ.occurrenceId || d.occurrence_id === occ.occurrenceId)) return true;
+      if (d.ghId && d.ghId.toLowerCase() === sGh) return true;
+      return false;
+    });
+
+    // 4. Check if active batch matches this schedule or occurrence
+    const isThisBatchActive = !!(
+      activeBatch &&
+      (activeBatch.scheduleId === sId ||
+        (occ && activeBatch.occurrenceId === occ.occurrenceId) ||
+        (activeBatch.ghId.toLowerCase() === sGh && activeBatch.state !== "IDLE"))
+    );
+
+    return { occ, qItem, delivery, isThisBatchActive };
+  };
+
+  // Determine exact lifecycle state for each schedule
   const resolveItemLifecycle = (s: FertigationSchedule): MixingLifecycleState => {
     if (s.status === "blocked" || s.activationState === "BLOCKED") {
       return "BLOCKED";
     }
 
-    const sGhId = s.ghId.toLowerCase();
-    const activeGh = activeBatch?.ghId?.toLowerCase();
+    const { occ, qItem, delivery, isThisBatchActive } = resolveScheduleCorrelation(s);
 
-    // Check if currently active on ESP32
-    if (activeBatch && activeGh === sGhId) {
-      if (activeBatch.state === "DELIVERY" || activeBatch.state === "DISTRIBUTING") {
-        return "DISTRIBUTING";
-      }
-      if (activeBatch.state === "MIX_READY" || activeBatch.state === "READY") {
-        return "MIX_READY";
-      }
-      if (activeBatch.state === "FINAL_MIXING") {
-        return "FINAL_MIXING";
-      }
-      if (activeBatch.state === "DOSING") {
-        return "DOSING";
-      }
-      if (activeBatch.state === "FILLING" || activeBatch.state === "MIXING_RAW_WATER" || activeBatch.state === "PRECHECK") {
-        return "MIXING_RAW_WATER";
-      }
-      if (activeBatch.state === "COMPLETE") {
-        return "COMPLETED";
-      }
-      if (activeBatch.state === "FAULTED") {
-        return "FAULTED";
+    // If delivery slot is active
+    if (delivery) {
+      const dState = (delivery.status || delivery.state || "").toUpperCase();
+      if (dState === "DISTRIBUTING") return "DISTRIBUTING";
+      if (dState === "READY_TO_SEND" || dState === "MIX_READY") return "MIX_READY";
+      if (dState === "COMPLETED") return "COMPLETED";
+    }
+
+    // If occurrence status is authoritative from firmware scheduler
+    if (occ) {
+      const occState = (occ.status || occ.state || "").toUpperCase();
+      if (occState === "DISTRIBUTING") return "DISTRIBUTING";
+      if (occState === "READY_TO_SEND") return "MIX_READY";
+      if (occState === "WAITING_BATCH") return "WAITING_BATCH";
+      if (occState === "COMPLETED") return "COMPLETED";
+      if (occState === "FAILED") return "FAULTED";
+      if (occState === "PREPARING") {
+        if (isThisBatchActive && activeBatch) {
+          if (activeBatch.state === "FILLING" || activeBatch.state === "MIXING_RAW_WATER" || activeBatch.state === "PRECHECK") return "MIXING_RAW_WATER";
+          if (activeBatch.state === "DOSING") return "DOSING";
+          if (activeBatch.state === "FINAL_MIXING") return "FINAL_MIXING";
+          if (activeBatch.state === "MIX_READY" || activeBatch.state === "READY") return "MIX_READY";
+        }
+        return "QUEUED";
       }
     }
 
-    // Check if in live queue array
-    const inFwQueue = liveQueue.some((q) => (q.ghId || q.gh_id || "").toLowerCase() === sGhId);
-    if (inFwQueue) {
+    // If currently active in hardware mixing task
+    if (isThisBatchActive && activeBatch) {
+      if (activeBatch.state === "DELIVERY" || activeBatch.state === "DISTRIBUTING") return "DISTRIBUTING";
+      if (activeBatch.state === "MIX_READY" || activeBatch.state === "READY") return "MIX_READY";
+      if (activeBatch.state === "FINAL_MIXING") return "FINAL_MIXING";
+      if (activeBatch.state === "DOSING") return "DOSING";
+      if (activeBatch.state === "FILLING" || activeBatch.state === "MIXING_RAW_WATER" || activeBatch.state === "PRECHECK") return "MIXING_RAW_WATER";
+      if (activeBatch.state === "COMPLETE") return "COMPLETED";
+      if (activeBatch.state === "FAULTED") return "FAULTED";
+    }
+
+    // If waiting in central dosing queue
+    if (qItem) {
       return "QUEUED";
     }
 
-    // Check if active delivery slot exists for this GH
-    if (Array.isArray(liveStatus?.activeDeliveries)) {
-      const delivery = liveStatus.activeDeliveries.find((d: any) => (d.ghId || d.gh_id || "").toLowerCase() === sGhId);
-      if (delivery) {
-        const dState = (delivery.status || delivery.state || "").toUpperCase();
-        if (dState === "DISTRIBUTING") return "DISTRIBUTING";
-        if (dState === "READY_TO_SEND" || dState === "MIX_READY") return "MIX_READY";
-      }
-    }
-
-    // Default to scheduled waiting
     return "WAITING_SCHEDULE";
   };
 
-  // Trigger distribution when batch is READY
+  // Trigger distribution for a batch that has reached MIX_READY
   const handleTriggerDistribution = async (s: FertigationSchedule) => {
+    const { occ } = resolveScheduleCorrelation(s);
+    const targetOccId = occ?.occurrenceId || occ?.occurrence_id || activeBatch?.batchId;
     const actionKey = `deliver-${s.id}`;
     setActionInProgress(actionKey);
+
     try {
-      await esp32Client.triggerDistribution(s.ghId, s.id);
-      toast(`Distribusi nutrisi untuk ${s.name} berhasil dimulai ke GH!`, "success");
+      await esp32Client.triggerDistribution(s.ghId, targetOccId);
+      toast(`Distribusi nutrisi untuk ${s.name} berhasil dipicu ke tanaman!`, "success");
       await fetchStatus(true);
     } catch (err: any) {
-      toast(`Gagal memicu distribusi: ${err?.message || "Kesalahan ESP32"}`, "error");
+      toast(`Gagal memicu distribusi: ${err?.message || "Kesalahan kontroler"}`, "error");
     } finally {
       setActionInProgress(null);
     }
   };
 
-  // Pre-mix batch ahead of time (Spec §13)
+  // Pre-mix batch ahead of schedule per Spec §13 using authoritative fertigationService
   const handlePreMixNow = async (s: FertigationSchedule) => {
     const actionKey = `premix-${s.id}`;
     setActionInProgress(actionKey);
+
     try {
-      await esp32Client.startFertigation({
-        scheduleId: s.id,
-        ghId: s.ghId,
-        targetWaterMl: s.targetWaterL * 1000,
-        rawWaterStartThresholdPercent: s.rawWaterStartThresholdPercent ?? 20,
-        dosingChannels: s.dosingChannels ?? [],
-        source: "UI_PREMIX",
-      });
-      toast(`Peracikan batch ${s.name} dimulai di tangki GH!`, "success");
+      await fertigationService.startManual(s.ghId, s.recipeId, s.targetWaterL);
+      toast(`Peracikan batch ${s.name} (${s.targetWaterL} L) berhasil dimulai di tangki GH!`, "success");
       await fetchStatus(true);
     } catch (err: any) {
-      toast(`Gagal memulai peracikan: ${err?.message || "Kesalahan ESP32"}`, "error");
+      toast(`Gagal memulai peracikan: ${err?.message || "Validasi interlock / kontroler gagal"}`, "error");
     } finally {
       setActionInProgress(null);
     }
   };
 
-  // Emergency abort
-  const handleAbort = async () => {
-    setActionInProgress("abort");
+  // Authoritative manual abort via fertigationService
+  const handleAbort = async (s: FertigationSchedule) => {
+    setActionInProgress(`abort-${s.id}`);
     try {
-      await esp32Client.stopFertigation();
-      toast("Operasi fertigasi berhasil dihentikan darurat.", "warning");
+      await fertigationService.stopManual(s.ghId);
+      toast(`Operasi fertigasi ${s.name} berhasil dihentikan.`, "warning");
       await fetchStatus(true);
     } catch (err: any) {
-      toast(`Gagal menghentikan fertigasi: ${err?.message || "Kesalahan ESP32"}`, "error");
+      toast(`Gagal menghentikan: ${err?.message || "Kesalahan kontroler"}`, "error");
     } finally {
       setActionInProgress(null);
     }
   };
 
-  // Filter queue if selectedGhId provided
+  // Filter queue for selected greenhouse if embedded
   const displayQueue = useMemo(() => {
     if (!selectedGhId) return queue;
     return queue.filter((s) => s.ghId.toLowerCase() === selectedGhId.toLowerCase());
   }, [queue, selectedGhId]);
 
-  // Aggregate stats
+  // Aggregate daily statistics
   const totalWaterL = displayQueue.reduce((acc, curr) => acc + (curr.targetWaterL || 0), 0);
   const readyCount = displayQueue.filter((s) => resolveItemLifecycle(s) === "MIX_READY").length;
   const inProgressCount = displayQueue.filter((s) => {
     const st = resolveItemLifecycle(s);
-    return st === "MIXING_RAW_WATER" || st === "DOSING" || st === "FINAL_MIXING" || st === "DISTRIBUTING";
+    return st === "MIXING_RAW_WATER" || st === "DOSING" || st === "FINAL_MIXING" || st === "DISTRIBUTING" || st === "WAITING_BATCH";
   }).length;
 
   return (
@@ -256,7 +300,7 @@ export function FertigationQueueDashboard({
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-slate-400">
-              Antrean eksekusi & status kesiapan larutan nutrisi tangki batch hari ini
+              Antrean eksekusi & status kesiapan larutan nutrisi tangki batch hari ini (Otoritas ESP32)
             </p>
           </div>
         </div>
@@ -269,7 +313,7 @@ export function FertigationQueueDashboard({
               : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
           }`}>
             <span className={`h-1.5 w-1.5 rounded-full ${offline ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`} />
-            {offline ? "ESP32 Offline (Local Cache)" : "ESP32 Telemetri Aktif"}
+            {offline ? "ESP32 Offline (Local Cache)" : "ESP32 Telemetri Otoritatif"}
           </span>
 
           <button
@@ -360,6 +404,7 @@ export function FertigationQueueDashboard({
               const gh = greenhouseService.get(s.ghId);
               const ghCode = gh?.code || s.ghId;
               const recipe = gh?.recipes?.find((r) => r.id === s.recipeId);
+              const correlation = resolveScheduleCorrelation(s);
               const lifecycle = resolveItemLifecycle(s);
 
               // Calculate dosing channels
@@ -375,13 +420,18 @@ export function FertigationQueueDashboard({
                   ghCode={ghCode}
                   recipe={recipe}
                   lifecycle={lifecycle}
+                  correlation={correlation}
                   dosingA={chA}
                   dosingB={chB}
                   activeBatch={activeBatch}
-                  isActionLoading={actionInProgress === `deliver-${s.id}` || actionInProgress === `premix-${s.id}`}
+                  isActionLoading={
+                    actionInProgress === `deliver-${s.id}` ||
+                    actionInProgress === `premix-${s.id}` ||
+                    actionInProgress === `abort-${s.id}`
+                  }
                   onTriggerDistribution={() => handleTriggerDistribution(s)}
                   onPreMixNow={() => handlePreMixNow(s)}
-                  onAbort={handleAbort}
+                  onAbort={() => handleAbort(s)}
                 />
               );
             })}
@@ -401,6 +451,7 @@ interface QueueItemCardProps {
   ghCode: string;
   recipe?: Recipe;
   lifecycle: MixingLifecycleState;
+  correlation: { occ?: any; qItem?: any; delivery?: any; isThisBatchActive: boolean };
   dosingA: number;
   dosingB: number;
   activeBatch: any;
@@ -415,6 +466,7 @@ function QueueItemCard({
   ghCode,
   recipe,
   lifecycle,
+  correlation,
   dosingA,
   dosingB,
   activeBatch,
@@ -425,7 +477,7 @@ function QueueItemCard({
 }: QueueItemCardProps) {
   // Mechanical stages
   const stages = [
-    { key: "fill", label: "1. Air Baku", desc: "Isi s/d Threshold" },
+    { key: "fill", label: "1. Air Baku", desc: "Isi s/d Threshold 20%" },
     { key: "dosing", label: "2. Dosing Serial", desc: "Nutrisi DP-A → DP-B" },
     { key: "mix", label: "3. Mix Ready", desc: "Homogen di Tangki" },
     { key: "dist", label: "4. Distribusi", desc: "Siram ke Tanaman" },
@@ -441,6 +493,8 @@ function QueueItemCard({
         return stageKey === "fill" || stageKey === "dosing" ? "done" : stageKey === "mix" ? "active" : "idle";
       case "MIX_READY":
         return stageKey === "fill" || stageKey === "dosing" || stageKey === "mix" ? "done" : "idle";
+      case "WAITING_BATCH":
+        return stageKey === "fill" || stageKey === "dosing" ? "done" : stageKey === "mix" ? "active" : "idle";
       case "DISTRIBUTING":
         return stageKey === "dist" ? "active" : "done";
       case "COMPLETED":
@@ -458,16 +512,25 @@ function QueueItemCard({
           pill: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
           dot: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]",
           label: "MIX READY (Siap di Tangki)",
-          description: "Larutan nutrisi sudah siap & homogen di tangki batch GH. Menunggu waktu distribusi atau siap disiram sekarang.",
+          description: `Larutan nutrisi sudah siap & homogen di tangki batch GH. Menunggu waktu distribusi pukul ${schedule.time || "--:--"} atau siap disiram sekarang.`,
           bannerBg: "border-emerald-500/30 bg-emerald-500/8",
           isReady: true,
+        };
+      case "WAITING_BATCH":
+        return {
+          pill: "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse",
+          dot: "bg-amber-400",
+          label: "JADWAL TIBA — MENYELESAIKAN MIXING",
+          description: "Waktu jadwal sudah tiba, namun larutan masih dalam proses peracikan. Sesuai safety spec §12.3, kontroler menahan distribusi hingga larutan benar-benar siap (tidak akan menyiram air kosong).",
+          bannerBg: "border-amber-500/30 bg-amber-500/8",
+          isReady: false,
         };
       case "MIXING_RAW_WATER":
         return {
           pill: "bg-blue-500/20 text-blue-300 border-blue-500/40 animate-pulse",
           dot: "bg-blue-400",
           label: "PENGISIAN AIR BAKU",
-          description: "Sedang mengisi air baku dari tangki pusat. Dosing nutrisi otomatis terbuka saat ambang 20% tercapai.",
+          description: "Sedang mengisi air baku dari tangki pusat ke tangki batch GH. Dosing nutrisi otomatis terbuka saat ambang 20% tercapai.",
           bannerBg: "border-blue-500/30 bg-blue-500/8",
           isReady: false,
         };
@@ -475,8 +538,8 @@ function QueueItemCard({
         return {
           pill: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse",
           dot: "bg-cyan-400",
-          label: "SEDANG DOSING SERIAL",
-          description: "Pompa dosing central aktif menginjeksi nutrisi stok secara serial (DP-A lalu DP-B).",
+          label: `SEDANG DOSING SERIAL [CH ${activeBatch?.activeChannel || "A"}]`,
+          description: "Pompa dosing central aktif menginjeksi nutrisi stok secara serial (DP-A selesai lalu dilanjutkan DP-B).",
           bannerBg: "border-cyan-500/30 bg-cyan-500/8",
           isReady: false,
         };
@@ -485,7 +548,7 @@ function QueueItemCard({
           pill: "bg-purple-500/20 text-purple-300 border-purple-500/40 animate-pulse",
           dot: "bg-purple-400",
           label: "HOMOGENISASI LARUTAN",
-          description: "Agitasi & pencampuran akhir di tangki GH untuk memastikan nilai EC dan pH merata.",
+          description: "Agitasi & pencampuran akhir di tangki GH untuk memastikan nilai EC dan pH merata sebelum disalurkan.",
           bannerBg: "border-purple-500/30 bg-purple-500/8",
           isReady: false,
         };
@@ -494,7 +557,7 @@ function QueueItemCard({
           pill: "bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse",
           dot: "bg-violet-400",
           label: "DISTRIBUSI KE TANAMAN",
-          description: "Pompa distribusi GH aktif menyiram ke dripper tanaman hingga sensor pelampung bawah trip.",
+          description: "Pompa distribusi GH aktif menyiram ke dripper tanaman hingga sensor pelampung bawah (lower float) trip.",
           bannerBg: "border-violet-500/30 bg-violet-500/8",
           isReady: true,
         };
@@ -503,7 +566,7 @@ function QueueItemCard({
           pill: "bg-amber-500/20 text-amber-300 border-amber-500/40",
           dot: "bg-amber-400 animate-pulse",
           label: "MENGANTRI DOSING CENTRAL",
-          description: "Batch mengantri giliran unit dosing central serial sebelum air baku & nutrisi dimasukkan.",
+          description: "Batch terdaftar di antrean ESP32. Menunggu giliran unit dosing central serial sebelum air baku & nutrisi dimasukkan.",
           bannerBg: "border-amber-500/20 bg-amber-500/5",
           isReady: false,
         };
@@ -516,17 +579,26 @@ function QueueItemCard({
           bannerBg: "border-rose-500/20 bg-rose-500/5",
           isReady: false,
         };
+      case "COMPLETED":
+        return {
+          pill: "bg-slate-800 text-emerald-400 border-emerald-500/30",
+          dot: "bg-emerald-400",
+          label: "SELESAI (Hari Ini)",
+          description: "Batch jadwal ini sudah berhasil diracik dan disalurkan penuh ke tanaman hari ini.",
+          bannerBg: "border-slate-800 bg-slate-950/20",
+          isReady: false,
+        };
       default:
         return {
           pill: "bg-slate-800 text-slate-300 border-slate-700",
           dot: "bg-slate-400",
           label: "MENUNGGU JADWAL",
-          description: "Larutan belum diracik di tangki GH. Sesuai spec, peracikan otomatis dimulai menjelang waktu jadwal.",
+          description: "Larutan belum diracik di tangki GH. Sesuai spec §13, peracikan otomatis dimulai menjelang waktu jadwal atau dapat dipre-mix sekarang.",
           bannerBg: "border-slate-800 bg-slate-950/25",
           isReady: false,
         };
     }
-  }, [lifecycle]);
+  }, [lifecycle, schedule.time, activeBatch?.activeChannel]);
 
   return (
     <div className={`rounded-xl border p-4 transition-all duration-200 ${
@@ -683,13 +755,13 @@ function QueueItemCard({
               type="button"
               onClick={onPreMixNow}
               disabled={isActionLoading}
-              title="Racik larutan sedini mungkin di tangki GH agar siap saat jam jadwal tiba"
+              title="Racik larutan sedini mungkin di tangki GH agar siap saat jam jadwal tiba (Spec §13)"
               className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/25 bg-cyan-600/20 px-3 py-1.5 text-[11px] font-semibold text-cyan-200 transition hover:bg-cyan-500/30 hover:border-cyan-400/40 disabled:opacity-50"
             >
               <FlaskConical className="h-3.5 w-3.5" />
               {isActionLoading ? "Memproses…" : "Racik Sekarang (Pre-Mix)"}
             </button>
-          ) : (lifecycle === "MIXING_RAW_WATER" || lifecycle === "DOSING" || lifecycle === "DISTRIBUTING") ? (
+          ) : (lifecycle === "MIXING_RAW_WATER" || lifecycle === "DOSING" || lifecycle === "FINAL_MIXING" || lifecycle === "DISTRIBUTING" || lifecycle === "WAITING_BATCH") ? (
             <button
               type="button"
               onClick={onAbort}

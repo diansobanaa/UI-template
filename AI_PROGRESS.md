@@ -1,29 +1,34 @@
-## SP-FERT-QUEUE-001 — Fertigation & Mixing Queue Lifecycle Dashboard (Spec §8 - §13 1:1 Integration)
+## SP-FERT-QUEUE-002 — Holistic Fertigation Lifecycle Architecture (Jadwal → Queue → Mixing → Fertigasi)
 - **Date**: 2026-10-02
-- **Status**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — LIVE STATUS & MIXING READINESS INTEGRATED`
+- **Status**: `COMPLETE & VERIFIED — ESP32 FIRMWARE BUILD PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
 - **Objective**:
-  1. Transform the static, bare "Queue" container into a rich, informative Fertigation & Mixing Queue Dashboard.
-  2. Implement authoritative mixing status: clearly differentiate whether the batch is `MIX_READY` (ready in GH batch tank), `QUEUED` (waiting for exclusive serial central dosing DP-A/DP-B), `MIXING_RAW_WATER` (filling to threshold), `DOSING` (serial pump dispensing), or `DISTRIBUTING` (irrigating plants).
-  3. Include comprehensive recipe & formula breakdown: Raw water target (L), Dosing Channels (Nutrient Stock A/B in mL), and Target EC/pH.
-  4. Implement 4-step mechanical progress stepper: 1. Air Baku → 2. Dosing Serial → 3. Mix Ready → 4. Distribusi.
-  5. Provide operational triggers: "Siram Sekarang" (Distribute Now) when `MIX_READY`, "Racik Sekarang" (Pre-Mix Now) ahead of schedule per Spec §13, and Emergency Abort.
-  6. Document in canonical specification `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 51.
+  1. Rebuild the Fertigation & Mixing Queue architecture with complete end-to-end holistic integrity from Schedule Creation → NVS/ESP32 Queue Deployment → Serial Central Dosing & Batch Preparation → Ready-to-Send / Wait Interlock → Distribution to Greenhouse Drippers.
+  2. Eliminate the 4 critical logic gaps:
+     - Gap 1 (Correlation): Correlate schedules directly with ESP32 `todaySchedule[]` and `queuedBatches[]` using `scheduleId` and `occurrenceId`, preventing state bleeding across multi-schedule greenhouses.
+     - Gap 2 (Pre-Mix Validation): Replace raw ad-hoc payload with `fertigationService.startManual` ensuring full `executionPlan` generation with calibration verification.
+     - Gap 3 (Distribution Trigger): Add `/api/v1/fertigation/deliver` handler in ESP32 firmware (`api_fertigation_handlers.c`) wired to `fertigation_mgr_trigger_distribution` and pass exact `occurrenceId`.
+     - Gap 4 (Waiting Batch Interlock): Render Spec §12.3 safety state `WAITING_BATCH` when scheduled time arrives before batch is ready, confirming raw water is never pumped without nutrients.
+  3. Update canonical documentation `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 51 and contract `contracts/UI_ESP32_OPENAPI.yaml`.
 
 ### Completed Work & Verification
+- `esp32/main/http/api_fertigation_handlers.c`:
+  - Added `deliver_handler` registered to `POST /api/v1/fertigation/deliver` calling `fertigation_mgr_trigger_distribution(gh_id, occ_id)`.
+  - Recompiled ESP-IDF firmware (`idf.py build`): EXIT CODE 0 (`agrotech_esp32.bin` generated, 50% flash free).
+- `contracts/UI_ESP32_OPENAPI.yaml`:
+  - Added OpenAPI path `/api/v1/fertigation/deliver` with schema and response definitions.
+- `src/lib/api/esp32-client.ts`:
+  - Enhanced `triggerDistribution(ghId, occurrenceId)` to target `/api/v1/fertigation/deliver` with fallback.
 - `src/components/fertigation/FertigationQueueDashboard.tsx`:
-  - Created standalone modular dashboard component with 3-second live polling to `/api/v1/fertigation/status` & `/api/v1/fertigation/queue`.
-  - Added KPI metrics: Total Raw Water Target Today (L), Mix Ready Batches, Active Mixing Batches, Central Dosing Unit state.
-  - Added detailed item cards with Recipe Name, scheduled time, next run, volume, and multi-tier lifecycle badges.
-  - Added 4-stage mechanical stepper showing progress against physical hardware state.
-  - Added interactive quick-actions: `Siram Sekarang` (sends `FERTIGATION_DELIVER`), `Racik Sekarang (Pre-Mix)` (sends `startFertigation`), and `Hentikan Operasi` (sends `stopFertigation`).
-- `src/app/schedule/page.tsx`:
-  - Replaced the bare static Queue card with `FertigationQueueDashboard`.
-  - Set layout to clean, responsive full width with ESP32 Configuration.
+  - Complete rewrite resolving correlation across `todaySchedule[]`, `queuedBatches[]`, and `activeDeliveries[]`.
+  - Added `WAITING_BATCH` state representation per Spec §12.3.
+  - Connected `onPreMixNow` to `fertigationService.startManual`.
+  - Connected `onAbort` to `fertigationService.stopManual`.
+  - Connected `onTriggerDistribution` with exact `occurrenceId`.
 - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
-  - Added Section 51: Fertigation & Mixing Queue Lifecycle Dashboard Specification.
+  - Added Section 51 detailing end-to-end lifecycle and API contract.
 - Verification:
-  - `npx tsc --noEmit`: Exit code 0 (0 errors).
-  - Dev server HTTP 200 OK verified on `http://localhost:5173`.
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+  - ESP32 Firmware Build: EXIT CODE 0.
 
 ---
 

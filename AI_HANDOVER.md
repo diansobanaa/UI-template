@@ -1,38 +1,25 @@
-# AI HANDOVER — SP-FERT-QUEUE-001 (latest)
+# AI HANDOVER — SP-FERT-QUEUE-002 (latest)
 
-## Status — SP-FERT-QUEUE-001
-**Fertigation & Mixing Queue Lifecycle Dashboard (Spec §8 - §13 1:1 Integration)**
-**Safe Point**: `SP-FERT-QUEUE-001`
+## Status — SP-FERT-QUEUE-002
+**Holistic Fertigation Lifecycle Architecture (Jadwal → Queue → Mixing → Fertigasi)**
+**Safe Point**: `SP-FERT-QUEUE-002`
 **Date**: 2026-10-02
-**Verdict**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — LIVE STATUS & MIXING READINESS INTEGRATED`
+**Verdict**: `COMPLETE & VERIFIED — ESP32 FIRMWARE BUILD PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
 
 ### Summary of What Was Done
-1. **Transformasi Kontainer Queue Menjadi Dashboard Siklus Hidup Fertigasi Otoritatif**:
-   - Kontainer "Queue: Pending executions for today" yang sebelumnya statis dan minim data kini diperkaya menjadi `FertigationQueueDashboard`.
-   - Polling telemetri langsung ke ESP32 (`/api/v1/fertigation/status` dan `/api/v1/fertigation/queue`) setiap 3 detik.
-2. **Keterbukaan Status Mixing & Kesiapan Tangki**:
-   - Menjawab pertanyaan kritis operator: *"Apakah larutan sudah siap di tangki batch GH (MIX_READY), sedang diracik, atau masih mengantri giliran dosing central (QUEUED)?"*
-   - Membedakan 8 status operasional mekanikal:
-     - `MIX_READY`: Larutan siap & homogen di tangki batch GH, menunggu jam distribusi atau siap disiram langsung.
-     - `QUEUED`: Mengantri giliran unit dosing central serial DP-A/DP-B.
-     - `MIXING_RAW_WATER`: Pengisian air baku (dengan indikator ambang dosing 20%).
-     - `DOSING`: Pompa dosing DP-A/DP-B sedang aktif berurutan secara serial.
-     - `FINAL_MIXING`: Homogenisasi/agitasi larutan di tangki batch GH.
-     - `DISTRIBUTING`: Pompa fertigasi GH sedang menyiram ke tanaman sampai pelampung bawah trip.
-     - `WAITING_SCHEDULE`: Menunggu waktu jadwal tiba.
-     - `BLOCKED`: Ditahan karena kalibrasi belum tersedia.
-3. **Rincian Resep & Formula Nutrisi**:
-   - Menampilkan Nama Resep, Target Air Baku (L), Dosis Nutrisi Stok A (mL), Dosis Nutrisi Stok B (mL), dan Target EC/pH.
-4. **Stepper Mekanikal 4 Tahap**:
-   - 1. Air Baku $\to$ 2. Dosing Serial $\to$ 3. Mix Ready $\to$ 4. Distribusi (Selesai ✓, Aktif ●, Antre ○).
-5. **Tombol Tindakan Cepat (Smart Quick-Actions)**:
-   - **Siram Sekarang**: Aktif saat `MIX_READY` untuk memicu distribusi ke GH secara langsung (`FERTIGATION_DELIVER`).
-   - **Racik Sekarang (Pre-Mix)**: Aktif saat jadwal masih menunggu atau mengantri, untuk menyiapkan batch sedini mungkin di tangki batch GH mendahului jadwal (sesuai Spec Section 13).
-   - **Hentikan Operasi**: Tombol darurat saat peracikan/distribusi sedang aktif.
-6. **Dokumentasi & Verifikasi**:
-   - Ditambahkan Bagian 51 di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
-   - `npx tsc --noEmit`: 0 error (exit code 0).
-   - Dev server HTTP 200 OK.
+1. **Analisis Komprehensif Siklus End-to-End**:
+   - Menelusuri seluruh siklus mekanikal: Pembuatan Jadwal $\to$ Deployment Snapshot ke NVS ESP32 $\to$ Materialisasi Kejadian (`todaySchedule[]`) $\to$ Antrean Dosing Central Serial (`queuedBatches[]`) $\to$ Pengisian Air Baku (Threshold 20%) $\to$ Injeksi Nutrisi Serial (DP-A $\to$ DP-B) $\to$ Homogenisasi $\to$ Kesiapan Batch (`MIX_READY` / `READY_TO_SEND`) $\to$ Penahanan Jadwal / Waiting Batch $\to$ Distribusi Pompa GH ke Tanaman hingga Pelampung Bawah Trip.
+2. **Eliminasi 4 Titik Bolong / Gap Logika**:
+   - **Korelasi Otoritatif**: Menghubungkan setiap kartu jadwal dengan kejadian riil di kontroler menggunakan `scheduleId` dan `occurrenceId` (bukan hanya `ghId`), sehingga status tidak bocor/tertukar antar-jadwal dalam GH yang sama.
+   - **Pre-Mix Otoritatif**: Mengganti payload ad-hoc dengan `fertigationService.startManual` yang otomatis menghasilkan `executionPlan` lengkap dengan verifikasi kalibrasi.
+   - **Pemicuan Distribusi Nyata**: Menambahkan endpoint `POST /api/v1/fertigation/deliver` di firmware ESP32 (`api_fertigation_handlers.c`) dan mengaitkannya ke `fertigation_mgr_trigger_distribution(gh_id, occ_id)` dengan `occurrenceId` riil.
+   - **Interlock Waiting Batch**: Menampilkan status `WAITING_BATCH` ketika jam jadwal tiba namun peracikan belum selesai, mengonfirmasi kontroler tidak akan menyiram air kosong tanpa nutrisi (Spec §12.3).
+3. **Penyelarasan Kontrak & Dokumentasi Otoritatif**:
+   - Menambahkan endpoint `/api/v1/fertigation/deliver` ke `contracts/UI_ESP32_OPENAPI.yaml`.
+   - Menambahkan Bagian 51 di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+4. **Verifikasi**:
+   - ESP32 Firmware Build (`idf.py build`): EXIT CODE 0 (`agrotech_esp32.bin` siap flash).
+   - Frontend Type Check (`npx tsc --noEmit`): EXIT CODE 0 (0 errors).
 
 ---
 

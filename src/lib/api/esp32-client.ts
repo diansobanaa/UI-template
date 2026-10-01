@@ -486,6 +486,7 @@ export class Esp32Client {
     return this.postEnveloped<any>("/api/v1/calibration/rate", {
       componentId,
       rateMlPerSec,
+      rateValue: rateMlPerSec,
       ...(version ? { version } : {}),
       ...(calibrationId ? { calibrationId } : {}),
       operator,
@@ -569,15 +570,23 @@ export class Esp32Client {
    * LAYER-B: Trigger distribution for a batch that has reached MIX_READY.
    * Maps to firmware: fertigation_mgr_trigger_distribution(gh_id, occurrence_id)
    */
-  async triggerDistribution(ghId: string, occurrenceId: string): Promise<any> {
-    const commandId = `fert-deliver-${ghId}-${occurrenceId}-${Date.now()}`;
-    return this.postEnveloped<any>("/api/v1/commands", {
-      commandId,
-      type: "FERTIGATION_DELIVER",
+  async triggerDistribution(ghId: string, occurrenceId?: string): Promise<any> {
+    const payload = {
+      ghId,
       targetGhId: ghId,
-      occurrenceId,
+      ...(occurrenceId ? { occurrenceId } : {}),
       source: "WEB_UI",
-    });
+    };
+    try {
+      return await this.postEnveloped<any>("/api/v1/fertigation/deliver", payload);
+    } catch {
+      const commandId = `fert-deliver-${ghId}-${occurrenceId || Date.now()}`;
+      return await this.postEnveloped<any>("/api/v1/commands", {
+        commandId,
+        type: "FERTIGATION_DELIVER",
+        ...payload,
+      });
+    }
   }
 
   /* -------------------------- Recipes (MicroSD) -------------------------- */

@@ -162,6 +162,32 @@ static esp_err_t queue_handler(httpd_req_t *req){
     return http_send_enveloped_response(req, 200, NULL, out);
 }
 
+static esp_err_t deliver_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *body = NULL;
+    if (http_parse_json_body(req, &body) != ESP_OK || !body) {
+        http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    cJSON *target = payload ? payload : body;
+    cJSON *gh = cJSON_GetObjectItem(target, "ghId");
+    if (!gh) gh = cJSON_GetObjectItem(target, "targetGhId");
+    cJSON *occ = cJSON_GetObjectItem(target, "occurrenceId");
+    const char *gh_id = (gh && cJSON_IsString(gh)) ? gh->valuestring : NULL;
+    const char *occ_id = (occ && cJSON_IsString(occ)) ? occ->valuestring : NULL;
+    esp_err_t err = fertigation_mgr_trigger_distribution(gh_id, occ_id);
+    cJSON_Delete(body);
+    if (err != ESP_OK) {
+        http_send_error(req, err == ESP_ERR_NOT_FOUND ? 404 : 409, "DISTRIBUTION_FAILED",
+                        "No batch in MIX_READY state found to distribute.", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "status", "DISTRIBUTING");
+    return http_send_enveloped_response(req, 200, NULL, o);
+}
+
 static esp_err_t stop_handler(httpd_req_t *req){
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
     if (fertigation_mgr_cancel_batch() != ESP_OK) {
@@ -177,5 +203,6 @@ void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t a={.uri="/api/v1/fertigation/start",.method=HTTP_POST,.handler=start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
     httpd_uri_t b={.uri="/api/v1/fertigation/status",.method=HTTP_GET,.handler=status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&b);
     httpd_uri_t q={.uri="/api/v1/fertigation/queue",.method=HTTP_GET,.handler=queue_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&q);
+    httpd_uri_t d={.uri="/api/v1/fertigation/deliver",.method=HTTP_POST,.handler=deliver_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&d);
     httpd_uri_t c={.uri="/api/v1/fertigation/stop",.method=HTTP_POST,.handler=stop_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&c);
 }
