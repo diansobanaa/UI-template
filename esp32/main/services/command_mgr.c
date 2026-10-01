@@ -451,15 +451,17 @@ static actuator_owner_t owner_for_source(const command_item_t *cmd) {
 
 static void log_command_event(event_level_t level, const char *code,
                               const char *message, const command_item_t *cmd) {
-  const command_item_t empty = {0};
-  const command_item_t *c = cmd ? cmd : &empty;
   const system_storage_state_t *storage = storage_mgr_get_state();
-  (void)event_mgr_log_command(level, code, message, c->command_id,
-                              c->target_complex_id[0]
-                                  ? c->target_complex_id
-                                  : (storage ? storage->complex_id : ""),
-                              c->target_gh_id, c->component_id, c->resource_id,
-                              c->configuration_version);
+  const char *complex_id = (cmd && cmd->target_complex_id[0])
+                               ? cmd->target_complex_id
+                               : (storage ? storage->complex_id : "");
+  (void)event_mgr_log_command(level, code, message,
+                              cmd ? cmd->command_id : "",
+                              complex_id,
+                              cmd ? cmd->target_gh_id : "",
+                              cmd ? cmd->component_id : "",
+                              cmd ? cmd->resource_id : "",
+                              cmd ? cmd->configuration_version : 0);
 }
 
 static void mark_cache_terminal(const char *command_id,
@@ -855,23 +857,25 @@ esp_err_t command_mgr_cancel(const char *command_id) {
     xSemaphoreGive(s_cache_mutex);
     return ESP_OK;
   }
-  command_item_t copy = *cached;
   cached->status = CMD_STATUS_CANCELLED;
   cached->completed_at = esp_timer_get_time() / 1000LL;
   copy_str(cached->result_code, sizeof(cached->result_code), "CANCELLED");
   copy_str(cached->message, sizeof(cached->message),
            "Command cancellation requested.");
+  log_command_event(LOG_LEVEL_WARNING, "COMMAND_CANCELLED",
+                    "Command cancellation requested.", cached);
+  char cancel_component[40] = {0};
+  copy_str(cancel_component, sizeof(cancel_component), cached->component_id);
+  actuator_owner_t cancel_owner = owner_for_source(cached);
+  cmd_type_t cancel_type = cached->type;
   xSemaphoreGive(s_cache_mutex);
 
-  if (copy.component_id[0])
-    (void)actuator_hal_stop_component(copy.component_id,
-                                      owner_for_source(&copy));
-  if (copy.type == CMD_TYPE_TANK_TRANSFER)
+  if (cancel_component[0])
+    (void)actuator_hal_stop_component(cancel_component, cancel_owner);
+  if (cancel_type == CMD_TYPE_TANK_TRANSFER)
     (void)transfer_mgr_stop();
-  if (copy.type == CMD_TYPE_FERTIGATION_BATCH)
+  if (cancel_type == CMD_TYPE_FERTIGATION_BATCH)
     (void)fertigation_mgr_cancel_batch();
-  log_command_event(LOG_LEVEL_WARNING, "COMMAND_CANCELLED",
-                    "Command cancellation requested.", &copy);
   return ESP_OK;
 }
 

@@ -31,7 +31,7 @@ extern "C" {
 #define TASK_HTTP_SERVER_STACK 10240
 #define TASK_HTTP_SERVER_PRIO 5
 
-#define TASK_COMMAND_MGR_STACK 4096
+#define TASK_COMMAND_MGR_STACK 8192
 #define TASK_COMMAND_MGR_PRIO 6
 
 // HEAP-FIX: Was 8192, reduced to 4096 caused stack overflow (telemetry_sampler

@@ -1088,38 +1088,42 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
   if (!safety_monitor_allows_scheduler())
     return ESP_ERR_INVALID_STATE;
 
-  command_item_t cmd;
-  memset(&cmd, 0, sizeof(cmd));
-  build_command_id(sched, occurrence, cmd.command_id);
-  cmd.status = CMD_STATUS_PENDING;
-  cmd.param_duration_sec = sched->duration_sec;
-  cmd.param_raw_volume_ml = sched->raw_water_ml;
-  cmd.configuration_version = storage_mgr_get_state()->config_version;
-  copy_string(cmd.source, sizeof(cmd.source), "SCHEDULER");
-  copy_string(cmd.target_complex_id, sizeof(cmd.target_complex_id),
+  command_item_t *cmd = calloc(1, sizeof(command_item_t));
+  if (!cmd)
+    return ESP_ERR_NO_MEM;
+  build_command_id(sched, occurrence, cmd->command_id);
+  cmd->status = CMD_STATUS_PENDING;
+  cmd->param_duration_sec = sched->duration_sec;
+  cmd->param_raw_volume_ml = sched->raw_water_ml;
+  cmd->configuration_version = storage_mgr_get_state()->config_version;
+  copy_string(cmd->source, sizeof(cmd->source), "SCHEDULER");
+  copy_string(cmd->target_complex_id, sizeof(cmd->target_complex_id),
               sched->complex_id);
-  copy_string(cmd.target_gh_id, sizeof(cmd.target_gh_id), sched->gh_id);
+  copy_string(cmd->target_gh_id, sizeof(cmd->target_gh_id), sched->gh_id);
   if (sched->resource_count > 0)
-    copy_string(cmd.resource_id, sizeof(cmd.resource_id),
+    copy_string(cmd->resource_id, sizeof(cmd->resource_id),
                 sched->resources[0].resource_id);
-  cmd.param_on = true;
+  cmd->param_on = true;
   if (sched->component_count > 0)
-    copy_string(cmd.component_id, sizeof(cmd.component_id),
+    copy_string(cmd->component_id, sizeof(cmd->component_id),
                 sched->component_ids[0]);
-  cmd.submitted_at = (int64_t)now;
+  cmd->submitted_at = (int64_t)now;
 
   if (strcmp(sched->action, "FERTIGATION") == 0) {
-    if (!sched->fertigation_payload_json[0])
+    if (!sched->fertigation_payload_json[0]) {
+      free(cmd);
       return ESP_ERR_INVALID_ARG;
-    copy_string(cmd.fertigation_payload_json,
-                sizeof(cmd.fertigation_payload_json),
+    }
+    copy_string(cmd->fertigation_payload_json,
+                sizeof(cmd->fertigation_payload_json),
                 sched->fertigation_payload_json);
-    cmd.type = CMD_TYPE_FERTIGATION_BATCH;
+    cmd->type = CMD_TYPE_FERTIGATION_BATCH;
   } else if (strcmp(sched->action, "WATER_PUMP") == 0) {
-    cmd.type = CMD_TYPE_COMPONENT_TIMED;
+    cmd->type = CMD_TYPE_COMPONENT_TIMED;
   } else if (strcmp(sched->action, "FAN_TOGGLE") == 0) {
-    cmd.type = CMD_TYPE_COMPONENT_TIMED;
+    cmd->type = CMD_TYPE_COMPONENT_TIMED;
   } else {
+    free(cmd);
     return ESP_ERR_NOT_SUPPORTED;
   }
 
@@ -1128,10 +1132,9 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
   sched->pending = true;
   sched->pending_occurrence_timestamp = occurrence;
   sched->current_command_id[0] = '\0';
-  marker_update(sched, MARKER_PENDING, occurrence, 0, cmd.command_id);
+  marker_update(sched, MARKER_PENDING, occurrence, 0, cmd->command_id);
 
-  command_item_t receipt;
-  esp_err_t err = command_mgr_submit(&cmd, &receipt);
+  esp_err_t err = command_mgr_submit(cmd, NULL);
   if (err != ESP_OK) {
     /* Submission did not reach the command queue. Keep the occurrence pending
      * for the next evaluation rather than declaring it executed. */
@@ -1139,6 +1142,7 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
     sched->pending = true;
     (void)marker_update(sched, MARKER_PENDING, sched->last_occurrence_timestamp,
                         sched->last_execution_timestamp, NULL);
+    free(cmd);
     return err;
   }
 
@@ -1148,8 +1152,9 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
   sched->pending_occurrence_timestamp = 0;
   sched->running = true;
   copy_string(sched->current_command_id, sizeof(sched->current_command_id),
-              receipt.command_id);
-  marker_update(sched, MARKER_RUNNING, occurrence, now, receipt.command_id);
+              cmd->command_id);
+  marker_update(sched, MARKER_RUNNING, occurrence, now, cmd->command_id);
+  free(cmd);
   (void)event_mgr_log_command(
       LOG_LEVEL_INFO, "SCHEDULE_TRIGGERED",
       "Active schedule occurrence dispatched to command queue.",
@@ -1599,43 +1604,46 @@ static void process_dosing_queue(time_t now) {
     if (fert_st == FERT_STATE_IDLE) {
       runtime_schedule_t *sched = find_schedule_by_id(head->schedule_id);
       if (sched && sched->fertigation_payload_json[0]) {
-        command_item_t cmd;
-        memset(&cmd, 0, sizeof(cmd));
-        snprintf(cmd.command_id, sizeof(cmd.command_id), "cmd-%.30s", head->queue_id);
-        cmd.type = CMD_TYPE_FERTIGATION_BATCH;
-        cmd.status = CMD_STATUS_PENDING;
-        const system_storage_state_t *st = storage_mgr_get_state();
-        cmd.configuration_version = st ? st->config_version : 0;
-        copy_string(cmd.source, sizeof(cmd.source), "SCHEDULER");
-        copy_string(cmd.target_complex_id, sizeof(cmd.target_complex_id), sched->complex_id);
-        copy_string(cmd.target_gh_id, sizeof(cmd.target_gh_id), head->gh_id);
-        cmd.submitted_at = (int64_t)now;
+        command_item_t *cmd = calloc(1, sizeof(command_item_t));
+        if (cmd) {
+          snprintf(cmd->command_id, sizeof(cmd->command_id), "cmd-%.30s", head->queue_id);
+          cmd->type = CMD_TYPE_FERTIGATION_BATCH;
+          cmd->status = CMD_STATUS_PENDING;
+          const system_storage_state_t *st = storage_mgr_get_state();
+          cmd->configuration_version = st ? st->config_version : 0;
+          copy_string(cmd->source, sizeof(cmd->source), "SCHEDULER");
+          copy_string(cmd->target_complex_id, sizeof(cmd->target_complex_id), sched->complex_id);
+          copy_string(cmd->target_gh_id, sizeof(cmd->target_gh_id), head->gh_id);
+          cmd->submitted_at = (int64_t)now;
 
-        cJSON *root = cJSON_Parse(sched->fertigation_payload_json);
-        if (root) {
-          cJSON_AddStringToObject(root, "queueId", head->queue_id);
-          cJSON_AddStringToObject(root, "occurrenceId", head->occurrence_id);
-          cJSON_AddStringToObject(root, "batchId", head->batch_id);
-          cJSON_AddStringToObject(root, "runId", head->batch_id);
-          cJSON_AddStringToObject(root, "targetGhId", head->gh_id);
-          char *pstr = cJSON_PrintUnformatted(root);
-          if (pstr) {
-            copy_string(cmd.fertigation_payload_json, sizeof(cmd.fertigation_payload_json), pstr);
-            free(pstr);
+          cJSON *root = cJSON_Parse(sched->fertigation_payload_json);
+          if (root) {
+            cJSON_AddStringToObject(root, "queueId", head->queue_id);
+            cJSON_AddStringToObject(root, "occurrenceId", head->occurrence_id);
+            cJSON_AddStringToObject(root, "batchId", head->batch_id);
+            cJSON_AddStringToObject(root, "runId", head->batch_id);
+            cJSON_AddStringToObject(root, "targetGhId", head->gh_id);
+            char *pstr = cJSON_PrintUnformatted(root);
+            if (pstr) {
+              copy_string(cmd->fertigation_payload_json, sizeof(cmd->fertigation_payload_json), pstr);
+              free(pstr);
+            }
+            cJSON_Delete(root);
+          } else {
+            copy_string(cmd->fertigation_payload_json, sizeof(cmd->fertigation_payload_json), sched->fertigation_payload_json);
           }
-          cJSON_Delete(root);
-        } else {
-          copy_string(cmd.fertigation_payload_json, sizeof(cmd.fertigation_payload_json), sched->fertigation_payload_json);
-        }
 
-        command_item_t receipt;
-        esp_err_t err = command_mgr_submit(&cmd, &receipt);
-        if (err == ESP_OK) {
-          head->state = QUEUE_STATE_DISPATCHED;
-          head->dispatched_at_ms = (int64_t)(esp_timer_get_time() / 1000ULL);
-          ESP_LOGI(TAG, "Global Dosing Queue HEAD %s dispatched (latch set)", head->queue_id);
+          esp_err_t err = command_mgr_submit(cmd, NULL);
+          free(cmd);
+          if (err == ESP_OK) {
+            head->state = QUEUE_STATE_DISPATCHED;
+            head->dispatched_at_ms = (int64_t)(esp_timer_get_time() / 1000ULL);
+            ESP_LOGI(TAG, "Global Dosing Queue HEAD %s dispatched (latch set)", head->queue_id);
+          } else {
+            ESP_LOGE(TAG, "Global Dosing Queue HEAD %s dispatch rejected: %d", head->queue_id, err);
+            head->state = QUEUE_STATE_FAILED;
+          }
         } else {
-          ESP_LOGE(TAG, "Global Dosing Queue HEAD %s dispatch rejected: %d", head->queue_id, err);
           head->state = QUEUE_STATE_FAILED;
         }
       } else {

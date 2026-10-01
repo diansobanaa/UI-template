@@ -380,6 +380,31 @@ export class Esp32Client {
     return this.deleteEnveloped(`/api/v1/commands/${encodeURIComponent(commandId)}`);
   }
 
+  /**
+   * Unified helper to run any actuator/dosing pump with duration.
+   */
+  async runPump(
+    componentId: string,
+    durationSeconds: number,
+    options?: {
+      maxRuntimeSec?: number;
+      resourceId?: string;
+      targetComplexId?: string;
+      targetGhId?: string;
+      configurationVersion?: number;
+      source?: string;
+      parameters?: Record<string, unknown>;
+      rawWaterVolumeMl?: number;
+    }
+  ): Promise<CommandReceipt> {
+    const cmdId = `pump-${componentId}-${Date.now()}`;
+    return this.postCommand(cmdId, "DOSING_RUN_START", {
+      componentId,
+      durationSeconds,
+      ...options,
+    });
+  }
+
   /* -------------------------- Canonical Crop Cycle (OpenAPI) -------------------------- */
 
   async getCurrentCropCycle(ghId: string): Promise<CurrentCropCycleResponse> {

@@ -2420,11 +2420,7 @@ export const fertigationService = {
     pumpTestRuns.add(pumpId);
     try {
       if (isDirectEsp32Enabled()) {
-        const cmdId = `test-${pumpId}-${Date.now()}`;
-        await esp32Client.postCommand(cmdId, "DOSING_RUN_START", {
-          componentId: pumpId.replace("dev-", ""),
-          durationSeconds: 5,
-        });
+        await esp32Client.runPump(pumpId.replace("dev-", ""), 5);
       }
     } catch (err: unknown) {
       const errorObj = err as { message?: string };

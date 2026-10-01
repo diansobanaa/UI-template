@@ -1,3 +1,38 @@
+## SP-CMD-WORKER-STACK-001 — Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification
+- **Date**: 2026-10-01
+- **Status**: `BUILD & VERIFICATION PASS — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — VITE/TYPESCRIPT CLEAN`
+- **Objective**:
+  1. Fix fatal FreeRTOS stack overflow in task `cmd_worker` (`***ERROR*** A stack overflow in task cmd_worker has been detected.`) triggered when executing dosing pump test run from `/fertigation` (`DOSING_RUN_START`).
+  2. Eliminate 6.55 KB stack allocation in `command_mgr.c` (`log_command_event()`) by removing `const command_item_t empty = {0};` and using zero-stack null-coalescing ternary checks.
+  3. Eliminate 6.55 KB stack copy in `command_mgr.c` (`command_mgr_cancel()`) by logging directly from the cache pointer and extracting only needed scalar fields under mutex.
+  4. Increase `TASK_COMMAND_MGR_STACK` from 4096 to 8192 bytes in `system_config.h` to give safe FreeRTOS headroom.
+  5. Audit and eliminate 13 KB stack allocation in `scheduler.c` (`submit_scheduler_command()` and `process_dosing_queue()`) by replacing stack `command_item_t` with heap-allocated instances.
+  6. Add unified, clean `esp32Client.runPump(componentId, durationSeconds)` protocol helper in `esp32-client.ts` and update `fertigationService.testPump()` to use it.
+
+### Root Causes & Code Defects Identified
+1. **Asymmetry between Calibration & Fertigation**:
+   - `/calibration` uses direct `calibration_mgr` (task `calib_mgr`) via `POST /api/v1/calibration`, bypassing `command_mgr` completely.
+   - `/fertigation` test run calls `POST /api/v1/commands` (`DOSING_RUN_START`), which queues into `s_cmd_queue` and executes in task `cmd_worker`.
+2. **Stack Overflow in `cmd_worker`**:
+   - Struct `command_item_t` is ~6.55 KB (dominated by `char fertigation_payload_json[6144]`).
+   - Task `cmd_worker` was created with `TASK_COMMAND_MGR_STACK = 4096` bytes.
+   - In `log_command_event()`, `const command_item_t empty = {0};` was allocated on the stack (6.55 KB), instantly overflowing the 4 KB stack and corrupting the canary (`0xa5a5a5a5`).
+3. **Latent Stack Overflows in `scheduler.c`**:
+   - `submit_scheduler_command()` had both `command_item_t cmd;` and `command_item_t receipt;` on the stack (13 KB on 6 KB scheduler stack).
+   - `process_dosing_queue()` also had `command_item_t cmd;` and `receipt;` on the stack.
+
+### Completed Work & Verification
+- `esp32/main/services/command_mgr.c`: Eliminated `empty` stack struct in `log_command_event()`; eliminated `copy` stack struct in `command_mgr_cancel()`.
+- `esp32/main/config/system_config.h`: Increased `TASK_COMMAND_MGR_STACK` from 4096 to 8192 bytes.
+- `esp32/main/services/scheduler.c`: Switched `submit_scheduler_command()` and `process_dosing_queue()` to heap-allocate `cmd` and pass `NULL` for unused `out_receipt`.
+- `src/lib/api/esp32-client.ts`: Added unified `runPump(componentId, durationSeconds, options)` helper.
+- `src/lib/services.ts`: Updated `testPump()` to use `esp32Client.runPump()`.
+- Verification:
+  - Frontend: `npm run build` PASS (Exit code 0, singlefile dist created).
+  - ESP32 Firmware: `idf.py build` PASS (Exit code 0, `agrotech_esp32.bin` 0x17fe90 bytes, 50% flash partition free).
+
+---
+
 ## SP-MOSFET-POLARITY-001 — Fix MOSFET Dosing Pump Active-Level Polarity Inversion & Safe Boot Default
 - **Date**: 2026-10-01
 - **Git Commit**: `9bed932`

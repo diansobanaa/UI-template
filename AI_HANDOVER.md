@@ -1,6 +1,34 @@
-# AI HANDOVER — SP-MOSFET-POLARITY-001 (latest)
+# AI HANDOVER — SP-CMD-WORKER-STACK-001 (latest)
 
-## Status — SP-MOSFET-POLARITY-001
+## Status — SP-CMD-WORKER-STACK-001
+**Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification**
+**Safe Point**: `SP-CMD-WORKER-STACK-001`
+**Date**: 2026-10-01
+**Verdict**: `BUILD & VERIFICATION PASS — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — VITE/TYPESCRIPT CLEAN`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah (Mengapa Fertigation Test Run Crash, Tapi Calibration Berjalan Normal)**:
+   - Halaman Kalibrasi memanggil `POST /api/v1/calibration`, yang langsung ditangani oleh `calibration_mgr` (task `calib_mgr`) dan HAL aktuator. Jalur ini sama sekali tidak menyentuh antrean command.
+   - Halaman Fertigasi memanggil `POST /api/v1/commands` (`DOSING_RUN_START`), yang mengantrekan perintah ke task FreeRTOS `cmd_worker` (`command_worker_task`).
+   - Task `cmd_worker` memiliki stack 4096 byte. Saat memanggil `log_command_event()`, fungsi tersebut mendeklarasikan `const command_item_t empty = {0};` di stack. Ukuran struct `command_item_t` adalah ~6.55 KB (akibat field statis `char fertigation_payload_json[6144]`). Alokasi 6.55 KB pada stack 4 KB seketika menimpa stack canary FreeRTOS (`0xa5a5a5a5`) dan memicu `***ERROR*** A stack overflow in task cmd_worker has been detected.`
+2. **Perbaikan Firmware & Best Practice Embedded**:
+   - `esp32/main/services/command_mgr.c`:
+     - Menghapus variabel lokal `empty` di `log_command_event()`. Pointer `cmd` kini diperiksa dengan *null-coalescing ternary check* langsung (0 bytes stack).
+     - Di `command_mgr_cancel()`, menghapus salinan lokal 6.5 KB `command_item_t copy = *cached;` dan menggantinya dengan logging langsung serta ekstraksi field skalar ringkas di bawah mutex lock.
+   - `esp32/main/config/system_config.h`:
+     - Menaikkan `TASK_COMMAND_MGR_STACK` dari `4096` menjadi `8192` byte untuk memberikan *headroom* FreeRTOS yang sangat aman.
+   - `esp32/main/services/scheduler.c`:
+     - Menghapus potensi bom waktu stack overflow di `submit_scheduler_command()` dan `process_dosing_queue()` dengan mengalokasikan `command_item_t *cmd` di heap (`calloc`) dan membebaskannya (`free`), serta tidak lagi mengalokasikan `receipt` 6.5 KB di stack.
+3. **Unifikasi Protokol di Frontend**:
+   - `src/lib/api/esp32-client.ts`: Menambahkan helper method terpadu `runPump(componentId, durationSeconds, options)`.
+   - `src/lib/services.ts`: Mengarahkan `fertigationService.testPump()` menggunakan helper `esp32Client.runPump()`.
+4. **Hasil Verifikasi**:
+   - `npm run build`: Lulus 100% (Vite production bundle built cleanly).
+   - `idf.py build`: Lulus 100% (`agrotech_esp32.bin` 0x17fe90 bytes, 50% flash partition free).
+
+---
+
+# AI HANDOVER — SP-MOSFET-POLARITY-001
 **Fix MOSFET Dosing Pump Active-Level Polarity Inversion & Safe Boot Default**
 **Safe Point**: `SP-MOSFET-POLARITY-001`
 **Date**: 2026-10-01
