@@ -1,6 +1,7 @@
 ## SP-CMD-WORKER-STACK-001 — Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification
 - **Date**: 2026-10-01
 - **Status**: `BUILD & VERIFICATION PASS — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — VITE/TYPESCRIPT CLEAN`
+- **Git Commit**: `a004339`
 - **Objective**:
   1. Fix fatal FreeRTOS stack overflow in task `cmd_worker` (`***ERROR*** A stack overflow in task cmd_worker has been detected.`) triggered when executing dosing pump test run from `/fertigation` (`DOSING_RUN_START`).
   2. Eliminate 6.55 KB stack allocation in `command_mgr.c` (`log_command_event()`) by removing `const command_item_t empty = {0};` and using zero-stack null-coalescing ternary checks.
@@ -8,6 +9,7 @@
   4. Increase `TASK_COMMAND_MGR_STACK` from 4096 to 8192 bytes in `system_config.h` to give safe FreeRTOS headroom.
   5. Audit and eliminate 13 KB stack allocation in `scheduler.c` (`submit_scheduler_command()` and `process_dosing_queue()`) by replacing stack `command_item_t` with heap-allocated instances.
   6. Add unified, clean `esp32Client.runPump(componentId, durationSeconds)` protocol helper in `esp32-client.ts` and update `fertigationService.testPump()` to use it.
+  7. Production Integration for Dosing Pump Status: Replaced hardcoded dummy stubs (`"—"`, `"0 ml/min"`) with real dynamic queries to authoritative calibration records (`operationalPythonClient.listCalibrations`) and ESP32 hardware calibration rates (`esp32Client.getCalibrationRates()`). Cleaned up UI for enterprise production.
 
 ### Root Causes & Code Defects Identified
 1. **Asymmetry between Calibration & Fertigation**:
@@ -20,16 +22,21 @@
 3. **Latent Stack Overflows in `scheduler.c`**:
    - `submit_scheduler_command()` had both `command_item_t cmd;` and `command_item_t receipt;` on the stack (13 KB on 6 KB scheduler stack).
    - `process_dosing_queue()` also had `command_item_t cmd;` and `receipt;` on the stack.
+4. **Hardcoded Calibration Placeholders in UI Services**:
+   - `dosingLastCalibration()` in `services.ts` was hardcoded to return `"—"`.
+   - `getDynamicDosingPumps()` had static `rate: "0 ml/min"`.
 
 ### Completed Work & Verification
 - `esp32/main/services/command_mgr.c`: Eliminated `empty` stack struct in `log_command_event()`; eliminated `copy` stack struct in `command_mgr_cancel()`.
 - `esp32/main/config/system_config.h`: Increased `TASK_COMMAND_MGR_STACK` from 4096 to 8192 bytes.
 - `esp32/main/services/scheduler.c`: Switched `submit_scheduler_command()` and `process_dosing_queue()` to heap-allocate `cmd` and pass `NULL` for unused `out_receipt`.
 - `src/lib/api/esp32-client.ts`: Added unified `runPump(componentId, durationSeconds, options)` helper.
-- `src/lib/services.ts`: Updated `testPump()` to use `esp32Client.runPump()`.
+- `src/lib/services.ts`: Dynamic authoritative calibration timestamp and flow rate lookup connecting to ESP32 `/api/v1/calibration/rate` and stored calibration records.
+- `src/app/fertigation/page.tsx`: Enterprise-grade Dosing Pump Status card displaying real `lastCalibration` state, authoritative flow rate per pump, and quick action.
 - Verification:
   - Frontend: `npm run build` PASS (Exit code 0, singlefile dist created).
   - ESP32 Firmware: `idf.py build` PASS (Exit code 0, `agrotech_esp32.bin` 0x17fe90 bytes, 50% flash partition free).
+  - Physical Execution: Flashed to COM3. Both `pump_dosing_a` and `pump_dosing_b` executed via `POST /api/v1/commands` without crashing, completing with `COMPLETED`. Continuous uptime confirmed.
 
 ---
 

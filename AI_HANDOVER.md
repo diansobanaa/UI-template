@@ -4,6 +4,7 @@
 **Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification**
 **Safe Point**: `SP-CMD-WORKER-STACK-001`
 **Date**: 2026-10-01
+**Git Commit**: `a004339`
 **Verdict**: `BUILD & VERIFICATION PASS — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — VITE/TYPESCRIPT CLEAN`
 
 ### Summary of What Was Done
@@ -22,9 +23,14 @@
 3. **Unifikasi Protokol di Frontend**:
    - `src/lib/api/esp32-client.ts`: Menambahkan helper method terpadu `runPump(componentId, durationSeconds, options)`.
    - `src/lib/services.ts`: Mengarahkan `fertigationService.testPump()` menggunakan helper `esp32Client.runPump()`.
-4. **Hasil Verifikasi**:
+4. **Integrasi Produksi Dosing Pump Status & Kalibrasi Otentik**:
+   - Menghapus hardcoded stub dummy `dosingLastCalibration() { return "—"; }` dan flow rate static `"0 ml/min"`.
+   - Mengintegrasikan query dinamis ke `operationalPythonClient.listCalibrations()` dan ESP32 hardware rate `esp32Client.getCalibrationRates()`.
+   - Di UI [src/app/fertigation/page.tsx](file:///d:/agrochatgpt/src/app/fertigation/page.tsx), panel `Dosing Pump Status` menampilkan tanggal kalibrasi nyata (`lastCalibration`), laju alir aktual per pompa, dan tombol aksi "Calibrate All" standar enterprise.
+5. **Hasil Verifikasi**:
    - `npm run build`: Lulus 100% (Vite production bundle built cleanly).
    - `idf.py build`: Lulus 100% (`agrotech_esp32.bin` 0x17fe90 bytes, 50% flash partition free).
+   - Flashed ke `COM3` & live execution test: `pump_dosing_a` dan `pump_dosing_b` sukses berjalan dan selesai dengan status `COMPLETED` tanpa reboot.
 
 ---
 
