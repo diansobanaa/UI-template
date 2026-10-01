@@ -1,4 +1,42 @@
-# AI HANDOVER — SP-FERT-TESTRUN-001 (latest)
+# AI HANDOVER — SP-FERT-QUEUE-001 (latest)
+
+## Status — SP-FERT-QUEUE-001
+**Fertigation & Mixing Queue Lifecycle Dashboard (Spec §8 - §13 1:1 Integration)**
+**Safe Point**: `SP-FERT-QUEUE-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — LIVE STATUS & MIXING READINESS INTEGRATED`
+
+### Summary of What Was Done
+1. **Transformasi Kontainer Queue Menjadi Dashboard Siklus Hidup Fertigasi Otoritatif**:
+   - Kontainer "Queue: Pending executions for today" yang sebelumnya statis dan minim data kini diperkaya menjadi `FertigationQueueDashboard`.
+   - Polling telemetri langsung ke ESP32 (`/api/v1/fertigation/status` dan `/api/v1/fertigation/queue`) setiap 3 detik.
+2. **Keterbukaan Status Mixing & Kesiapan Tangki**:
+   - Menjawab pertanyaan kritis operator: *"Apakah larutan sudah siap di tangki batch GH (MIX_READY), sedang diracik, atau masih mengantri giliran dosing central (QUEUED)?"*
+   - Membedakan 8 status operasional mekanikal:
+     - `MIX_READY`: Larutan siap & homogen di tangki batch GH, menunggu jam distribusi atau siap disiram langsung.
+     - `QUEUED`: Mengantri giliran unit dosing central serial DP-A/DP-B.
+     - `MIXING_RAW_WATER`: Pengisian air baku (dengan indikator ambang dosing 20%).
+     - `DOSING`: Pompa dosing DP-A/DP-B sedang aktif berurutan secara serial.
+     - `FINAL_MIXING`: Homogenisasi/agitasi larutan di tangki batch GH.
+     - `DISTRIBUTING`: Pompa fertigasi GH sedang menyiram ke tanaman sampai pelampung bawah trip.
+     - `WAITING_SCHEDULE`: Menunggu waktu jadwal tiba.
+     - `BLOCKED`: Ditahan karena kalibrasi belum tersedia.
+3. **Rincian Resep & Formula Nutrisi**:
+   - Menampilkan Nama Resep, Target Air Baku (L), Dosis Nutrisi Stok A (mL), Dosis Nutrisi Stok B (mL), dan Target EC/pH.
+4. **Stepper Mekanikal 4 Tahap**:
+   - 1. Air Baku $\to$ 2. Dosing Serial $\to$ 3. Mix Ready $\to$ 4. Distribusi (Selesai ✓, Aktif ●, Antre ○).
+5. **Tombol Tindakan Cepat (Smart Quick-Actions)**:
+   - **Siram Sekarang**: Aktif saat `MIX_READY` untuk memicu distribusi ke GH secara langsung (`FERTIGATION_DELIVER`).
+   - **Racik Sekarang (Pre-Mix)**: Aktif saat jadwal masih menunggu atau mengantri, untuk menyiapkan batch sedini mungkin di tangki batch GH mendahului jadwal (sesuai Spec Section 13).
+   - **Hentikan Operasi**: Tombol darurat saat peracikan/distribusi sedang aktif.
+6. **Dokumentasi & Verifikasi**:
+   - Ditambahkan Bagian 51 di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+   - `npx tsc --noEmit`: 0 error (exit code 0).
+   - Dev server HTTP 200 OK.
+
+---
+
+# AI HANDOVER — SP-FERT-TESTRUN-001
 
 ## Status — SP-FERT-TESTRUN-001
 **Dosing Pump Test Run Presets (10s, 30s, 60s), Volumetric Targets & Realtime UX**

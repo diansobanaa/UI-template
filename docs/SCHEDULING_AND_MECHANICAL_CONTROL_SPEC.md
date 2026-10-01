@@ -3574,4 +3574,26 @@ PYTHON SAVE + ANALYSIS
 - Active State UX: Real-time countdown timer, animated liquid dispensing estimation, and percentage progress bar.
 - Emergency Abort: Operator can immediately stop the test run using `Hentikan Sekarang`, which sends `DOSING_RUN_STOP` to instantly deactivate the GPIO relay/MOSFET on the ESP32.
 - Completion Guidance: Upon test completion, UI displays the exact target volume and suggests re-calibration if physical collected volume deviates noticeably.
+
+51. Fertigation & Mixing Queue Lifecycle Dashboard Specification (SP-FERT-QUEUE-001)
+
+1. Purpose & Overview
+- Transforms the static schedule queue container into an informative, real-time Fertigation & Mixing Queue Dashboard.
+- Bridges the gap between static user schedules (`schedules[]`), authoritative hardware runtime (`/api/v1/fertigation/status` & `/api/v1/fertigation/queue`), and mechanical execution rules (§8 - §13).
+- Directly answers the core operator question: **"Apakah larutan nutrisi sudah siap di tangki (MIX_READY), sedang diracik, atau masih mengantri giliran dosing central (QUEUED)?"**
+
+2. State Decomposition & Visual Mapping
+- **WAITING_SCHEDULE (Menunggu Jadwal)**: Scheduled for a future time slot (e.g. 06:00). Batch has not started preparation yet.
+- **QUEUED (Mengantri Dosing Central)**: Batch preparation has been generated and is queued, waiting for exclusive serial access to central dosing pumps DP-A/DP-B (§10.3).
+- **MIXING_RAW_WATER (Pengisian Air Baku)**: Raw water is actively filling the GH batch tank until the configurable threshold (default 20%) is reached (§9.3).
+- **DOSING (Dosing Serial)**: Central dosing pumps are actively dispensing nutrient stock solutions in strict serial sequence (DP-A $\to$ DP-B $\to$ DP-N) (§10.1).
+- **FINAL_MIXING (Homogenisasi)**: Agitator / recirculation is active in the GH batch tank to ensure uniform EC and pH.
+- **MIX_READY (Siap di Tangki)**: Nutrient solution is 100% prepared, homogeneous, and resting in the GH batch tank. Ready for scheduled distribution time or immediate manual trigger (§11, §12.2).
+- **DISTRIBUTING (Distribusi / Menyiram)**: GH fertigation pump is actively pumping solution to the drippers until the lower float switch trips (§12.4).
+- **BLOCKED (Terblokir)**: Held due to missing calibration snapshot or missing hardware (§8.1).
+
+3. Operator Actions & Safety Interlocks
+- **Siram Sekarang (Distribute Now)**: Unlocked exclusively when batch state is `MIX_READY`. Sends authoritative `FERTIGATION_DELIVER` command via `/api/v1/commands`.
+- **Racik Sekarang (Pre-Mix Now)**: Unlocked when batch is `WAITING_SCHEDULE` or `QUEUED`. Allows the operator to prepare the batch into the GH tank ahead of time per Section 13 ("Pre-Dosing dan Batch Preparation").
+- **Hentikan Operasi (Abort)**: Emergency stop during active filling, dosing, or distribution via `/api/v1/fertigation/stop`.
 
