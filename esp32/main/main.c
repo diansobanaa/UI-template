@@ -52,51 +52,53 @@ static void safe_boot_actuators(void) {
   ESP_LOGI(TAG,
            "Executing safe boot: initializing all outputs to OFF state...");
 
-  const gpio_num_t output_pins[] = {
-      PIN_OUT_WELL_PUMP,  PIN_OUT_DIST_PUMP,   PIN_OUT_RAW_SUBMERSIBLE,
-      PIN_OUT_DOSING_A,   PIN_OUT_DOSING_B,    PIN_OUT_COOLING_FAN,
-      PIN_OUT_BLOWER_FAN, PIN_OUT_MIXING_PUMP,
-      PIN_OUT_BUZZER, // P0-FIX: Buzzer (GPIO 18, active-HIGH) was missing —
-                      // false trigger during boot
-      PIN_OUT_ERROR_LAMP // -1 = unmapped, gpio_config skips pins < 0
+  const struct {
+    gpio_num_t pin;
+    uint8_t active_level; /* 0 = Active-LOW (Relays), 1 = Active-HIGH (MOSFETs) */
+  } output_channels[] = {
+      {PIN_OUT_WELL_PUMP, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_DIST_PUMP, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_RAW_SUBMERSIBLE, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_DOSING_A, DOSING_ACTIVE_LEVEL},
+      {PIN_OUT_DOSING_B, DOSING_ACTIVE_LEVEL},
+      {PIN_OUT_COOLING_FAN, COOLING_FAN_ACTIVE_LEVEL},
+      {PIN_OUT_BLOWER_FAN, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_MIXING_PUMP, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_BUZZER, BUZZER_ACTIVE_LEVEL},
+      {PIN_OUT_ERROR_LAMP, RELAY_ACTIVE_LEVEL},
   };
 
-  gpio_config_t io_conf = {
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en =
-          (ACTUATOR_LEVEL_OFF == 1) ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
-      .pull_down_en = (ACTUATOR_LEVEL_OFF == 0) ? GPIO_PULLDOWN_ENABLE
-                                                : GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-      .pin_bit_mask = 0};
-
-  for (size_t i = 0; i < sizeof(output_pins) / sizeof(output_pins[0]); ++i) {
-    if (output_pins[i] < 0)
+  for (size_t i = 0; i < sizeof(output_channels) / sizeof(output_channels[0]);
+       ++i) {
+    gpio_num_t pin = output_channels[i].pin;
+    if (pin < 0)
       continue;
-    /* P0-FIX: Buzzer is active-HIGH (BUZZER_ACTIVE_LEVEL=1), so OFF=0 (LOW).
-     * All other actuators are active-LOW (ACTUATOR_ACTIVE_LEVEL=0), so OFF=1
-     * (HIGH). Set the correct OFF level per pin before configuring as output.
+
+    /* For active-HIGH MOSFETs (Dosing A/B, Fan, Buzzer): OFF = LOW (0), pulldown.
+     * For active-LOW Relays (Well, Dist, Raw, Blower, Mix): OFF = HIGH (1), pullup.
      */
-    int off_level;
-    if (output_pins[i] == PIN_OUT_BUZZER) {
-      off_level = 0; /* Buzzer OFF = LOW (active-HIGH device) */
+    int off_level = !output_channels[i].active_level;
+
+    /* Set level before output direction config to avoid transient spikes */
+    gpio_set_level(pin, off_level);
+
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = (off_level == 1) ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+        .pull_down_en = (off_level == 0) ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1ULL << pin),
+    };
+    esp_err_t err = gpio_config(&io_conf);
+    if (err == ESP_OK) {
+      gpio_set_level(pin, off_level);
     } else {
-      off_level =
-          ACTUATOR_LEVEL_OFF; /* Standard relay OFF = HIGH (active-LOW) */
+      ESP_LOGE(TAG, "Failed to configure GPIO %d safe OFF (err=0x%x)", pin, err);
     }
-    gpio_set_level(output_pins[i], off_level);
-    io_conf.pin_bit_mask |= (1ULL << output_pins[i]);
   }
 
-  esp_err_t err = gpio_config(&io_conf);
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "Safe boot complete: mapped actuator channels locked in "
-                  "safe-off state.");
-  } else {
-    ESP_LOGE(TAG,
-             "CRITICAL: Failed to configure actuator safe GPIOs (err=0x%x)",
-             err);
-  }
+  ESP_LOGI(TAG, "Safe boot complete: mapped actuator channels locked in "
+                "safe-off state.");
 }
 
 /**

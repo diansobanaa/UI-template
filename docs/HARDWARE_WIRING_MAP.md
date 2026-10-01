@@ -32,9 +32,9 @@
 | **W-02** | **GPIO 1** | Right-4 | Omron Relay #1 | Logic In / Driver | Digital Control | 3.3V Logic | Deep Well AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-03** | **GPIO 2** | Right-5 | Omron Relay #2 | Logic In / Driver | Digital Control | 3.3V Logic | Dist Booster AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
 | **W-04** | **GPIO 4** | Left-4 | 4-Ch Relay Board | **IN1** | Digital Control | 5V Logic | Raw Water Submersible Pump Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 12V DC load on relay COM1/NO1. | **VERIFIED SAFE** |
-| **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Switched 12V DC out. | **VERIFIED SAFE** |
-| **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-LOW (in hal) | Gate trigger for 12V DC peristaltic pump. Switched 12V DC out. | **VERIFIED SAFE** |
-| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-LOW (in hal) | Gate trigger for 12V DC brushless fan. Switched 12V DC out. | **VERIFIED SAFE** |
+| **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
+| **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
+| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC brushless fan via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Drives Relay IN3 triggering external Omron relay / contactor for 2x 220V AC blower fans. | **VERIFIED SAFE** |
@@ -408,9 +408,9 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **1** | `PIN_OUT_WELL_PUMP` | 1 | Well Pump AC (Omron #1) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **2** | `PIN_OUT_DIST_PUMP` | 2 | Dist Pump AC (Omron #2) | **MATCH** | 100% Consistent. Active-LOW (0). |
 | **4** | `PIN_OUT_RAW_SUBMERSIBLE` | 4 | Raw Submersible Pump (Relay IN1)| **MATCH** | 100% Consistent. Active-LOW (0). |
-| **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #1) | **MATCH** | 100% Consistent. Active-LOW (0). |
-| **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #2) | **MATCH** | 100% Consistent. Active-LOW (0). |
-| **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #3) | **MATCH** | 100% Consistent. Active-LOW (0). |
+| **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #1) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #2) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #3) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
 | **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
 | **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
 | **10** | `PIN_OUT_BLOWER_FAN` | 10 | Greenhouse Dual Blower Fans (Relay IN3 -> Omron Relay) | **MATCH** | 100% Consistent. Active-LOW (0). Triggers external Omron relay / contactor. |

@@ -1,3 +1,76 @@
+## SP-MOSFET-POLARITY-001 — Fix MOSFET Dosing Pump Active-Level Polarity Inversion & Safe Boot Default
+- **Date**: 2026-10-01
+- **Git Commit**: `9bed932`
+- **Status**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — ALL 28 REST CONTRACTS PASS — READY FOR FLASH`
+- **Objective**:
+  1. Fix physical anomaly where Dosing Pump A (GPIO 5) and Dosing Pump B (GPIO 6) connected to N-channel MOSFET modules automatically turn ON immediately upon ESP32 power-on / boot.
+  2. Correct active level definitions in firmware (`pin_config.h`, `main.c`, `actuator_hal.c`, `hardware_registry.c`) to distinguish Active-LOW relay boards from Active-HIGH N-channel MOSFET driver modules (`RELAY_ACTIVE_LEVEL = 0`, `MOSFET_ACTIVE_LEVEL = 1`).
+  3. Ensure all MOSFET driver pins (GPIO 5 Dosing A, GPIO 6 Dosing B, GPIO 7 Cooling Fan, GPIO 18 Alarm Buzzer) boot strictly into safe OFF state (`0` / LOW with pulldown enabled).
+  4. Ensure dynamic hardware registry normalizes MOSFET components to `ACTIVE_HIGH` even if legacy SPIFFS configuration or database records contain stale `ACTIVE_LOW`.
+  5. Synchronize frontend baseline files (`gpioPinMap.ts`, `canonicalHardwareBaseline.ts`) and canonical hardware documentation (`HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `ESP32_GPIO_PIN_MAP.md`, `HARDWARE_INVENTORY.md`, `HARDWARE_WIRING_CHECKLIST.md`, `DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`).
+
+### Root Causes & Code Defects Identified
+1. **Legacy Polarity Assumption (All Actuators = Relays)**:
+   - Early project code assumed all actuators were connected to Active-LOW optocoupled relay modules (`#define ACTUATOR_ACTIVE_LEVEL 0`).
+   - Consequently, `ACTUATOR_LEVEL_OFF` was defined as `!ACTUATOR_ACTIVE_LEVEL = 1` (HIGH).
+   - In `main.c` `safe_boot_actuators()`, GPIO 5 (Dosing A), GPIO 6 (Dosing B), and GPIO 7 (Cooling Fan) were grouped under `ACTUATOR_LEVEL_OFF`, driving their outputs HIGH (`3.3V`) on boot.
+   - In `actuator_hal.c`, `s_actuators[ACTUATOR_DOSING_A]` and `s_actuators[ACTUATOR_DOSING_B]` defaulted to `DEFAULT_ACTIVE_LEVEL = 0`, driving their GPIOs to `!0 = 1` (HIGH) on HAL init.
+2. **Physical N-Channel MOSFET Reality**:
+   - The user installed physical 15A/400W MOSFET modules for Dosing Pump A (GPIO 5) and Dosing Pump B (GPIO 6).
+   - Standard N-channel MOSFET modules (D4184/LR7843/IRF520 with `TRIG-PWM` and `GND` inputs) turn ON when Gate is HIGH ($V_{GS} > V_{th}$) and turn OFF when Gate is LOW ($V_{GS} = 0\text{V}$).
+   - Because the firmware drove GPIO 5 and 6 HIGH on boot, both MOSFETs and pumps immediately actuated upon power-on. Furthermore, whenever the controller attempted to turn them ON, it drove the line LOW (turning them OFF), inverting runtime control.
+3. **Hardware Registry Polarity Lock**:
+   - `hardware_registry.c` previously had a hardcoded validation rejecting any polarity other than `ACTIVE_LOW` for actuators other than Buzzer.
+
+### Completed Work
+1. **`esp32/main/config/pin_config.h`**:
+   - Defined `RELAY_ACTIVE_LEVEL = 0` (Active-LOW) and `MOSFET_ACTIVE_LEVEL = 1` (Active-HIGH).
+   - Explicitly mapped `DOSING_ACTIVE_LEVEL`, `COOLING_FAN_ACTIVE_LEVEL`, and `BUZZER_ACTIVE_LEVEL` to `MOSFET_ACTIVE_LEVEL`.
+2. **`esp32/main/main.c`**:
+   - Refactored `safe_boot_actuators()` to configure each output channel with its exact active level.
+   - For MOSFET channels (GPIO 5, 6, 7, 18), `off_level` is set strictly to `0` (LOW) with pulldown enabled prior to pin configuration, eliminating any startup glitch.
+3. **`esp32/main/hal/actuator_hal.c`**:
+   - Configured `s_actuators` descriptor table: `ACTUATOR_DOSING_A` and `ACTUATOR_DOSING_B` set to `DOSING_ACTIVE_LEVEL` (1).
+   - Hardened `resolve_active_level()` to recognize native MOSFET roles and pins, guaranteeing they always resolve to `MOSFET_ACTIVE_LEVEL` (1) regardless of legacy SPIFFS configuration.
+   - Configured `actuator_hal_init()` to set `off_lvl = !active_level` per channel with appropriate pull-up or pull-down.
+4. **`esp32/main/hal/hardware_registry.c`**:
+   - Updated `hardware_registry_validate_component_json()` to accept both `ACTIVE_LOW` and `ACTIVE_HIGH` for all actuator roles per OpenAPI specification.
+   - Added automatic normalization in `hardware_registry_load_from_json()` mapping native MOSFET channels to `ACTIVE_HIGH`.
+5. **Frontend Synchronization**:
+   - `src/lib/data/gpioPinMap.ts`: Updated GPIO 5 (Dosing A), GPIO 6 (Dosing B), and GPIO 7 (Cooling Fan) to `polarity: "ACTIVE_HIGH"`.
+   - `src/lib/data/canonicalHardwareBaseline.ts`: Updated `pump_dosing_a` and `pump_dosing_b` to `polarity: "ACTIVE_HIGH"`.
+6. **Canonical Documentation (`docs/`)**:
+   - Updated `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/ESP32_GPIO_PIN_MAP.md`, `docs/HARDWARE_INVENTORY.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`, and `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`.
+7. **Verification**:
+   - Firmware Build: Clean exit code 0 (`agrotech_esp32.bin` 0x17ff00 bytes, 50% flash partition free).
+   - TypeScript: `npx tsc --noEmit` PASS (0 errors).
+   - Canonical OpenAPI Tests: `npm test` PASS (28/28 endpoints).
+
+---
+
+## SP-STACK-OVERFLOW-HTTPD-TELEMETRY-001 — Fix Heap Corruption, HTTPD Stack Overflow & tele_persist_task Redundant Flush
+- **Date**: 2026-09-29
+- **Status**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY`
+- **Objective**:
+  1. Eliminate `Guru Meditation Error: Core 0 panic'ed (StoreProhibited)` and `(LoadProhibited)` infinite reboot loops.
+  2. Heap-allocate `command_item_t` (~6.5KB) across HTTP command handlers instead of allocating up to 3 instances on the 8KB httpd stack.
+  3. Increase `TASK_HTTP_SERVER_STACK` from 8192 to 10240 B to safely accommodate the real request path (query parsing + envelope + cJSON_PrintUnformatted + lwIP send chain).
+  4. Remove duplicate `telemetry_store_flush()` invocation in `telemetry_persistence_task` that drove internal SRAM stack high-water mark down to 248 bytes.
+
+### Root Causes & Code Defects Identified
+1. **`command_item_t` on Stack (~6.5KB - ~19.5KB)**:
+   - In `esp32/main/http/api_command_handlers.c` and `api_fertigation_handlers.c`, `command_item_t` contains `char fertigation_payload_json[6144]`. Handlers like `handler_post_command` allocated `cmd`, `cached`, and `receipt` on the stack (up to ~19.5KB on an 8KB stack), corrupting task TCBs upon any command execution (e.g. Resume button).
+   - *Fix:* Heap-allocate all `command_item_t` instances via `calloc` in `handler_post_command`, `handler_emergency_stop`, `handler_get_command`, `handler_delete_command`, and `start_handler`.
+2. **`tele_persist_task` Stack Depletion (hwm = 248 B)**:
+   - In `esp32/main/services/telemetry_mgr.c`, `telemetry_persistence_task` (allocated with 4096 B in internal SRAM) was redundantly calling `telemetry_store_flush()`. A dedicated task `telem_store_tsk` (in `telemetry_store.c`) already handles telemetry flushing on its own 4096 B PSRAM stack (hwm 2104 B).
+   - Calling `telemetry_store_flush()` inside `tele_persist_task` drove its internal stack headroom to 248 B. When an event occurred (e.g., `SENSOR_RECOVERED` on DHT22 success or `COMMUNICATION_RESTORED` on Wi-Fi connect), flushing event log + telemetry simultaneously pushed the stack beyond limit, causing `StoreProhibited` in `vPortYieldFromInt`.
+   - *Fix:* Removed `(void)telemetry_store_flush();` from `telemetry_persistence_task`, restoring >2.5KB safe stack margin.
+3. **`httpd_thread` Peak Stack Exceeded 8192 B**:
+   - Backtrace analysis of `LoadProhibited` at `_vfprintf_r` showed `httpd_thread` stack usage peaking at 9,184 bytes during request processing and enveloped response rendering, exceeding the 8,192 byte limit.
+   - *Fix:* Increased `TASK_HTTP_SERVER_STACK` from 8192 to 10240 B in `system_config.h`.
+
+---
+
 ## SP-DHT22-NOISE-RETRY-001 — DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching
 - **Date**: 2026-09-29
 - **Git Commit**: `dbaf55c`

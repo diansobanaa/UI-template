@@ -24,15 +24,15 @@ typedef struct {
 #define DEFAULT_ACTIVE_LEVEL ACTUATOR_ACTIVE_LEVEL
 
 static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
-    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_MIXING_PUMP]     = { .name = "Mixing Pump",      .gpio = PIN_OUT_MIXING_PUMP,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
-    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DEFAULT_ACTIVE_LEVEL },
+    [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
+    [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
+    [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = COOLING_FAN_ACTIVE_LEVEL },
+    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_MIXING_PUMP]     = { .name = "Mixing Pump",      .gpio = PIN_OUT_MIXING_PUMP,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
     [ACTUATOR_BUZZER]          = { .name = "Alarm Buzzer",     .gpio = PIN_OUT_BUZZER,          .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = BUZZER_ACTIVE_LEVEL },
 };
 
@@ -74,6 +74,8 @@ static void runtime_set_locked(const char *component_id, bool on, actuator_owner
     state->owner = owner;
 }
 
+static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fallback);
+
 esp_err_t actuator_hal_init(void)
 {
     if (!s_lock) {
@@ -81,26 +83,27 @@ esp_err_t actuator_hal_init(void)
     }
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
-
-    /* Configure pull mode to bias towards inactive level (ACTUATOR_LEVEL_OFF) during reset/hi-z */
-    gpio_config_t io_conf = {
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = (ACTUATOR_LEVEL_OFF == 1) ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
-        .pull_down_en = (ACTUATOR_LEVEL_OFF == 0) ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-        .pin_bit_mask = 0
-    };
+    esp_err_t err = ESP_OK;
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         s_actuators[i].state = false;
         if (s_actuators[i].gpio >= 0) {
-            // Output inactive level is the opposite of active_level
-            gpio_set_level(s_actuators[i].gpio, !s_actuators[i].active_level);
-            io_conf.pin_bit_mask |= (1ULL << s_actuators[i].gpio);
+            uint8_t off_lvl = !s_actuators[i].active_level;
+            gpio_set_level(s_actuators[i].gpio, off_lvl);
+            gpio_config_t io_conf = {
+                .mode = GPIO_MODE_OUTPUT,
+                .pull_up_en = (off_lvl == 1) ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+                .pull_down_en = (off_lvl == 0) ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
+                .intr_type = GPIO_INTR_DISABLE,
+                .pin_bit_mask = (1ULL << s_actuators[i].gpio)
+            };
+            esp_err_t cfg_err = gpio_config(&io_conf);
+            if (cfg_err != ESP_OK) {
+                err = cfg_err;
+            }
+            gpio_set_level(s_actuators[i].gpio, off_lvl);
         }
     }
-
-    esp_err_t err = gpio_config(&io_conf);
 
     /* Once the active registry exists, explicitly drive every configured GPIO
      * to its inactive state as well. This covers configured safety outputs that
@@ -109,10 +112,11 @@ esp_err_t actuator_hal_init(void)
         hw_component_info_t info;
         if (hardware_registry_get_by_index(i, &info) != ESP_OK) continue;
         if (info.wiring.interface == HW_INTERFACE_GPIO && info.wiring.gpio >= 0) {
-            const uint8_t active = (strcmp(info.wiring.polarity, "ACTIVE_HIGH") == 0) ? 1U : 0U;
+            const uint8_t active = resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL);
+            const uint8_t off_lvl = !active;
             gpio_reset_pin((gpio_num_t)info.wiring.gpio);
             gpio_set_direction((gpio_num_t)info.wiring.gpio, GPIO_MODE_OUTPUT);
-            gpio_set_level((gpio_num_t)info.wiring.gpio, !active);
+            gpio_set_level((gpio_num_t)info.wiring.gpio, off_lvl);
             runtime_set_locked(info.component_id, false, ACTUATOR_OWNER_NONE);
         }
     }
@@ -186,9 +190,23 @@ static esp_err_t resolve_configured_actuator(actuator_id_t id, hw_component_info
 
 static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fallback)
 {
-    if (!info || info->wiring.polarity[0] == '\0') return fallback;
-    if (strcmp(info->wiring.polarity, "ACTIVE_HIGH") == 0) return 1;
-    if (strcmp(info->wiring.polarity, "ACTIVE_LOW") == 0) return 0;
+    if (info) {
+        /* Physical hardware authority: Native MOSFET channels (GPIO 5, 6, 7, 18) are
+         * physically N-channel MOSFET gate drivers and MUST operate Active-HIGH (1=ON, 0=OFF).
+         * Even if legacy SPIFFS JSON or old config has ACTIVE_LOW, override to ACTIVE_HIGH
+         * to prevent dangerous physical pump / fan / buzzer activation at boot. */
+        if (strcmp(info->role, "DOSING_A") == 0 || strcmp(info->role, "DOSING_B") == 0 ||
+            strcmp(info->role, "COOLING_FAN") == 0 || strcmp(info->role, "BUZZER") == 0 ||
+            strcmp(info->role, "ALARM_BUZZER") == 0 ||
+            info->wiring.gpio == PIN_OUT_DOSING_A || info->wiring.gpio == PIN_OUT_DOSING_B ||
+            info->wiring.gpio == PIN_OUT_COOLING_FAN || info->wiring.gpio == PIN_OUT_BUZZER) {
+            return MOSFET_ACTIVE_LEVEL; /* 1 = Active-HIGH */
+        }
+        if (info->wiring.polarity[0] != '\0') {
+            if (strcmp(info->wiring.polarity, "ACTIVE_HIGH") == 0) return 1;
+            if (strcmp(info->wiring.polarity, "ACTIVE_LOW") == 0) return 0;
+        }
+    }
     return fallback;
 }
 
@@ -245,7 +263,7 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         gpio_set_direction(new_gpio, GPIO_MODE_OUTPUT);
         s_actuators[id].gpio = new_gpio;
     }
-    s_actuators[id].active_level = resolve_active_level(&comp_info, DEFAULT_ACTIVE_LEVEL);
+    s_actuators[id].active_level = resolve_active_level(&comp_info, s_actuators[id].active_level);
     bool was_on = s_actuators[id].state;
     s_actuators[id].state = on;
     gpio_set_level(s_actuators[id].gpio, on ? s_actuators[id].active_level : !s_actuators[id].active_level);

@@ -1,4 +1,53 @@
-# AI HANDOVER — SP-DHT22-NOISE-RETRY-001 (latest)
+# AI HANDOVER — SP-MOSFET-POLARITY-001 (latest)
+
+## Status — SP-MOSFET-POLARITY-001
+**Fix MOSFET Dosing Pump Active-Level Polarity Inversion & Safe Boot Default**
+**Safe Point**: `SP-MOSFET-POLARITY-001`
+**Date**: 2026-10-01
+**Git Commit**: `9bed932`
+**Verdict**: `BUILD & CONTRACT VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — ALL 28 REST CONTRACTS PASS — READY FOR FLASH`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah (Mengapa Pompa Dosing Langsung Nyala saat Boot)**:
+   - Kode firmware lama mengasumsikan semua aktuator terhubung ke relay board Active-LOW (`ACTUATOR_ACTIVE_LEVEL = 0`).
+   - Akibatnya, sinyal OFF yang dikirim ke pin adalah `ACTUATOR_LEVEL_OFF = 1` (HIGH / 3.3V).
+   - Pompa Dosing A (GPIO 5) dan Pompa Dosing B (GPIO 6) dipasang pada modul N-channel MOSFET (D4184/LR7843/IRF520). N-channel MOSFET aktif ketika Gate diberi tegangan HIGH (Active-HIGH).
+   - Ketika ESP32 menyala, fungsi `safe_boot_actuators()` dan `actuator_hal_init()` meng-clamp GPIO 5 dan GPIO 6 ke HIGH, sehingga kedua MOSFET dan pompa langsung menyala secara fisik begitu sistem dinyalakan. Kontrol runtime juga menjadi terbalik (ON mengirim LOW = mati, OFF mengirim HIGH = nyala).
+2. **Perbaikan Firmware yang Diterapkan**:
+   - `esp32/main/config/pin_config.h`: Memisahkan `RELAY_ACTIVE_LEVEL = 0` (Active-LOW) dan `MOSFET_ACTIVE_LEVEL = 1` (Active-HIGH). Memetakan `DOSING_ACTIVE_LEVEL`, `COOLING_FAN_ACTIVE_LEVEL`, dan `BUZZER_ACTIVE_LEVEL` ke `MOSFET_ACTIVE_LEVEL`.
+   - `esp32/main/main.c`: Merombak `safe_boot_actuators()` agar meng-clamp pin MOSFET (GPIO 5, 6, 7, 18) ke level `0` (LOW) dengan internal pull-down aktif sebelum output GPIO diaktifkan, mencegah glitch boot.
+   - `esp32/main/hal/actuator_hal.c`: Memperbarui tabel `s_actuators` untuk dosing A dan B ke `DOSING_ACTIVE_LEVEL` (1). Meng-update `actuator_hal_init()` untuk inisialisasi level OFF (0) dan pull-down. Mengunci `resolve_active_level()` agar pin/peran MOSFET selalu menghasilkan `MOSFET_ACTIVE_LEVEL` (1) meskipun file konfigurasi lama di SPIFFS masih mencatat `ACTIVE_LOW`.
+   - `esp32/main/hal/hardware_registry.c`: Mengizinkan `ACTIVE_HIGH` dan `ACTIVE_LOW` pada validasi komponen actuator, dan otomatis menormalisasi channel MOSFET ke `ACTIVE_HIGH`.
+3. **Sinkronisasi Frontend & Dokumentasi**:
+   - `src/lib/data/gpioPinMap.ts` & `src/lib/data/canonicalHardwareBaseline.ts`: Polaritas Dosing A & B diubah menjadi `ACTIVE_HIGH`.
+   - Dokumentasi kanonik di `docs/` disinkronkan: `HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `ESP32_GPIO_PIN_MAP.md`, `HARDWARE_INVENTORY.md`, `HARDWARE_WIRING_CHECKLIST.md`, dan `DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`.
+4. **Hasil Verifikasi**:
+   - Kompilasi ESP32 (`idf.py build` via `scripts/build_esp32.ps1`): Sukses 100% tanpa error (`agrotech_esp32.bin` 0x17ff00 bytes, flash 50% free).
+   - TypeScript Check (`npx tsc --noEmit`): Lulus 100% (0 error).
+   - OpenAPI Contract Test (`npm test`): Lulus 100% (28/28 endpoint REST API pass).
+
+---
+
+## Status — SP-STACK-OVERFLOW-HTTPD-TELEMETRY-001
+**Fix Heap Corruption, HTTPD Stack Overflow & tele_persist_task Redundant Flush**
+**Safe Point**: `SP-STACK-OVERFLOW-HTTPD-TELEMETRY-001`
+**Date**: 2026-09-29
+**Verdict**: `BUILD VERIFIED — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — READY FOR FLASH`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah Serial Stuttering & Crash Loop**:
+   - `StoreProhibited` di `vPortYieldFromInt`: Task `tele_persist_task` (stack internal SRAM 4096B) memanggil `telemetry_store_flush()` secara redundan dengan `telem_store_tsk` (yang sudah berjalan di PSRAM stack 4096B). Ini membuat high-water mark `tele_persist_task` drop ke 248 bytes. Saat event recovery DHT22 atau Wi-Fi tersambung, flush event + telemetry langsung menyebabkan stack overflow → korupsi TCB → CPU panic.
+   - `LoadProhibited` di `_vfprintf_r`: Task `httpd_thread` memuncak pada 9,184 byte saat parsing request, alokasi response envelope, dan serialisasi JSON via lwIP. Ukuran stack lama `TASK_HTTP_SERVER_STACK 8192` terlampaui sebesar 992 byte.
+   - `command_item_t` Stack Allocations: Struct berukuran ~6.5KB (akibat field `fertigation_payload_json[6144]`) dialokasikan hingga 3 instance di stack fungsi handler (`api_command_handlers.c`), meluap jauh melebihi stack 8KB.
+2. **Perbaikan yang Diterapkan**:
+   - Heap-allocate via `calloc` untuk semua `command_item_t` di `api_command_handlers.c` (`handler_emergency_stop`, `handler_post_command`, `handler_get_command`, `handler_delete_command`) dan `api_fertigation_handlers.c` (`start_handler`).
+   - Hapus pemanggilan duplikat `(void)telemetry_store_flush();` di dalam `telemetry_persistence_task` (`esp32/main/services/telemetry_mgr.c`). Pembersihan ini mengembalikan >2.5KB stack margin bagi `tele_persist_task`.
+   - Naikkan `TASK_HTTP_SERVER_STACK` dari 8192 ke 10240 B di `esp32/main/config/system_config.h`, memberi headroom 1KB di atas kebutuhan puncak 9.18KB.
+3. **Hasil Verifikasi**:
+   - Kompilasi `idf.py build` sukses 100% tanpa error (`agrotech_esp32.bin` generated, 50% flash free).
+   - Seluruh task stack margin kini berada pada batas aman.
+
+---
 
 ## Status — SP-DHT22-NOISE-RETRY-001
 **DHT22 Immediate Back-Off Retry on Noise (3s) & Transient Latching**

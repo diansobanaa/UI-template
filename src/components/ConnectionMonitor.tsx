@@ -99,15 +99,19 @@ export function ConnectionMonitor() {
 
         for (const target of currentTargets) {
           let targetHealthy = false;
+          let targetEmergencyStopped: boolean | undefined = undefined;
 
           // 1. Lightweight direct ESP32 health check with isolated timeout
           if (isDirectEsp32Enabled()) {
             try {
-              await esp32Client.getHealth({
+              const healthRes = await esp32Client.getHealth({
                 endpoint: target.endpoint,
                 timeoutMs: HEALTH_TIMEOUT_MS,
               });
               targetHealthy = true;
+              if (healthRes?.runtimeState) {
+                targetEmergencyStopped = healthRes.runtimeState === "EMERGENCY_STOP";
+              }
             } catch {
               targetHealthy = false;
             }
@@ -132,6 +136,9 @@ export function ConnectionMonitor() {
                 );
                 if (matching?.esp32?.online) {
                   targetHealthy = true;
+                  if (matching.emergencyStopped !== undefined) {
+                    targetEmergencyStopped = matching.emergencyStopped;
+                  }
                 }
               }
             } catch {
@@ -144,7 +151,10 @@ export function ConnectionMonitor() {
           if (targetHealthy) {
             consecutiveHealthFailures.current.set(target.key, 0);
             for (const cId of target.complexIds) {
-              updateComplexRuntime(cId, { online: true });
+              updateComplexRuntime(cId, {
+                online: true,
+                ...(targetEmergencyStopped !== undefined ? { emergencyStopped: targetEmergencyStopped } : {}),
+              });
             }
           } else {
             const nextFailures = currentFailures + 1;

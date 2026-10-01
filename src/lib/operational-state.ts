@@ -327,6 +327,10 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
               status: "Active",
               operationalStatus: "LIVE",
               authoritySource: "ESP32_DIRECT",
+              emergencyStopped: espStatus.safety?.emergencyStopped !== undefined 
+                ? Boolean(espStatus.safety.emergencyStopped) 
+                : existing.emergencyStopped,
+              systemStatus: espStatus.safety?.emergencyStopped ? "CRITICAL" : existing.systemStatus,
               esp32: {
                 ...existing.esp32,
                 online: true,
@@ -338,6 +342,10 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                 configVersion: espStatus.configuration?.version || existing.esp32.configVersion || 1,
                 esp32ConfigVersion: espStatus.configuration?.version || existing.esp32.esp32ConfigVersion || 1,
                 lastSync: new Date().toLocaleTimeString(),
+              },
+              water: {
+                ...existing.water,
+                wellPumpOn: espStatus.actuators?.wellPump !== undefined ? Boolean(espStatus.actuators.wellPump) : existing.water?.wellPumpOn,
               },
             } : {
               id: devComplexId,

@@ -187,25 +187,42 @@ esp_err_t handler_emergency_stop(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Missing payload envelope", req_id);
     }
 
-    command_item_t cmd = {0};
+    /* STACK-FIX: command_item_t is ~6.5KB (fertigation_payload_json[6144]).
+     * Allocating on the httpd stack (8KB) causes overflow → TCB corruption
+     * → assert(pxTCB->uxMutexesHeld) → infinite reboot loop.
+     * Heap-allocate instead. */
+    command_item_t *cmd = calloc(1, sizeof(command_item_t));
+    if (!cmd) {
+        cJSON_Delete(body);
+        return http_send_error(req, 500, "NO_MEM", "Out of memory for command", req_id);
+    }
     const char *command_id = json_string(payload, "commandId");
     const char *reason = json_string(payload, "reason");
     if (!command_id || !command_id[0]) {
+        free(cmd);
         cJSON_Delete(body);
         return http_send_error(req, 422, "COMMAND_ID_REQUIRED", "Emergency stop requires a commandId for idempotency.", req_id);
     }
-    strncpy(cmd.command_id, command_id, sizeof(cmd.command_id) - 1);
-    strncpy(cmd.source, "HTTP", sizeof(cmd.source) - 1);
-    cmd.type = CMD_TYPE_EMERGENCY_STOP;
-    esp_err_t err = command_mgr_submit(&cmd, NULL);
+    strncpy(cmd->command_id, command_id, sizeof(cmd->command_id) - 1);
+    strncpy(cmd->source, "HTTP", sizeof(cmd->source) - 1);
+    cmd->type = CMD_TYPE_EMERGENCY_STOP;
+    esp_err_t err = command_mgr_submit(cmd, NULL);
     if (err != ESP_OK) {
+        free(cmd);
         cJSON_Delete(body);
         return http_send_error(req, command_error_http_status(err, "EMERGENCY_STOP_FAILED"), "EMERGENCY_STOP_FAILED", reason ? reason : "Emergency stop request failed.", req_id);
     }
     (void)reason;
-    command_item_t receipt = {0};
-    if (command_mgr_get(cmd.command_id, &receipt) != ESP_OK) receipt = cmd;
-    cJSON *root = command_receipt_json(&receipt);
+    command_item_t *receipt = calloc(1, sizeof(command_item_t));
+    if (!receipt) {
+        free(cmd);
+        cJSON_Delete(body);
+        return http_send_error(req, 500, "NO_MEM", "Out of memory for receipt", req_id);
+    }
+    if (command_mgr_get(cmd->command_id, receipt) != ESP_OK) *receipt = *cmd;
+    cJSON *root = command_receipt_json(receipt);
+    free(receipt);
+    free(cmd);
     cJSON_Delete(body);
     return http_send_enveloped_response(req, 202, req_id, root);
 }
@@ -223,31 +240,49 @@ esp_err_t handler_post_command(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Missing payload envelope", req_id);
     }
 
-    command_item_t cmd = {0};
+    /* STACK-FIX: command_item_t is ~6.5KB (fertigation_payload_json[6144]).
+     * Three instances on the httpd stack (8KB) causes overflow → crash.
+     * Heap-allocate instead. */
+    command_item_t *cmd = calloc(1, sizeof(command_item_t));
+    if (!cmd) {
+        cJSON_Delete(body);
+        return http_send_error(req, 500, "NO_MEM", "Out of memory for command", req_id);
+    }
     char parse_code[48] = {0};
     char parse_message[128] = {0};
-    err = parse_command_payload(payload, &cmd, parse_code, sizeof(parse_code), parse_message, sizeof(parse_message));
+    err = parse_command_payload(payload, cmd, parse_code, sizeof(parse_code), parse_message, sizeof(parse_message));
     if (err != ESP_OK) {
+        free(cmd);
         cJSON_Delete(body);
         return http_send_error(req, command_error_http_status(err, parse_code), parse_code[0] ? parse_code : "VALIDATION_FAILED", parse_message[0] ? parse_message : "Invalid command", req_id);
     }
 
-    err = command_mgr_submit(&cmd, NULL);
+    err = command_mgr_submit(cmd, NULL);
     if (err != ESP_OK) {
-        command_item_t cached = {0};
+        command_item_t *cached = calloc(1, sizeof(command_item_t));
         const char *code = "COMMAND_REJECTED";
         const char *message = "Command rejected by device safety/validation policy.";
-        if (command_mgr_get(cmd.command_id, &cached) == ESP_OK && cached.result_code[0]) {
-            code = cached.result_code;
-            message = cached.message;
+        if (cached && command_mgr_get(cmd->command_id, cached) == ESP_OK && cached->result_code[0]) {
+            code = cached->result_code;
+            message = cached->message;
         }
+        int status = command_error_http_status(err, code);
+        free(cached);
+        free(cmd);
         cJSON_Delete(body);
-        return http_send_error(req, command_error_http_status(err, code), code, message, req_id);
+        return http_send_error(req, status, code, message, req_id);
     }
 
-    command_item_t receipt = {0};
-    if (command_mgr_get(cmd.command_id, &receipt) != ESP_OK) receipt = cmd;
-    cJSON *root = command_receipt_json(&receipt);
+    command_item_t *receipt = calloc(1, sizeof(command_item_t));
+    if (!receipt) {
+        free(cmd);
+        cJSON_Delete(body);
+        return http_send_error(req, 500, "NO_MEM", "Out of memory for receipt", req_id);
+    }
+    if (command_mgr_get(cmd->command_id, receipt) != ESP_OK) *receipt = *cmd;
+    cJSON *root = command_receipt_json(receipt);
+    free(receipt);
+    free(cmd);
     cJSON_Delete(body);
     return http_send_enveloped_response(req, 202, req_id, root);
 }
@@ -267,11 +302,15 @@ esp_err_t handler_get_command(httpd_req_t *req)
     memcpy(cmd_id_buf, cmd_id, copy_len);
     cmd_id_buf[copy_len] = '\0';
 
-    command_item_t cmd;
-    esp_err_t err = command_mgr_get(cmd_id_buf, &cmd);
-    if (err == ESP_ERR_NOT_FOUND) return http_send_error(req, 404, "NOT_FOUND", "Command not found", NULL);
-    if (err != ESP_OK) return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to get command", NULL);
-    return http_send_enveloped_response(req, 200, NULL, command_receipt_json(&cmd));
+    /* STACK-FIX: heap-allocate ~6.5KB command_item_t */
+    command_item_t *cmd = calloc(1, sizeof(command_item_t));
+    if (!cmd) return http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    esp_err_t err = command_mgr_get(cmd_id_buf, cmd);
+    if (err == ESP_ERR_NOT_FOUND) { free(cmd); return http_send_error(req, 404, "NOT_FOUND", "Command not found", NULL); }
+    if (err != ESP_OK) { free(cmd); return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to get command", NULL); }
+    cJSON *root = command_receipt_json(cmd);
+    free(cmd);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }
 
 esp_err_t handler_delete_command(httpd_req_t *req)
@@ -292,7 +331,11 @@ esp_err_t handler_delete_command(httpd_req_t *req)
     esp_err_t err = command_mgr_cancel(cmd_id_buf);
     if (err == ESP_ERR_NOT_FOUND) return http_send_error(req, 404, "NOT_FOUND", "Command not found", NULL);
     if (err != ESP_OK) return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to cancel command", NULL);
-    command_item_t cmd = {0};
-    (void)command_mgr_get(cmd_id_buf, &cmd);
-    return http_send_enveloped_response(req, 200, NULL, command_receipt_json(&cmd));
+    /* STACK-FIX: heap-allocate ~6.5KB command_item_t */
+    command_item_t *cmd = calloc(1, sizeof(command_item_t));
+    if (!cmd) return http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    (void)command_mgr_get(cmd_id_buf, cmd);
+    cJSON *root = command_receipt_json(cmd);
+    free(cmd);
+    return http_send_enveloped_response(req, 200, NULL, root);
 }

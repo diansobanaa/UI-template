@@ -15,16 +15,20 @@ static esp_err_t start_handler(httpd_req_t *req){
     cJSON *payload=cJSON_GetObjectItem(body,"payload"); cJSON *target=payload?payload:body;
     cJSON *gh=cJSON_GetObjectItem(target,"ghId"); cJSON *cid=cJSON_GetObjectItem(target,"commandId");
     const system_storage_state_t *ss=storage_mgr_get_state();
-    command_item_t cmd; memset(&cmd,0,sizeof(cmd));
-    if(cid&&cJSON_IsString(cid)&&cid->valuestring[0]) strncpy(cmd.command_id,cid->valuestring,sizeof(cmd.command_id)-1); else snprintf(cmd.command_id,sizeof(cmd.command_id),"fert-%llu",(unsigned long long)(esp_timer_get_time()));
-    cmd.type=CMD_TYPE_FERTIGATION_BATCH; cmd.param_on=true; strncpy(cmd.source,"HTTP",sizeof(cmd.source)-1);
-    if(ss){strncpy(cmd.target_complex_id,ss->complex_id,sizeof(cmd.target_complex_id)-1);cmd.configuration_version=ss->config_version;}
-    if(gh&&cJSON_IsString(gh))strncpy(cmd.target_gh_id,gh->valuestring,sizeof(cmd.target_gh_id)-1);
-    char *serialized=cJSON_PrintUnformatted(target); if(!serialized){cJSON_Delete(body);http_send_error(req,500,"NO_MEM","Unable to serialize fertigation command.",NULL);return ESP_FAIL;}
-    strncpy(cmd.fertigation_payload_json,serialized,sizeof(cmd.fertigation_payload_json)-1); cmd.fertigation_payload_json[sizeof(cmd.fertigation_payload_json)-1]='\0'; free(serialized); cJSON_Delete(body);
-    command_item_t receipt; esp_err_t err=command_mgr_submit(&cmd,&receipt);
-    if(err!=ESP_OK){http_send_error(req,err==ESP_ERR_INVALID_STATE?409:422,"FERTIGATION_START_REJECTED",receipt.message[0]?receipt.message:"Fertigation command rejected by local validation.",NULL);return ESP_FAIL;}
-    cJSON *out=cJSON_CreateObject(); cJSON_AddStringToObject(out,"status",receipt.status==CMD_STATUS_RUNNING?"RUNNING":"ACCEPTED"); cJSON_AddStringToObject(out,"commandId",receipt.command_id); cJSON_AddStringToObject(out,"resultCode",receipt.result_code); return http_send_enveloped_response(req,202,NULL,out);
+    /* STACK-FIX: command_item_t is ~6.5KB. Heap-allocate to avoid httpd stack overflow. */
+    command_item_t *cmd = calloc(1, sizeof(command_item_t));
+    if(!cmd){cJSON_Delete(body);http_send_error(req,500,"NO_MEM","Out of memory for command",NULL);return ESP_FAIL;}
+    if(cid&&cJSON_IsString(cid)&&cid->valuestring[0]) strncpy(cmd->command_id,cid->valuestring,sizeof(cmd->command_id)-1); else snprintf(cmd->command_id,sizeof(cmd->command_id),"fert-%llu",(unsigned long long)(esp_timer_get_time()));
+    cmd->type=CMD_TYPE_FERTIGATION_BATCH; cmd->param_on=true; strncpy(cmd->source,"HTTP",sizeof(cmd->source)-1);
+    if(ss){strncpy(cmd->target_complex_id,ss->complex_id,sizeof(cmd->target_complex_id)-1);cmd->configuration_version=ss->config_version;}
+    if(gh&&cJSON_IsString(gh))strncpy(cmd->target_gh_id,gh->valuestring,sizeof(cmd->target_gh_id)-1);
+    char *serialized=cJSON_PrintUnformatted(target); if(!serialized){free(cmd);cJSON_Delete(body);http_send_error(req,500,"NO_MEM","Unable to serialize fertigation command.",NULL);return ESP_FAIL;}
+    strncpy(cmd->fertigation_payload_json,serialized,sizeof(cmd->fertigation_payload_json)-1); cmd->fertigation_payload_json[sizeof(cmd->fertigation_payload_json)-1]='\0'; free(serialized); cJSON_Delete(body);
+    command_item_t *receipt = calloc(1, sizeof(command_item_t));
+    if(!receipt){free(cmd);http_send_error(req,500,"NO_MEM","Out of memory for receipt",NULL);return ESP_FAIL;}
+    esp_err_t err=command_mgr_submit(cmd,receipt);
+    if(err!=ESP_OK){http_send_error(req,err==ESP_ERR_INVALID_STATE?409:422,"FERTIGATION_START_REJECTED",receipt->message[0]?receipt->message:"Fertigation command rejected by local validation.",NULL);free(receipt);free(cmd);return ESP_FAIL;}
+    cJSON *out=cJSON_CreateObject(); cJSON_AddStringToObject(out,"status",receipt->status==CMD_STATUS_RUNNING?"RUNNING":"ACCEPTED"); cJSON_AddStringToObject(out,"commandId",receipt->command_id); cJSON_AddStringToObject(out,"resultCode",receipt->result_code); free(receipt);free(cmd); return http_send_enveloped_response(req,202,NULL,out);
 }
 
 static void attach_queue_and_today_schedule(cJSON *out) {

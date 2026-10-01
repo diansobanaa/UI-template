@@ -123,7 +123,7 @@ export const CANONICAL_GPIO_PIN_MAP: GpioPinDefinition[] = [
       defaultActive: true,
       terminalName: "MOSFET Driver Ch 1",
       voltage: "12V DC",
-      polarity: "ACTIVE_LOW",
+      polarity: "ACTIVE_HIGH",
       description: "12V DC Peristaltic pump dosing concentrated Stock A fertilizer.",
     }
   },
@@ -145,7 +145,7 @@ export const CANONICAL_GPIO_PIN_MAP: GpioPinDefinition[] = [
       defaultActive: true,
       terminalName: "MOSFET Driver Ch 2",
       voltage: "12V DC",
-      polarity: "ACTIVE_LOW",
+      polarity: "ACTIVE_HIGH",
       description: "12V DC Peristaltic pump dosing concentrated Stock B / pH buffer.",
     }
   },
@@ -167,7 +167,7 @@ export const CANONICAL_GPIO_PIN_MAP: GpioPinDefinition[] = [
       defaultActive: false,
       terminalName: "MOSFET Driver Ch 3",
       voltage: "12V DC",
-      polarity: "ACTIVE_LOW",
+      polarity: "ACTIVE_HIGH",
       description: "12V DC Cabinet ventilation fan for controller thermal regulation.",
     }
   },

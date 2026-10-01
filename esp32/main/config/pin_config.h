@@ -80,10 +80,16 @@ extern "C" {
 #define PIN_OUT_MIXING_PUMP         40  /* 4-Ch Relay IN4 -> 220V AC Pond Pump */
 #define PIN_OUT_ERROR_LAMP          -1  /* Error lamp unmapped; alarm annunciator handled by PIN_OUT_BUZZER (GPIO 18) */
 
-#define ACTUATOR_ACTIVE_LEVEL       0   /* 0 = Active-LOW (standard relay boards), 1 = Active-HIGH (VERIFY DATASHEET) */
+#define RELAY_ACTIVE_LEVEL          0   /* 0 = Active-LOW (standard optocoupled relay boards: Well, Dist, Raw, Blower, Mix) */
+#define MOSFET_ACTIVE_LEVEL         1   /* 1 = Active-HIGH (N-channel MOSFET modules: Dosing A/B, Fan, Buzzer) */
+
+#define ACTUATOR_ACTIVE_LEVEL       RELAY_ACTIVE_LEVEL
 #define ACTUATOR_LEVEL_ON           (ACTUATOR_ACTIVE_LEVEL)
 #define ACTUATOR_LEVEL_OFF          (!ACTUATOR_ACTIVE_LEVEL)
-#define BUZZER_ACTIVE_LEVEL         1   /* 1 = Active-HIGH for MOSFET Gate trigger; configurable per component in registry */
+
+#define DOSING_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 5 & 6) */
+#define COOLING_FAN_ACTIVE_LEVEL    MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 7) */
+#define BUZZER_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 18) */
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */

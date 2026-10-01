@@ -85,7 +85,7 @@ export function getCanonicalBaselineComponents(
       wiring: {
         interface: "GPIO",
         gpio: 5,
-        polarity: "ACTIVE_LOW",
+        polarity: "ACTIVE_HIGH",
       },
       parameters: {},
     },
@@ -102,7 +102,7 @@ export function getCanonicalBaselineComponents(
       wiring: {
         interface: "GPIO",
         gpio: 6,
-        polarity: "ACTIVE_LOW",
+        polarity: "ACTIVE_HIGH",
       },
       parameters: {},
     },

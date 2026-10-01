@@ -17,7 +17,7 @@ import { PythonClient } from "./api/python-client";
 import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
-import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata } from "./operational-state";
+import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
 import { saveBootstrapIp } from "./bootstrap-address";
 import { CANONICAL_GPIO_PIN_MAP } from "./data/gpioPinMap";
 import { calibrationReference, categoryFilterMap } from "./data/calibration-reference";
@@ -2317,6 +2317,7 @@ export const fertigationService = {
       } else {
         throw new ServiceError("DEVICE_OFFLINE", "No authoritative ESP32/backend command path is configured.");
       }
+      updateComplexRuntime(complexId, { emergencyStopped: true });
     } catch (err: unknown) {
       const errorObj = err as { message?: string };
       throw new ServiceError("DEVICE_OFFLINE", errorObj?.message || "Emergency stop could not be confirmed by the controller.");
@@ -2345,6 +2346,7 @@ export const fertigationService = {
       } else {
         throw new ServiceError("DEVICE_OFFLINE", "No authoritative ESP32/backend command path is configured.");
       }
+      updateComplexRuntime(complexId, { emergencyStopped: false });
     } catch (err: unknown) {
       const errorObj = err as { message?: string };
       if (err instanceof ServiceError) throw err;

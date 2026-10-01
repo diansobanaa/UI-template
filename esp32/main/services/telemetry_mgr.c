@@ -499,8 +499,12 @@ static void telemetry_persistence_task(void *pvParameters)
         /* Always drain any pending events to storage first */
         (void)event_mgr_flush_to_storage();
 
-        /* Flush queued telemetry batch to segmented microSD storage */
-        (void)telemetry_store_flush();
+        /* DEDUP-FIX: Do NOT call telemetry_store_flush() here.
+         * telem_store_tsk (telemetry_store.c) already runs on its own dedicated
+         * 4096-byte PSRAM stack (hwm 2104 B) specifically to flush telemetry batches.
+         * Calling it here on tele_persist_task's internal SRAM stack drove its high-water
+         * mark down to 248 bytes, overflowing and panicking Core 0 whenever an event
+         * arrived. Removing it restores >2.5KB of safe stack margin. */
 
         /* HEAP-AUDIT (2026-09-28): report stack high-water mark + internal
          * heap watermarks every ~60s. A stack_hwm of 0 means this task has

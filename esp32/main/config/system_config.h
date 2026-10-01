@@ -23,15 +23,12 @@ extern "C" {
 #define AGROTECH_BACKEND_BASE_URL ""
 #endif
 
-/* FreeRTOS Task Priorities & Stack Sizes */
-// P1-FIX-REVERT (2026-09-28): restored 4096 -> 8192. Field evidence: boot 4229
-// panicked with LoadProhibited INSIDE httpd_thread
-// (httpd_resp_send -> lwip_send -> pthread_getspecific TLS corruption,
-// EXCVADDR 0xffff0208). The shrink's "5KB peak" estimate did not hold for the
-// real request path (query[512] + envelope + cJSON_Print + lwIP send chain).
-// Costs 4KB internal; affordable after the PSRAM task migration (~17.9KB
-// free at boot). Do NOT shrink again without a named-task overflow report.
-#define TASK_HTTP_SERVER_STACK 8192
+// STACK-FIX (2026-09-29): increased 8192 -> 10240. Field evidence: boot 4649
+// panicked with LoadProhibited at _vfprintf_r inside httpd_thread
+// (httpd_process_session -> http_send_enveloped_response -> cJSON_PrintUnformatted
+// -> lwip_send). Actual call chain peak measured at 9,184 bytes, exceeding 8192 by
+// 992 bytes. 10240 provides a 1KB safety margin.
+#define TASK_HTTP_SERVER_STACK 10240
 #define TASK_HTTP_SERVER_PRIO 5
 
 #define TASK_COMMAND_MGR_STACK 4096

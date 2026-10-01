@@ -108,15 +108,15 @@ This document specifies the exact mapping from the physical pins of each discret
 
 | Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
-| **MOSFET #1** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 5** (Left-5) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #1** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 5** (Left-5) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE** |
 | **MOSFET #1** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #1** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #1** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump A (Nutrient) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
-| **MOSFET #2** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 6** (Left-6) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #2** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 6** (Left-6) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE** |
 | **MOSFET #2** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #2** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #2** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump B (pH/Buffer) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
-| **MOSFET #3** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-LOW (in hal) | **VERIFIED** |
+| **MOSFET #3** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE** |
 | **MOSFET #3** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #3** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #3** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Cooling Fan | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |

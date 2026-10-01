@@ -212,13 +212,8 @@ esp_err_t hardware_registry_validate_component_json(const cJSON *component, char
 
     cJSON *pol = cJSON_GetObjectItem(wiring, "polarity");
     if (pol && cJSON_IsString(pol) && expected_role_is_actuator(role_s)) {
-        if (strcmp(role_s, "ALARM_BUZZER") == 0 || strcmp(role_s, "BUZZER") == 0 || strcmp(type_s, "active-buzzer") == 0) {
-            if (strcmp(pol->valuestring, "ACTIVE_LOW") != 0 && strcmp(pol->valuestring, "ACTIVE_HIGH") != 0) {
-                validation_reason(reason, reason_len, "buzzer polarity must be ACTIVE_LOW or ACTIVE_HIGH");
-                return ESP_ERR_INVALID_STATE;
-            }
-        } else if (strcmp(pol->valuestring, "ACTIVE_LOW") != 0) {
-            validation_reason(reason, reason_len, "mapped actuator polarity must be ACTIVE_LOW per canonical wiring contract");
+        if (strcmp(pol->valuestring, "ACTIVE_LOW") != 0 && strcmp(pol->valuestring, "ACTIVE_HIGH") != 0) {
+            validation_reason(reason, reason_len, "actuator polarity must be ACTIVE_LOW or ACTIVE_HIGH");
             return ESP_ERR_INVALID_STATE;
         }
     }
@@ -486,6 +481,16 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
                     goto cleanup;
                 }
                 safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), j_pol->valuestring, NULL);
+            }
+            /* Hardware authority normalization: Native MOSFET channels are physically Active-HIGH */
+            if (strcmp(dst->role, "DOSING_A") == 0 || strcmp(dst->role, "DOSING_B") == 0 ||
+                strcmp(dst->role, "COOLING_FAN") == 0 || strcmp(dst->role, "BUZZER") == 0 ||
+                strcmp(dst->role, "ALARM_BUZZER") == 0 ||
+                dst->wiring.gpio == PIN_OUT_DOSING_A || dst->wiring.gpio == PIN_OUT_DOSING_B ||
+                dst->wiring.gpio == PIN_OUT_COOLING_FAN || dst->wiring.gpio == PIN_OUT_BUZZER) {
+                safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), "ACTIVE_HIGH", NULL);
+            } else if (dst->wiring.polarity[0] == '\0') {
+                safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), "ACTIVE_LOW", NULL);
             }
         }
 
