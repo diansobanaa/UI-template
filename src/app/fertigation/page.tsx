@@ -5,14 +5,19 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
   Beaker,
+  Check,
+  CheckCircle2,
   Droplets,
+  ExternalLink,
   Gauge,
   History,
   Info,
   ListOrdered,
   PlayCircle,
+  RotateCcw,
   Settings2,
   ShieldAlert,
+  Square,
   Timer,
   Waves,
   Zap,
@@ -174,15 +179,97 @@ function FertigationContent() {
     }
   };
 
-  const handleTestPump = async (pumpId: string, pumpName: string) => {
-    setTestingPump(pumpId);
+  /* ---------------------- Test Run Dosing Pump state ---------------------- */
+  const [testModalPump, setTestModalPump] = useState<any | null>(null);
+  const [testDuration, setTestDuration] = useState<10 | 30 | 60>(10);
+  const [testRunning, setTestRunning] = useState(false);
+  const [testTimeLeft, setTestTimeLeft] = useState(0);
+  const [testElapsedSec, setTestElapsedSec] = useState(0);
+  const [testFinished, setTestFinished] = useState<{
+    duration: number;
+    targetMl: number;
+    pumpName: string;
+  } | null>(null);
+
+  const getPumpFlowRateMlSec = (pump: any): number => {
+    if (pump?.rateMlSec && Number(pump.rateMlSec) > 0) return Number(pump.rateMlSec);
+    if (typeof pump?.rate === "string") {
+      const match = pump.rate.match(/([\d.]+)/);
+      if (match && parseFloat(match[1]) > 0) {
+        return parseFloat(match[1]) / 60;
+      }
+    }
+    return 2.0; // fallback standard 120 ml/min = 2.0 ml/sec
+  };
+
+  const calculateTargetMl = (pump: any, durationSec: number): string => {
+    const rateMlSec = getPumpFlowRateMlSec(pump);
+    return (rateMlSec * durationSec).toFixed(1);
+  };
+
+  useEffect(() => {
+    if (!testRunning) return;
+    const interval = setInterval(() => {
+      setTestElapsedSec((prev) => prev + 1);
+      setTestTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setTestRunning(false);
+          setTestingPump(null);
+          if (testModalPump) {
+            const targetMl = Number(calculateTargetMl(testModalPump, testDuration));
+            setTestFinished({
+              duration: testDuration,
+              targetMl,
+              pumpName: testModalPump.name,
+            });
+            toast(`${testModalPump.name} test run (${testDuration}s, target: ${targetMl} ml) selesai`, "success");
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [testRunning, testDuration, testModalPump]);
+
+  const handleOpenTestModal = (pump: any) => {
+    setTestModalPump(pump);
+    if (testingPump === pump.id) {
+      // Keep running state intact if inspecting currently running pump
+    } else {
+      setTestFinished(null);
+      setTestRunning(false);
+      setTestTimeLeft(0);
+      setTestElapsedSec(0);
+    }
+  };
+
+  const handleStartTestRun = async () => {
+    if (!testModalPump) return;
+    setTestFinished(null);
+    setTestRunning(true);
+    setTestTimeLeft(testDuration);
+    setTestElapsedSec(0);
+    setTestingPump(testModalPump.id);
     try {
-      await fertigationService.testPump(pumpId, pumpName);
-      toast(`${pumpName} test run (100 ml) completed`, "success");
+      await fertigationService.testPump(testModalPump.id, testModalPump.name, testDuration);
+    } catch (e) {
+      setTestRunning(false);
+      setTestingPump(null);
+      toast(errorMessage(e), "error");
+    }
+  };
+
+  const handleStopTestRun = async () => {
+    if (!testModalPump) return;
+    setTestRunning(false);
+    setTestingPump(null);
+    try {
+      await fertigationService.stopTestPump(testModalPump.id);
+      toast(`${testModalPump.name} test run dihentikan`, "warning");
     } catch (e) {
       toast(errorMessage(e), "error");
-    } finally {
-      setTestingPump(null);
     }
   };
 
@@ -567,26 +654,49 @@ function FertigationContent() {
             {pumps.map((p) => {
               const testing = testingPump === p.id;
               return (
-                <div key={p.id} className="rounded-xl border border-[--color-line] bg-[#0b2027]/[0.035] p-3.5">
+                <div
+                  key={p.id}
+                  className={`rounded-xl border p-3.5 transition-all ${
+                    testing
+                      ? "border-amber-500/40 bg-amber-500/[0.04] shadow-md shadow-amber-950/20"
+                      : "border-[--color-line] bg-[#0b2027]/[0.035] hover:border-slate-700/60"
+                  }`}
+                >
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-200">{p.name}</span>
                     <StatusBadge status={testing ? "running" : p.state === "Ready" ? "ready" : "off"} />
                   </div>
-                  <div className="mt-1.5 text-xs text-slate-500">Flow rate: {p.rate}</div>
-                  <div className="mt-2.5 flex gap-1">
+                  <div className="mt-1.5 flex items-center justify-between text-xs text-slate-400">
+                    <span>
+                      Flow rate: <strong className="text-slate-200">{p.rate}</strong>
+                    </span>
+                    {testing && (
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-400 animate-pulse">
+                        <Timer className="h-3 w-3" />
+                        {testTimeLeft}s tersisa
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2.5 flex gap-1.5">
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="flex-1"
-                      disabled={testing}
-                      onClick={() => handleTestPump(p.id, p.name)}
+                      className="flex-1 font-medium"
+                      onClick={() => handleOpenTestModal(p)}
                     >
-                      {testing ? "Running…" : "Test Run"}
+                      {testing ? (
+                        <span className="flex items-center justify-center gap-1.5 text-amber-400">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                          Running ({testTimeLeft}s)…
+                        </span>
+                      ) : (
+                        "Test Run"
+                      )}
                     </Button>
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="flex-1"
+                      className="flex-1 font-medium"
                       onClick={() => router(`/calibration?complex=${complex.id}`)}
                     >
                       Calibrate
@@ -760,6 +870,299 @@ function FertigationContent() {
             Operations once the command is accepted.
           </div>
         </div>
+      </Modal>
+
+      {/* ---------------- Test Run Modal ---------------- */}
+      <Modal
+        open={Boolean(testModalPump)}
+        onClose={() => {
+          if (!testRunning) {
+            setTestModalPump(null);
+            setTestFinished(null);
+          }
+        }}
+        title={`Test Run — ${testModalPump?.name ?? "Dosing Pump"}`}
+        width={580}
+      >
+        {testModalPump && (
+          <div className="space-y-4">
+            {/* Header info bar */}
+            <div className="flex items-center justify-between rounded-xl border border-slate-700/60 bg-slate-900/60 p-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <Droplets className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-200">{testModalPump.name}</div>
+                  <div className="text-xs text-slate-400">
+                    Laju Alir Terkalibrasi:{" "}
+                    <span className="font-semibold text-emerald-400">{testModalPump.rate}</span>
+                    <span className="text-slate-500 ml-1">
+                      (~{getPumpFlowRateMlSec(testModalPump).toFixed(2)} mL/s)
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <StatusBadge status={testRunning ? "running" : testModalPump.state === "Ready" ? "ready" : "off"} />
+            </div>
+
+            {/* View 1: Selection Mode (When not running and not completed) */}
+            {!testRunning && !testFinished && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      PILIH DURASI & TARGET VOLUME
+                    </span>
+                    <span className="text-[11px] text-slate-500">Estimasi berdasarkan debit pompa</span>
+                  </div>
+
+                  {/* 3 cards: 10s, 30s, 60s */}
+                  <div className="mt-2.5 grid grid-cols-3 gap-2.5">
+                    {[
+                      {
+                        sec: 10 as const,
+                        label: "10 Detik",
+                        tag: "Uji Cepat / Priming",
+                        desc: "Cek putaran awal & priming selang",
+                      },
+                      {
+                        sec: 30 as const,
+                        label: "30 Detik",
+                        tag: "Uji Kestabilan",
+                        desc: "Uji kestabilan debit aliran medium",
+                      },
+                      {
+                        sec: 60 as const,
+                        label: "60 Detik",
+                        tag: "Standar 1 Menit",
+                        desc: "Verifikasi kapasitas debit penuh",
+                      },
+                    ].map((opt) => {
+                      const isSelected = testDuration === opt.sec;
+                      const target = calculateTargetMl(testModalPump, opt.sec);
+                      return (
+                        <button
+                          key={opt.sec}
+                          type="button"
+                          onClick={() => setTestDuration(opt.sec)}
+                          className={`relative flex flex-col items-center justify-between rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? "border-emerald-500 bg-emerald-500/[0.12] ring-2 ring-emerald-500/25 shadow-lg shadow-emerald-950/40"
+                              : "border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/70"
+                          }`}
+                        >
+                          {isSelected && (
+                            <div className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-slate-950">
+                              <Check className="h-3 w-3 stroke-[3]" />
+                            </div>
+                          )}
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide ${
+                              isSelected
+                                ? "bg-emerald-400/20 text-emerald-300"
+                                : "bg-slate-800 text-slate-400"
+                            }`}
+                          >
+                            {opt.tag}
+                          </span>
+                          <div className="my-2.5 text-center">
+                            <div className="text-xs font-semibold text-slate-300">{opt.label}</div>
+                            <div
+                              className={`text-xl font-extrabold tracking-tight ${
+                                isSelected ? "text-emerald-400" : "text-slate-200"
+                              }`}
+                            >
+                              {target} <span className="text-xs font-medium text-slate-400">mL</span>
+                            </div>
+                          </div>
+                          <div className="text-center text-[10px] leading-tight text-slate-400">
+                            {opt.desc}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Target calculation summary box */}
+                <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-950/20 via-slate-900/50 to-emerald-950/20 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-cyan-400">
+                        Target Penakaran Uji Coba
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-300">
+                        Durasi <strong className="text-white">{testDuration} detik</strong> dengan laju alir{" "}
+                        <strong className="text-white">{testModalPump.rate}</strong>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-cyan-400">
+                        {calculateTargetMl(testModalPump, testDuration)}{" "}
+                        <span className="text-sm font-bold text-cyan-300">mL</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">Target Takaran</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-slate-900/80 p-2.5 text-xs text-slate-300 border border-slate-800">
+                    <Info className="h-4 w-4 shrink-0 text-cyan-400 mt-0.5" />
+                    <span>
+                      <strong>Instruksi:</strong> Siapkan gelas ukur atau wadah bertakar di bawah selang keluaran pompa. Setelah uji selesai, Anda dapat membandingkan volume riil dengan target <strong>{calculateTargetMl(testModalPump, testDuration)} mL</strong>.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                  <Button variant="secondary" onClick={() => setTestModalPump(null)}>
+                    Batal
+                  </Button>
+                  <Button
+                    onClick={handleStartTestRun}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1.5"
+                  >
+                    <Zap className="h-4 w-4" />
+                    Mulai Test Run ({testDuration}s → {calculateTargetMl(testModalPump, testDuration)} mL)
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* View 2: Active Test Running */}
+            {testRunning && (
+              <div className="space-y-4 py-1">
+                <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-b from-amber-500/[0.08] to-slate-900/60 p-5 text-center">
+                  {/* Pulsing indicator */}
+                  <div className="relative mx-auto flex h-16 w-16 items-center justify-center">
+                    <div className="absolute inset-0 rounded-full bg-amber-500/20 animate-ping" />
+                    <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                      <Droplets className="h-6 w-6 animate-bounce" />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-amber-400">
+                    POMPA SEDANG MENYALA (TEST RUN AKTIF)
+                  </div>
+                  <div className="mt-1 text-3xl font-black tracking-tight text-white">
+                    {testTimeLeft} <span className="text-base font-semibold text-slate-400">detik tersisa</span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Durasi total: {testDuration} detik • Target: {calculateTargetMl(testModalPump, testDuration)} mL
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mt-4">
+                    <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                      <span>Waktu berjalan: {testElapsedSec}s / {testDuration}s</span>
+                      <span className="font-semibold text-amber-400">
+                        {Math.min(100, Math.round((testElapsedSec / testDuration) * 100))}%
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-1000 ease-linear"
+                        style={{
+                          width: `${Math.min(100, (testElapsedSec / testDuration) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Real-time estimated output */}
+                  <div className="mt-3 text-xs text-slate-300">
+                    Estimasi terpompa saat ini:{" "}
+                    <strong className="text-emerald-400">
+                      {(getPumpFlowRateMlSec(testModalPump) * testElapsedSec).toFixed(1)} mL
+                    </strong>{" "}
+                    / {calculateTargetMl(testModalPump, testDuration)} mL
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3.5 py-2.5 text-xs text-amber-300">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span>Pompa dikendalikan langsung oleh ESP32. Tekan tombol merah di bawah jika ingin membatalkan segera.</span>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <Button
+                    variant="danger"
+                    onClick={handleStopTestRun}
+                    className="gap-1.5 font-semibold"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                    Hentikan Sekarang
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* View 3: Finished Test Run */}
+            {!testRunning && testFinished && (
+              <div className="space-y-4 py-1">
+                <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-500/[0.08] to-slate-900/60 p-5 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                    <CheckCircle2 className="h-7 w-7" />
+                  </div>
+                  <div className="mt-3 text-base font-bold text-slate-100">
+                    Test Run {testFinished.pumpName} Selesai!
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    Pompa telah dijalankan selama <strong className="text-slate-200">{testFinished.duration} detik</strong>
+                  </div>
+
+                  <div className="mt-4 inline-flex items-baseline gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-5 py-2.5">
+                    <span className="text-xs uppercase tracking-wide text-emerald-400 font-medium">Target Takaran:</span>
+                    <span className="text-2xl font-black text-emerald-400">{testFinished.targetMl} mL</span>
+                  </div>
+
+                  <div className="mt-4 text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
+                    Silakan bandingkan volume di gelas ukur Anda dengan target <strong>{testFinished.targetMl} mL</strong>.
+                    Jika terdapat perbedaan nyata, Anda disarankan untuk melakukan kalibrasi ulang laju alir pompa agar penakaran nutrisi otomatis selalu akurat.
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2.5 pt-2 border-t border-slate-800">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setTestFinished(null);
+                      setTestElapsedSec(0);
+                      setTestTimeLeft(0);
+                    }}
+                    className="gap-1.5"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Uji Lagi
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setTestModalPump(null);
+                        setTestFinished(null);
+                        router(`/calibration?complex=${complex.id}`);
+                      }}
+                      className="gap-1.5 text-xs text-cyan-400"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Kalibrasi Pompa Ini
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setTestModalPump(null);
+                        setTestFinished(null);
+                      }}
+                    >
+                      Selesai
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog

@@ -2266,6 +2266,7 @@ export const fertigationService = {
               name: c.name,
               state: ((c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "Ready" : "Not Used") as "Ready" | "Not Used",
               rate: flowRateStr,
+              rateMlSec: rateVal > 0 ? rateVal : 2.0,
             };
           });
         }
@@ -2614,20 +2615,30 @@ export const fertigationService = {
   isPumpTesting(pumpId: string): boolean {
     return pumpTestRuns.has(pumpId);
   },
-  async testPump(pumpId: string, pumpName: string): Promise<void> {
+  async testPump(pumpId: string, pumpName: string, durationSec: number = 10): Promise<void> {
     if (pumpTestRuns.has(pumpId)) {
       throw new ServiceError("CONFLICT", `${pumpName} is already running a test.`);
     }
     pumpTestRuns.add(pumpId);
     try {
       if (isDirectEsp32Enabled()) {
-        await esp32Client.runPump(pumpId.replace("dev-", ""), 5);
+        await esp32Client.runPump(pumpId.replace("dev-", ""), durationSec);
       }
     } catch (err: unknown) {
       const errorObj = err as { message?: string };
       throw new ServiceError("VALIDATION_FAILED", errorObj?.message || `Failed to test pump ${pumpName} on ESP32.`);
     } finally {
-      setTimeout(() => pumpTestRuns.delete(pumpId), 5000);
+      setTimeout(() => pumpTestRuns.delete(pumpId), durationSec * 1000);
+    }
+  },
+  async stopTestPump(pumpId: string): Promise<void> {
+    pumpTestRuns.delete(pumpId);
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.stopPump(pumpId.replace("dev-", ""));
+      } catch {
+        // Ignored if already stopped
+      }
     }
   },
 

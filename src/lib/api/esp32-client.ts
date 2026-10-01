@@ -405,6 +405,16 @@ export class Esp32Client {
     });
   }
 
+  /**
+   * Unified helper to stop any actuator/dosing pump.
+   */
+  async stopPump(componentId: string): Promise<CommandReceipt> {
+    const cmdId = `pump-stop-${componentId}-${Date.now()}`;
+    return this.postCommand(cmdId, "DOSING_RUN_STOP", {
+      componentId,
+    });
+  }
+
   /* -------------------------- Canonical Crop Cycle (OpenAPI) -------------------------- */
 
   async getCurrentCropCycle(ghId: string): Promise<CurrentCropCycleResponse> {

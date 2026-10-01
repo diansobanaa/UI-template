@@ -3516,4 +3516,62 @@ PYTHON SAVE + ANALYSIS
   - `queuedBatches`: Array of Global Dosing Queue entries serialized for central preparation.
   - If central dosing is IDLE but delivery slots are active, `runtimeState` projects `DISTRIBUTING`.
   - TFT Home Screen detects active delivery slots (`fertigation_mgr_get_active_delivery_count() > 0`) and renders `"RUNNING"`.
+
+49. Dosing Pump 3-Stage Progressive Calibration Specification (SP-FERT-CALIB-003)
+
+1. Architecture & Operating Modes
+- The dosing pump calibration engine supports two distinct operational modes:
+  - 1× Single Measurement Mode: Operator selects a single test duration (10s, 30s, or 60s) for rapid check or ad-hoc verification.
+  - 3× Progressive Measurement Mode: A rigorous 3-stage consecutive measurement protocol designed to test pump linearity and volumetric consistency across operating durations.
+
+2. Sequential Workflow (10s → 30s → 60s)
+- Stage 1 (10 Seconds):
+  - Physical pump actuates for exactly 10.0 seconds.
+  - Operator records collected volume $V_1$ (ml).
+  - Independent flow rate: $Q_1 = \frac{V_1}{10} \times 60$ ml/min.
+- Stage 2 (30 Seconds):
+  - Physical pump actuates for exactly 30.0 seconds.
+  - Operator records collected volume $V_2$ (ml).
+  - Independent flow rate: $Q_2 = \frac{V_2}{30} \times 60$ ml/min.
+- Stage 3 (60 Seconds):
+  - Physical pump actuates for exactly 60.0 seconds.
+  - Operator records collected volume $V_3$ (ml).
+  - Independent flow rate: $Q_3 = \frac{V_3}{60} \times 60$ ml/min.
+
+3. Consistency Validation & Acceptance Criteria
+- Reference Rate: Median of $\{Q_1, Q_2, Q_3\}$ to eliminate single-outlier distortion.
+- Deviation Metric: Percentage deviation of each stage against median reference:
+  $$\text{Dev}_i (\%) = \frac{|Q_i - Q_{\text{median}}|}{Q_{\text{median}}} \times 100$$
+- Maximum Tolerance: Defined by `DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT = 10.0%`.
+- Outcome Evaluation:
+  - PASS (Consistent): All stages have $\text{Dev}_i \le 10.0\%$.
+    - Final Aggregated Flow Rate: Weighted total duration formula $Q_{\text{final}} = \frac{V_1 + V_2 + V_3}{10 + 30 + 60} \times 60$.
+    - Operator may save the verified flow rate to ESP32 NVS memory.
+  - FAIL (Inconsistent): Any stage has $\text{Dev}_i > 10.0\%$.
+    - System strictly blocks saving the calibration to prevent fertigation dosage inaccuracies.
+    - Operator is presented with troubleshooting steps (air bubbles, tubing blockage, supply voltage ripple) and prompted to repeat testing from Stage 1.
+    - Previous active calibration in NVS is strictly preserved.
+
+50. Dosing Pump Test Run & Volumetric Verification Specification (SP-FERT-TESTRUN-001)
+
+1. Purpose & Scope
+- Provides an operational verification mechanism (Test Run / Bump Test) on fertigation pump cards to verify physical responsiveness, prime pump tubing, and validate dispensed liquid volume without altering stored calibration values.
+
+2. Duration Presets & Target Volume Estimation
+- Presets available:
+  - 10 Seconds (Uji Cepat / Priming): Verification of motor rotation and tube priming.
+  - 30 Seconds (Uji Kestabilan): Verification of continuous flow smoothness.
+  - 60 Seconds (Standar 1 Menit): Verification of nominal 1-minute capacity.
+- Mathematical Volume Calculation:
+  $$\text{Target Volume (mL)} = Q_{\text{rate}} (\text{mL/s}) \times \Delta t (\text{s}) = \frac{Q_{\text{calibrated}} (\text{mL/min})}{60} \times \Delta t (\text{s})$$
+  - Example: With flow rate $120.0 \text{ mL/min}$ ($2.0 \text{ mL/s}$):
+    - $10\text{ s} \to 20.0\text{ mL}$
+    - $30\text{ s} \to 60.0\text{ mL}$
+    - $60\text{ s} \to 120.0\text{ mL}$
+
+3. Execution & Safety Cancellation
+- Command Transport: Triggers authoritative ESP32 command `DOSING_RUN_START` with exact duration parameter `durationSeconds`.
+- Active State UX: Real-time countdown timer, animated liquid dispensing estimation, and percentage progress bar.
+- Emergency Abort: Operator can immediately stop the test run using `Hentikan Sekarang`, which sends `DOSING_RUN_STOP` to instantly deactivate the GPIO relay/MOSFET on the ESP32.
+- Completion Guidance: Upon test completion, UI displays the exact target volume and suggests re-calibration if physical collected volume deviates noticeably.
 

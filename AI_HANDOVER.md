@@ -1,11 +1,59 @@
-# AI HANDOVER — SP-FERT-CALIB-002 (latest)
+# AI HANDOVER — SP-FERT-TESTRUN-001 (latest)
 
-## Status — SP-FERT-CALIB-002
-**Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization**
-**Safe Point**: `SP-FERT-CALIB-002`
-**Date**: 2026-10-01
-**Git Commit**: `0dc07bf`
-**Verdict**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
+## Status — SP-FERT-TESTRUN-001
+**Dosing Pump Test Run Presets (10s, 30s, 60s), Volumetric Targets & Realtime UX**
+**Safe Point**: `SP-FERT-TESTRUN-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — LIVE COUNTDOWN & CANCEL INTEGRATED`
+
+### Summary of What Was Done
+1. **Eliminasi Hardcode Durasi 5 Detik & Toast Statis 100 mL**:
+   - Ditemukan bahwa tombol "Test Run" di kartu pompa halaman Fertigasi sebelumnya menjalankan fungsi hardcoded 5 detik dengan notifikasi statis "test run (100 ml) completed".
+   - Diperbarui menjadi alur interaktif dengan modal dialog yang menghitung target volume riil secara matematis:
+     $$\text{Target Volume (mL)} = \frac{Q_{\text{calibrated}} (\text{mL/min})}{60} \times \Delta t (\text{s})$$
+2. **Pilihan Durasi Uji 10s, 30s, 60s**:
+   - Menyediakan 3 kartu durasi interaktif:
+     - **10 Detik (Uji Cepat / Priming)**: Menguji putaran awal motor dan priming selang keluaran.
+     - **30 Detik (Uji Kestabilan)**: Menguji kelancaran aliran jangka menengah.
+     - **60 Detik (Standar 1 Menit)**: Menguji kapasitas debit nominal 1 menit penuh.
+   - Setiap kartu menampilkan target volume dinamis dalam satuan mL berdasarkan flow rate terkalibrasi pompa aktif.
+3. **UI/UX Real-time & Safety Cancel**:
+   - Header info pompa dengan status badge, laju alir terkalibrasi, dan laju per detik.
+   - Panel target takaran dengan instruksi penyiapan gelas ukur.
+   - Status berjalan (Active Running View): Indikator denyut animasi, hitung mundur digital detik tersisa, progress bar animasi, estimasi volume terpompa secara real-time, dan tombol darurat **Hentikan Sekarang** (`DOSING_RUN_STOP`).
+   - Status selesai (Finished View): Notifikasi sukses, ringkasan target volume, instruksi evaluasi gelas ukur, tombol *Uji Lagi*, dan jalan pintas ke wizard kalibrasi presisi.
+   - Status pada kartu pompa di grid juga menampilkan `Running (Xs)…` secara sinkron.
+4. **Verifikasi**:
+   - `npx tsc --noEmit`: 0 error (exit code 0).
+
+---
+
+# AI HANDOVER — SP-FERT-CALIB-003
+
+### Summary of What Was Done
+1. **Preservasi Mutlak Mode 1× Pengukuran Tunggal**:
+   - Mode 1x dipertahankan sepenuhnya dengan workflow asli: operator bebas memilih durasi (10s Cepat, 30s Standar Rekomendasi, 60s Presisi), menjalankan 1 kali tes, mencatat volume, meninjau hasil, dan menyimpan ke kontroler.
+2. **Redesain Sekuensial Mode 3× Pengukuran Bertahap (10s → 30s → 60s)**:
+   - Menghapus pemilih durasi tunggal yang ambigu pada mode 3x dan menggantinya dengan panel sekuens 3 tahap otomatis:
+     - **Tahap 1**: Pompa aktif 10 detik $\to$ Input volume 10s $\to$ $Q_1 = \frac{V_1}{10} \times 60$.
+     - **Tahap 2**: Pompa aktif 30 detik $\to$ Input volume 30s $\to$ $Q_2 = \frac{V_2}{30} \times 60$.
+     - **Tahap 3**: Pompa aktif 60 detik $\to$ Input volume 60s $\to$ $Q_3 = \frac{V_3}{60} \times 60$.
+   - Setiap tahap merepresentasikan operasi pompa fisik terpisah, input volume mandiri, dan debit terhitung independen. Tidak ada input volume yang dibagikan atau ditimpa sebelum waktunya.
+3. **Validasi Konsistensi Statistik (Median Reference & 10% Tolerance)**:
+   - Menghitung deviasi persentase tiap tahap terhadap nilai acuan median: $\text{Dev}_i = \frac{|Q_i - Q_{\text{median}}|}{Q_{\text{median}}} \times 100$.
+   - Menggunakan ambang toleransi terpusat `DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT = 10.0%`.
+   - **Jika Lolos (Deviasi $\le 10\%$)**: Menampilkan badge hijau *"Konsisten & Lolos Uji"*, tabel rincian deviasi per tahap, dan tombol *"SIMPAN KALIBRASI KE KONTROLER"*.
+   - **Jika Gagal (Deviasi $> 10\%$)**: Menampilkan badge merah *"Tidak Konsisten (Gagal)"*, peringatan deviasi tinggi, checklist diagnostik teknis (gelembung udara, sumbatan selang, fluktuasi voltase), dan **memblokir penyimpanan** agar debit cacat tidak mencemari NVS kontroler.
+4. **Verifikasi Matematika & Software**:
+   - `scripts/test_calibration_math.mjs`:
+     - Test Case Konsisten Bagian 11 (20ml/10s, 60ml/30s, 120ml/60s $\to$ 120 ml/min): LULUS (deviasi 0%, isConsistent = true).
+     - Test Case Tidak Konsisten Bagian 11 (20ml/10s $\to$ 120 ml/m, 45ml/30s $\to$ 90 ml/m, 60ml/60s $\to$ 60 ml/m): TERDETEKSI GAGAL DENGAN BENAR (deviasi 33.3% $> 10\%$, isConsistent = false).
+   - `npx tsc --noEmit`: 0 error.
+   - `npm test`: 28/28 endpoint OpenAPI lulus.
+
+---
+
+# AI HANDOVER — SP-FERT-CALIB-002
 
 ### Summary of What Was Done
 1. **Penyelarasan Durasi Pengukuran Otoritatif (Eliminasi Inkonsistensi 10s vs 30s)**:

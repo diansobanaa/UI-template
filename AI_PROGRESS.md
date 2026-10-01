@@ -1,3 +1,65 @@
+## SP-FERT-TESTRUN-001 — Dosing Pump Test Run Presets (10s, 30s, 60s), Volumetric Targets & Realtime UX
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — LIVE COUNTDOWN & CANCEL INTEGRATED`
+- **Objective**:
+  1. Eliminate hardcoded 5-second duration and static "(100 ml)" toast on fertigation dosing pump Test Run.
+  2. Implement interactive duration presets (10s, 30s, 60s) with real-time target volume calculations based on calibrated flow rate: $\text{Target (mL)} = \frac{Q_{\text{calibrated}}}{60} \times \Delta t$.
+  3. Build rich dark-themed modal UX with selection cards, live countdown timer, real-time estimated dispensing volume progress bar, emergency cancel button (`DOSING_RUN_STOP`), and completion evaluation linking to calibration.
+  4. Wire authoritative ESP32 `runPump` and `stopPump` methods.
+
+### Completed Work & Verification
+- `src/lib/api/esp32-client.ts`:
+  - Added `stopPump(componentId)` sending `DOSING_RUN_STOP` command to ESP32.
+- `src/lib/services.ts`:
+  - Enhanced `fertigationService.testPump(pumpId, pumpName, durationSec = 10)` with configurable duration.
+  - Added `fertigationService.stopTestPump(pumpId)` with authoritative ESP32 stop command.
+  - Added `rateMlSec` field to returned pump items from `getDynamicDosingPumps()`.
+- `src/app/fertigation/page.tsx`:
+  - Added Lucide icons: `Check, CheckCircle2, ExternalLink, RotateCcw, Square`.
+  - Replaced hardcoded `handleTestPump` with interactive modal workflow (`testModalPump`, `testDuration`, `testRunning`, `testFinished`).
+  - Added 3 interactive preset cards: 10s (Uji Cepat / Priming), 30s (Uji Kestabilan), 60s (Standar 1 Menit).
+  - Added live volume calculation: displays exact target in mL for each duration.
+  - Added active running UX: pulsing indicator, digital countdown, progress bar, real-time estimated volume, and emergency stop button.
+  - Added finished UX: completion celebration, comparison prompt with physical cylinder, and shortcut to pump calibration.
+  - Pump card button displays live testing status (`Running (Xs)…`).
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 50: Dosing Pump Test Run & Volumetric Verification Specification.
+- Verification:
+  - `npx tsc --noEmit`: Exit code 0 (0 errors).
+
+---
+
+## SP-FERT-CALIB-003 — 3-Stage Progressive Dosing Pump Calibration UX (10s → 30s → 60s) & Consistency Validation
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & VERIFIED — 0 TYPESCRIPT ERRORS — ALL MATHEMATICAL & ACCEPTANCE TESTS PASS`
+- **Objective**:
+  1. Refactor 3x Progressive Measurement mode into an explicit, sequential 3-stage calibration workflow: Stage 1 (10s) → Stage 2 (30s) → Stage 3 (60s).
+  2. Implement independent pump actuation, independent volume input, and independent flow rate calculation per stage.
+  3. Implement statistical consistency validation using median reference rate and central tolerance threshold (`DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT = 10.0%`).
+  4. Block saving of calibrations when deviation exceeds 10%, displaying actionable hardware troubleshooting steps while preserving the previous valid calibration.
+  5. Strictly preserve 1x Single Measurement mode without any regression.
+
+### Completed Work & Verification
+- `src/lib/calibration-math.ts`:
+  - Added `DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT = 10.0`.
+  - Enhanced `aggregateDosingSamples(samples, tolerancePct)` to calculate median reference rate, per-stage percentage deviation against median, and boolean `isConsistent`.
+- `scripts/test_calibration_math.mjs`:
+  - Added Section 6 & 11 tests:
+    - Consistent set (20ml/10s, 60ml/30s, 120ml/60s => 120.0 ml/min): PASS (`isConsistent: true`).
+    - Inconsistent set (20ml/10s -> 120 ml/min, 45ml/30s -> 90 ml/min, 60ml/60s -> 60 ml/min): CORRECTLY FAILED (`isConsistent: false`, max dev 33.3% > 10%).
+- `src/app/calibration/page.tsx`:
+  - Preserved 1x Single Measurement mode with customizable duration presets (10s, 30s, 60s).
+  - In 3x Progressive Measurement mode, replaced single-duration selector with 3-stage progress card: Stage 1 (10s), Stage 2 (30s), Stage 3 (60s).
+  - Wired `currentDuration` to dynamically resolve according to `PROGRESSIVE_DURATIONS[currentSampleIndex]` in multi-mode.
+  - After stage completion, UI transitions cleanly to prompt the next stage with clear labels: "Pengukuran 1 dari 3 (10s)", "Pengukuran 2 dari 3 (30s)", "Pengukuran 3 dari 3 (60s)".
+  - In `REVIEW` state:
+    - PASS: displays green badge "Konsisten & Lolos Uji", 3-stage breakdown table with deviation percentages, and enables "SIMPAN KALIBRASI KE KONTROLER".
+    - FAIL: displays red badge "Tidak Konsisten (Gagal)", alert card explaining deviation vs tolerance, hardware troubleshooting checklist, and blocks save button (substituting "ULANGI PENGUJIAN TAHAP 1").
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 49 documenting 3-stage progressive calibration specification, mathematical formulas, and tolerance rules.
+
+---
+
 ## SP-FERT-CALIB-002 — Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization
 - **Date**: 2026-10-01
 - **Git Commit**: `0dc07bf`
