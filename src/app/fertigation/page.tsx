@@ -88,18 +88,24 @@ function FertigationContent() {
 
   const queue = fertigationService.mixingQueue();
   const [pumps, setPumps] = useState<any[]>(() => fertigationService.dosingPumps());
+  const [lastCalibration, setLastCalibration] = useState<string>("—");
 
   useEffect(() => {
     let active = true;
-    fertigationService.getDynamicDosingPumps().then((dynPumps) => {
+    fertigationService.getDynamicDosingPumps(complex.id).then((dynPumps) => {
       if (active && dynPumps && dynPumps.length > 0) {
         setPumps(dynPumps);
+      }
+    });
+    fertigationService.dosingLastCalibration(complex.id).then((calStr) => {
+      if (active && calStr) {
+        setLastCalibration(calStr);
       }
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [complex.id]);
 
   const history = fertigationService.history();
   const sys = fertigationService.systemStatus(complex.id, selectedGhId || undefined);
@@ -541,14 +547,21 @@ function FertigationContent() {
           title="Dosing Pump Status"
           icon={Gauge}
           iconTone="green"
-          subtitle={`Last calibration: ${fertigationService.dosingLastCalibration() === "—" ? "Never / Belum Dikalibrasi" : fertigationService.dosingLastCalibration()}`}
+          subtitle={`Last calibration: ${lastCalibration}`}
         >
-          <div className="mb-3 rounded-xl border border-emerald-900/30 bg-emerald-950/20 p-2.5 text-xs text-slate-300 flex items-start gap-2.5">
-            <Info className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-semibold text-emerald-300">Fungsi Status Kalibrasi: </span>
-              Menampilkan riwayat kalibrasi debit laju pompa dosing (ml/detik). Kalibrasi diperlukan agar controller dapat menghitung durasi putaran pompa secara akurat sesuai takaran resep nutrisi. Tanda <span className="font-mono text-emerald-200">&ldquo;Never / —&rdquo;</span> menandakan pompa belum pernah dikalibrasi (masih memakai estimasi default). Klik tombol <span className="font-semibold text-slate-200">Calibrate</span> untuk melakukan kalibrasi volumetrik.
-            </div>
+          <div className="mb-3.5 flex items-center justify-between rounded-lg border border-[--color-line] bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span>Volumetric flow rate determines pump runtime for automated recipe dosing.</span>
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 text-xs"
+              onClick={() => router(`/calibration?complex=${complex.id}`)}
+            >
+              Calibrate All
+            </Button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {pumps.map((p) => {

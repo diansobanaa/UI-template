@@ -2069,9 +2069,23 @@ export const fertigationService = {
   dosingPumps() {
     return [];
   },
-  async getDynamicDosingPumps() {
+  async getDynamicDosingPumps(complexId?: string) {
     try {
+      const targetComplex = complexId || complexService.list()[0]?.id || "";
       const inv = await esp32Client.getInventory();
+      let rates: any = null;
+      try {
+        rates = await esp32Client.getCalibrationRates();
+      } catch { }
+
+      let calRecords: any[] = [];
+      try {
+        if (targetComplex) {
+          const calRes = await operationalPythonClient.listCalibrations(targetComplex);
+          calRecords = calRes.calibrations || [];
+        }
+      } catch { }
+
       if (inv && Array.isArray(inv.components)) {
         const dynamicPumps = inv.components.filter(
           (c) =>
@@ -2082,12 +2096,39 @@ export const fertigationService = {
               c.componentId?.startsWith("dp-"))
         );
         if (dynamicPumps.length > 0) {
-          return dynamicPumps.map((c) => ({
-            id: c.componentId,
-            name: c.name,
-            state: ((c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "Ready" : "Not Used") as "Ready" | "Not Used",
-            rate: "0 ml/min",
-          }));
+          return dynamicPumps.map((c) => {
+            let flowRateStr = "Uncalibrated";
+            const compLower = c.componentId.toLowerCase();
+            let rateVal = 0;
+
+            if (rates) {
+              if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
+                rateVal = rates.rateDosingAMlSec || 0;
+              } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
+                rateVal = rates.rateDosingBMlSec || 0;
+              } else if (rates[c.componentId]) {
+                rateVal = Number(rates[c.componentId]) || 0;
+              }
+            }
+
+            if (rateVal <= 0 && calRecords.length > 0) {
+              const compCal = calRecords.find((r: any) => r.componentId === c.componentId && r.calibrationType === "DOSING_RATE");
+              if (compCal?.parameters?.measuredMl && compCal?.parameters?.durationSec) {
+                rateVal = Number(compCal.parameters.measuredMl) / Number(compCal.parameters.durationSec);
+              }
+            }
+
+            if (rateVal > 0) {
+              flowRateStr = `${(rateVal * 60).toFixed(1)} ml/min`;
+            }
+
+            return {
+              id: c.componentId,
+              name: c.name,
+              state: ((c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "Ready" : "Not Used") as "Ready" | "Not Used",
+              rate: flowRateStr,
+            };
+          });
         }
       }
     } catch (err) {
@@ -2097,7 +2138,28 @@ export const fertigationService = {
     }
     return [];
   },
-  dosingLastCalibration() { return "—"; },
+  async dosingLastCalibration(complexId?: string): Promise<string> {
+    const targetComplex = complexId || complexService.list()[0]?.id || "";
+    if (!targetComplex) return "Never";
+    try {
+      const calRes = await operationalPythonClient.listCalibrations(targetComplex);
+      const records = calRes.calibrations || [];
+      const dosingCals = records.filter(
+        (c: any) => c.calibrationType === "DOSING_RATE" || (c.componentId && c.componentId.toLowerCase().includes("dosing"))
+      );
+      if (dosingCals.length > 0) {
+        const latest = dosingCals.reduce((prev: any, curr: any) => (curr.createdAtMs > prev.createdAtMs ? curr : prev));
+        return new Date(latest.createdAtMs).toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+    } catch { }
+    return "Never";
+  },
   history() { return getOperationalSnapshot().greenhouses.flatMap((g) => g.history); },
   systemStatus(complexId: string, ghId?: string): FertigationSystemStatus | null {
     const complex = complexService.get(complexId);
