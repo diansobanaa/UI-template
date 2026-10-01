@@ -8,6 +8,7 @@ import {
   Droplets,
   Gauge,
   History,
+  Info,
   ListOrdered,
   PlayCircle,
   Settings2,
@@ -540,8 +541,15 @@ function FertigationContent() {
           title="Dosing Pump Status"
           icon={Gauge}
           iconTone="green"
-          subtitle={`Last calibration: ${fertigationService.dosingLastCalibration()}`}
+          subtitle={`Last calibration: ${fertigationService.dosingLastCalibration() === "—" ? "Never / Belum Dikalibrasi" : fertigationService.dosingLastCalibration()}`}
         >
+          <div className="mb-3 rounded-xl border border-emerald-900/30 bg-emerald-950/20 p-2.5 text-xs text-slate-300 flex items-start gap-2.5">
+            <Info className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-semibold text-emerald-300">Fungsi Status Kalibrasi: </span>
+              Menampilkan riwayat kalibrasi debit laju pompa dosing (ml/detik). Kalibrasi diperlukan agar controller dapat menghitung durasi putaran pompa secara akurat sesuai takaran resep nutrisi. Tanda <span className="font-mono text-emerald-200">&ldquo;Never / —&rdquo;</span> menandakan pompa belum pernah dikalibrasi (masih memakai estimasi default). Klik tombol <span className="font-semibold text-slate-200">Calibrate</span> untuk melakukan kalibrasi volumetrik.
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {pumps.map((p) => {
               const testing = testingPump === p.id;
