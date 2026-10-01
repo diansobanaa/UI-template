@@ -2169,6 +2169,25 @@ export const calibrationService = {
       await delay(300);
     }
   },
+  async stopCalibrationPump(): Promise<void> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        await esp32Client.stopCalibration();
+      } catch (err: unknown) {
+        console.warn("[calibrationService] Stop pump direct error:", err);
+      }
+    }
+  },
+  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number }> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        return await esp32Client.getCalibrationStatus();
+      } catch {
+        return { state: "IDLE", remaining_sec: 0 };
+      }
+    }
+    return { state: "IDLE", remaining_sec: 0 };
+  },
 };
 
 /* -------------------------- fertigation -------------------------- */

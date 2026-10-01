@@ -70,9 +70,21 @@ static esp_err_t api_calibration_start_handler(httpd_req_t *req)
     if (!calibration_component_scoped_to_device(comp->valuestring)) { cJSON_Delete(json); http_send_error(req,409,"COMPONENT_COMPLEX_MISMATCH","Calibration target component belongs to another Complex.",NULL); return ESP_FAIL; }
     hw_component_info_t component_info;
     if (hardware_registry_find_by_id(comp->valuestring, &component_info) != ESP_OK || !calibration_component_compatible(&component_info, "DOSING_RATE")) { cJSON_Delete(json); http_send_error(req,422,"CALIBRATION_COMPONENT_TYPE_MISMATCH","Calibration target is not a dosing-capable component.",NULL); return ESP_FAIL; }
-    esp_err_t err=calibration_mgr_start_volumetric_component(comp->valuestring,(uint32_t)dur->valueint);cJSON_Delete(json);
+    char comp_id[48] = {0};
+    strncpy(comp_id, comp->valuestring, sizeof(comp_id) - 1);
+    uint32_t dur_sec = (uint32_t)dur->valueint;
+    cJSON_Delete(json);
+    esp_err_t err = calibration_mgr_start_volumetric_component(comp_id, dur_sec);
     if(err!=ESP_OK){http_send_error(req,err==ESP_ERR_INVALID_STATE?409:422,"CALIBRATION_START_FAILED","Calibration start rejected by local hardware/safety policy.",NULL);return ESP_FAIL;}
-    cJSON *resp=cJSON_CreateObject();cJSON_AddStringToObject(resp,"status","RUNNING");cJSON_AddStringToObject(resp,"componentId",comp->valuestring);cJSON_AddNumberToObject(resp,"durationSec",dur->valueint);return http_send_enveloped_response(req,202,NULL,resp);
+    cJSON *resp=cJSON_CreateObject();cJSON_AddStringToObject(resp,"status","RUNNING");cJSON_AddStringToObject(resp,"componentId",comp_id);cJSON_AddNumberToObject(resp,"durationSec",dur_sec);return http_send_enveloped_response(req,202,NULL,resp);
+}
+
+static esp_err_t api_calibration_stop_handler(httpd_req_t *req)
+{
+    (void)calibration_mgr_stop();
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "STOPPED");
+    return http_send_enveloped_response(req, 200, NULL, resp);
 }
 
 static esp_err_t api_calibration_status_handler(httpd_req_t *req)
@@ -242,6 +254,7 @@ static esp_err_t api_calibration_record_get_handler(httpd_req_t *req)
 void register_api_calibration_handlers(httpd_handle_t server)
 {
     httpd_uri_t a={.uri="/api/v1/calibration",.method=HTTP_POST,.handler=api_calibration_start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
+    httpd_uri_t del={.uri="/api/v1/calibration",.method=HTTP_DELETE,.handler=api_calibration_stop_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&del);
     httpd_uri_t st={.uri="/api/v1/calibration/status",.method=HTTP_GET,.handler=api_calibration_status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&st);
     httpd_uri_t r={.uri="/api/v1/calibration/rate",.method=HTTP_POST,.handler=api_calibration_set_rate_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&r);
     httpd_uri_t gr={.uri="/api/v1/calibration/rate",.method=HTTP_GET,.handler=api_calibration_get_rate_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&gr);

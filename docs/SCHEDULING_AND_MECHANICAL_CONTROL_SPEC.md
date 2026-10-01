@@ -1151,47 +1151,59 @@ ESP32 mengambil coefficient dari calibration terakhir.
 
 19.2 Prinsip Calibration
 
-Calibration dilakukan dengan cara menyalakan pump selama durasi yang dipilih, kemudian mengukur volume output aktual.
+Calibration dilakukan dengan cara menyalakan pump selama durasi yang dipilih secara eksplisit oleh operator, kemudian mengukur volume output aktual yang tertampung di gelas ukur.
 
-Durasi test yang diperbolehkan pada UI:
+Pilihan durasi standar (presets) yang disediakan pada UI:
+- **30 detik (Standar Rekomendasi):** Presisi optimal untuk pompa peristaltik mikro-dosing.
+- **10 detik (Uji Cepat):** Pengujian singkat untuk verifikasi fungsional.
+- **60 detik (Presisi Tinggi):** Untuk debit aliran sangat kecil atau larutan pekat.
 
-10 detik
-20 detik
-39 detik
+Durasi yang dipilih operator menjadi satu-satunya acuan otoritatif durasi putar pompa GPIO pada ESP32, hitung mundur (countdown), dan pembagi rumus laju aliran. Sistem tidak memperbolehkan inkonsistensi antara durasi yang diuji dan durasi yang dihitung.
 
-UI harus menyediakan pilihan durasi tersebut atau struktur input yang ekuivalen.
+19.3 Prosedur Calibration & Workflow UI/UX 4-Tahap
 
-19.3 Prosedur Calibration
+Sistem mengadopsi human-centered workflow 4-tahap yang intuitif:
 
-Contoh calibration A selama 20 detik:
+1. **Langkah 1 (Pengaturan & SOP):**
+   - Menampilkan status kalibrasi aktif saat ini (misal: 24.0 ml/mnt atau Belum Dikalibrasi).
+   - Operator memilih durasi uji (10s, 30s, atau 60s) dan mode kalibrasi (1x Tunggal atau 3x Bertahap).
+   - Checklist kesiapan selang dan gelas ukur.
+   - Operator menekan tombol `[ Mulai Kalibrasi ]`.
 
-1. Pastikan pump dan jalur aman.
-2. Tempatkan wadah ukur pada output.
-3. Pastikan wadah awal dalam kondisi terukur/empty.
-4. Start calibration.
-5. Pump ON selama 20 detik.
-6. Pump OFF.
-7. Ukur volume aktual yang keluar dalam mL.
-8. Masukkan hasil volume ke UI.
-9. ESP32/UI menghitung flow rate calibration.
+2. **Langkah 2 (Pompa Berjalan):**
+   - ESP32 mengaktifkan pompa dosing (`POST /api/v1/calibration` dengan `{ duration_sec }`).
+   - UI menampilkan hitung mundur (countdown) waktu riil dari durasi terpilih, bilah progres (progress bar), dan tombol darurat `[ Hentikan Pengujian ]` (`DELETE /api/v1/calibration`).
 
-Rumus dasar:
+3. **Langkah 3 (Catat Volume Cairan):**
+   - Begitu pompa mati secara otomatis saat durasi tercapai, UI bertransisi ke form input volume.
+   - Form secara eksplisit mencantumkan durasi riil yang baru saja diuji: *"Volume Cairan Tertampung (ml) — selama tes [X] detik"*.
+   - Operator memasukkan angka mililiter cairan di gelas ukur.
+   - Preview interaktif menampilkan kalkulasi debit seketika beserta perbandingan deviasi terhadap nilai aktif sebelumnya.
 
-flowRateMlPerMin = (measuredVolumeMl / testDurationSec) * 60
+4. **Langkah 4 (Tinjau & Simpan):**
+   - Menampilkan nilai flow rate baru dalam ukuran besar dan kontras (ml/mnt dan ml/dtk).
+   - Menampilkan perbandingan 3 kolom: *Nilai Sebelumnya*, *Nilai Baru*, dan *Selisih / Deviasi*.
+   - Menampilkan makna agronomis: *"Pompa mengalirkan X ml per menit..."*.
+   - Operator menekan `[ Simpan Kalibrasi ke Kontroler ]`.
+   - Data disimpan ke NVS ESP32 dan database backend secara permanen, memicu reload otoritatif pada UI tanpa refresh halaman.
 
-Contoh:
+Rumus dasar laju aliran volumetrik:
 
-testDurationSec = 20
-measuredVolumeMl = 100
+```text
+Flow Rate (ml/min) = (Measured Volume (ml) / Actual Duration (sec)) * 60
+Flow Rate (ml/sec) = Flow Rate (ml/min) / 60 = Measured Volume (ml) / Actual Duration (sec)
+```
 
-flowRateMlPerMin = (100 / 20) * 60
-                 = 300 ml/min
+Untuk mode 3x Pengukuran Bertahap (Multi-Sample):
+```text
+Flow Rate Gabungan (ml/min) = (Total Volume Terkumpul (ml) / Total Waktu Aktual (sec)) * 60
+```
+Sistem memeriksa konsistensi antar-sampel (deviasi maks <= 10%) dan menampilkan tabel rincian seluruh sampel yang telah diambil.
 
-Maka estimasi runtime untuk target 25 mL:
-
-runtimeSec = (targetMl / flowRateMlPerMin) * 60
-           = (25 / 300) * 60
-           = 5 detik
+Estimasi runtime pompa dosing saat proses pemberian pupuk:
+```text
+Runtime Dosing (ms) = (Target Volume (ml) / Flow Rate (ml/min)) * 60,000
+```
 
 19.4 Data Calibration yang Disimpan
 

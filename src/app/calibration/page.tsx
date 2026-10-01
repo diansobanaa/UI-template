@@ -22,6 +22,16 @@ import {
   Clock,
   Cpu,
   Laptop,
+  Play,
+  RotateCcw,
+  AlertTriangle,
+  ArrowRight,
+  Layers,
+  Sparkles,
+  Droplets,
+  HelpCircle,
+  Activity,
+  CheckCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
@@ -36,16 +46,18 @@ import type { CalibrationDevice } from "@/lib/types";
 import { complexRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import { deviceClock, useDeviceClock } from "@/lib/device-clock";
+import {
+  calculateDosingFlowRate,
+  validateVolumeInput,
+  aggregateDosingSamples,
+  type CalibrationSample,
+} from "@/lib/calibration-math";
 
 const FILTERS = [
   { id: "all", label: "Semua Perangkat" },
   { id: "sensors", label: "Sensor (pH/EC)" },
   { id: "dosing-pumps", label: "Pompa Dosing" },
 ];
-
-/** Sampling protocol: each RUN click runs the pump for 10s, max 3 clicks = 30s total. */
-const RUN_SECONDS_PER_CLICK = 10;
-const MAX_SAMPLING_CLICKS = 3;
 
 export default function CalibrationPage() {
   return (
@@ -409,58 +421,128 @@ function DosingPumpCalibrationWizard({
   onStop: () => void;
   onSaved?: () => Promise<void> | void;
 }) {
-  const [volume, setVolume] = useState("");
-  const [clicks, setClicks] = useState(0);
+  const [workflowStep, setWorkflowStep] = useState<"IDLE" | "RUNNING" | "INPUT_VOLUME" | "REVIEW" | "SAVED">("IDLE");
+  const [testDuration, setTestDuration] = useState<number>(30); // 30s recommended default
+  const [testMode, setTestMode] = useState<"single" | "multi">("single");
+  const [volumeInput, setVolumeInput] = useState<string>("");
+  const [samples, setSamples] = useState<CalibrationSample[]>([]);
+  const [currentSampleIndex, setCurrentSampleIndex] = useState<number>(0);
+  const [calibrating, setCalibrating] = useState<boolean>(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [lastSavedRate, setLastSavedRate] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [calibrating, setCalibrating] = useState(false);
   const toast = useToast();
 
   const channel = pumpChannel(device);
-  const samplingSeconds = clicks * RUN_SECONDS_PER_CLICK;
   const activeRate = device.reading !== "—" ? parseFloat(device.reading) : 0;
-  const volumeNum = parseFloat(volume) || 0;
-  const flowRate = samplingSeconds > 0 ? (volumeNum / samplingSeconds) * 60 : 0;
-  const deviationPct = activeRate > 0 && flowRate > 0 ? ((flowRate - activeRate) / activeRate) * 100 : null;
-  const samplingComplete = clicks >= MAX_SAMPLING_CLICKS;
+  const isCalibrated = activeRate > 0;
 
-  const handleRunPump = async () => {
-    if (clicks >= MAX_SAMPLING_CLICKS) {
-      toast(`Sampling Pompa ${channel} sudah mencapai durasi maksimal (${MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK} detik).`, "info");
-      return;
+  // Single sample calculation
+  const volumeNum = parseFloat(volumeInput) || 0;
+  const singleFlowRate = calculateDosingFlowRate(volumeNum, testDuration);
+
+  // Multi sample aggregation
+  const allCompletedSamples: CalibrationSample[] =
+    workflowStep === "REVIEW" && testMode === "multi"
+      ? samples
+      : (volumeNum > 0 ? [...samples, { volumeMl: volumeNum, durationSec: testDuration }] : samples);
+  const multiAgg = aggregateDosingSamples(allCompletedSamples);
+
+  // Final calculated rate for review
+  const finalCalculatedRate = testMode === "multi" ? multiAgg.flowRateMlMin : singleFlowRate;
+  const finalRatePerSec = finalCalculatedRate / 60;
+  const finalTotalVolume = testMode === "multi" ? multiAgg.totalVolumeMl : volumeNum;
+  const finalTotalDuration = testMode === "multi" ? multiAgg.totalDurationSec : testDuration;
+
+  // Deviation against active rate
+  const deviationPct =
+    isCalibrated && finalCalculatedRate > 0
+      ? ((finalCalculatedRate - activeRate) / activeRate) * 100
+      : null;
+
+  // Watch for pump completion while running
+  useEffect(() => {
+    if (workflowStep === "RUNNING" && run === null) {
+      setWorkflowStep("INPUT_VOLUME");
+      setValidationError(null);
+      toast(`Pengujian ${testDuration} detik selesai! Silakan catat volume cairan di gelas ukur.`, "info");
     }
+  }, [run, workflowStep, testDuration]);
+
+  // Handler to start pump measurement
+  const handleStartRun = async () => {
     try {
-      await calibrationService.runCalibrationPump(device, RUN_SECONDS_PER_CLICK);
-      setClicks((prev) => prev + 1);
-      onStart(RUN_SECONDS_PER_CLICK);
-      toast(`Pompa Dosing ${channel} diaktifkan selama ${RUN_SECONDS_PER_CLICK} detik.`, "info");
+      await calibrationService.runCalibrationPump(device, testDuration);
+      setWorkflowStep("RUNNING");
+      onStart(testDuration);
+      toast(`Pompa Dosing ${channel} diaktifkan selama ${testDuration} detik.`, "info");
     } catch (e) {
       toast(errorMessage(e), "error");
     }
   };
 
+  // Handler to cancel / stop pump
+  const handleCancelRun = async () => {
+    try {
+      await calibrationService.stopCalibrationPump();
+    } catch { }
+    onStop();
+    setWorkflowStep("IDLE");
+    toast(`Pengujian Pompa ${channel} dihentikan. Kalibrasi belum berubah.`, "error");
+  };
+
+  // Handler when volume is entered in INPUT_VOLUME
+  const handleProceedFromVolume = () => {
+    const valResult = validateVolumeInput(volumeInput, testDuration);
+    if (!valResult.valid) {
+      setValidationError(valResult.error || "Volume tidak valid.");
+      return;
+    }
+    setValidationError(null);
+
+    if (testMode === "single") {
+      setWorkflowStep("REVIEW");
+    } else {
+      // Multi-mode
+      const newSamples = [...samples, { volumeMl: valResult.volumeMl, durationSec: testDuration }];
+      setSamples(newSamples);
+      setVolumeInput("");
+
+      if (newSamples.length < 3) {
+        setCurrentSampleIndex(newSamples.length);
+        toast(`Sampel ${newSamples.length} dari 3 tersimpan! Kosongkan gelas ukur untuk sampel berikutnya.`, "info");
+      } else {
+        // All 3 samples collected
+        setWorkflowStep("REVIEW");
+        toast("Semua 3 sampel pengukuran selesai! Tinjau hasil rata-rata kalibrasi.", "success");
+      }
+    }
+  };
+
+  // Handler to save calibration to ESP32 and Backend
   const handleSaveData = async () => {
     setCalibrating(true);
     try {
-      const beforeStr = activeRate > 0 ? `${activeRate.toFixed(1)} ml/min` : "Belum Dikalibrasi";
-      const afterStr = `${flowRate.toFixed(1)} ml/min`;
+      const beforeStr = isCalibrated ? `${activeRate.toFixed(1)} ml/min` : "Belum Dikalibrasi";
+      const afterStr = `${finalCalculatedRate.toFixed(1)} ml/min`;
       await calibrationService.startCalibration(
         device,
         beforeStr,
         afterStr,
         "Operator",
         {
-          measuredMl: volumeNum,
-          durationSec: samplingSeconds,
-          flowRateMlMin: flowRate,
+          measuredMl: Number(finalTotalVolume.toFixed(1)),
+          durationSec: finalTotalDuration,
+          flowRateMlMin: Number(finalCalculatedRate.toFixed(1)),
         }
       );
       if (onSaved) {
         await onSaved();
       }
-      toast(`Flow Rate Pompa ${channel} (${flowRate.toFixed(1)} ml/min) berhasil disimpan ke kontroler.`, "success");
+      setLastSavedRate(finalCalculatedRate);
+      setWorkflowStep("SAVED");
       setConfirmOpen(false);
-      setVolume("");
-      setClicks(0);
+      toast(`Flow Rate Pompa ${channel} (${finalCalculatedRate.toFixed(1)} ml/min) berhasil disimpan permanen!`, "success");
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -468,170 +550,649 @@ function DosingPumpCalibrationWizard({
     }
   };
 
+  // Reset to IDLE
+  const handleReset = () => {
+    setWorkflowStep("IDLE");
+    setVolumeInput("");
+    setSamples([]);
+    setCurrentSampleIndex(0);
+    setValidationError(null);
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div className="space-y-6">
+      {/* Visual Stepper */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between max-w-2xl mx-auto">
+          {[
+            { id: "IDLE", num: 1, label: "Pengaturan & SOP" },
+            { id: "RUNNING", num: 2, label: "Pompa Berjalan" },
+            { id: "INPUT_VOLUME", num: 3, label: "Catat Volume" },
+            { id: "REVIEW", num: 4, label: "Tinjau & Simpan" },
+          ].map((s, idx) => {
+            const isCurrent =
+              workflowStep === s.id || (workflowStep === "SAVED" && s.id === "REVIEW");
+            const isCompleted =
+              (s.id === "IDLE" && workflowStep !== "IDLE") ||
+              (s.id === "RUNNING" && (workflowStep === "INPUT_VOLUME" || workflowStep === "REVIEW" || workflowStep === "SAVED")) ||
+              (s.id === "INPUT_VOLUME" && (workflowStep === "REVIEW" || workflowStep === "SAVED")) ||
+              (s.id === "REVIEW" && workflowStep === "SAVED");
 
-      {/* KIRI: Panduan (SOP) */}
-      <div className="lg:col-span-7 space-y-4">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-            <Info className="h-5 w-5 text-blue-500" />
-            <h3 className="font-bold text-slate-800 text-base">Panduan Kalibrasi Volumetrik — Pompa {channel}</h3>
-          </div>
-
-          <div className="space-y-4 text-[13.5px]">
-            <Step num="1" title="Pemisahan Selang Output" icon={Beaker}>
-              Arahkan selang output pompa {channel} ke wadah/gelas ukur terpisah untuk menghindari pengendapan CaSO₄ di tandon utama.
-            </Step>
-            <Step num="2" title="Proses Sampling (30 Detik)" icon={Timer}>
-              Klik tombol <b>[RUN POMPA {channel}]</b> sebanyak 3 kali (masing-masing {RUN_SECONDS_PER_CLICK} detik, total {MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK} detik sampling).
-            </Step>
-            <Step num="3" title="Pengukuran Volume Riil" icon={Pipette}>
-              Ukur total cairan hasil sampling dalam mililiter (ml), lalu masukkan ke form input di sebelah kanan.
-            </Step>
-            <Step num="4" title="Kalkulasi & Penyimpanan" icon={CheckSquare}>
-              Sistem menghitung Flow Rate (ml/menit) otomatis beserta deviasinya terhadap nilai terkalibrasi sebelumnya, lalu menyimpannya ke kontroler.
-            </Step>
-          </div>
-
-          <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
-            <b>Catatan Penting:</b> Kontroler memakai flow rate ini untuk menghitung durasi buka pompa secara presisi (contoh: kebutuhan 100 ml ÷ debit riil = durasi eksekusi).
-          </div>
+            return (
+              <div key={s.id} className="flex items-center gap-2">
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
+                    isCompleted
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : isCurrent
+                      ? "bg-blue-600 text-white ring-4 ring-blue-100 shadow-sm"
+                      : "bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  {isCompleted ? <Check className="h-4 w-4" /> : s.num}
+                </div>
+                <span
+                  className={`text-xs font-semibold hidden md:inline ${
+                    isCurrent ? "text-blue-700 font-bold" : isCompleted ? "text-slate-700" : "text-slate-400"
+                  }`}
+                >
+                  {s.label}
+                </span>
+                {idx < 3 && <div className="w-6 sm:w-12 h-0.5 bg-slate-200 mx-1" />}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* KANAN: Kontrol pompa + input data */}
-      <div className="lg:col-span-5 space-y-4">
-
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md text-white relative">
-          <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Kontrol Pompa {channel}</span>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${run ? "bg-emerald-500 text-white animate-pulse" : "bg-slate-800 text-slate-400"}`}>
-              {run ? `POMPA ${channel} ON (${run.secondsLeft}s)` : "STATUS: OFF"}
-            </span>
-          </div>
-
-          <Button
-            onClick={handleRunPump}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3"
-            disabled={run !== null || clicks >= MAX_SAMPLING_CLICKS}
-          >
-            <PlayCircle className="h-4 w-4 mr-1" /> RUN POMPA {channel} ({clicks}/{MAX_SAMPLING_CLICKS})
-          </Button>
-          <div className="text-[10px] text-slate-400 text-center mt-1">
-            Durasi terkumpul: {samplingSeconds} detik
-          </div>
-
-          {run && (
-            <Button
-              variant="danger"
-              onClick={() => {
-                onStop();
-                toast(`Pompa ${channel} dihentikan seketika.`, "error");
-              }}
-              className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 mt-2"
-            >
-              <Square className="h-3.5 w-3.5 mr-1 fill-current" /> STOP SAMPLING
-            </Button>
-          )}
-        </div>
-
-        <div className="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm ring-1 ring-blue-50">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Input Data Kalibrasi</div>
-
-          <Label className="text-slate-800 font-bold mb-1">Volume Terukur (ml / {MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK} detik)</Label>
-          <Input
-            value={volume}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val === "" || /^\d*\.?\d*$/.test(val)) setVolume(val);
-            }}
-            placeholder="Contoh: 120"
-            unit="ml"
-            className="font-mono text-sm bg-slate-50"
-          />
-
-          {/* Live preview: flow rate + deviasi terhadap nilai terkalibrasi sebelumnya */}
-          <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                <Gauge className="h-3.5 w-3.5" /> Flow Rate {flowRate > 0 ? "(preview sampling)" : "(aktif)"}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* KOLOM KIRI: Status Perangkat & Panduan SOP */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* Card Status Aktif */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Status Kalibrasi Pompa {channel}
               </span>
-              <span className="font-mono font-bold text-blue-600 text-lg">
-                {flowRate > 0 ? flowRate.toFixed(1) : (activeRate > 0 ? activeRate.toFixed(1) : "—")}{" "}
-                <span className="text-xs text-slate-400">ml/mnt</span>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                  isCalibrated
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-amber-50 text-amber-700 border border-amber-200"
+                }`}
+              >
+                {isCalibrated ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Terkalibrasi Aktif
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="h-3 w-3 text-amber-500" />
+                    Belum Dikalibrasi
+                  </>
+                )}
               </span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-slate-500">
-                Nilai aktif sebelumnya:{" "}
-                <b className="text-slate-700 font-mono">
-                  {activeRate > 0 ? `${activeRate.toFixed(1)} ml/mnt` : "Belum dikalibrasi"}
-                </b>
-              </span>
-              {deviationPct !== null && (
-                <span className={`font-bold px-2 py-0.5 rounded-md ${Math.abs(deviationPct) <= 5 ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50"}`}>
-                  Deviasi: {deviationPct > 0 ? "+" : ""}{deviationPct.toFixed(1)}%
+
+            <div className="flex items-baseline justify-between mt-2">
+              <div>
+                <div className="text-[11px] text-slate-500 font-medium">Flow Rate Acuan Kontroler</div>
+                <div className="text-3xl font-extrabold font-mono text-slate-900 tracking-tight mt-0.5">
+                  {isCalibrated ? activeRate.toFixed(1) : "—"}
+                  <span className="text-sm font-bold text-slate-400 ml-1.5 font-sans">ml/mnt</span>
+                </div>
+                {isCalibrated && (
+                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    ({(activeRate / 60).toFixed(2)} ml/dtk)
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <div className="text-[11px] text-slate-400">Terakhir Dikalibrasi</div>
+                <div className="text-xs font-semibold text-slate-700 mt-1">
+                  {device.lastCalibration || "Belum ada riwayat"}
+                </div>
+              </div>
+            </div>
+
+            {!isCalibrated && (
+              <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                <span>
+                  <b>Perhatian:</b> Pompa ini belum memiliki debit terkalibrasi. Kontroler akan menolak eksekusi dosis otomatis sampai kalibrasi berhasil disimpan.
                 </span>
-              )}
-            </div>
-            {flowRate === 0 && activeRate > 0 && (
-              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Status: <b>Terkalibrasi Aktif</b> di kontroler ESP32 ({activeRate.toFixed(1)} ml/mnt)</span>
-              </div>
-            )}
-            {flowRate === 0 && activeRate <= 0 && (
-              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
-                <span>⚠️ Pompa belum dikalibrasi. Lakukan sampling untuk mengaktifkan flow rate.</span>
               </div>
             )}
           </div>
 
-          {!samplingComplete && volumeNum > 0 && (
-            <div className="mt-3 text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              ⚠️ Sampling belum lengkap ({samplingSeconds}/{MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK}s). Flow rate dihitung dari durasi sampling yang tersedia — lengkapi sampling untuk hasil akurat.
+          {/* Card Panduan SOP */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+              <Info className="h-4 w-4 text-blue-500" />
+              <h3 className="font-bold text-slate-800 text-sm">Panduan Praktis Pengukuran</h3>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-slate-600">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                  1
+                </div>
+                <div>
+                  <b className="text-slate-800 block">Siapkan Gelas Ukur</b>
+                  Arahkan selang output pompa {channel} ke wadah/gelas ukur terpisah (skala mililiter).
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                  2
+                </div>
+                <div>
+                  <b className="text-slate-800 block">Jalankan Pengujian Pompa</b>
+                  Pilih durasi (misal 30 detik), lalu klik <b>Mulai Pengujian</b>. Pompa berputar otomatis.
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                  3
+                </div>
+                <div>
+                  <b className="text-slate-800 block">Catat Volume Cairan</b>
+                  Setelah pompa berhenti, masukkan angka mililiter (ml) yang terkumpul di gelas ukur.
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                  4
+                </div>
+                <div>
+                  <b className="text-slate-800 block">Simpan ke Kontroler</b>
+                  Sistem otomatis menghitung Flow Rate (ml/mnt) dan menyimpannya secara permanen.
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-[11px] text-slate-500">
+              <ShieldAlert className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>Interlock keselamatan aktif: Dosis aman terjamin oleh formula terkalibrasi.</span>
+            </div>
+          </div>
+        </div>
+
+        {/* KOLOM KANAN: Panel Interaktif Sesuai Workflow Step */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* STEP 1: IDLE / READY */}
+          {workflowStep === "IDLE" && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-5 w-5 text-blue-600" />
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Konfigurasi Pengujian Pompa {channel}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Atur parameter pengujian sebelum menyalakan pompa untuk sampling volumetrik.
+                </p>
+              </div>
+
+              {/* Pilihan Durasi Pengujian */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-2">
+                  Pilih Durasi Pompa Berjalan (Detik):
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {[
+                    { sec: 30, title: "30 Detik", desc: "Standar Rekomendasi", badge: "Akurat" },
+                    { sec: 10, title: "10 Detik", desc: "Uji Cepat", badge: "Cepat" },
+                    { sec: 60, title: "60 Detik", desc: "Presisi Tinggi", badge: "Presisi" },
+                  ].map((d) => (
+                    <button
+                      key={d.sec}
+                      type="button"
+                      onClick={() => setTestDuration(d.sec)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                        testDuration === d.sec
+                          ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-slate-900">{d.title}</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            testDuration === d.sec
+                              ? "bg-blue-600 text-white"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {d.badge}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">{d.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pilihan Mode Pengujian */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-2">
+                  Pilih Mode Pengukuran:
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTestMode("single");
+                      setSamples([]);
+                      setCurrentSampleIndex(0);
+                    }}
+                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                      testMode === "single"
+                        ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900">1x Pengukuran Tunggal</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Satu kali uji langsung simpan (praktis)</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTestMode("multi");
+                      setSamples([]);
+                      setCurrentSampleIndex(0);
+                    }}
+                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                      testMode === "multi"
+                        ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-slate-900">3x Pengukuran Bertahap</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Rata-rata 3 sampel terbobot (akurasi maksimal)</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Checklist Kesiapan */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-1.5 text-slate-600">
+                <div className="font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <CheckSquare className="h-4 w-4 text-emerald-600" /> Checklist Kesiapan Operasional:
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-emerald-600" /> Wadah/gelas ukur mililiter telah siap di bawah selang output.
+                </div>
+                <div className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-emerald-600" /> Pompa akan aktif tepat selama <b>{testDuration} detik</b>.
+                </div>
+              </div>
+
+              {/* Primary Action Button */}
+              <Button
+                onClick={handleStartRun}
+                className="w-full py-6 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Play className="h-5 w-5 fill-current" /> MULAI KALIBRASI POMPA {channel} ({testDuration} DETIK)
+              </Button>
             </div>
           )}
 
-          <Button
-            className="w-full mt-4 py-5 text-[14px] font-bold bg-blue-600 hover:bg-blue-700 shadow-md"
-            onClick={() => setConfirmOpen(true)}
-            disabled={!volume || samplingSeconds === 0}
-          >
-            <CheckCircle2 className="h-4 w-4 mr-2" /> SIMPAN (Update Flow Rate)
-          </Button>
-        </div>
+          {/* STEP 2: RUNNING */}
+          {workflowStep === "RUNNING" && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl text-white relative overflow-hidden space-y-6">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-emerald-400 animate-ping" />
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                    PENGUKURAN SEDANG BERJALAN
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold text-slate-400 bg-slate-800 px-2.5 py-1 rounded-full">
+                  POMPA {channel} : ON
+                </span>
+              </div>
+
+              {testMode === "multi" && (
+                <div className="text-xs text-blue-400 font-semibold bg-blue-950/60 border border-blue-800/50 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  <span>Pengukuran Sampel <b>{currentSampleIndex + 1} dari 3</b></span>
+                </div>
+              )}
+
+              {/* Big Countdown */}
+              <div className="text-center py-4">
+                <div className="text-6xl font-extrabold font-mono text-white tracking-tight">
+                  {run?.secondsLeft ?? testDuration}
+                  <span className="text-2xl font-sans font-bold text-slate-400 ml-2">dtk</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  Pompa sedang memompa cairan ke gelas ukur. Jangan pindahkan selang.
+                </p>
+              </div>
+
+              {/* Progress Bar */}
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+                  <span>Progres Pengujian</span>
+                  <span className="font-mono">
+                    {Math.round(((testDuration - (run?.secondsLeft ?? testDuration)) / testDuration) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all duration-1000 ease-linear"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, ((testDuration - (run?.secondsLeft ?? testDuration)) / testDuration) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Cancel Button */}
+              <Button
+                variant="danger"
+                onClick={handleCancelRun}
+                className="w-full py-4 text-xs font-bold bg-red-600 hover:bg-red-700 cursor-pointer shadow-md flex items-center justify-center gap-2"
+              >
+                <Square className="h-4 w-4 fill-current" /> HENTIKAN PENGUJIAN (BATAL)
+              </Button>
+            </div>
+          )}
+
+          {/* STEP 3: INPUT_VOLUME */}
+          {workflowStep === "INPUT_VOLUME" && (
+            <div className="bg-white border border-blue-200 rounded-2xl p-6 shadow-sm ring-1 ring-blue-50 space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Pengukuran Selesai! Catat Volume Cairan
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Masukkan jumlah mililiter (ml) cairan yang tertampung dari pengujian <b>{testDuration} detik</b>.
+                  </p>
+                </div>
+                {testMode === "multi" && (
+                  <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">
+                    Sampel {currentSampleIndex + 1} dari 3
+                  </span>
+                )}
+              </div>
+
+              {/* Form Input Volume */}
+              <div>
+                <Label className="text-slate-800 font-bold mb-1.5 block">
+                  Volume Cairan Tertampung di Gelas Ukur (ml)
+                </Label>
+                <div className="relative">
+                  <Input
+                    value={volumeInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                        setVolumeInput(val);
+                        setValidationError(null);
+                      }
+                    }}
+                    placeholder="Contoh: 120"
+                    unit="ml"
+                    autoFocus
+                    className="font-mono text-lg bg-slate-50 py-2.5"
+                  />
+                </div>
+                {validationError && (
+                  <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {validationError}
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Catatan: Masukkan angka sesuai permukaan meniskus bawah cairan di gelas ukur.
+                </p>
+              </div>
+
+              {/* Live Preview Perhitungan */}
+              {volumeNum > 0 && (
+                <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+                      <Gauge className="h-4 w-4 text-blue-600" /> Hasil Debit (Flow Rate) Sampel Ini:
+                    </span>
+                    <span className="font-mono font-extrabold text-blue-700 text-xl">
+                      {singleFlowRate.toFixed(1)}{" "}
+                      <span className="text-xs font-normal text-blue-600">ml/mnt</span>
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-600 font-mono flex items-center justify-between border-t border-blue-200/60 pt-1.5">
+                    <span>Rumus: ({volumeNum} ml ÷ {testDuration} dtk) × 60</span>
+                    <span>= {(singleFlowRate / 60).toFixed(2)} ml/dtk</span>
+                  </div>
+                  {isCalibrated && (
+                    <div className="text-[11px] text-slate-500 pt-1">
+                      Perbandingan dengan aktif sebelumnya ({activeRate.toFixed(1)} ml/mnt):{" "}
+                      <b className={Math.abs((singleFlowRate - activeRate) / activeRate) <= 0.1 ? "text-emerald-700" : "text-amber-700"}>
+                        {((singleFlowRate - activeRate) / activeRate) * 100 > 0 ? "+" : ""}
+                        {(((singleFlowRate - activeRate) / activeRate) * 100).toFixed(1)}%
+                      </b>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tombol Lanjut */}
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="secondary"
+                  onClick={handleReset}
+                  className="py-5 px-4 text-xs font-bold"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" /> Ulangi
+                </Button>
+                <Button
+                  onClick={handleProceedFromVolume}
+                  disabled={!volumeInput || volumeNum <= 0}
+                  className="flex-1 py-5 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {testMode === "single" ? (
+                    <>
+                      LANJUT KE TINJAUAN HASIL <ArrowRight className="h-4 w-4" />
+                    </>
+                  ) : currentSampleIndex < 2 ? (
+                    <>
+                      SIMPAN SAMPEL {currentSampleIndex + 1} & LANJUT KE SAMPEL {currentSampleIndex + 2} <ArrowRight className="h-4 w-4" />
+                    </>
+                  ) : (
+                    <>
+                      SIMPAN SAMPEL 3 & HITUNG RATA-RATA <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: REVIEW */}
+          {workflowStep === "REVIEW" && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Tinjau Hasil Kalibrasi Pompa {channel}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Periksa nilai flow rate terhitung sebelum disimpan secara permanen ke kontroler.
+                  </p>
+                </div>
+                <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> Siap Disimpan
+                </span>
+              </div>
+
+              {/* Big Result Card */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 text-center">
+                <span className="text-xs font-bold text-blue-700 uppercase tracking-wider block">
+                  Flow Rate Hasil Kalibrasi
+                </span>
+                <div className="text-5xl font-extrabold font-mono text-blue-700 tracking-tight my-2">
+                  {finalCalculatedRate.toFixed(1)}
+                  <span className="text-lg font-bold text-blue-500 font-sans ml-2">ml/mnt</span>
+                </div>
+                <div className="text-xs text-slate-600 font-mono">
+                  Setara dengan <b>{finalRatePerSec.toFixed(2)} ml/detik</b> • Total cairan: {finalTotalVolume.toFixed(1)} ml ({finalTotalDuration} detik)
+                </div>
+              </div>
+
+              {/* Comparison Card (Sebelum vs Sesudah) */}
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center text-xs">
+                <div>
+                  <div className="text-slate-400 text-[11px] mb-1">Nilai Aktif Sebelumnya</div>
+                  <div className="font-mono font-bold text-slate-700">
+                    {isCalibrated ? `${activeRate.toFixed(1)} ml/mnt` : "Belum Dikalibrasi"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-400 text-[11px] mb-1">Nilai Baru</div>
+                  <div className="font-mono font-bold text-blue-600">
+                    {finalCalculatedRate.toFixed(1)} ml/mnt
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-400 text-[11px] mb-1">Perubahan</div>
+                  <div className="font-mono font-bold">
+                    {deviationPct !== null ? (
+                      <span className={Math.abs(deviationPct) <= 10 ? "text-emerald-600" : "text-amber-600"}>
+                        {deviationPct > 0 ? "+" : ""}{deviationPct.toFixed(1)}%
+                      </span>
+                    ) : (
+                      <span className="text-blue-600">Baru (100%)</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Multi-sample summary table if multi-mode */}
+              {testMode === "multi" && samples.length > 0 && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
+                  <div className="bg-slate-100 px-3.5 py-2 font-bold text-slate-700 flex items-center justify-between">
+                    <span>Rincian 3 Sampel Pengukuran</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${multiAgg.isConsistent ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {multiAgg.isConsistent ? "✓ Konsistensi Sangat Baik" : "⚠️ Perlu Perhatian"}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-100 bg-white">
+                    {samples.map((s, idx) => {
+                      const rate = (s.volumeMl / s.durationSec) * 60;
+                      return (
+                        <div key={idx} className="px-3.5 py-2 flex items-center justify-between text-slate-600">
+                          <span>Sampel #{idx + 1} ({s.durationSec}s): <b>{s.volumeMl} ml</b></span>
+                          <span className="font-mono font-bold text-slate-800">{rate.toFixed(1)} ml/mnt</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Plain Language Meaning */}
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+                <b>Artinya:</b> Pompa Dosing {channel} mengalirkan <b>{finalCalculatedRate.toFixed(1)} ml</b> pupuk per menit (atau <b>{finalRatePerSec.toFixed(2)} ml</b> per detik). Kontroler ESP32 akan menggunakan debit riil ini untuk menghitung durasi buka pompa saat fertigasi otomatis.
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="secondary"
+                  onClick={handleReset}
+                  className="py-5 px-4 text-xs font-bold"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" /> Ulangi Kalibrasi
+                </Button>
+                <Button
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={calibrating}
+                  className="flex-1 py-5 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="h-5 w-5" /> SIMPAN KALIBRASI KE KONTROLER
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 5: SAVED */}
+          {workflowStep === "SAVED" && (
+            <div className="bg-white border border-emerald-200 rounded-2xl p-6 shadow-sm ring-1 ring-emerald-100 text-center space-y-4">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+                <CheckCircle2 className="h-9 w-9" />
+              </div>
+
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">
+                  Kalibrasi Berhasil Disimpan & Diaktifkan!
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  Nilai flow rate baru telah tersimpan permanen di memori NVS kontroler ESP32 dan database sistem.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 max-w-xs mx-auto">
+                <div className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                  Flow Rate Aktif Sekarang
+                </div>
+                <div className="text-3xl font-extrabold font-mono text-emerald-700 mt-1">
+                  {lastSavedRate ? lastSavedRate.toFixed(1) : finalCalculatedRate.toFixed(1)}
+                  <span className="text-sm font-bold text-emerald-600 font-sans ml-1">ml/mnt</span>
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-500 flex items-center justify-center gap-4 pt-2">
+                <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                  <Check className="h-3.5 w-3.5" /> NVS ESP32: Tersimpan
+                </span>
+                <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                  <Check className="h-3.5 w-3.5" /> Database: Sinkron
+                </span>
+                <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                  <Check className="h-3.5 w-3.5" /> Dosing: Siap Digunakan
+                </span>
+              </div>
+
+              <div className="pt-3">
+                <Button
+                  onClick={handleReset}
+                  className="py-3 px-6 text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white cursor-pointer shadow-sm"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Selesai / Kalibrasi Ulang
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <ConfirmDialog
         open={confirmOpen}
         onClose={() => { if (!calibrating) setConfirmOpen(false); }}
         onConfirm={handleSaveData}
-        title={`Konfirmasi Flow Rate Pompa ${channel}`}
+        title={`Konfirmasi Simpan Kalibrasi Pompa ${channel}`}
         message={
           <div className="space-y-3">
-            <p>Parameter flow rate baru akan disimpan ke kontroler dan langsung dipakai untuk kalkulasi durasi dosis otomatis.</p>
+            <p>Parameter flow rate baru akan disimpan secara permanen ke kontroler ESP32 dan langsung menjadi acuan durasi dosing pupuk otomatis.</p>
             <div className="bg-slate-100 p-3 rounded-xl grid grid-cols-3 gap-2 text-sm font-mono text-center">
               <div>
-                <div className="text-slate-500 text-xs mb-0.5">Volume ({samplingSeconds}s)</div>
-                <div className="font-bold text-slate-700">{volume} ml</div>
+                <div className="text-slate-500 text-xs mb-0.5">Volume Total</div>
+                <div className="font-bold text-slate-700">{finalTotalVolume.toFixed(1)} ml</div>
               </div>
               <div>
                 <div className="text-slate-500 text-xs mb-0.5">Flow Rate Baru</div>
-                <div className="font-bold text-blue-600">{flowRate.toFixed(1)} ml/mnt</div>
+                <div className="font-bold text-blue-600">{finalCalculatedRate.toFixed(1)} ml/mnt</div>
               </div>
               <div>
                 <div className="text-slate-500 text-xs mb-0.5">Sebelumnya</div>
-                <div className="font-bold text-slate-500">{activeRate > 0 ? `${activeRate.toFixed(1)} ml/mnt` : "Belum dikalibrasi"}</div>
+                <div className="font-bold text-slate-500">{isCalibrated ? `${activeRate.toFixed(1)} ml/mnt` : "Belum ada"}</div>
               </div>
             </div>
-            {!samplingComplete && (
-              <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                ⚠️ Perhatian: sampling hanya {samplingSeconds} dari {MAX_SAMPLING_CLICKS * RUN_SECONDS_PER_CLICK} detik. Flow rate dihitung proporsional dari durasi yang tersedia.
-              </div>
-            )}
           </div>
         }
         confirmLabel={calibrating ? "Menyimpan ke Kontroler..." : "Ya, Simpan Parameter"}

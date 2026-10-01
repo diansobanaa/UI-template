@@ -460,6 +460,10 @@ export class Esp32Client {
     return this.postEnveloped<any>("/api/v1/calibration", { componentId, type, duration_sec: durationSec });
   }
 
+  async stopCalibration(): Promise<any> {
+    return this.deleteEnveloped<any>("/api/v1/calibration");
+  }
+
   async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number }> {
     return this.getEnveloped<{ state: string; remaining_sec: number }>("/api/v1/calibration/status");
   }

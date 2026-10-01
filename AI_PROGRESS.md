@@ -1,3 +1,42 @@
+## SP-FERT-CALIB-002 — Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization
+- **Date**: 2026-10-01
+- **Status**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
+- **Objective**:
+  1. Redesign dosing pump calibration UI/UX into an intuitive, human-centered 4-step workflow (`IDLE` -> `RUNNING` -> `INPUT_VOLUME` -> `REVIEW` -> `SAVED`).
+  2. Eliminate measurement duration and UI label ambiguity: remove hardcoded `ml / 30 detik` label during 10-second runs, introduce standard selectable duration presets (30s Rekomendasi, 10s Cepat, 60s Presisi), and enforce one authoritative duration across GPIO, timer, UI prompt, and flow rate calculation.
+  3. Implement multi-sample (3x measurement) sequential calibration with mathematically weighted duration aggregation ($(Total Volume / Total Time) \times 60$) and consistency variance tracking.
+  4. Implement emergency stop cancellation for active calibration on ESP32 firmware via `DELETE /api/v1/calibration` and wire into frontend UI.
+  5. Validate all mathematical edge cases, flash physical ESP32, and synchronize canonical documentation.
+
+### Completed Work & Verification
+- `src/lib/calibration-math.ts`:
+  - Implemented `calculateDosingFlowRate(volumeMl, durationSec)`.
+  - Implemented `validateVolumeInput(value, durationSec)` rejecting non-numeric, zero, negative, NaN, Infinity, and out-of-physical-range inputs.
+  - Implemented `aggregateDosingSamples(samples)` with weighted aggregation formula and consistency checking.
+- `scripts/test_calibration_math.mjs`:
+  - Verified Section 5 mandatory test cases: 120ml/30s = 240, 40ml/10s = 240, 12ml/30s = 24, 60ml/30s = 120, 120ml/60s = 120 ml/min (all PASS).
+  - Verified edge cases and multi-sample aggregation (PASS).
+- `src/app/calibration/page.tsx`:
+  - Completely redesigned `DosingPumpCalibrationWizard` with top visual 4-step stepper.
+  - Left column: Active calibration status badge, large flow rate display (`ml/mnt` and `ml/dtk`), last calibrated timestamp, and concise 4-step SOP checklist.
+  - Right column: Dynamic workflow steps (`IDLE` with duration presets & 1x vs 3x mode -> `RUNNING` with real-time countdown, animated progress bar, and emergency cancel -> `INPUT_VOLUME` with dynamic duration label, real-time formula breakdown, and deviation indicator -> `REVIEW` with prominent 240.0 ml/mnt card, 3-column before/after comparison, multi-sample breakdown, and plain-language explanation -> `SAVED` with green celebration confirmation).
+- `esp32/main/http/api_calibration_handlers.c`:
+  - Fixed use-after-free in `api_calibration_start_handler` by caching component ID and duration before JSON deletion.
+  - Added `api_calibration_stop_handler` registered on `DELETE /api/v1/calibration` calling `calibration_mgr_stop()`.
+- `src/lib/api/esp32-client.ts` & `src/lib/services.ts`:
+  - Added `stopCalibration()` method issuing enveloped HTTP DELETE to ESP32.
+  - Added `stopCalibrationPump()` and `getCalibrationStatus()` to `calibrationService`.
+- `UI_ESP32_OPENAPI.yaml` & `contracts/UI_ESP32_OPENAPI.yaml`:
+  - Documented `DELETE /api/v1/calibration` operation `stopCalibration`.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Updated Section 19 with 4-step human-centered workflow, duration presets, multi-sample duration aggregation, and safety interlocks.
+- Hardware Validation & Build:
+  - ESP32 compiled cleanly (`0x180420` bytes, 50% flash free) and flashed over COM3 via `scripts/flash_esp32.ps1`.
+  - Live HTTP verification on `192.168.0.151` confirmed rate saving, retrieval, and `DELETE /api/v1/calibration` stop execution.
+  - `npm test` (28/28 endpoints PASS), `npx tsc --noEmit` (0 errors), `test_fertigation_calibration_e2e.mjs` (PASS), `test_m11_m12_engine.py` (34/34 PASS).
+
+---
+
 ## SP-FERT-CALIB-001 — Full Fertigation Logic Audit, Calibration Fix & End-to-End Finalization
 - **Date**: 2026-10-01
 - **Status**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`

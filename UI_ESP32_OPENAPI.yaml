@@ -702,6 +702,17 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "409":
           $ref: "#/components/responses/ConflictError"
+    delete:
+      tags: [Calibration]
+      operationId: stopCalibration
+      summary: Stop any running calibration pump execution immediately
+      responses:
+        "200":
+          description: Calibration pump stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBase"
 
   /api/v1/calibration/status:
     get:

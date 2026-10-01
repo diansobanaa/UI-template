@@ -13,11 +13,13 @@ async function main() {
   const cal1 = await getRes1.json();
   console.log("2. Initial Calibration Rates:", JSON.stringify(cal1.data));
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
   // 3. Save calibration rate for pump_dosing_a (0.4 ml/s = 24.0 ml/min)
   console.log("3. Posting Calibration Rate for pump_dosing_a: rateValue = 0.4 ml/s...");
   const postRes = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Connection": "close" },
     body: JSON.stringify({
       componentId: "pump_dosing_a",
       rateValue: 0.4
@@ -26,8 +28,10 @@ async function main() {
   const postData = await postRes.json();
   console.log("3. POST Response status:", postRes.status, JSON.stringify(postData));
 
+  await sleep(300);
+
   // 4. Verify updated rate immediately via GET /api/v1/calibration/rate
-  const getRes2 = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`);
+  const getRes2 = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`, { headers: { "Connection": "close" } });
   const cal2 = await getRes2.json();
   console.log("4. Updated Calibration Rates:", JSON.stringify(cal2.data));
 
@@ -35,7 +39,7 @@ async function main() {
   console.log("5. Posting Calibration Rate for pump_dosing_b: rateValue = 0.2 ml/s...");
   const postResB = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Connection": "close" },
     body: JSON.stringify({
       componentId: "pump_dosing_b",
       rateValue: 0.2
@@ -44,8 +48,10 @@ async function main() {
   const postDataB = await postResB.json();
   console.log("5. POST pump_dosing_b status:", postResB.status, JSON.stringify(postDataB));
 
+  await sleep(300);
+
   // 6. Verify both pumps calibrated
-  const getRes3 = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`);
+  const getRes3 = await fetch(`${ESP32_BASE}/api/v1/calibration/rate`, { headers: { "Connection": "close" } });
   const cal3 = await getRes3.json();
   console.log("6. Final Calibration Rates:", JSON.stringify(cal3.data));
 

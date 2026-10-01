@@ -1,8 +1,47 @@
-# AI HANDOVER — SP-FERT-CALIB-001 (latest)
+# AI HANDOVER — SP-FERT-CALIB-002 (latest)
 
-## Status — SP-FERT-CALIB-001
-**Full Fertigation Logic Audit, Calibration Fix & End-to-End Finalization**
-**Safe Point**: `SP-FERT-CALIB-001`
+## Status — SP-FERT-CALIB-002
+**Human-Centered Dosing Pump Calibration UI/UX Redesign & Operational Logic Finalization**
+**Safe Point**: `SP-FERT-CALIB-002`
+**Date**: 2026-10-01
+**Verdict**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
+
+### Summary of What Was Done
+1. **Penyelarasan Durasi Pengukuran Otoritatif (Eliminasi Inkonsistensi 10s vs 30s)**:
+   - Ditemukan akar masalah kebingungan operator: Tombol sampling lama menjalankan pompa 10 detik (`RUN_SECONDS_PER_CLICK = 10`), namun label input form dan SOP memajang teks statis `Volume Terukur (ml / 30 detik)`. Hal ini menimbulkan ambiguitas apakah pengguna harus menginput volume 10 detik atau 30 detik.
+   - Solusi: Menghapus konstanta statis lama dan menyediakan preset durasi pengujian standar:
+     - `30 Detik (Standar Rekomendasi)`: Presisi optimal untuk pompa peristaltik.
+     - `10 Detik (Uji Cepat)`: Pengujian singkat untuk verifikasi fungsional.
+     - `60 Detik (Presisi Tinggi)`: Untuk cairan pekat atau debit mikro.
+   - Durasi yang dipilih operator menjadi satu acuan otoritatif tunggal: waktu ON pompa GPIO ESP32, timer hitung mundur UI, label input volume (*"Volume cairan terkumpul selama tes [X] detik"*), dan penyebut kalkulasi laju alir: $\text{Flow Rate} = \frac{V_{aktual}}{\Delta t_{aktual}} \times 60$.
+2. **Redesain Total UI/UX Berbasis Human-Centered 4-Tahap**:
+   - `Langkah 1 (Pengaturan & SOP)`: Menampilkan status kalibrasi aktif saat ini secara mencolok (`Terkalibrasi Aktif: 24.0 ml/mnt` atau `Belum Dikalibrasi`), pilihan durasi chip, pemilihan mode 1x atau 3x, dan checklist kesiapan selang/gelas ukur. Tombol utama: `MULAI KALIBRASI POMPA (X DETIK)`.
+   - `Langkah 2 (Pompa Berjalan)`: Kartu status aktif dengan indikator animasi berdenyut, hitung mundur besar (countdown), progress bar halus, dan tombol pembatalan darurat `HENTIKAN PENGUJIAN`.
+   - `Langkah 3 (Catat Volume)`: Otomatis bertransisi saat pompa selesai. Input volume dengan validasi angka real-time, live preview formula debit, dan perbandingan deviasi terhadap nilai aktif sebelumnya.
+   - `Langkah 4 (Tinjau & Simpan)`: Kartu hasil ukuran besar `240.0 ml/mnt (4.00 ml/dtk)`, tabel perbandingan 3 kolom (Sebelum, Baru, Selisih), penjelasan makna agronomis dalam bahasa awam, dan tombol simpan permanen.
+   - `Langkah 5 (Tersimpan / Sukses)`: Kartu hijau konfirmasi sukses, konfirmasi status persistensi NVS ESP32 dan database, serta pembaruan otomatis nilai aktif di UI tanpa perlu refresh halaman.
+3. **Dukungan 3x Pengukuran Bertahap (Multi-Sample)**:
+   - Menyediakan mode 3 sampel bertahap dengan pelacak kemajuan (*Pengukuran 1 dari 3*, dst.).
+   - Agregasi matematis terbobot: $\text{Flow Rate} = \frac{\sum V_i}{\sum t_i} \times 60$.
+   - Pemeriksaan konsistensi otomatis: mendeteksi varians antar-sampel ($\le 10\% = \text{Sangat Baik}$).
+4. **Firmware & OpenAPI Enhancement**:
+   - Memperbaiki potensi use-after-free pada `api_calibration_start_handler` di `esp32/main/http/api_calibration_handlers.c`.
+   - Mengimplementasikan endpoint `DELETE /api/v1/calibration` yang memanggil `calibration_mgr_stop()` untuk penghentian seketika kalibrasi aktif.
+   - Menambahkan `stopCalibration()` pada `esp32Client` dan `calibrationService`.
+   - Mendokumentasikan `delete` method pada `/api/v1/calibration` di `UI_ESP32_OPENAPI.yaml` dan `contracts/UI_ESP32_OPENAPI.yaml`.
+5. **Modul Matematika & Pengujian Terotomasi**:
+   - Dibuat modul mandiri `src/lib/calibration-math.ts` dan test suite `scripts/test_calibration_math.mjs`.
+   - 5 kasus uji wajib Bagian 5 diverifikasi: 120ml/30s=240, 40ml/10s=240, 12ml/30s=24, 60ml/30s=120, 120ml/60s=120 ml/mnt (seluruhnya PASS).
+   - Validasi batas teknis: input non-numerik, 0, negatif, NaN, dan Infinity ditolak secara aman.
+6. **Validasi Hardware & Sinkronisasi Dokumentasi**:
+   - Firmware ESP-IDF berhasil dikompilasi (ukuran `0x180420` bytes, 50% flash partition free).
+   - Firmware di-flash ke ESP32 fisik via COM3 (`scripts/flash_esp32.ps1`).
+   - Pengujian live HTTP via Wi-Fi (`192.168.0.151`) mengonfirmasi `POST /api/v1/calibration/rate` dan `DELETE /api/v1/calibration` berfungsi normal.
+   - Dokumentasi kanonis diperbarui: `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 19.
+
+---
+
+# AI HANDOVER — SP-FERT-CALIB-001
 **Date**: 2026-10-01
 **Verdict**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
 
