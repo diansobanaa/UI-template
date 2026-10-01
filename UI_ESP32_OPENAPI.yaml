@@ -2154,10 +2154,22 @@ components:
 
     CalibrationRates:
       type: object
-      required: [rateDosingAMlSec, rateDosingBMlSec, flowRawPulsesPerL, flowFertPulsesPerL]
+      required: [dosingRates, flowRawPulsesPerL, flowFertPulsesPerL]
       properties:
-        rateDosingAMlSec: { type: number, minimum: 0 }
-        rateDosingBMlSec: { type: number, minimum: 0 }
+        dosingRates:
+          type: object
+          description: "Map of componentId → mL/sec rate. Key = componentId (e.g. 'pump_dosing_a', 'pump_dosing_c'). Value = calibration rate in mL/sec."
+          additionalProperties: { type: number }
+        rateDosingAMlSec:
+          type: number
+          format: float
+          deprecated: true
+          description: "@deprecated use dosingRates['pump_dosing_a'] instead"
+        rateDosingBMlSec:
+          type: number
+          format: float
+          deprecated: true
+          description: "@deprecated use dosingRates['pump_dosing_b'] instead"
         flowRawPulsesPerL: { type: number, minimum: 0 }
         flowFertPulsesPerL: { type: number, minimum: 0 }
 

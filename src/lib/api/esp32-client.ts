@@ -468,8 +468,14 @@ export class Esp32Client {
     return this.getEnveloped<CalibrationRates>("/api/v1/calibration/rate");
   }
 
-  async saveCalibrationRate(componentId: string, rateMlPerSec: number): Promise<any> {
-    return this.postEnveloped<any>("/api/v1/calibration/rate", { componentId, rateMlPerSec });
+  async saveCalibrationRate(componentId: string, rateMlPerSec: number, version?: number, calibrationId?: string, operator = "technician"): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/calibration/rate", {
+      componentId,
+      rateMlPerSec,
+      ...(version ? { version } : {}),
+      ...(calibrationId ? { calibrationId } : {}),
+      operator,
+    });
   }
 
 

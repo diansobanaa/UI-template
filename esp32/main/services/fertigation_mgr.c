@@ -1530,11 +1530,14 @@ static esp_err_t parse_payload(const char *payload_json) {
             cid->valuestring, "DOSING_RATE", calid->valuestring,
             (uint32_t)calver->valuedouble, &rec) != ESP_OK ||
         calibration_mgr_is_usable(&rec) != ESP_OK) {
-      cJSON_Delete(root);
-      return ESP_ERR_INVALID_STATE;
+      if (calibration_mgr_get_record(cid->valuestring, "DOSING_RATE", &rec) != ESP_OK ||
+          calibration_mgr_is_usable(&rec) != ESP_OK) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_STATE;
+      }
     }
     float rate = (float)ratev->valuedouble;
-    if (fabsf(rate - rec.rate_ml_sec) > 0.0001f) {
+    if (fabsf(rate - rec.rate_ml_sec) > 0.005f) {
       cJSON_Delete(root);
       return ESP_ERR_INVALID_STATE;
     }

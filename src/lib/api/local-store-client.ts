@@ -563,17 +563,20 @@ export class LocalStoreClient {
 
   async saveCalibration(complexId: string, record: Record<string, unknown>): Promise<{ complexId: string; calibration: CalibrationApiRecord }> {
     const list = getJson<CalibrationApiRecord[]>(`calibrations:${complexId}`, []);
+    const componentId = (record.componentId as string) || "unknown";
+    const componentRecords = list.filter((r) => r.componentId === componentId);
+    const version = (record.version as number) || (componentRecords.length + 1);
     const calibration: CalibrationApiRecord = {
       calibrationId: (record.calibrationId as string) || `cal-${Date.now()}`,
       complexId,
-      componentId: (record.componentId as string) || "unknown",
-      calibrationType: (record.calibrationType as any) || "SINGLE_POINT",
+      componentId,
+      calibrationType: (record.calibrationType as any) || "DOSING_RATE",
       state: "CALIBRATED",
       createdAtMs: Date.now(),
       validFromMs: Date.now(),
       validUntilMs: Date.now() + 30 * 86400000,
       operator: (record.operator as string) || "Admin",
-      version: list.length + 1,
+      version,
       parameters: record,
     };
     list.unshift(calibration);

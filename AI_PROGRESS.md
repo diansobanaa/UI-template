@@ -1,3 +1,86 @@
+## SP-FERT-CALIB-001 — Full Fertigation Logic Audit, Calibration Fix & End-to-End Finalization
+- **Date**: 2026-10-01
+- **Status**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
+- **Objective**:
+  1. Fix critical bug where dosing pump calibration displays `Flow Rate (live) — ml/mnt` and `Nilai sebelumnya: — ml/mnt` after calibration.
+  2. Implement persistent, authoritative single source of truth for dosing pump calibration across Web UI, REST API, Python backend, SQLite, ESP32 NVS, and local storage.
+  3. Ensure active calibration survives browser refresh and ESP32 hardware reboot.
+  4. Enforce calibration as the strict mathematical basis for all dosing durations ($T_{ms} = \frac{V_{target}}{Rate_{ml/min}} \times 60,000 = \frac{V_{target}}{Rate_{ml/sec}} \times 1,000$).
+  5. Reject/block uncalibrated pumps (no hidden default fallbacks like 2.5 ml/s).
+  6. Enforce multi-greenhouse isolation (GH-01 vs GH-02 tanks, queues, schedules, telemetry).
+
+### Root Causes & Code Defects Identified
+1. **Frontend Display State Blindness**:
+   - In `src/app/calibration/page.tsx`, `Flow Rate (live)` only read ephemeral `flowRate` computed from active sampling inputs (`volumeNum / samplingSeconds * 60`).
+   - Upon clicking `SIMPAN`, `volume` and `clicks` were cleared to 0, which immediately evaluated `flowRate` to 0 and rendered `"— ml/mnt"`.
+   - `device.reading` was never populated from authoritative sources in `calibrationService.loadAuthoritative()`.
+   - `handleSaveData` never triggered a re-fetch of authoritative devices, leaving the UI state blind to the newly saved calibration.
+2. **NVS Version Conflict Lock on ESP32**:
+   - `POST /api/v1/calibration/rate` without a `version` field defaulted to `version = 1`.
+   - When a record with version $\ge 1$ already existed in NVS, `calibration_mgr_set_dosing_rate` rejected the save with `ESP_ERR_INVALID_STATE` (`409 CALIBRATION_SAVE_FAILED`).
+   - Monotonic auto-increment versioning was missing for rate updates.
+3. **Component ID Mismatch & OpenAPI Schema Drift**:
+   - `ACTUATOR_DOSING_A` was hardcoded to `"dosingA"`, failing to match canonical `"pump_dosing_a"`.
+   - `GET /api/v1/calibration/rate` omitted the OpenAPI-mandated `dosingRates: { [componentId: string]: number }` dictionary.
+4. **Use-After-Free in REST Handler**:
+   - In `api_calibration_handlers.c`, `cJSON_Delete(json)` was called before constructing the response payload, causing `comp->valuestring` to read from freed heap memory.
+5. **Hidden Default Fallback in Execution Plan Generator**:
+   - `execution-plan-generator.js` had a hidden fallback `|| 2.5` ml/s when calibrations were missing.
+
+### Completed Work & Verification
+- `esp32/main/services/calibration_mgr.h` & `c`:
+  - Added alias resolver `component_id_matches()` mapping `pump_dosing_a` <-> `dosingA` and `pump_dosing_b` <-> `dosingB`.
+  - Implemented monotonic auto-increment versioning and circular ring-buffer eviction for records.
+  - Implemented `calibration_mgr_populate_dosing_rates_json()` returning the full `dosingRates` dictionary.
+- `esp32/main/http/api_calibration_handlers.c`:
+  - Cached `comp->valuestring` and `rate->valuedouble` onto stack before freeing JSON.
+  - Returned full OpenAPI response: `status: "APPLIED"`, `componentId`, `rateMlPerSec`, `flowRateMlMin`, `version`, `calibrationId`.
+  - Populated `dosingRates` dictionary and backward-compatible scalar fields in `api_calibration_get_rate_handler`.
+- `esp32/main/services/fertigation_mgr.c`:
+  - Enforced strict tolerance (`fabsf(rate - rec.rate_ml_sec) <= 0.005f`) and rejected uncalibrated pumps with `ESP_ERR_INVALID_STATE`.
+- `src/lib/runtime/execution-plan-generator.js`:
+  - Removed `|| 2.5` fallback.
+  - Checked `cals.dosingRates?.[cid]`.
+  - Blocked uncalibrated pumps with `DOSING_PUMP_NOT_CALIBRATED`.
+- `src/lib/services.ts`:
+  - Enhanced `calibrationService.loadAuthoritative` to query ESP32 `/api/v1/calibration/rate` and backend calibrations, populating `device.reading` with active flow rate in ml/min.
+  - Updated `startCalibration` to pass sampling details and persist to both ESP32 and backend store.
+  - Updated `getDynamicDosingPumps` to resolve `rates.dosingRates`.
+- `src/app/calibration/page.tsx`:
+  - Exposed `refreshAuthoritative()` and passed `onSaved` to wizards.
+  - Updated `DosingPumpCalibrationWizard` to show active rate with `Terkalibrasi Aktif`, live preview during sampling, and previous rate.
+  - Fixed `deviceHistory` matching to include `componentId`.
+- `src/lib/api/contracts.ts` & `UI_ESP32_OPENAPI.yaml`:
+  - Added `dosingRates?: Record<string, number>` to `CalibrationRates`.
+- `backend/sensor_calibration.py` & `backend/server.py`:
+  - Enhanced `build_dosing_calibration` to store `flowRateMlMin`, `before`, and `after` in record parameters.
+- `src/lib/api/local-store-client.ts`:
+  - Component-specific version calculation.
+- `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`:
+  - Documented mathematical conversion formula, strict safety policies, REST endpoints, and UI display semantics.
+
+### Verification Results
+1. **Physical ESP32 Live Testing (`192.168.0.151`)**:
+   - `node scripts/test_live_calibration.mjs` PASS:
+     - `pump_dosing_a`: 0.4 ml/s (24 ml/min), version 101, saved and retrieved.
+     - `pump_dosing_b`: 0.2 ml/s (12 ml/min), version 2, saved and retrieved.
+     - Survives ESP32 hardware reboot.
+2. **Mathematical Duration Tests**:
+   - 12 ml/min, 30 ml -> 150,000 ms (PASS).
+   - 12 ml/min, 120 ml -> 600,000 ms (PASS).
+   - 24 ml/min, 120 ml -> 300,000 ms (PASS).
+3. **Execution Plan & Multi-GH Isolation**:
+   - `node scripts/test_fertigation_calibration_e2e.mjs` PASS.
+4. **Backend Test Suites**:
+   - `python scripts/test_m11_m12_engine.py` PASS (34/34 tests).
+   - `python scripts/test_backend_m7_m8.py` PASS (7/7 tests).
+5. **Contract & Compilation Suites**:
+   - `npm test` PASS (28/28 endpoints).
+   - `npx tsc --noEmit` PASS (0 errors).
+   - ESP32 firmware build: Clean exit code 0 (`agrotech_esp32.bin` 0x180350 bytes).
+
+---
+
 ## SP-CMD-WORKER-STACK-001 — Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification
 - **Date**: 2026-10-01
 - **Status**: `BUILD & VERIFICATION PASS — 0 COMPILATION ERRORS — ESP32 FIRMWARE COMPILED CLEANLY — VITE/TYPESCRIPT CLEAN`

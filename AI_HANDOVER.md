@@ -1,4 +1,63 @@
-# AI HANDOVER — SP-CMD-WORKER-STACK-001 (latest)
+# AI HANDOVER — SP-FERT-CALIB-001 (latest)
+
+## Status — SP-FERT-CALIB-001
+**Full Fertigation Logic Audit, Calibration Fix & End-to-End Finalization**
+**Safe Point**: `SP-FERT-CALIB-001`
+**Date**: 2026-10-01
+**Verdict**: `COMPLETE & VERIFIED ON PHYSICAL HARDWARE — 0 COMPILATION ERRORS — ESP32 FLASHED — ALL AUTOMATED & LIVE TESTS PASS`
+
+### Summary of What Was Done
+1. **Akar Masalah Bug Utama Kalibrasi (Nilai Sebelumnya & Live Tampil "—")**:
+   - Di Web UI (`src/app/calibration/page.tsx`), field `Flow Rate (live)` hanya membaca `flowRate` yang dihitung secara temporer dari input form (`volumeNum / samplingSeconds * 60`). Saat tombol `SIMPAN` ditekan, form me-reset `volume` dan `clicks` ke 0, sehingga `flowRate` langsung 0 dan UI merender `"— ml/mnt"`.
+   - `calibrationService.loadAuthoritative()` tidak mengisi `device.reading` dari rate tersimpan pada ESP32 atau backend SQLite, melainkan membiarkannya default `"—"`.
+   - Setelah kalibrasi berhasil disimpan, komponen UI tidak pernah memicu re-fetch data kanonis dari ESP32, sehingga React state tetap buta terhadap nilai baru.
+   - Pada firmware ESP32, `POST /api/v1/calibration/rate` tanpa field `version` default ke `version = 1`. Ketika NVS sudah memiliki record $\ge 1$, firmware menolak penyimpanan berikutnya dengan `ESP_ERR_INVALID_STATE` (`409 CALIBRATION_SAVE_FAILED`).
+   - `ACTUATOR_DOSING_A` pada firmware mencari ID `"dosingA"`, sedangkan Web UI dan hardware registry mengirim ID kanonis `"pump_dosing_a"`.
+   - Di `api_calibration_handlers.c`, pemanggilan `cJSON_Delete(json)` dilakukan sebelum menyalin string komponen ke response buffer, menyebabkan use-after-free.
+2. **Perbaikan Firmware ESP32**:
+   - `calibration_mgr.c`: Menambahkan fungsi resolusi alias `component_id_matches()` yang memetakan `pump_dosing_a` <-> `dosingA` dan `pump_dosing_b` <-> `dosingB`.
+   - Menerapkan auto-increment versi monotoik otomatis (`eff_version = latest >= 0 ? latest.version + 1 : 1`) dan circular buffer eviction saat NVS penuh.
+   - Mengimplementasikan `calibration_mgr_populate_dosing_rates_json()` yang mengekspor kamus kamus `dosingRates` sesuai spesifikasi OpenAPI.
+   - `api_calibration_handlers.c`: Menyalin `comp->valuestring` dan `rate->valuedouble` ke stack variabel sebelum menghapus JSON, memperbaiki use-after-free. Menghasilkan response status `APPLIED` dengan `rateMlPerSec`, `flowRateMlMin`, `version`, dan `calibrationId`.
+   - `fertigation_mgr.c`: Memvalidasi bahwa dosing rate batch cocok dengan NVS (toleransi $\le 0.005\text{ ml/s}$) dan menolak eksekusi jika pompa belum dikalibrasi.
+3. **Perbaikan Execution Plan & Logika Fertigasi**:
+   - `execution-plan-generator.js`: Menghapus fallback tersembunyi `|| 2.5` ml/s. Memvalidasi kalibrasi pompa dosing dari `cals.dosingRates?.[cid]`. Jika laju alir $\le 0$ atau tidak ada, batch plan langsung diblokir dengan `DOSING_PUMP_NOT_CALIBRATED`.
+   - Rumus perhitungan durasi dosing ditegakkan secara ketat: $T_{ms} = \frac{V_{target}}{Rate_{ml/min}} \times 60.000 = \frac{V_{target}}{Rate_{ml/sec}} \times 1.000$.
+   - Multi-GH isolation: Setiap GH memiliki mixing tank terdedikasi (`mix-01` untuk GH-01, `mix-02` untuk GH-02), antrean FIFO independen, dan delivery slot terpisah.
+4. **Perbaikan Web UI & API Client**:
+   - `src/app/calibration/page.tsx`:
+     - Menambahkan fungsi `refreshAuthoritative()` dan meneruskan callback `onSaved` ke wizard kalibrasi pompa dosing dan sensor.
+     - `DosingPumpCalibrationWizard`: Menampilkan `Flow Rate (aktif)` dari pembacaan kontroler ESP32 dengan badge *Terkalibrasi Aktif* (`24.0 ml/mnt`). Menampilkan `Flow Rate (preview sampling)` saat sampling berlangsung beserta deviasi terhadap nilai aktif. Menampilkan `Nilai aktif sebelumnya` secara akurat dari riwayat tersimpan, bukan `—`.
+     - Memperbaiki pencocokan riwayat di `HistoryTab` agar mencakup `componentId`.
+   - `src/lib/services.ts`:
+     - `calibrationService.loadAuthoritative`: Mengkueri `/api/v1/calibration/rate` dan `operationalPythonClient.listCalibrations()`, lalu memformat `device.reading` dalam `ml/min`.
+     - `calibrationService.startCalibration`: Menyimpan data volumetrik (`measuredMl`, `durationSec`, `flowRateMlMin`) ke kontroler ESP32 dan Python backend / local store.
+     - `fertigationService.getDynamicDosingPumps`: Membaca kamus `dosingRates`.
+   - `src/lib/api/contracts.ts` & `UI_ESP32_OPENAPI.yaml`:
+     - Menambahkan `dosingRates?: Record<string, number>` pada interface dan skema `CalibrationRates`.
+   - `backend/sensor_calibration.py` & `backend/server.py`:
+     - Menyimpan `flowRateMlMin`, `before`, dan `after` pada record kalibrasi SQLite.
+5. **Hasil Pengujian Aktual**:
+   - ESP32 Firmware Build: Bersih 0 error (`agrotech_esp32.bin` 0x180350 bytes).
+   - ESP32 Hardware Flash: Berhasil di-flash ke COM3 via RTS hard reset.
+   - Physical Live Validation (`node scripts/test_live_calibration.mjs`):
+     - `POST /api/v1/calibration/rate` untuk `pump_dosing_a` (0.4 ml/s = 24 ml/min) -> 200 OK, `version: 101`, `calibrationId: "cal-pump_dosing_a-v101"`.
+     - `POST /api/v1/calibration/rate` untuk `pump_dosing_b` (0.2 ml/s = 12 ml/min) -> 200 OK, `version: 2`, `calibrationId: "cal-pump_dosing_b-v2"`.
+     - `GET /api/v1/calibration/rate` mengembalikan `dosingRates: { pump_dosing_a: 0.4, pump_dosing_b: 0.2 }` dan field legacy `rateDosingAMlSec: 0.4`, `rateDosingBMlSec: 0.2`.
+     - Persistensi bertahan setelah reboot fisik ESP32.
+   - Fertigation E2E Audit (`node scripts/test_fertigation_calibration_e2e.mjs`):
+     - 12 ml/min, 30 ml -> 150,000 ms (PASS).
+     - 12 ml/min, 120 ml -> 600,000 ms (PASS).
+     - 24 ml/min, 120 ml -> 300,000 ms (PASS).
+     - Rejection pompa uncalibrated -> PASS.
+     - Multi-GH isolation (GH-01 mix-01 vs GH-02 mix-02) -> PASS.
+   - Backend Test Suites: `scripts/test_m11_m12_engine.py` (34/34 PASS), `scripts/test_backend_m7_m8.py` (7/7 PASS).
+   - TypeScript Check: `npx tsc --noEmit` PASS (0 errors).
+   - Contract Suite: `npm test` PASS (28/28 endpoints).
+
+---
+
+# AI HANDOVER — SP-CMD-WORKER-STACK-001
 
 ## Status — SP-CMD-WORKER-STACK-001
 **Fix Stack Overflow in cmd_worker & scheduler_task, Sizing & Protocol Helper Unification**

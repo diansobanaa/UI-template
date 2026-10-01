@@ -175,6 +175,7 @@ export function generateFertigationExecutionPlan(configuration, intentOrRequest,
   const hasExplicitDosing = Array.isArray(intentOrRequest?.dosingChannels) || Array.isArray(intentOrRequest?.parameters?.dosingChannels);
   const requestedChannels = arr(intentOrRequest?.dosingChannels || intentOrRequest?.parameters?.dosingChannels || recipe?.dosingChannels);
 
+  const cals = calibrations?.calibrations ? calibrations.calibrations : (calibrations || {});
   let resolvedDosing = [];
   if (requestedChannels.length > 0) {
     for (const reqCh of requestedChannels) {
@@ -186,9 +187,20 @@ export function generateFertigationExecutionPlan(configuration, intentOrRequest,
       }
       const reqMl = Number(reqCh.requestedMl || reqCh.targetMl || 0);
       if (reqMl <= 0) continue;
-      const rate = Number(calibrations[cid]?.rateMlPerSec || calibrations.rateDosingAMlSec || comp.parameters?.rateMlPerSec || 2.5);
-      const calId = id(reqCh.calibrationId || comp.parameters?.calibrationReference || `CAL-${cid.toUpperCase()}-V1`);
-      const calVer = Number(reqCh.calibrationVersion || comp.parameters?.calibrationVersion || 1);
+      const rate = Number(
+        cals[cid]?.rateMlPerSec ||
+        cals.dosingRates?.[cid] ||
+        (cid.toLowerCase().includes("dosing_a") || cid.toLowerCase().endsWith("_a") || cid === "dosingA" || cid === "dose-a" ? cals.rateDosingAMlSec : 0) ||
+        (cid.toLowerCase().includes("dosing_b") || cid.toLowerCase().endsWith("_b") || cid === "dosingB" || cid === "dose-b" ? cals.rateDosingBMlSec : 0) ||
+        comp.parameters?.rateMlPerSec ||
+        0
+      );
+      if (rate <= 0 || !Number.isFinite(rate)) {
+        blockedReasons.push(issue("DOSING_PUMP_NOT_CALIBRATED", `Dosing pump '${cid}' has no active calibration. Fertigation requires calibrated dosing pumps.`, { componentId: cid }));
+        continue;
+      }
+      const calId = id(reqCh.calibrationId || cals[cid]?.calibrationId || comp.parameters?.calibrationReference || `CAL-${cid.toUpperCase()}-V1`);
+      const calVer = Number(reqCh.calibrationVersion || cals[cid]?.version || comp.parameters?.calibrationVersion || 1);
       resolvedDosing.push({
         componentId: cid,
         requestedMl: reqMl,
@@ -203,9 +215,20 @@ export function generateFertigationExecutionPlan(configuration, intentOrRequest,
     for (const dp of dosingPumps) {
       const cid = id(dp.componentId);
       const reqMl = Number(intentOrRequest?.parameters?.[`dosing${cid.slice(-1).toUpperCase()}Ml`] || 100);
-      const rate = Number(calibrations[cid]?.rateMlPerSec || dp.parameters?.rateMlPerSec || 2.5);
-      const calId = id(dp.parameters?.calibrationReference || `CAL-${cid.toUpperCase()}-V1`);
-      const calVer = Number(dp.parameters?.calibrationVersion || 1);
+      const rate = Number(
+        cals[cid]?.rateMlPerSec ||
+        cals.dosingRates?.[cid] ||
+        (cid.toLowerCase().includes("dosing_a") || cid.toLowerCase().endsWith("_a") || cid === "dosingA" || cid === "dose-a" ? cals.rateDosingAMlSec : 0) ||
+        (cid.toLowerCase().includes("dosing_b") || cid.toLowerCase().endsWith("_b") || cid === "dosingB" || cid === "dose-b" ? cals.rateDosingBMlSec : 0) ||
+        dp.parameters?.rateMlPerSec ||
+        0
+      );
+      if (rate <= 0 || !Number.isFinite(rate)) {
+        blockedReasons.push(issue("DOSING_PUMP_NOT_CALIBRATED", `Dosing pump '${cid}' has no active calibration. Fertigation requires calibrated dosing pumps.`, { componentId: cid }));
+        continue;
+      }
+      const calId = id(dp.parameters?.calibrationReference || cals[cid]?.calibrationId || `CAL-${cid.toUpperCase()}-V1`);
+      const calVer = Number(dp.parameters?.calibrationVersion || cals[cid]?.version || 1);
       resolvedDosing.push({
         componentId: cid,
         requestedMl: reqMl,

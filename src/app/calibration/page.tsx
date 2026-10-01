@@ -89,6 +89,16 @@ function CalibrationContent() {
 
   useDbVersion();
 
+  const refreshAuthoritative = async () => {
+    try {
+      const loaded = await calibrationService.loadAuthoritative(complex.id);
+      setAuthoritativeDevices(loaded.devices);
+      setAuthoritativeHistory(loaded.history);
+    } catch {
+      // keep current state
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     calibrationService.loadAuthoritative(complex.id).then((loaded) => {
@@ -149,7 +159,10 @@ function CalibrationContent() {
     );
   };
 
-  const deviceHistory = device ? history.filter((h) => h.device === shortName(device)) : [];
+  const compId = device ? device.id.replace("dev-", "") : "";
+  const deviceHistory = device
+    ? history.filter((h) => h.device === compId || h.device === shortName(device) || h.device === device.name)
+    : [];
 
   return (
     <AppShell complexId={complex.id}>
@@ -160,7 +173,10 @@ function CalibrationContent() {
           <LiveStatus state={realtimeState} label="Hardware Link" />
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={() => toast("Permintaan sinkronisasi dikirim ke ESP32", "info")}>
+          <Button variant="secondary" onClick={async () => {
+            toast("Permintaan sinkronisasi dikirim ke ESP32", "info");
+            await refreshAuthoritative();
+          }}>
             <RefreshCcw className="h-4 w-4 mr-2" /> Sync Alat
           </Button>
           <Button variant="danger" onClick={handleHeaderEStop}>
@@ -294,10 +310,15 @@ function CalibrationContent() {
                     run={run && run.deviceId === device.id ? run : null}
                     onStart={(seconds) => setRun({ deviceId: device.id, secondsLeft: seconds })}
                     onStop={() => setRun(null)}
+                    onSaved={refreshAuthoritative}
                   />
                 )}
                 {activeTab === "calibrate" && (device.category === "ph" || device.category === "ec") && (
-                  <SensorCalibrationWizard key={device.id} device={device} />
+                  <SensorCalibrationWizard
+                    key={device.id}
+                    device={device}
+                    onSaved={refreshAuthoritative}
+                  />
                 )}
                 {activeTab === "history" && <HistoryTab history={deviceHistory} deviceName={shortName(device)} />}
               </div>
@@ -380,11 +401,13 @@ function DosingPumpCalibrationWizard({
   run,
   onStart,
   onStop,
+  onSaved,
 }: {
   device: CalibrationDevice;
   run: { deviceId: string; secondsLeft: number } | null;
   onStart: (seconds: number) => void;
   onStop: () => void;
+  onSaved?: () => Promise<void> | void;
 }) {
   const [volume, setVolume] = useState("");
   const [clicks, setClicks] = useState(0);
@@ -394,10 +417,10 @@ function DosingPumpCalibrationWizard({
 
   const channel = pumpChannel(device);
   const samplingSeconds = clicks * RUN_SECONDS_PER_CLICK;
-  const prevRate = parseFloat(device.reading) || 0;
+  const activeRate = device.reading !== "—" ? parseFloat(device.reading) : 0;
   const volumeNum = parseFloat(volume) || 0;
   const flowRate = samplingSeconds > 0 ? (volumeNum / samplingSeconds) * 60 : 0;
-  const deviationPct = prevRate > 0 && flowRate > 0 ? ((flowRate - prevRate) / prevRate) * 100 : null;
+  const deviationPct = activeRate > 0 && flowRate > 0 ? ((flowRate - activeRate) / activeRate) * 100 : null;
   const samplingComplete = clicks >= MAX_SAMPLING_CLICKS;
 
   const handleRunPump = async () => {
@@ -418,7 +441,22 @@ function DosingPumpCalibrationWizard({
   const handleSaveData = async () => {
     setCalibrating(true);
     try {
-      await calibrationService.startCalibration(device, `${prevRate} ml/min`, `${flowRate.toFixed(1)} ml/min`);
+      const beforeStr = activeRate > 0 ? `${activeRate.toFixed(1)} ml/min` : "Belum Dikalibrasi";
+      const afterStr = `${flowRate.toFixed(1)} ml/min`;
+      await calibrationService.startCalibration(
+        device,
+        beforeStr,
+        afterStr,
+        "Operator",
+        {
+          measuredMl: volumeNum,
+          durationSec: samplingSeconds,
+          flowRateMlMin: flowRate,
+        }
+      );
+      if (onSaved) {
+        await onSaved();
+      }
       toast(`Flow Rate Pompa ${channel} (${flowRate.toFixed(1)} ml/min) berhasil disimpan ke kontroler.`, "success");
       setConfirmOpen(false);
       setVolume("");
@@ -517,20 +555,37 @@ function DosingPumpCalibrationWizard({
           <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-100">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                <Gauge className="h-3.5 w-3.5" /> Flow Rate (live)
+                <Gauge className="h-3.5 w-3.5" /> Flow Rate {flowRate > 0 ? "(preview sampling)" : "(aktif)"}
               </span>
               <span className="font-mono font-bold text-blue-600 text-lg">
-                {flowRate > 0 ? flowRate.toFixed(1) : "—"} <span className="text-xs text-slate-400">ml/mnt</span>
+                {flowRate > 0 ? flowRate.toFixed(1) : (activeRate > 0 ? activeRate.toFixed(1) : "—")}{" "}
+                <span className="text-xs text-slate-400">ml/mnt</span>
               </span>
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px]">
-              <span className="text-slate-400">Nilai sebelumnya: <b className="text-slate-600 font-mono">{prevRate || "—"} ml/mnt</b></span>
+              <span className="text-slate-500">
+                Nilai aktif sebelumnya:{" "}
+                <b className="text-slate-700 font-mono">
+                  {activeRate > 0 ? `${activeRate.toFixed(1)} ml/mnt` : "Belum dikalibrasi"}
+                </b>
+              </span>
               {deviationPct !== null && (
                 <span className={`font-bold px-2 py-0.5 rounded-md ${Math.abs(deviationPct) <= 5 ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50"}`}>
                   Deviasi: {deviationPct > 0 ? "+" : ""}{deviationPct.toFixed(1)}%
                 </span>
               )}
             </div>
+            {flowRate === 0 && activeRate > 0 && (
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Status: <b>Terkalibrasi Aktif</b> di kontroler ESP32 ({activeRate.toFixed(1)} ml/mnt)</span>
+              </div>
+            )}
+            {flowRate === 0 && activeRate <= 0 && (
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                <span>⚠️ Pompa belum dikalibrasi. Lakukan sampling untuk mengaktifkan flow rate.</span>
+              </div>
+            )}
           </div>
 
           {!samplingComplete && volumeNum > 0 && (
@@ -569,7 +624,7 @@ function DosingPumpCalibrationWizard({
               </div>
               <div>
                 <div className="text-slate-500 text-xs mb-0.5">Sebelumnya</div>
-                <div className="font-bold text-slate-500">{prevRate || "—"} ml/mnt</div>
+                <div className="font-bold text-slate-500">{activeRate > 0 ? `${activeRate.toFixed(1)} ml/mnt` : "Belum dikalibrasi"}</div>
               </div>
             </div>
             {!samplingComplete && (
@@ -589,7 +644,13 @@ function DosingPumpCalibrationWizard({
 /* pH / EC sensor wizard — buffer standard + measured reading → offset */
 /* ------------------------------------------------------------------ */
 
-function SensorCalibrationWizard({ device }: { device: CalibrationDevice }) {
+function SensorCalibrationWizard({
+  device,
+  onSaved,
+}: {
+  device: CalibrationDevice;
+  onSaved?: () => Promise<void> | void;
+}) {
   const [standard, setStandard] = useState<string>(device.standardOptions[0] ?? "");
   const [measured, setMeasured] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -609,6 +670,9 @@ function SensorCalibrationWizard({ device }: { device: CalibrationDevice }) {
         `${measured} ${device.measuredUnit}`,
         `${standard} ${device.standardUnit}`,
       );
+      if (onSaved) {
+        await onSaved();
+      }
       toast(`Kalibrasi ${label} berhasil disimpan — offset ${offset !== null ? offset.toFixed(2) : "0"} diterapkan ke kontroler.`, "success");
       setConfirmOpen(false);
       setMeasured("");

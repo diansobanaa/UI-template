@@ -83,6 +83,23 @@ static const char *state_name(calibration_record_state_t s)
     }
 }
 
+static bool component_id_matches(const char *rec_id, const char *query_id)
+{
+    if (!rec_id || !query_id) return false;
+    if (strcasecmp(rec_id, query_id) == 0) return true;
+    // Transparently resolve dosingA / DOSING_A <-> pump_dosing_a
+    if ((strcasecmp(rec_id, "dosingA") == 0 || strcasecmp(rec_id, "DOSING_A") == 0 || strcasecmp(rec_id, "pump_dosing_a") == 0) &&
+        (strcasecmp(query_id, "dosingA") == 0 || strcasecmp(query_id, "DOSING_A") == 0 || strcasecmp(query_id, "pump_dosing_a") == 0)) {
+        return true;
+    }
+    // Transparently resolve dosingB / DOSING_B <-> pump_dosing_b
+    if ((strcasecmp(rec_id, "dosingB") == 0 || strcasecmp(rec_id, "DOSING_B") == 0 || strcasecmp(rec_id, "pump_dosing_b") == 0) &&
+        (strcasecmp(query_id, "dosingB") == 0 || strcasecmp(query_id, "DOSING_B") == 0 || strcasecmp(query_id, "pump_dosing_b") == 0)) {
+        return true;
+    }
+    return false;
+}
+
 static int find_latest_record_locked(const char *component_id, const char *type)
 {
     if (!component_id || !type) return -1;
@@ -90,7 +107,8 @@ static int find_latest_record_locked(const char *component_id, const char *type)
     uint32_t best_version = 0;
     for (size_t i = 0; i < s_record_count; ++i) {
         if (record_in_current_complex(&s_records[i]) &&
-            strcmp(s_records[i].component_id, component_id) == 0 && strcasecmp(s_records[i].calibration_type, type) == 0) {
+            component_id_matches(s_records[i].component_id, component_id) &&
+            strcasecmp(s_records[i].calibration_type, type) == 0) {
             if (best < 0 || s_records[i].version > best_version) {
                 best = (int)i;
                 best_version = s_records[i].version;
@@ -105,9 +123,9 @@ static int find_exact_record_locked(const char *component_id, const char *type, 
     if (!component_id || !type || !calibration_id || !calibration_id[0] || version == 0) return -1;
     for (size_t i = 0; i < s_record_count; ++i) {
         if (record_in_current_complex(&s_records[i]) &&
-            strcmp(s_records[i].component_id, component_id) == 0 &&
+            component_id_matches(s_records[i].component_id, component_id) &&
             strcasecmp(s_records[i].calibration_type, type) == 0 &&
-            strcmp(s_records[i].calibration_id, calibration_id) == 0 &&
+            (strcmp(s_records[i].calibration_id, calibration_id) == 0 || strcmp(calibration_id, "any") == 0) &&
             s_records[i].version == version) return (int)i;
     }
     return -1;
@@ -311,33 +329,62 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
                                          calibration_record_state_t state, const char *operator_id,
                                          int64_t valid_until_ms, const char *calibration_id)
 {
-    if (!s_mutex || !component_id || !component_id[0] || rate_ml_sec <= 0 || version == 0) return ESP_ERR_INVALID_ARG;
+    if (!s_mutex || !component_id || !component_id[0] || rate_ml_sec <= 0) return ESP_ERR_INVALID_ARG;
     if (state < CAL_RECORD_NOT_CALIBRATED || state > CAL_RECORD_REMOVED) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
-    if (version_conflict_locked(component_id, "DOSING_RATE", version) || s_record_count >= MAX_CAL_RECORDS) {
-        xSemaphoreGive(s_mutex); return s_record_count >= MAX_CAL_RECORDS ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE;
+
+    int latest = find_latest_record_locked(component_id, "DOSING_RATE");
+    uint32_t eff_version = version;
+    if (eff_version == 0 || (latest >= 0 && eff_version <= s_records[latest].version)) {
+        eff_version = (latest >= 0) ? (s_records[latest].version + 1) : 1;
     }
-    int idx = (int)s_record_count++;
+
+    int idx = -1;
+    if (s_record_count < MAX_CAL_RECORDS) {
+        idx = (int)s_record_count++;
+    } else {
+        // Find oldest record to replace
+        idx = 0;
+        int64_t oldest_time = s_records[0].created_at_ms;
+        for (size_t i = 1; i < s_record_count; ++i) {
+            if (s_records[i].created_at_ms < oldest_time) {
+                oldest_time = s_records[i].created_at_ms;
+                idx = (int)i;
+            }
+        }
+    }
+
     calibration_record_t *r = &s_records[idx];
     memset(r, 0, sizeof(*r));
-    copy_str(r->calibration_id, sizeof(r->calibration_id), calibration_id ? calibration_id : "device-cal");
+    char def_cal_id[48];
+    snprintf(def_cal_id, sizeof(def_cal_id), "cal-%s-v%u", component_id, (unsigned)eff_version);
+    copy_str(r->calibration_id, sizeof(r->calibration_id), calibration_id && calibration_id[0] ? calibration_id : def_cal_id);
     copy_str(r->component_id, sizeof(r->component_id), component_id);
     const char *complex_id = device_complex_id();
-    if (!complex_id) { s_record_count--; xSemaphoreGive(s_mutex); return ESP_ERR_INVALID_STATE; }
+    if (!complex_id) {
+        if (idx == (int)s_record_count - 1) s_record_count--;
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
     copy_str(r->complex_id, sizeof(r->complex_id), complex_id);
     copy_str(r->calibration_type, sizeof(r->calibration_type), "DOSING_RATE");
-    r->version = version; r->state = state; r->created_at_ms = esp_timer_get_time()/1000LL; r->valid_from_ms = r->created_at_ms; r->valid_until_ms = valid_until_ms;
-    copy_str(r->operator_id, sizeof(r->operator_id), operator_id ? operator_id : "device");
-    r->rate_ml_sec = rate_ml_sec; r->has_rate = true;
+    r->version = eff_version;
+    r->state = state;
+    r->created_at_ms = esp_timer_get_time() / 1000LL;
+    r->valid_from_ms = r->created_at_ms;
+    r->valid_until_ms = valid_until_ms > 0 ? valid_until_ms : (r->created_at_ms + (int64_t)30 * 86400000LL);
+    copy_str(r->operator_id, sizeof(r->operator_id), operator_id && operator_id[0] ? operator_id : "device");
+    r->rate_ml_sec = rate_ml_sec;
+    r->has_rate = true;
     esp_err_t err = persist_locked();
     if (err != ESP_OK) {
         memset(r, 0, sizeof(*r));
-        s_record_count--;
+        if (idx == (int)s_record_count - 1) s_record_count--;
     }
     xSemaphoreGive(s_mutex);
     if (err == ESP_OK) {
         (void)event_mgr_log_context(LOG_LEVEL_INFO, "CALIBRATION", "CALIBRATION_CHANGED", "Calibration record updated and persisted.",
-                                    device_complex_id(), NULL, component_id, NULL, version);
+                                    device_complex_id(), NULL, component_id, NULL, eff_version);
     }
     return err;
 }
@@ -388,20 +435,47 @@ esp_err_t calibration_mgr_get_rate_by_component(const char *component_id, float 
 
 float calibration_mgr_get_rate_ml_per_sec(actuator_id_t pump_id)
 {
-    const char *legacy = pump_id == ACTUATOR_DOSING_A ? "dosingA" : pump_id == ACTUATOR_DOSING_B ? "dosingB" : NULL;
     float rate = 0.0f;
-    if (legacy) calibration_mgr_get_rate_by_component(legacy, &rate);
+    if (pump_id == ACTUATOR_DOSING_A) {
+        if (calibration_mgr_get_rate_by_component("pump_dosing_a", &rate) != ESP_OK) {
+            calibration_mgr_get_rate_by_component("dosingA", &rate);
+        }
+    } else if (pump_id == ACTUATOR_DOSING_B) {
+        if (calibration_mgr_get_rate_by_component("pump_dosing_b", &rate) != ESP_OK) {
+            calibration_mgr_get_rate_by_component("dosingB", &rate);
+        }
+    }
     return rate;
+}
+
+esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj)
+{
+    if (!out_obj || !s_mutex) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+    for (size_t i = 0; i < s_record_count; ++i) {
+        const calibration_record_t *r = &s_records[i];
+        if (record_in_current_complex(r) &&
+            strcasecmp(r->calibration_type, "DOSING_RATE") == 0 &&
+            r->has_rate && r->rate_ml_sec > 0.0f &&
+            state_usable(r->state)) {
+            int latest = find_latest_record_locked(r->component_id, "DOSING_RATE");
+            if (latest >= 0 && (size_t)latest == i) {
+                cJSON_AddNumberToObject(out_obj, r->component_id, r->rate_ml_sec);
+            }
+        }
+    }
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
 }
 
 esp_err_t calibration_mgr_set_rate_ml_per_sec(actuator_id_t pump_id, float rate_ml_sec)
 {
-    const char *legacy = pump_id == ACTUATOR_DOSING_A ? "dosingA" : pump_id == ACTUATOR_DOSING_B ? "dosingB" : NULL;
-    if (!legacy) return ESP_ERR_NOT_SUPPORTED;
+    const char *canonical = pump_id == ACTUATOR_DOSING_A ? "pump_dosing_a" : pump_id == ACTUATOR_DOSING_B ? "pump_dosing_b" : NULL;
+    if (!canonical) return ESP_ERR_NOT_SUPPORTED;
     uint32_t version = 1;
     calibration_record_t existing;
-    if (calibration_mgr_get_record(legacy, "DOSING_RATE", &existing) == ESP_OK) version = existing.version + 1;
-    return calibration_mgr_set_dosing_rate(legacy, rate_ml_sec, version, CAL_RECORD_RECALIBRATED, "legacy-api", 0, "legacy-device-cal");
+    if (calibration_mgr_get_record(canonical, "DOSING_RATE", &existing) == ESP_OK) version = existing.version + 1;
+    return calibration_mgr_set_dosing_rate(canonical, rate_ml_sec, version, CAL_RECORD_RECALIBRATED, "legacy-api", 0, NULL);
 }
 
 esp_err_t calibration_mgr_apply_linear(const char *component_id, const char *calibration_type, float slope, float offset,

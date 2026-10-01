@@ -925,6 +925,7 @@ export interface CalibrationRates {
   rateDosingBMlSec: number;
   flowRawPulsesPerL: number;
   flowFertPulsesPerL: number;
+  dosingRates?: Record<string, number>;
 }
 
 export interface SetCalibrationRateRequest {

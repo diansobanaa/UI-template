@@ -2097,7 +2097,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not cid or not operator or not complex_id:
                     raise ValueError("componentId, operator and Complex ownership are required")
                 if ctype == "DOSING_RATE":
-                    record = build_dosing_calibration(cid, float(body["measuredMl"]), float(body["durationSec"]), operator, version=version, state=str(body.get("state", "CALIBRATED")), calibration_id=calibration_id, valid_for_days=body.get("validForDays"), complex_id=complex_id)
+                    record = build_dosing_calibration(cid, float(body["measuredMl"]), float(body["durationSec"]), operator, version=version, state=str(body.get("state", "CALIBRATED")), calibration_id=calibration_id, valid_for_days=body.get("validForDays"), complex_id=complex_id, before=body.get("before"), after=body.get("after"))
                 else:
                     record = build_linear_calibration(cid, ctype, float(body["inputOne"]), float(body["outputOne"]), float(body["inputTwo"]), float(body["outputTwo"]), operator, version=version, state=str(body.get("state", "CALIBRATED")), calibration_id=calibration_id, valid_until_ms=body.get("validUntilMs"), complex_id=complex_id)
                 self._json(201, {"complexId": complex_id, "calibration": self._record_json(CALIBRATION_REPO.save(record))})

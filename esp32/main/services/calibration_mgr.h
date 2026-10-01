@@ -93,6 +93,7 @@ esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l);
 float calibration_mgr_get_flow_fert_pulses_per_l(void);
 bool calibration_mgr_is_flow_fert_calibrated(void);
 esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l);
+esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj);
 
 #ifdef __cplusplus
 }

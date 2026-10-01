@@ -95,15 +95,56 @@ static esp_err_t api_calibration_status_handler(httpd_req_t *req)
 
 static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
 {
-    cJSON *json=NULL; if(http_parse_json_body(req,&json)!=ESP_OK||!json){http_send_error(req,400,"BAD_REQUEST","Invalid JSON",NULL);return ESP_FAIL;}
-    cJSON *payload=cJSON_GetObjectItem(json,"payload"); cJSON *target=payload?payload:json;
-    cJSON *comp=cJSON_GetObjectItem(target,"componentId"); cJSON *rate=cJSON_GetObjectItem(target,"rateMlPerSec"); cJSON *ver=cJSON_GetObjectItem(target,"version"); cJSON *op=cJSON_GetObjectItem(target,"operator"); cJSON *cid=cJSON_GetObjectItem(target,"calibrationId");
-    if(!comp||!cJSON_IsString(comp)||!rate||!cJSON_IsNumber(rate)||rate->valuedouble<=0){cJSON_Delete(json);http_send_error(req,422,"VALIDATION_FAILED","componentId and positive rateMlPerSec are required",NULL);return ESP_FAIL;}
-    uint32_t version=(ver&&cJSON_IsNumber(ver)&&ver->valuedouble>0)?(uint32_t)ver->valuedouble:1;
-    const char *operator_id=(op&&cJSON_IsString(op))?op->valuestring:"technician"; const char *cal_id=(cid&&cJSON_IsString(cid))?cid->valuestring:"device-calibration";
-    esp_err_t err=calibration_mgr_set_dosing_rate(comp->valuestring,(float)rate->valuedouble,version,CAL_RECORD_CALIBRATED,operator_id,0,cal_id);cJSON_Delete(json);
-    if(err!=ESP_OK){http_send_error(req,err==ESP_ERR_INVALID_STATE?409:422,"CALIBRATION_SAVE_FAILED","Calibration record was not accepted.",NULL);return ESP_FAIL;}
-    cJSON *resp=cJSON_CreateObject();cJSON_AddStringToObject(resp,"status","APPLIED");cJSON_AddStringToObject(resp,"componentId",comp->valuestring);cJSON_AddNumberToObject(resp,"rateMlPerSec",rate->valuedouble);cJSON_AddNumberToObject(resp,"version",version);return http_send_enveloped_response(req,200,NULL,resp);
+    cJSON *json = NULL;
+    if (http_parse_json_body(req, &json) != ESP_OK || !json) {
+        http_send_error(req, 400, "BAD_REQUEST", "Invalid JSON", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *payload = cJSON_GetObjectItem(json, "payload");
+    cJSON *target = payload ? payload : json;
+    cJSON *comp = cJSON_GetObjectItem(target, "componentId");
+    cJSON *rate = cJSON_GetObjectItem(target, "rateMlPerSec");
+    if (!rate) rate = cJSON_GetObjectItem(target, "rateValue");
+    cJSON *ver = cJSON_GetObjectItem(target, "version");
+    cJSON *op = cJSON_GetObjectItem(target, "operator");
+    cJSON *cid = cJSON_GetObjectItem(target, "calibrationId");
+
+    if (!comp || !cJSON_IsString(comp) || !rate || !cJSON_IsNumber(rate) || rate->valuedouble <= 0) {
+        cJSON_Delete(json);
+        http_send_error(req, 422, "VALIDATION_FAILED", "componentId and positive rateMlPerSec (or rateValue) are required", NULL);
+        return ESP_FAIL;
+    }
+    uint32_t version = (ver && cJSON_IsNumber(ver) && ver->valuedouble > 0) ? (uint32_t)ver->valuedouble : 0;
+    const char *operator_id = (op && cJSON_IsString(op) && op->valuestring[0]) ? op->valuestring : "technician";
+    const char *cal_id = (cid && cJSON_IsString(cid) && cid->valuestring[0]) ? cid->valuestring : NULL;
+
+    char saved_comp_id[32] = {0};
+    strncpy(saved_comp_id, comp->valuestring, sizeof(saved_comp_id) - 1);
+    double saved_rate_val = rate->valuedouble;
+
+    esp_err_t err = calibration_mgr_set_dosing_rate(saved_comp_id, (float)saved_rate_val, version, CAL_RECORD_CALIBRATED, operator_id, 0, cal_id);
+    cJSON_Delete(json);
+    if (err != ESP_OK) {
+        http_send_error(req, err == ESP_ERR_INVALID_STATE ? 409 : 422, "CALIBRATION_SAVE_FAILED", "Calibration record was not accepted.", NULL);
+        return ESP_FAIL;
+    }
+
+    calibration_record_t saved_rec;
+    uint32_t eff_version = version > 0 ? version : 1;
+    const char *eff_cal_id = cal_id ? cal_id : "device-cal";
+    if (calibration_mgr_get_record(saved_comp_id, "DOSING_RATE", &saved_rec) == ESP_OK) {
+        eff_version = saved_rec.version;
+        eff_cal_id = saved_rec.calibration_id;
+    }
+
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "status", "APPLIED");
+    cJSON_AddStringToObject(resp, "componentId", saved_comp_id);
+    cJSON_AddNumberToObject(resp, "rateMlPerSec", saved_rate_val);
+    cJSON_AddNumberToObject(resp, "flowRateMlMin", saved_rate_val * 60.0);
+    cJSON_AddNumberToObject(resp, "version", eff_version);
+    cJSON_AddStringToObject(resp, "calibrationId", eff_cal_id);
+    return http_send_enveloped_response(req, 200, NULL, resp);
 }
 
 static esp_err_t api_calibration_record_handler(httpd_req_t *req)
@@ -148,7 +189,26 @@ static esp_err_t api_calibration_record_handler(httpd_req_t *req)
 
 static esp_err_t api_calibration_get_rate_handler(httpd_req_t *req)
 {
-    cJSON *resp=cJSON_CreateObject();cJSON_AddNumberToObject(resp,"rateDosingAMlSec",calibration_mgr_get_rate_ml_per_sec(ACTUATOR_DOSING_A));cJSON_AddNumberToObject(resp,"rateDosingBMlSec",calibration_mgr_get_rate_ml_per_sec(ACTUATOR_DOSING_B));return http_send_enveloped_response(req,200,NULL,resp);
+    cJSON *resp = cJSON_CreateObject();
+    cJSON *rates_obj = cJSON_AddObjectToObject(resp, "dosingRates");
+    (void)calibration_mgr_populate_dosing_rates_json(rates_obj);
+
+    float rate_a = calibration_mgr_get_rate_ml_per_sec(ACTUATOR_DOSING_A);
+    float rate_b = calibration_mgr_get_rate_ml_per_sec(ACTUATOR_DOSING_B);
+
+    if (rate_a > 0.0f && !cJSON_GetObjectItem(rates_obj, "pump_dosing_a")) {
+        cJSON_AddNumberToObject(rates_obj, "pump_dosing_a", rate_a);
+    }
+    if (rate_b > 0.0f && !cJSON_GetObjectItem(rates_obj, "pump_dosing_b")) {
+        cJSON_AddNumberToObject(rates_obj, "pump_dosing_b", rate_b);
+    }
+
+    cJSON_AddNumberToObject(resp, "rateDosingAMlSec", rate_a);
+    cJSON_AddNumberToObject(resp, "rateDosingBMlSec", rate_b);
+    cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", calibration_mgr_get_flow_raw_pulses_per_l());
+    cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", calibration_mgr_get_flow_fert_pulses_per_l());
+
+    return http_send_enveloped_response(req, 200, NULL, resp);
 }
 
 static esp_err_t api_calibration_record_get_handler(httpd_req_t *req)

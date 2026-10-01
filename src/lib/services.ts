@@ -1939,6 +1939,15 @@ export const calibrationService = {
     // UI tidak boleh mensintesis pump/actuator/sensor dari seed data. Calibration page menampilkan empty state
     // jika inventory kosong (effectiveComponents === []).
 
+    let esp32Rates: Awaited<ReturnType<typeof esp32Client.getCalibrationRates>> | null = null;
+    if (isDirectEsp32Enabled()) {
+      try {
+        esp32Rates = await esp32Client.getCalibrationRates();
+      } catch {
+        esp32Rates = null;
+      }
+    }
+
     let records: any[] = [];
     try {
       const calRes = await operationalPythonClient.listCalibrations(complexId);
@@ -1960,10 +1969,49 @@ export const calibrationService = {
         const validUntil = calibration?.validUntilMs ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not scheduled";
         let channel = component.parameters?.channel != null ? String(component.parameters.channel) : undefined;
         if (!channel && category === "dosing-pump") {
-          // F-C5: Hindari regex A/B hard-code — gunakan component.name sebagai channel label,
-          // atau fallback ke componentId. Mendukung dosing pump dinamis (A..G via PCA9685).
           channel = component.name?.trim() || component.componentId;
         }
+
+        let reading = "—";
+        let calibratedAtMs: number | null = calibration?.createdAtMs ?? null;
+
+        if (category === "dosing-pump") {
+          let rateMlSec = 0;
+          const compLower = component.componentId.toLowerCase();
+          if (esp32Rates) {
+            if (esp32Rates.dosingRates && esp32Rates.dosingRates[component.componentId] != null) {
+              rateMlSec = Number(esp32Rates.dosingRates[component.componentId]) || 0;
+            } else if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
+              rateMlSec = esp32Rates.rateDosingAMlSec || 0;
+            } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
+              rateMlSec = esp32Rates.rateDosingBMlSec || 0;
+            }
+          }
+          if (rateMlSec <= 0 && calibration?.parameters) {
+            if (calibration.parameters.rateMlPerSec != null && Number(calibration.parameters.rateMlPerSec) > 0) {
+              rateMlSec = Number(calibration.parameters.rateMlPerSec);
+            } else if (calibration.parameters.flowRateMlMin != null && Number(calibration.parameters.flowRateMlMin) > 0) {
+              rateMlSec = Number(calibration.parameters.flowRateMlMin) / 60.0;
+            } else if (calibration.parameters.measuredMl != null && calibration.parameters.durationSec != null && Number(calibration.parameters.durationSec) > 0) {
+              rateMlSec = Number(calibration.parameters.measuredMl) / Number(calibration.parameters.durationSec);
+            }
+          }
+          if (rateMlSec > 0) {
+            const flowRateMlMin = rateMlSec * 60.0;
+            reading = flowRateMlMin.toFixed(1);
+          } else {
+            reading = "—";
+          }
+        } else if (category === "ph" || category === "ec") {
+          if (calibration?.parameters?.outputTwo != null) {
+            reading = String(calibration.parameters.outputTwo);
+          }
+        }
+
+        const lastCalibrationStr = (reading !== "—" && calibratedAtMs)
+          ? new Date(calibratedAtMs).toLocaleString("en-GB")
+          : (calibratedAtMs ? new Date(calibratedAtMs).toLocaleString("en-GB") : "Belum Dikalibrasi");
+
         return {
           id: `dev-${component.componentId}`,
           category,
@@ -1971,11 +2019,11 @@ export const calibrationService = {
           ...(channel ? { channel } : {}),
           ghId: assignmentGhId,
           location: assignmentGhId ? `${assignmentGhId} – Installed Component` : `${complexId} – Central Calibration`,
-          reading: "—",
+          reading,
           unit: category === "dosing-pump" ? "ml/min" : category === "ph" ? "pH" : "mS/cm",
           online: true,
-          lastCalibration: calibration ? new Date(calibration.createdAtMs).toLocaleString("en-GB") : "Never",
-          calibratedAtMs: calibration?.createdAtMs ?? null,
+          lastCalibration: lastCalibrationStr,
+          calibratedAtMs,
           due: validUntil,
           method: category === "dosing-pump" ? "single" : "two",
           standardOptions: category === "ph" ? ["4.00", "6.86", "7.00", "9.18"] : category === "ec" ? ["1.41", "12.88"] : ["10", "30"],
@@ -1983,16 +2031,36 @@ export const calibrationService = {
           measuredUnit: category === "ph" ? "pH" : category === "ec" ? "mS/cm" : "ml",
         };
       });
-    const history: CalibrationRecord[] = records.map((record) => ({
-      id: record.calibrationId,
-      dateTime: new Date(record.createdAtMs).toLocaleString("en-GB"),
-      device: record.componentId,
-      type: record.calibrationType,
-      before: "—",
-      after: "—",
-      result: ["EXPIRED", "SUSPECT", "REMOVED"].includes(record.state) ? "Failed" : "Success",
-      user: record.operator,
-    }));
+
+    const history: CalibrationRecord[] = records.map((record) => {
+      let beforeStr = "—";
+      let afterStr = "—";
+      if (record.parameters?.before != null && String(record.parameters.before).trim()) {
+        beforeStr = String(record.parameters.before);
+      } else if (record.parameters?.prevRate != null) {
+        beforeStr = `${Number(record.parameters.prevRate).toFixed(1)} ml/min`;
+      }
+      if (record.parameters?.after != null && String(record.parameters.after).trim()) {
+        afterStr = String(record.parameters.after);
+      } else if (record.parameters?.flowRateMlMin != null) {
+        afterStr = `${Number(record.parameters.flowRateMlMin).toFixed(1)} ml/min`;
+      } else if (record.parameters?.rateMlPerSec != null) {
+        afterStr = `${(Number(record.parameters.rateMlPerSec) * 60.0).toFixed(1)} ml/min`;
+      } else if (record.parameters?.measuredMl != null && record.parameters?.durationSec != null) {
+        const rateMin = (Number(record.parameters.measuredMl) / Number(record.parameters.durationSec)) * 60.0;
+        afterStr = `${rateMin.toFixed(1)} ml/min`;
+      }
+      return {
+        id: record.calibrationId,
+        dateTime: new Date(record.createdAtMs).toLocaleString("en-GB"),
+        device: record.componentId,
+        type: record.calibrationType,
+        before: beforeStr,
+        after: afterStr,
+        result: ["EXPIRED", "SUSPECT", "REMOVED"].includes(record.state) ? "Failed" : "Success",
+        user: record.operator || "Operator",
+      };
+    });
     return { devices, history };
   },
   reference() {
@@ -2002,7 +2070,13 @@ export const calibrationService = {
     const allowed = categoryFilterMap[category] ?? categoryFilterMap["all"];
     return [];
   },
-  async startCalibration(device: CalibrationDevice, before: string, after: string, user = "Admin"): Promise<void> {
+  async startCalibration(
+    device: CalibrationDevice,
+    before: string,
+    after: string,
+    user = "Admin",
+    samplingInfo?: { measuredMl?: number; durationSec?: number; flowRateMlMin?: number }
+  ): Promise<void> {
     if (!before.trim() || !after.trim()) {
       throw new ServiceError("VALIDATION_FAILED", "Before and after readings are required.");
     }
@@ -2019,18 +2093,62 @@ export const calibrationService = {
     const targetComplexId = (device.ghId ? greenhouseService.get(device.ghId)?.complexId : null) || complexService.list()[0]?.id || "";
     try {
       if (device.category === "dosing-pump") {
-        const measuredMl = parseFloat(after);
-        if (!Number.isFinite(measuredMl) || measuredMl <= 0) throw new ServiceError("VALIDATION_FAILED", "Measured dosing volume must be positive.");
-        if (isDirectEsp32Enabled()) {
-          try { await esp32Client.saveCalibrationRate(componentId, measuredMl / 30.0); } catch { }
+        let flowRateMlMin = samplingInfo?.flowRateMlMin ?? 0;
+        let measuredMl = samplingInfo?.measuredMl ?? 0;
+        let durationSec = samplingInfo?.durationSec ?? 30;
+
+        if (flowRateMlMin <= 0) {
+          const parsedAfter = parseFloat(after.replace(/[^\d.]/g, ""));
+          if (Number.isFinite(parsedAfter) && parsedAfter > 0) {
+            flowRateMlMin = parsedAfter;
+          }
         }
-        await operationalPythonClient.saveCalibration(targetComplexId, { calibrationType: "DOSING_RATE", componentId, measuredMl, durationSec: 30, operator: user, state: "CALIBRATED" });
+        if (durationSec <= 0) durationSec = 30;
+        if (measuredMl <= 0 && flowRateMlMin > 0) {
+          measuredMl = (flowRateMlMin / 60.0) * durationSec;
+        }
+
+        const rateMlSec = flowRateMlMin / 60.0;
+        if (!Number.isFinite(rateMlSec) || rateMlSec <= 0) {
+          throw new ServiceError("VALIDATION_FAILED", "Measured flow rate must be positive and finite.");
+        }
+
+        if (isDirectEsp32Enabled()) {
+          try {
+            await esp32Client.saveCalibrationRate(componentId, rateMlSec);
+          } catch (espErr) {
+            console.warn("[calibrationService] ESP32 direct calibration rate save error:", espErr);
+          }
+        }
+        await operationalPythonClient.saveCalibration(targetComplexId, {
+          calibrationType: "DOSING_RATE",
+          componentId,
+          measuredMl: Number(measuredMl.toFixed(1)),
+          durationSec,
+          rateMlPerSec: rateMlSec,
+          flowRateMlMin: Number(flowRateMlMin.toFixed(1)),
+          before,
+          after: `${flowRateMlMin.toFixed(1)} ml/min`,
+          operator: user,
+          state: "CALIBRATED",
+        });
       } else if (device.category === "ph" || device.category === "ec") {
-        const beforeValue = parseFloat(before);
-        const afterValue = parseFloat(after);
+        const beforeValue = parseFloat(before.replace(/[^\d.-]/g, ""));
+        const afterValue = parseFloat(after.replace(/[^\d.-]/g, ""));
         if (Number.isFinite(beforeValue) && Number.isFinite(afterValue) && beforeValue !== afterValue) {
           const calibrationType = device.category === "ph" ? "PH" : "EC";
-          await operationalPythonClient.saveCalibration(targetComplexId, { calibrationType, componentId, inputOne: beforeValue, outputOne: beforeValue, inputTwo: afterValue, outputTwo: afterValue, operator: user, state: "CALIBRATED" });
+          await operationalPythonClient.saveCalibration(targetComplexId, {
+            calibrationType,
+            componentId,
+            inputOne: beforeValue,
+            outputOne: beforeValue,
+            inputTwo: afterValue,
+            outputTwo: afterValue,
+            before,
+            after,
+            operator: user,
+            state: "CALIBRATED",
+          });
         }
       }
     } catch (err) {
@@ -2102,7 +2220,9 @@ export const fertigationService = {
             let rateVal = 0;
 
             if (rates) {
-              if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
+              if (rates.dosingRates && rates.dosingRates[c.componentId] != null) {
+                rateVal = Number(rates.dosingRates[c.componentId]) || 0;
+              } else if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
                 rateVal = rates.rateDosingAMlSec || 0;
               } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
                 rateVal = rates.rateDosingBMlSec || 0;

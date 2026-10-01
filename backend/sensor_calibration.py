@@ -130,10 +130,24 @@ class CalibrationRecord:
         return rate
 
 
-def build_dosing_calibration(component_id: str, measured_ml: float, duration_sec: float, operator: str, state: str = "CALIBRATED", version: int = 1, valid_for_days: int | None = None, calibration_id: str | None = None, complex_id: str = "") -> CalibrationRecord:
+def build_dosing_calibration(component_id: str, measured_ml: float, duration_sec: float, operator: str, state: str = "CALIBRATED", version: int = 1, valid_for_days: int | None = None, calibration_id: str | None = None, complex_id: str = "", before: str | None = None, after: str | None = None) -> CalibrationRecord:
     if measured_ml <= 0 or duration_sec <= 0:
         raise ValueError("Measured volume and duration must be > 0")
     now = int(time.time() * 1000)
+    rate_ml_sec = measured_ml / duration_sec
+    rate_ml_min = rate_ml_sec * 60.0
+    params = {
+        "measuredMl": measured_ml,
+        "durationSec": duration_sec,
+        "rateMlPerSec": rate_ml_sec,
+        "flowRateMlMin": round(rate_ml_min, 2),
+    }
+    if before:
+        params["before"] = str(before)
+    if after:
+        params["after"] = str(after)
+    else:
+        params["after"] = f"{round(rate_ml_min, 1)} ml/min"
     return CalibrationRecord(
         calibrationId=calibration_id or f"cal-{uuid.uuid4().hex[:12]}",
         componentId=component_id,
@@ -144,7 +158,7 @@ def build_dosing_calibration(component_id: str, measured_ml: float, duration_sec
         validFromMs=now,
         validUntilMs=None if valid_for_days is None else now + valid_for_days * 86400000,
         operator=operator,
-        parameters={"measuredMl": measured_ml, "durationSec": duration_sec, "rateMlPerSec": measured_ml / duration_sec},
+        parameters=params,
         complexId=complex_id,
     )
 

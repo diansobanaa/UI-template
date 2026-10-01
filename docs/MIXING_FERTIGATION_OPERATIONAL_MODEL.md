@@ -381,25 +381,36 @@ Urutan aktual dapat berbeda bila hardware design mensyaratkan urutan tertentu, t
 
 ## 7.3 Calibration
 
-Dosing quantity user/recipe harus dikonversi menggunakan calibration yang berlaku.
+Dosing quantity user/recipe harus dikonversi secara presisi menggunakan active calibration yang tersimpan di NVS kontroler ESP32.
 
-Concept:
+### 7.3.1 Rumus Matematis Konversi Dosing
 
-```text
-requested_ml
-    ↓
-active calibration
-    ↓
-dosing operation
-```
+Untuk pompa dosing peristaltik beraliran konstan:
 
-Calibration adalah dependency mixing, bukan delivery.
+$$\text{Durasi Dosing (ms)} = \frac{V_{\text{target}}\text{ (ml)}}{\text{Flow Rate}\text{ (ml/min)}} \times 60.000 = \frac{V_{\text{target}}\text{ (ml)}}{\text{Rate}\text{ (ml/sec)}} \times 1.000$$
 
-Jika calibration yang diperlukan tidak tersedia atau invalid:
+Ekspektasi pengujian matematis:
+- Kalibrasi $12\text{ ml/min}$ ($0.2\text{ ml/s}$) dengan target $30\text{ ml} \to 150.000\text{ ms}$ ($150\text{ s}$).
+- Kalibrasi $12\text{ ml/min}$ ($0.2\text{ ml/s}$) dengan target $120\text{ ml} \to 600.000\text{ ms}$ ($600\text{ s}$).
+- Kalibrasi $24\text{ ml/min}$ ($0.4\text{ ml/s}$) dengan target $120\text{ ml} \to 300.000\text{ ms}$ ($300\text{ s}$).
 
-```text
-Mixing MUST NOT proceed as if successful.
-```
+### 7.3.2 Kebijakan Strict Safety Kalibrasi
+
+Calibration adalah dependency mutlak pada mixing phase:
+1. Tidak boleh ada fallback tersembunyi (seperti mengasumsikan $2.5\text{ ml/s}$ atau $0\text{ ml/s}$).
+2. Jika pompa belum dikalibrasi ($Rate \le 0$ atau record tidak ditemukan), operasi fertigas/dosing **WAJIB DITOLAK** dengan status `BLOCKED` (`DOSING_PUMP_NOT_CALIBRATED` di runtime / `ESP_ERR_INVALID_STATE` di firmware).
+3. Jika rate pada batch plan tidak sesuai dengan active calibration di NVS kontroler (toleransi $> 0.005\text{ ml/s}$), firmware menolak eksekusi.
+
+### 7.3.3 API & Struktur Data Kalibrasi
+Kontroler ESP32 menyediakan REST endpoint:
+- `GET /api/v1/calibration/rate`: Mengembalikan kamus canonical OpenAPI `dosingRates: { [componentId: string]: number }` beserta backward-compatibility alias `rateDosingAMlSec` dan `rateDosingBMlSec`.
+- `POST /api/v1/calibration/rate`: Menerima `{ componentId, rateValue }` atau `{ componentId, rateMlPerSec }`, menerapkan monotonic auto-increment versioning, menyimpan ke partisi NVS, dan mengembalikan status `APPLIED` dengan `flowRateMlMin` dan `version`.
+
+### 7.3.4 Semantik Tampilan Web UI
+- **Flow Rate (aktif)**: Menampilkan nilai kalibrasi aktif dari kontroler ESP32 (misal `24.0 ml/mnt`) dengan badge *Terkalibrasi Aktif*. Bila belum ada kalibrasi, menampilkan teks eksplisit *Belum dikalibrasi*, bukan nilai nol.
+- **Preview Sampling**: Saat operator melakukan sampling 30 detik dan memasukkan volume terukur, UI menampilkan preview flow rate beserta deviasi terhadap nilai aktif saat ini.
+- **Nilai Sebelumnya**: Menampilkan nilai kalibrasi sebelum pembaruan terakhir yang diambil dari riwayat NVS/SQLite persisten.
+- **State Persistence**: Menyimpan nilai kalibrasi memicu refresh authoritative data secara otomatis sehingga nilai langsung ter-update di UI dan tetap konsisten setelah page refresh maupun ESP32 reboot.
 
 ---
 
