@@ -24,14 +24,15 @@ import {
   Zap,
 } from "lucide-react";
 import { esp32Client } from "@/lib/api/esp32-client";
-import { fertigationService, greenhouseService } from "@/lib/services";
+import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useToast } from "@/components/ui/toast";
 import type { FertigationSchedule, Recipe } from "@/lib/types";
 
 interface FertigationQueueDashboardProps {
-  queue: FertigationSchedule[];
-  complexId: string;
+  queue?: FertigationSchedule[];
+  complexId?: string;
   selectedGhId?: string;
+  currentGhId?: string;
   onOpenCreate?: () => void;
   className?: string;
 }
@@ -51,12 +52,15 @@ export type MixingLifecycleState =
 
 export function FertigationQueueDashboard({
   queue,
-  complexId,
+  complexId = "",
   selectedGhId,
+  currentGhId,
   onOpenCreate,
   className = "",
 }: FertigationQueueDashboardProps) {
   const toast = useToast();
+  const effectiveGhId = selectedGhId || currentGhId;
+  const effectiveComplexId = complexId || (effectiveGhId ? greenhouseService.get(effectiveGhId)?.complexId || "" : "");
   const [liveStatus, setLiveStatus] = useState<any>(null);
   const [liveQueue, setLiveQueue] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -270,9 +274,24 @@ export function FertigationQueueDashboard({
 
   // Filter queue for selected greenhouse if embedded
   const displayQueue = useMemo(() => {
-    if (!selectedGhId) return queue;
-    return queue.filter((s) => s.ghId.toLowerCase() === selectedGhId.toLowerCase());
-  }, [queue, selectedGhId]);
+    let sourceQueue: FertigationSchedule[] = queue ?? [];
+    if (!queue) {
+      if (effectiveGhId) {
+        sourceQueue = scheduleService.fertigationForGh(effectiveGhId);
+      } else if (effectiveComplexId) {
+        const ghs = greenhouseService.byComplex(effectiveComplexId);
+        sourceQueue = ghs.flatMap((g) => scheduleService.fertigationForGh(g.id));
+      } else {
+        const complexes = complexService.list();
+        const allGhs = complexes.flatMap((c) => greenhouseService.byComplex(c.id));
+        sourceQueue = allGhs.flatMap((g) => scheduleService.fertigationForGh(g.id));
+      }
+    }
+    const filtered = effectiveGhId
+      ? sourceQueue.filter((s) => s.ghId.toLowerCase() === effectiveGhId.toLowerCase())
+      : sourceQueue;
+    return filtered.filter((s) => s.status === "scheduled" && s.activationState !== "BLOCKED");
+  }, [queue, effectiveGhId, effectiveComplexId]);
 
   // Aggregate daily statistics
   const totalWaterL = displayQueue.reduce((acc, curr) => acc + (curr.targetWaterL || 0), 0);

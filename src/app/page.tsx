@@ -39,7 +39,7 @@ import { AreaChart, DualLineChart, Donut } from "@/components/ui/charts";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { ScheduleContent } from "@/app/schedule/page";
-import { DosingQueueCard } from "@/components/fertigation/DosingQueueCard";
+import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
 import { useToast } from "@/components/ui/toast";
 import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
@@ -1423,7 +1423,10 @@ function GreenhouseContent() {
 
       {/* ---------------- Dosing Queue & Batch Execution Monitoring (Section 10.3 & 20) ---------------- */}
       <div className="w-full mt-5">
-        <DosingQueueCard />
+        <FertigationQueueDashboard
+          complexId={complex?.id}
+          selectedGhId={gh?.id}
+        />
       </div>
 
       {/* ---------------- Charts + plant data ---------------- */}

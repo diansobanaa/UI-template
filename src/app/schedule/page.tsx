@@ -39,7 +39,6 @@ import { calculateCapabilities } from "@/lib/runtime/topology-engine";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled } from "@/lib/api/backend-client";
 import { PythonClient } from "@/lib/api/python-client";
-import { DosingQueueCard } from "@/components/fertigation/DosingQueueCard";
 import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
 
 export default function SchedulePage() {
@@ -507,7 +506,12 @@ export function ScheduleContent({
 
       {/* Real-time Complex Dosing Queue & Batch Execution (Section 10.3 & Section 20) */}
       <div className="mb-5">
-        <DosingQueueCard />
+        <FertigationQueueDashboard
+          queue={queue}
+          complexId={complex.id}
+          selectedGhId={gh?.id}
+          onOpenCreate={openFertigationCreate}
+        />
       </div>
 
       {/* Today's timeline */}
@@ -598,7 +602,7 @@ export function ScheduleContent({
                 greenhouse: "Complex",
                 time: s.time,
                 repeat: s.trigger === "interval" && s.intervalMin ? `Tiap ${s.intervalMin}m` : s.repeat,
-                detail: `${s.durationSec ? (s.durationSec < 60 ? `${s.durationSec}s` : `${Math.round(s.durationSec / 60)} min`) : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s` : `${s.durationMin} min`)} run${s.trigger === 'interval' && s.intervalMin ? ` • Window: ${s.time}–${s.endTime || '...' }` : ''}`,
+                detail: `${s.durationSec ? (s.durationSec < 60 ? `${s.durationSec}s` : `${Math.round(s.durationSec / 60)} min`) : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s` : `${s.durationMin} min`)} run${s.trigger === 'interval' && s.intervalMin ? ` • Window: ${s.time}–${s.endTime || '...'}` : ''}`,
                 lastRun: s.lastRun,
                 nextRun: s.nextRun,
                 enabled: s.enabled,
@@ -684,18 +688,34 @@ export function ScheduleContent({
         </DarkSectionCard>
       </div>
 
-      {/* Fertigation Queue & Mixing Lifecycle Dashboard */}
-      <div className="mb-5">
-        <FertigationQueueDashboard
-          queue={queue}
-          complexId={complex.id}
-          selectedGhId={selectedGreenhouseId}
-          onOpenCreate={openFertigationCreate}
-        />
-      </div>
+      {/* Queue + ESP32 config */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <DarkSectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
+          {queue.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 py-7 text-center">
+              <p className="text-[13px] text-slate-500">No fertigation schedules configured.</p>
+              <ActionButton tone="violet" size="sm" className="mt-3" onClick={openFertigationCreate}>
+                <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
+              </ActionButton>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {queue.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-[#0d1929] px-3.5 py-3 shadow-[0_8px_18px_rgba(0,0,0,0.12)]">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-500/10 text-violet-300">
+                    <ListOrdered className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold text-slate-100">{s.name} • {greenhouseService.get(s.ghId)?.code ?? "GH"}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">{s.nextRun} • {s.targetWaterL} L</div>
+                  </div>
+                  <StatusPill status="scheduled" />
+                </div>
+              ))}
+            </div>
+          )}
+        </DarkSectionCard>
 
-      {/* ESP32 Configuration */}
-      <div className="mb-5">
         <DarkSectionCard
           title="ESP32 Configuration"
           icon={MonitorCog}
