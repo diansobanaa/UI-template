@@ -140,6 +140,7 @@ static size_t s_dosing_queue_count = 0;
 static uint32_t s_next_queue_seq = 1;
 
 static void materialize_today_schedule(time_t now);
+static void try_enqueue_pending_preparations(time_t now);
 static void rebuild_dosing_queue_on_boot(time_t now);
 static void reconcile_dosing_queue_on_config_change(uint32_t new_config_version);
 // RC-1: Forward declaration untuk marker_persist_task (definisi di bawah).
@@ -1517,6 +1518,63 @@ static void materialize_today_schedule(time_t now) {
       } else {
         continue;
       }
+    } else if (rs->type == SCHED_TYPE_INTERVAL) {
+      if (rs->interval_min == 0)
+        continue;
+      int64_t step_sec = (int64_t)rs->interval_min * 60;
+      struct tm start_of_day = tm_now;
+      start_of_day.tm_hour = (rs->hour <= 23) ? rs->hour : 0;
+      start_of_day.tm_min = (rs->minute <= 59) ? rs->minute : 0;
+      start_of_day.tm_sec = 0;
+      time_t t_cur = mktime(&start_of_day);
+
+      struct tm end_of_day = tm_now;
+      end_of_day.tm_hour = 23;
+      end_of_day.tm_min = 59;
+      end_of_day.tm_sec = 59;
+      time_t t_end = mktime(&end_of_day);
+
+      while (t_cur <= t_end) {
+        if (rs->start_timestamp > 0 && t_cur < rs->start_timestamp) {
+          t_cur += step_sec;
+          continue;
+        }
+        if (rs->end_timestamp > 0 && t_cur > rs->end_timestamp) {
+          break;
+        }
+
+        char occ_id[64];
+        snprintf(occ_id, sizeof(occ_id), "occ-%s-%lld", rs->schedule_id, (long long)t_cur);
+
+        bool exists = false;
+        for (size_t j = 0; j < s_today_occurrence_count; j++) {
+          if (strcmp(s_today_occurrences[j].occurrence_id, occ_id) == 0) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists && s_today_occurrence_count < MAX_TODAY_OCCURRENCES) {
+          today_occurrence_t *new_occ = &s_today_occurrences[s_today_occurrence_count++];
+          memset(new_occ, 0, sizeof(*new_occ));
+          copy_string(new_occ->occurrence_id, sizeof(new_occ->occurrence_id), occ_id);
+          copy_string(new_occ->schedule_id, sizeof(new_occ->schedule_id), rs->schedule_id);
+          copy_string(new_occ->complex_id, sizeof(new_occ->complex_id), rs->complex_id);
+          copy_string(new_occ->gh_id, sizeof(new_occ->gh_id), rs->gh_id);
+          new_occ->scheduled_timestamp = (int64_t)t_cur;
+
+          int m_idx = find_marker(rs->compiled_id);
+          if (m_idx >= 0 && s_markers[m_idx].state == MARKER_COMPLETE &&
+              s_markers[m_idx].last_occurrence_timestamp == (int64_t)t_cur) {
+            new_occ->state = OCC_STATE_COMPLETED;
+          } else if ((int64_t)now > (int64_t)t_cur) {
+            new_occ->state = OCC_STATE_FAILED;
+          } else {
+            new_occ->state = OCC_STATE_PENDING;
+          }
+        }
+        t_cur += step_sec;
+      }
+      continue;
     } else {
       continue;
     }
@@ -1581,16 +1639,30 @@ static void materialize_today_schedule(time_t now) {
   }
 }
 
-static void rebuild_dosing_queue_on_boot(time_t now) {
+static void try_enqueue_pending_preparations(time_t now) {
   (void)now;
+  if (s_dosing_queue_count >= MAX_DOSING_QUEUE) {
+    return;
+  }
   for (size_t i = 0; i < s_today_occurrence_count; i++) {
     today_occurrence_t *occ = &s_today_occurrences[i];
     if (occ->state == OCC_STATE_PENDING) {
       if (!is_gh_occupied(occ->gh_id)) {
-        enqueue_preparation(occ);
+        esp_err_t err = enqueue_preparation(occ);
+        if (err == ESP_OK) {
+          ESP_LOGI(TAG, "Eager preparation enqueued for GH %s: occurrence %s (sched timestamp %lld)",
+                   occ->gh_id, occ->occurrence_id, (long long)occ->scheduled_timestamp);
+        }
+        if (s_dosing_queue_count >= MAX_DOSING_QUEUE) {
+          break;
+        }
       }
     }
   }
+}
+
+static void rebuild_dosing_queue_on_boot(time_t now) {
+  try_enqueue_pending_preparations(now);
 }
 
 static void process_dosing_queue(time_t now) {
@@ -1709,6 +1781,7 @@ static void process_dosing_queue(time_t now) {
         s_dosing_queue[i - 1] = s_dosing_queue[i];
       }
       s_dosing_queue_count--;
+      try_enqueue_pending_preparations(now);
     } else if (fert_st == FERT_STATE_FAULTED || fert_st == FERT_STATE_ABORTED || fert_st == FERT_STATE_INTERRUPTED) {
       head->state = QUEUE_STATE_FAILED;
       ESP_LOGE(TAG, "Batch %s preparation faulted", head->batch_id);
@@ -1722,6 +1795,7 @@ static void process_dosing_queue(time_t now) {
         s_dosing_queue[i - 1] = s_dosing_queue[i];
       }
       s_dosing_queue_count--;
+      try_enqueue_pending_preparations(now);
     }
   }
 }
@@ -1841,7 +1915,17 @@ esp_err_t scheduler_evaluate_at(time_t now) {
              s_today_yday, tm_now.tm_yday);
     s_today_yday = tm_now.tm_yday;
     materialize_today_schedule(now);
-    rebuild_dosing_queue_on_boot(now);
+    try_enqueue_pending_preparations(now);
+  } else if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
+    materialize_today_schedule(now);
+    try_enqueue_pending_preparations(now);
+  }
+
+  /* Eager pre-mix invariant (Spec Section 10.3, 10.4 & 14):
+   * When queue has capacity (or is empty) and there are pending occurrences for today,
+   * immediately enqueue the next pending occurrence for any unoccupied greenhouse. */
+  if (s_dosing_queue_count < MAX_DOSING_QUEUE) {
+    try_enqueue_pending_preparations(now);
   }
 
   process_dosing_queue(now);

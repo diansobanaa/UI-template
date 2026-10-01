@@ -1,10 +1,33 @@
-# AI HANDOVER — SP-FERT-QUEUE-002 (latest)
+# AI HANDOVER — SP-EAGER-PREMIX-001 (latest)
 
-## Status — SP-FERT-QUEUE-002
-**Holistic Fertigation Lifecycle Architecture (Jadwal → Queue → Mixing → Fertigasi)**
-**Safe Point**: `SP-FERT-QUEUE-002`
+## Status — SP-EAGER-PREMIX-001
+**Eager Pre-Mix & Continuous Dosing Queue Invariant**
+**Safe Point**: `SP-EAGER-PREMIX-001`
 **Date**: 2026-10-02
-**Verdict**: `COMPLETE & VERIFIED — ESP32 FIRMWARE BUILD PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+
+### Summary of What Was Done
+1. **Aturan Invarian Eager Pre-Mix & Continuous Queue (Spec §10.3, §10.4, §14 & §52)**:
+   - Menegakkan aturan bahwa saat queue kosong/tersedia kapasitas dan terdapat jadwal fertigasi pending hari ini, kontroler **tidak boleh pasif menunggu sampai jam jadwal tiba**.
+   - Kontroler langsung memasukkan jadwal terdekat per Greenhouse yang tidak sibuk ke `s_dosing_queue` dan mengeksekusi mixing saat itu juga.
+2. **Pembaruan Firmware ESP32 (`esp32/main/services/scheduler.c`)**:
+   - `materialize_today_schedule()`: Menambahkan ekspansi jadwal `SCHED_TYPE_INTERVAL` sepanjang hari (selain `DAILY` dan `ONCE`).
+   - `try_enqueue_pending_preparations()`: Memeriksa `s_today_occurrences` secara berurutan kronologis dan memasukkan batch pertama per GH yang sedang tidak terisi (`!is_gh_occupied(ghId)`) ke antrean `s_dosing_queue`.
+   - Dipicu pada:
+     - Jam 00:00 midnight / day rollover (`s_today_yday != tm_now.tm_yday`).
+     - Tick evaluasi 1 detik secara kontinu saat queue memiliki ruang (`s_dosing_queue_count < MAX_DOSING_QUEUE`).
+     - Pemulihan jika `s_today_occurrence_count == 0` dan ada jadwal terdaftar.
+     - Pelepasan antrean setelah batch mencapai `READY_TO_SEND` atau selesai distribusi.
+3. **Flashing & Verifikasi Fisik**:
+   - Firmware ter-compile tanpa error (`idf.py build` EXIT CODE 0).
+   - Firmware ter-flash ke ESP32-S3 fisik via `COM3` (`idf.py -p COM3 flash` EXIT CODE 0, 1.575 MB, hash verified, hard reset RTS sukses).
+   - Frontend lulus type check tanpa error (`npx tsc --noEmit` EXIT CODE 0).
+4. **Dokumentasi Otoritatif**:
+   - Menambahkan Bagian 52 pada `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+
+---
+
+# AI HANDOVER — SP-FERT-QUEUE-002
 
 ### Summary of What Was Done
 1. **Analisis Komprehensif Siklus End-to-End**:

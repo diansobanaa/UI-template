@@ -3603,3 +3603,21 @@ PYTHON SAVE + ANALYSIS
 - `POST /api/v1/fertigation/deliver`: Pemicu langsung distribusi larutan yang berstatus `MIX_READY` via `fertigation_mgr_trigger_distribution(ghId, occurrenceId)`.
 - `POST /api/v1/commands` (`FERTIGATION_START`): Pemicuan peracikan awal (*pre-mix*) menggunakan execution plan terkompilasi via `fertigationService.startManual`.
 - `POST /api/v1/fertigation/stop`: Pembatalan darurat operasional batch via `fertigationService.stopManual`.
+
+52. Eager Continuous Pre-Mix & Immediate Queueing Invariant (SP-EAGER-PREMIX-001)
+
+1. **Principle: Eager Mixing upon Idle Central Dosing Queue**
+   - At calendar day boundary (00:00:00 midnight rollover) or system boot/recovery:
+     1. The system materializes all active fertigation schedules for today across all greenhouses into `todaySchedule[]` (`s_today_occurrences`) sorted chronologically by scheduled timestamp.
+     2. `try_enqueue_pending_preparations()` inspects the occurrences.
+     3. For every greenhouse that is not currently occupied (`!is_gh_occupied(ghId)`), its first upcoming pending occurrence is immediately enqueued into the Global Dosing Queue (`s_dosing_queue`).
+   - Invariant: When the dosing queue has capacity / is idle, and there is an upcoming pending fertigation occurrence for today, **the system does NOT passively wait until the scheduled hour (e.g. 06:00)**. It immediately starts preparation (raw water fill $\to$ serial dosing A $\to$ B $\to$ N $\to$ final mixing) so the nutrient solution is ready (`MIX_READY`) well in advance.
+
+2. **Continuous Enqueue Trigger Points**
+   - Evaluated continuously every 1-second scheduler tick (`scheduler_evaluate_at`):
+     - Rollover detection: `s_today_yday != tm_now.tm_yday`.
+     - Occurrence recovery: `s_today_occurrence_count == 0 && s_runtime_count > 0` (clock lock or schedule deploy).
+     - Capacity availability: `s_dosing_queue_count < MAX_DOSING_QUEUE`.
+     - Queue departure: When active batch completes final mixing into `READY_TO_SEND` or fails, `try_enqueue_pending_preparations()` immediately feeds the next GH in line to central dosing.
+     - Distribution completion: When an occupied greenhouse finishes delivery, it becomes unoccupied and its subsequent occurrence for the day is enqueued.
+

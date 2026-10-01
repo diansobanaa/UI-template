@@ -1,3 +1,32 @@
+## SP-EAGER-PREMIX-001 — Eager Pre-Mix & Continuous Dosing Queue Invariant
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Enforce the eager pre-mix invariant (Spec Section 10.3, 10.4 & 14): when the central dosing queue has capacity or is empty, the controller must immediately enqueue the next upcoming pending fertigation occurrence for any unoccupied greenhouse and begin mixing right away rather than idling until the scheduled distribution hour.
+  2. Implement day-rollover & eager queueing logic in `esp32/main/services/scheduler.c`:
+     - Expand `materialize_today_schedule()` to generate occurrences for `SCHED_TYPE_INTERVAL` in addition to `SCHED_TYPE_DAILY` and `SCHED_TYPE_ONCE`.
+     - Implement `try_enqueue_pending_preparations()` to continuously inspect `s_today_occurrences` and eagerly enqueue pending batches for unoccupied greenhouses.
+     - Call `try_enqueue_pending_preparations()` at midnight rollover, on occurrence recovery (`s_today_occurrence_count == 0`), whenever queue has capacity (`s_dosing_queue_count < MAX_DOSING_QUEUE`), and immediately after active batches finish mixing and dequeue.
+  3. Compile firmware and flash to physical ESP32-S3 via COM3 at 460800 baud.
+  4. Update canonical documentation `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 52.
+
+### Completed Work & Verification
+- `esp32/main/services/scheduler.c`:
+  - Added forward declaration and implementation of `try_enqueue_pending_preparations(now)`.
+  - Added `SCHED_TYPE_INTERVAL` support in `materialize_today_schedule(now)`.
+  - Added continuous eager pre-mixing check in `scheduler_evaluate_at(now)`.
+  - Added immediate chained enqueueing in `process_dosing_queue(now)` upon batch completion or fault.
+- Firmware Compilation & Flash:
+  - `idf.py build`: EXIT CODE 0 (`agrotech_esp32.bin` generated).
+  - `idf.py -p COM3 flash`: EXIT CODE 0 (1,575,488 bytes written at 460800 baud, data hash verified, hard reset via RTS pin complete).
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 52: Eager Continuous Pre-Mix & Immediate Queueing Invariant.
+- Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+  - Physical flash: PASSED (COM3).
+
+---
+
 ## SP-FERT-QUEUE-002 — Holistic Fertigation Lifecycle Architecture (Jadwal → Queue → Mixing → Fertigasi)
 - **Date**: 2026-10-02
 - **Status**: `COMPLETE & VERIFIED — ESP32 FIRMWARE BUILD PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
