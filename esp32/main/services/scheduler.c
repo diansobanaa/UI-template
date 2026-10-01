@@ -134,6 +134,8 @@ static TaskHandle_t s_marker_persist_task_handle = NULL;
 static EXT_RAM_BSS_ATTR today_occurrence_t s_today_occurrences[MAX_TODAY_OCCURRENCES];
 static size_t s_today_occurrence_count = 0;
 static int s_today_yday = -1;
+static int s_daily_trigger_completed_yday = -1;
+static int s_daily_trigger_completed_year = -1;
 
 static EXT_RAM_BSS_ATTR dosing_queue_entry_t s_dosing_queue[MAX_DOSING_QUEUE];
 static size_t s_dosing_queue_count = 0;
@@ -820,9 +822,14 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
     apply_timezone_from_active_config();
     time_t now_sec = time(NULL);
     if (local_clock_valid(now_sec)) {
+      struct tm tm_dep;
+      localtime_r(&now_sec, &tm_dep);
       reconcile_dosing_queue_on_config_change(cfg_ver);
       materialize_today_schedule(now_sec);
-      rebuild_dosing_queue_on_boot(now_sec);
+      try_enqueue_pending_preparations(now_sec);
+      s_daily_trigger_completed_yday = tm_dep.tm_yday;
+      s_daily_trigger_completed_year = tm_dep.tm_year;
+      s_today_yday = tm_dep.tm_yday;
     }
   }
 
@@ -1910,15 +1917,37 @@ esp_err_t scheduler_evaluate_at(time_t now) {
 
   struct tm tm_now;
   localtime_r(&now, &tm_now);
+
+  bool daily_trigger_needed = false;
+
+  /* Condition 1: Midnight / Day Boundary Rollover */
   if (s_today_yday != tm_now.tm_yday) {
-    ESP_LOGI(TAG, "Day boundary rollover detected (yday %d -> %d). Materializing today's schedule.",
-             s_today_yday, tm_now.tm_yday);
+    ESP_LOGI(TAG, "Day boundary rollover detected (yday %d -> %d).", s_today_yday, tm_now.tm_yday);
+    s_today_yday = tm_now.tm_yday;
+    daily_trigger_needed = true;
+  }
+
+  /* Condition 2: Belum di-trigger pada hari ini (Booted mid-day, clock just locked, or daily trigger uncompleted) */
+  if (s_daily_trigger_completed_yday != tm_now.tm_yday ||
+      s_daily_trigger_completed_year != tm_now.tm_year) {
+    daily_trigger_needed = true;
+  }
+
+  /* Condition 3: Schedules exist in runtime, but today's occurrence list is empty */
+  if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
+    daily_trigger_needed = true;
+  }
+
+  if (daily_trigger_needed) {
+    ESP_LOGI(TAG, "Daily schedule trigger executing for yday %d (schedules=%u, occurrences=%u)",
+             tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
     s_today_yday = tm_now.tm_yday;
     materialize_today_schedule(now);
     try_enqueue_pending_preparations(now);
-  } else if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
-    materialize_today_schedule(now);
-    try_enqueue_pending_preparations(now);
+    if (s_runtime_count > 0) {
+      s_daily_trigger_completed_yday = tm_now.tm_yday;
+      s_daily_trigger_completed_year = tm_now.tm_year;
+    }
   }
 
   /* Eager pre-mix invariant (Spec Section 10.3, 10.4 & 14):
@@ -2221,6 +2250,10 @@ esp_err_t scheduler_init(void) {
     s_today_yday = tm_init.tm_yday;
     materialize_today_schedule(init_now);
     rebuild_dosing_queue_on_boot(init_now);
+    if (s_runtime_count > 0) {
+      s_daily_trigger_completed_yday = tm_init.tm_yday;
+      s_daily_trigger_completed_year = tm_init.tm_year;
+    }
   }
 
   if (xTaskCreatePinnedToCore(scheduler_task, "scheduler", 6144, NULL, 4, NULL,
@@ -2319,4 +2352,34 @@ esp_err_t scheduler_get_next_occurrence(today_occurrence_t *out_occ) {
 
   xSemaphoreGive(s_mutex);
   return found ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+bool scheduler_is_daily_triggered_today(void) {
+  time_t now = time(NULL);
+  if (!local_clock_valid(now)) return false;
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  return (s_daily_trigger_completed_yday == tm_now.tm_yday &&
+          s_daily_trigger_completed_year == tm_now.tm_year);
+}
+
+esp_err_t scheduler_trigger_daily_now(void) {
+  if (!s_mutex) return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+  time_t now = time(NULL);
+  if (!local_clock_valid(now)) {
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  s_today_yday = tm_now.tm_yday;
+  materialize_today_schedule(now);
+  try_enqueue_pending_preparations(now);
+  if (s_runtime_count > 0) {
+    s_daily_trigger_completed_yday = tm_now.tm_yday;
+    s_daily_trigger_completed_year = tm_now.tm_year;
+  }
+  xSemaphoreGive(s_mutex);
+  return ESP_OK;
 }

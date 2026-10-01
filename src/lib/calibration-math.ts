@@ -19,10 +19,18 @@ export interface CalibrationAggregateResult {
   flowRateMlMin: number;
   rateMlSec: number;
   rates: number[];
+  stageDeviationsPct: number[];
+  referenceRateMlMin: number;
   maxDeviationPct: number;
   isConsistent: boolean;
   errorMessage?: string;
 }
+
+/**
+ * Standard tolerance threshold for dosing pump calibration consistency across durations.
+ * Defined as 10.0% deviation from the reference flow rate (median).
+ */
+export const DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT = 10.0;
 
 /**
  * Calculates flow rate in ml/min from volume and duration.
@@ -68,8 +76,15 @@ export function validateVolumeInput(
 /**
  * Aggregates one or multiple calibration samples using weighted duration formula:
  * Final Flow Rate = (Total Measured Volume / Total Actual Duration) * 60
+ *
+ * For consistency validation across multiple durations (10s, 30s, 60s):
+ * Compares each stage rate against the median rate to eliminate single-outlier skew.
+ * Maximum allowable deviation is governed by DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT (10.0%).
  */
-export function aggregateDosingSamples(samples: CalibrationSample[]): CalibrationAggregateResult {
+export function aggregateDosingSamples(
+  samples: CalibrationSample[],
+  tolerancePct: number = DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT
+): CalibrationAggregateResult {
   if (!samples || samples.length === 0) {
     return {
       valid: false,
@@ -78,6 +93,8 @@ export function aggregateDosingSamples(samples: CalibrationSample[]): Calibratio
       flowRateMlMin: 0,
       rateMlSec: 0,
       rates: [],
+      stageDeviationsPct: [],
+      referenceRateMlMin: 0,
       maxDeviationPct: 0,
       isConsistent: false,
       errorMessage: "Belum ada sampel pengukuran.",
@@ -98,6 +115,8 @@ export function aggregateDosingSamples(samples: CalibrationSample[]): Calibratio
         flowRateMlMin: 0,
         rateMlSec: 0,
         rates: [],
+        stageDeviationsPct: [],
+        referenceRateMlMin: 0,
         maxDeviationPct: 0,
         isConsistent: false,
         errorMessage: `Sampel ${i + 1} memiliki nilai volume atau durasi yang tidak valid.`,
@@ -111,16 +130,31 @@ export function aggregateDosingSamples(samples: CalibrationSample[]): Calibratio
   const flowRateMlMin = totalDurationSec > 0 ? (totalVolumeMl / totalDurationSec) * 60 : 0;
   const rateMlSec = flowRateMlMin / 60;
 
+  // Reference for comparison: Median of rates to prevent single-outlier distortion
+  const sortedRates = [...rates].sort((a, b) => a - b);
+  const mid = Math.floor(sortedRates.length / 2);
+  const referenceRate =
+    sortedRates.length % 2 !== 0
+      ? sortedRates[mid]
+      : (sortedRates[mid - 1] + sortedRates[mid]) / 2;
+
+  const stageDeviationsPct: number[] = [];
   let maxDeviationPct = 0;
-  if (flowRateMlMin > 0 && rates.length > 1) {
+
+  if (referenceRate > 0 && rates.length > 1) {
     for (const r of rates) {
-      const dev = Math.abs((r - flowRateMlMin) / flowRateMlMin) * 100;
+      const dev = Math.abs((r - referenceRate) / referenceRate) * 100;
+      stageDeviationsPct.push(dev);
       if (dev > maxDeviationPct) maxDeviationPct = dev;
+    }
+  } else {
+    for (let i = 0; i < rates.length; i++) {
+      stageDeviationsPct.push(0);
     }
   }
 
-  // Consistency threshold: <= 10% deviation across samples is considered consistent
-  const isConsistent = rates.length <= 1 || maxDeviationPct <= 10.0;
+  // Consistency threshold check
+  const isConsistent = rates.length <= 1 || maxDeviationPct <= tolerancePct;
 
   return {
     valid: true,
@@ -129,7 +163,12 @@ export function aggregateDosingSamples(samples: CalibrationSample[]): Calibratio
     flowRateMlMin,
     rateMlSec,
     rates,
+    stageDeviationsPct,
+    referenceRateMlMin: referenceRate,
     maxDeviationPct,
     isConsistent,
+    errorMessage: isConsistent
+      ? undefined
+      : `Debit antar tahap tidak konsisten (Deviasi maksimal ${maxDeviationPct.toFixed(1)}% melampaui batas toleransi ${tolerancePct}%). Periksa selang atau tegangan pompa.`,
   };
 }

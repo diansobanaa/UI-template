@@ -2116,8 +2116,10 @@ export const calibrationService = {
         if (isDirectEsp32Enabled()) {
           try {
             await esp32Client.saveCalibrationRate(componentId, rateMlSec);
-          } catch (espErr) {
-            console.warn("[calibrationService] ESP32 direct calibration rate save error:", espErr);
+          } catch (espErr: unknown) {
+            const msg = espErr instanceof Error ? espErr.message : String(espErr);
+            console.error("[calibrationService] Gagal menyimpan kalibrasi ke ESP32:", espErr);
+            throw new ServiceError("DEVICE_OFFLINE", `Gagal menyimpan nilai kalibrasi ke ESP32: ${msg}`);
           }
         }
         await operationalPythonClient.saveCalibration(targetComplexId, {

@@ -426,8 +426,29 @@ static esp_err_t api_compiled_schedule_delete_handler(httpd_req_t *req)
     return http_send_enveloped_response(req, 200, NULL, response);
 }
 
+static esp_err_t api_schedule_trigger_today_handler(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    esp_err_t err = scheduler_trigger_daily_now();
+    if (err != ESP_OK) {
+        return http_send_error(req, 409, "DAILY_TRIGGER_REJECTED", "Unable to trigger daily schedule (clock may be invalid or mutex locked)", NULL);
+    }
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "TRIGGERED");
+    cJSON_AddBoolToObject(response, "dailyTriggerExecuted", scheduler_is_daily_triggered_today());
+    return http_send_enveloped_response(req, 200, NULL, response);
+}
+
 void register_api_schedule_handlers(httpd_handle_t server)
 {
+    /* Daily trigger immediate sync endpoint */
+    httpd_uri_t trigger_today_uri = {
+        .uri = "/api/v1/schedules/trigger-today",
+        .method = HTTP_POST,
+        .handler = api_schedule_trigger_today_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &trigger_today_uri);
     /* Compiled runtime schedule endpoints (Derived artifact for FreeRTOS scheduler) */
     httpd_uri_t compiled_get_uri = {
         .uri = "/api/v1/schedules/compiled",

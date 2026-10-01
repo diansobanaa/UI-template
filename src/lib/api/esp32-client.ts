@@ -510,6 +510,10 @@ export class Esp32Client {
     return this.deleteEnveloped<{ status: string }>("/api/v1/schedules/compiled");
   }
 
+  async triggerDailySchedules(): Promise<{ status: string; dailyTriggerExecuted: boolean }> {
+    return this.postEnveloped<{ status: string; dailyTriggerExecuted: boolean }>("/api/v1/schedules/trigger-today", {});
+  }
+
   /* -------------------------- Authoritative Schedule Intents (NVS) -------------------------- */
 
   async getScheduleIntents(): Promise<ScheduleIntentsResponse> {

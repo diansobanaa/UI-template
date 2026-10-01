@@ -32,6 +32,7 @@ import {
   HelpCircle,
   Activity,
   CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
@@ -50,8 +51,11 @@ import {
   calculateDosingFlowRate,
   validateVolumeInput,
   aggregateDosingSamples,
+  DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT,
   type CalibrationSample,
 } from "@/lib/calibration-math";
+
+const PROGRESSIVE_DURATIONS = [10, 30, 60] as const;
 
 const FILTERS = [
   { id: "all", label: "Semua Perangkat" },
@@ -421,7 +425,7 @@ function DosingPumpCalibrationWizard({
   onStop: () => void;
   onSaved?: () => Promise<void> | void;
 }) {
-  const [workflowStep, setWorkflowStep] = useState<"IDLE" | "RUNNING" | "INPUT_VOLUME" | "REVIEW" | "SAVED">("IDLE");
+  const [workflowStep, setWorkflowStep] = useState<"IDLE" | "PREPARING" | "RUNNING" | "INPUT_VOLUME" | "REVIEW" | "SAVED">("IDLE");
   const [testDuration, setTestDuration] = useState<number>(30); // 30s recommended default
   const [testMode, setTestMode] = useState<"single" | "multi">("single");
   const [volumeInput, setVolumeInput] = useState<string>("");
@@ -431,22 +435,29 @@ function DosingPumpCalibrationWizard({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [lastSavedRate, setLastSavedRate] = useState<number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [prepCountdown, setPrepCountdown] = useState<number>(0);
   const toast = useToast();
 
   const channel = pumpChannel(device);
   const activeRate = device.reading !== "—" ? parseFloat(device.reading) : 0;
   const isCalibrated = activeRate > 0;
 
+  // Authoritative duration for the current operation
+  const currentDuration =
+    testMode === "multi"
+      ? (PROGRESSIVE_DURATIONS[currentSampleIndex] ?? 10)
+      : testDuration;
+
   // Single sample calculation
   const volumeNum = parseFloat(volumeInput) || 0;
-  const singleFlowRate = calculateDosingFlowRate(volumeNum, testDuration);
+  const singleFlowRate = calculateDosingFlowRate(volumeNum, currentDuration);
 
   // Multi sample aggregation
   const allCompletedSamples: CalibrationSample[] =
     workflowStep === "REVIEW" && testMode === "multi"
       ? samples
-      : (volumeNum > 0 ? [...samples, { volumeMl: volumeNum, durationSec: testDuration }] : samples);
-  const multiAgg = aggregateDosingSamples(allCompletedSamples);
+      : (volumeNum > 0 ? [...samples, { volumeMl: volumeNum, durationSec: currentDuration }] : samples);
+  const multiAgg = aggregateDosingSamples(allCompletedSamples, DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT);
 
   // Final calculated rate for review
   const finalCalculatedRate = testMode === "multi" ? multiAgg.flowRateMlMin : singleFlowRate;
@@ -465,21 +476,42 @@ function DosingPumpCalibrationWizard({
     if (workflowStep === "RUNNING" && run === null) {
       setWorkflowStep("INPUT_VOLUME");
       setValidationError(null);
-      toast(`Pengujian ${testDuration} detik selesai! Silakan catat volume cairan di gelas ukur.`, "info");
+      toast(`Pengujian tahap ${currentDuration} detik selesai! Silakan catat volume cairan di gelas ukur.`, "info");
     }
-  }, [run, workflowStep, testDuration]);
+  }, [run, workflowStep, currentDuration]);
 
-  // Handler to start pump measurement
-  const handleStartRun = async () => {
-    try {
-      await calibrationService.runCalibrationPump(device, testDuration);
-      setWorkflowStep("RUNNING");
-      onStart(testDuration);
-      toast(`Pompa Dosing ${channel} diaktifkan selama ${testDuration} detik.`, "info");
-    } catch (e) {
-      toast(errorMessage(e), "error");
-    }
+  // Handler to initiate preparation countdown before pump start
+  const handleBeginPreparing = () => {
+    setPrepCountdown(3);
+    setWorkflowStep("PREPARING");
   };
+
+  // Preparation countdown: 3 → 2 → 1 → 0 (auto-start pump)
+  useEffect(() => {
+    if (workflowStep !== "PREPARING") return;
+    if (prepCountdown <= 0) {
+      // Countdown finished — start the pump
+      (async () => {
+        try {
+          await calibrationService.runCalibrationPump(device, currentDuration);
+          setWorkflowStep("RUNNING");
+          onStart(currentDuration);
+          toast(
+            testMode === "multi"
+              ? `Tahap ${currentSampleIndex + 1} dari 3: Pompa ${channel} diaktifkan selama ${currentDuration} detik.`
+              : `Pompa Dosing ${channel} diaktifkan selama ${currentDuration} detik.`,
+            "info"
+          );
+        } catch (e) {
+          toast(errorMessage(e), "error");
+          setWorkflowStep("IDLE");
+        }
+      })();
+      return;
+    }
+    const timer = setTimeout(() => setPrepCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [workflowStep, prepCountdown]);
 
   // Handler to cancel / stop pump
   const handleCancelRun = async () => {
@@ -493,7 +525,7 @@ function DosingPumpCalibrationWizard({
 
   // Handler when volume is entered in INPUT_VOLUME
   const handleProceedFromVolume = () => {
-    const valResult = validateVolumeInput(volumeInput, testDuration);
+    const valResult = validateVolumeInput(volumeInput, currentDuration);
     if (!valResult.valid) {
       setValidationError(valResult.error || "Volume tidak valid.");
       return;
@@ -503,24 +535,43 @@ function DosingPumpCalibrationWizard({
     if (testMode === "single") {
       setWorkflowStep("REVIEW");
     } else {
-      // Multi-mode
-      const newSamples = [...samples, { volumeMl: valResult.volumeMl, durationSec: testDuration }];
+      // Multi-mode 3-stage progressive sequence (10s -> 30s -> 60s)
+      const stageRate = calculateDosingFlowRate(valResult.volumeMl, currentDuration);
+      const newSamples = [
+        ...samples,
+        {
+          volumeMl: valResult.volumeMl,
+          durationSec: currentDuration,
+          rateMlMin: Number(stageRate.toFixed(1)),
+        },
+      ];
       setSamples(newSamples);
       setVolumeInput("");
 
       if (newSamples.length < 3) {
-        setCurrentSampleIndex(newSamples.length);
-        toast(`Sampel ${newSamples.length} dari 3 tersimpan! Kosongkan gelas ukur untuk sampel berikutnya.`, "info");
+        const nextIndex = newSamples.length;
+        setCurrentSampleIndex(nextIndex);
+        setWorkflowStep("IDLE");
+        toast(
+          `Tahap ${newSamples.length} (${currentDuration}s: ${valResult.volumeMl}ml => ${stageRate.toFixed(1)} ml/mnt) tersimpan! Kosongkan gelas ukur untuk Tahap ${nextIndex + 1} (${PROGRESSIVE_DURATIONS[nextIndex]} detik).`,
+          "info"
+        );
       } else {
         // All 3 samples collected
         setWorkflowStep("REVIEW");
-        toast("Semua 3 sampel pengukuran selesai! Tinjau hasil rata-rata kalibrasi.", "success");
+        toast("Semua 3 tahap pengukuran selesai! Sistem sedang memvalidasi konsistensi debit.", "success");
       }
     }
   };
 
   // Handler to save calibration to ESP32 and Backend
   const handleSaveData = async () => {
+    // Safety check: Never save if multi-mode failed consistency check
+    if (testMode === "multi" && !multiAgg.isConsistent) {
+      toast("Kalibrasi tidak dapat disimpan karena deviasi debit melebihi toleransi konsistensi.", "error");
+      return;
+    }
+
     setCalibrating(true);
     try {
       const beforeStr = isCalibrated ? `${activeRate.toFixed(1)} ml/min` : "Belum Dikalibrasi";
@@ -571,7 +622,9 @@ function DosingPumpCalibrationWizard({
             { id: "REVIEW", num: 4, label: "Tinjau & Simpan" },
           ].map((s, idx) => {
             const isCurrent =
-              workflowStep === s.id || (workflowStep === "SAVED" && s.id === "REVIEW");
+              workflowStep === s.id
+              || (workflowStep === "SAVED" && s.id === "REVIEW")
+              || (workflowStep === "PREPARING" && s.id === "RUNNING");
             const isCompleted =
               (s.id === "IDLE" && workflowStep !== "IDLE") ||
               (s.id === "RUNNING" && (workflowStep === "INPUT_VOLUME" || workflowStep === "REVIEW" || workflowStep === "SAVED")) ||
@@ -724,117 +777,359 @@ function DosingPumpCalibrationWizard({
           {/* STEP 1: IDLE / READY */}
           {workflowStep === "IDLE" && (
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
-              <div>
+              {/* --- MULTI-MODE IN PROGRESS: Dedicated "Next Stage" View --- */}
+              {testMode === "multi" && currentSampleIndex > 0 ? (
+                <>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-emerald-600" />
+                      <h3 className="font-bold text-slate-900 text-base">
+                        Siap untuk Tahap {currentSampleIndex + 1} dari 3
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Kosongkan gelas ukur, lalu klik tombol di bawah untuk memulai pengukuran tahap berikutnya.
+                    </p>
+                  </div>
+
+                  {/* Progress indicator: 3-stage visual */}
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {[
+                      { stage: 1, dur: 10, label: "Tahap 1", title: "10 Detik", desc: "Uji respon debit awal" },
+                      { stage: 2, dur: 30, label: "Tahap 2", title: "30 Detik", desc: "Uji debit stabil standar" },
+                      { stage: 3, dur: 60, label: "Tahap 3", title: "60 Detik", desc: "Uji debit durasi panjang" },
+                    ].map((st) => {
+                      const isCompleted = st.stage <= currentSampleIndex;
+                      const isCurrent = st.stage === currentSampleIndex + 1;
+                      const completedSample = isCompleted ? samples[st.stage - 1] : null;
+                      const completedRate = completedSample ? (completedSample.volumeMl / completedSample.durationSec) * 60 : 0;
+                      return (
+                        <div
+                          key={st.stage}
+                          className={`p-3 rounded-xl border text-left transition-all ${
+                            isCompleted
+                              ? "border-emerald-300 bg-emerald-50/70"
+                              : isCurrent
+                              ? "border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                              : "border-slate-200 bg-slate-50 opacity-40"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[11px] font-bold ${isCompleted ? "text-emerald-700" : isCurrent ? "text-blue-700" : "text-slate-400"}`}>
+                              {st.label}
+                            </span>
+                            {isCompleted ? (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                ✓ Selesai
+                              </span>
+                            ) : isCurrent ? (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 animate-pulse">
+                                ▶ Berikutnya
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-500">
+                                🔒 Menunggu
+                              </span>
+                            )}
+                          </div>
+                          <div className={`font-extrabold text-sm ${isCompleted ? "text-emerald-800" : isCurrent ? "text-blue-800" : "text-slate-500"}`}>
+                            {st.title}
+                          </div>
+                          {isCompleted && completedSample ? (
+                            <div className="text-[11px] text-emerald-700 mt-1 font-mono">
+                              {completedSample.volumeMl} ml → {completedRate.toFixed(1)} ml/mnt
+                            </div>
+                          ) : (
+                            <div className={`text-[11px] mt-1 ${isCurrent ? "text-blue-600" : "text-slate-400"}`}>{st.desc}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary of completed samples */}
+                  <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl text-xs space-y-1">
+                    <div className="font-bold text-emerald-800 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                        Pengukuran Tercatat:
+                      </span>
+                      <span className="text-emerald-600 font-mono">
+                        {samples.length} dari 3 tahap selesai
+                      </span>
+                    </div>
+                    <div className="divide-y divide-emerald-100 mt-1">
+                      {samples.map((s, i) => {
+                        const rate = (s.volumeMl / s.durationSec) * 60;
+                        return (
+                          <div key={i} className="py-1 flex items-center justify-between text-emerald-800 font-mono">
+                            <span>Tahap {i + 1} ({s.durationSec}s): <b>{s.volumeMl} ml</b></span>
+                            <span className="font-bold">{rate.toFixed(1)} ml/mnt</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Checklist for next stage */}
+                  <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 text-xs space-y-1.5 text-blue-900">
+                    <div className="font-bold text-blue-800 mb-1 flex items-center gap-1.5">
+                      <CheckSquare className="h-4 w-4 text-blue-600" /> Persiapan Tahap {currentSampleIndex + 1}:
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Check className="h-3.5 w-3.5 text-blue-600" /> Gelas ukur sudah dikosongkan dan siap di bawah selang output.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Check className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Pompa akan berputar <b>{currentDuration} detik</b> untuk <b>Tahap {currentSampleIndex + 1} dari 3</b>.</span>
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-3">
+                    <Button
+                      variant="secondary"
+                      onClick={handleReset}
+                      className="py-5 px-4 text-xs font-bold"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-1" /> Ulangi dari Awal
+                    </Button>
+                    <Button
+                      onClick={handleBeginPreparing}
+                      className="flex-1 py-6 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <Play className="h-5 w-5 fill-current" />
+                      MULAI TAHAP {currentSampleIndex + 1} DARI 3 ({currentDuration} DETIK)
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                /* --- INITIAL CONFIG VIEW (first time or single mode) --- */
+                <>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <SlidersHorizontal className="h-5 w-5 text-blue-600" />
+                      <h3 className="font-bold text-slate-900 text-base">
+                        Konfigurasi Pengujian Pompa {channel}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Atur parameter pengujian sebelum menyalakan pompa untuk sampling volumetrik.
+                    </p>
+                  </div>
+
+                  {/* Pilihan Mode Pengujian */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-2">
+                      1. Pilih Mode Pengukuran:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTestMode("single");
+                          setSamples([]);
+                          setCurrentSampleIndex(0);
+                        }}
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                          testMode === "single"
+                            ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-slate-900">1x Pengukuran Tunggal</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">Satu kali uji langsung simpan (praktis & fleksibel)</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTestMode("multi");
+                          setTestDuration(10);
+                          setSamples([]);
+                          setCurrentSampleIndex(0);
+                        }}
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                          testMode === "multi"
+                            ? "border-emerald-600 bg-emerald-50/70 ring-2 ring-emerald-500/20 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-900">3x Pengukuran Bertahap</span>
+                          <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Rekomendasi</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">Rata-rata 3 sampel terbobot (akurasi maksimal)</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pilihan Durasi Pengujian (Hanya untuk 1x Pengukuran Tunggal) */}
+                  {testMode === "single" ? (
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-2">
+                        2. Pilih Durasi Pompa Berjalan (Detik):
+                      </label>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {[
+                          { sec: 30, title: "30 Detik", desc: "Standar Rekomendasi", badge: "Akurat" },
+                          { sec: 10, title: "10 Detik", desc: "Uji Cepat", badge: "Cepat" },
+                          { sec: 60, title: "60 Detik", desc: "Presisi Tinggi", badge: "Presisi" },
+                        ].map((d) => {
+                          const isSelected = testDuration === d.sec;
+                          return (
+                            <button
+                              key={d.sec}
+                              type="button"
+                              onClick={() => setTestDuration(d.sec)}
+                              className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                isSelected
+                                  ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
+                                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-sm text-slate-900">{d.title}</span>
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                    isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                                  }`}
+                                >
+                                  {d.badge}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-1">{d.desc}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    /* 3x Pengukuran Bertahap: Tampilan Sekuensial 3 Tahap (10s -> 30s -> 60s) */
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700">
+                          2. Sekuens 3 Tahap Pengukuran:
+                        </label>
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                          10s → 30s → 60s (Otomatis)
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2.5 opacity-40 cursor-not-allowed pointer-events-none">
+                        {[
+                          { stage: 1, dur: 10, label: "Tahap 1", title: "10 Detik", desc: "Uji respon debit awal" },
+                          { stage: 2, dur: 30, label: "Tahap 2", title: "30 Detik", desc: "Uji debit stabil standar" },
+                          { stage: 3, dur: 60, label: "Tahap 3", title: "60 Detik", desc: "Uji debit durasi panjang" },
+                        ].map((st) => (
+                          <div
+                            key={st.stage}
+                            className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-left transition-all"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] font-bold text-slate-400">{st.label}</span>
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-500">
+                                🔒 Terkunci
+                              </span>
+                            </div>
+                            <div className="font-extrabold text-sm text-slate-500">{st.title}</div>
+                            <div className="text-[11px] text-slate-400 mt-1">{st.desc}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Checklist Kesiapan */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-1.5 text-slate-600">
+                    <div className="font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                      <CheckSquare className="h-4 w-4 text-emerald-600" /> Checklist Kesiapan Operasional:
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Check className="h-3.5 w-3.5 text-emerald-600" /> Wadah/gelas ukur mililiter telah kosong dan siap di bawah selang output.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      {testMode === "multi" ? (
+                        <span>Pompa akan berputar <b>{currentDuration} detik</b> untuk <b>Pengukuran {currentSampleIndex + 1} dari 3</b>.</span>
+                      ) : (
+                        <span>Pompa akan aktif tepat selama <b>{testDuration} detik</b>.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Primary Action Button */}
+                  <Button
+                    onClick={handleBeginPreparing}
+                    className="w-full py-6 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Play className="h-5 w-5 fill-current" />
+                    {testMode === "multi"
+                      ? `MULAI PENGUKURAN ${currentSampleIndex + 1} DARI 3 (${currentDuration} DETIK)`
+                      : `MULAI KALIBRASI POMPA ${channel} (${testDuration} DETIK)`}
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* STEP 1.5: PREPARING — 3 second countdown before pump starts */}
+          {workflowStep === "PREPARING" && (
+            <div className="bg-gradient-to-br from-amber-900 to-amber-950 border border-amber-700 rounded-2xl p-6 shadow-xl text-white relative overflow-hidden space-y-6">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex items-center justify-between pb-3 border-b border-amber-800">
                 <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-5 w-5 text-blue-600" />
-                  <h3 className="font-bold text-slate-900 text-base">
-                    Konfigurasi Pengujian Pompa {channel}
-                  </h3>
+                  <span className="h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                    PERSIAPAN — POMPA SEGERA MENYALA
+                  </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Atur parameter pengujian sebelum menyalakan pompa untuk sampling volumetrik.
+                <span className="text-xs font-mono font-bold text-amber-400 bg-amber-900/60 px-2.5 py-1 rounded-full">
+                  POMPA {channel} : STANDBY
+                </span>
+              </div>
+
+              {/* Big Countdown */}
+              <div className="text-center py-6">
+                <div className="text-8xl font-extrabold font-mono text-amber-300 tracking-tight animate-pulse">
+                  {prepCountdown}
+                </div>
+                <p className="text-sm font-bold text-amber-200 mt-3">
+                  Pompa akan menyala dalam {prepCountdown} detik!
                 </p>
               </div>
 
-              {/* Pilihan Durasi Pengujian */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-2">
-                  Pilih Durasi Pompa Berjalan (Detik):
-                </label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  {[
-                    { sec: 30, title: "30 Detik", desc: "Standar Rekomendasi", badge: "Akurat" },
-                    { sec: 10, title: "10 Detik", desc: "Uji Cepat", badge: "Cepat" },
-                    { sec: 60, title: "60 Detik", desc: "Presisi Tinggi", badge: "Presisi" },
-                  ].map((d) => (
-                    <button
-                      key={d.sec}
-                      type="button"
-                      onClick={() => setTestDuration(d.sec)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                        testDuration === d.sec
-                          ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-slate-900">{d.title}</span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            testDuration === d.sec
-                              ? "bg-blue-600 text-white"
-                              : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          {d.badge}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1">{d.desc}</div>
-                    </button>
-                  ))}
+              {/* Preparation instructions */}
+              <div className="bg-amber-950/60 border border-amber-700/50 rounded-xl p-4 space-y-2.5">
+                <div className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  Persiapan Terakhir:
+                </div>
+                <div className="space-y-1.5 text-xs text-amber-100/90">
+                  <div className="flex items-center gap-2">
+                    <Droplets className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span>Pastikan <b>gelas ukur sudah kosong</b> dan diposisikan di bawah selang output.</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span>Pastikan <b>selang tidak tertekuk</b> dan terendam di larutan sumber.</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Timer className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span>Pompa akan berputar selama <b>{currentDuration} detik</b>
+                      {testMode === "multi" ? ` (Tahap ${currentSampleIndex + 1} dari 3)` : ""}.
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Pilihan Mode Pengujian */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-2">
-                  Pilih Mode Pengukuran:
-                </label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTestMode("single");
-                      setSamples([]);
-                      setCurrentSampleIndex(0);
-                    }}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                      testMode === "single"
-                        ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-slate-900">1x Pengukuran Tunggal</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Satu kali uji langsung simpan (praktis)</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTestMode("multi");
-                      setSamples([]);
-                      setCurrentSampleIndex(0);
-                    }}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                      testMode === "multi"
-                        ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="font-bold text-xs text-slate-900">3x Pengukuran Bertahap</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Rata-rata 3 sampel terbobot (akurasi maksimal)</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Checklist Kesiapan */}
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-1.5 text-slate-600">
-                <div className="font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                  <CheckSquare className="h-4 w-4 text-emerald-600" /> Checklist Kesiapan Operasional:
-                </div>
-                <div className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-emerald-600" /> Wadah/gelas ukur mililiter telah siap di bawah selang output.
-                </div>
-                <div className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-emerald-600" /> Pompa akan aktif tepat selama <b>{testDuration} detik</b>.
-                </div>
-              </div>
-
-              {/* Primary Action Button */}
+              {/* Cancel Button */}
               <Button
-                onClick={handleStartRun}
-                className="w-full py-6 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                variant="danger"
+                onClick={() => { setWorkflowStep("IDLE"); setPrepCountdown(0); }}
+                className="w-full py-4 text-xs font-bold bg-red-600 hover:bg-red-700 cursor-pointer shadow-md flex items-center justify-center gap-2"
               >
-                <Play className="h-5 w-5 fill-current" /> MULAI KALIBRASI POMPA {channel} ({testDuration} DETIK)
+                <Square className="h-4 w-4 fill-current" /> BATALKAN
               </Button>
             </div>
           )}
@@ -857,36 +1152,41 @@ function DosingPumpCalibrationWizard({
               </div>
 
               {testMode === "multi" && (
-                <div className="text-xs text-blue-400 font-semibold bg-blue-950/60 border border-blue-800/50 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                  <Layers className="h-4 w-4" />
-                  <span>Pengukuran Sampel <b>{currentSampleIndex + 1} dari 3</b></span>
+                <div className="text-xs text-blue-400 font-semibold bg-blue-950/60 border border-blue-800/50 rounded-lg px-3 py-1.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className="h-4 w-4" />
+                    <span>Tahap <b>{currentSampleIndex + 1} dari 3</b></span>
+                  </div>
+                  <span className="font-mono bg-blue-900/80 text-blue-200 px-2 py-0.5 rounded text-[11px]">
+                    Durasi: {currentDuration} Detik
+                  </span>
                 </div>
               )}
 
               {/* Big Countdown */}
               <div className="text-center py-4">
                 <div className="text-6xl font-extrabold font-mono text-white tracking-tight">
-                  {run?.secondsLeft ?? testDuration}
+                  {run?.secondsLeft ?? currentDuration}
                   <span className="text-2xl font-sans font-bold text-slate-400 ml-2">dtk</span>
                 </div>
                 <p className="text-xs text-slate-400 mt-2">
-                  Pompa sedang memompa cairan ke gelas ukur. Jangan pindahkan selang.
+                  Pompa sedang memompa cairan ke gelas ukur ({currentDuration} detik). Jangan pindahkan selang.
                 </p>
               </div>
 
               {/* Progress Bar */}
               <div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
-                  <span>Progres Pengujian</span>
+                  <span>Progres Pengujian Tahap Ini</span>
                   <span className="font-mono">
-                    {Math.round(((testDuration - (run?.secondsLeft ?? testDuration)) / testDuration) * 100)}%
+                    {Math.round(((currentDuration - (run?.secondsLeft ?? currentDuration)) / currentDuration) * 100)}%
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
                   <div
                     className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all duration-1000 ease-linear"
                     style={{
-                      width: `${Math.min(100, Math.max(0, ((testDuration - (run?.secondsLeft ?? testDuration)) / testDuration) * 100))}%`,
+                      width: `${Math.min(100, Math.max(0, ((currentDuration - (run?.secondsLeft ?? currentDuration)) / currentDuration) * 100))}%`,
                     }}
                   />
                 </div>
@@ -912,12 +1212,12 @@ function DosingPumpCalibrationWizard({
                     Pengukuran Selesai! Catat Volume Cairan
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Masukkan jumlah mililiter (ml) cairan yang tertampung dari pengujian <b>{testDuration} detik</b>.
+                    Masukkan jumlah mililiter (ml) cairan yang terkumpul selama pengujian <b>{currentDuration} detik</b>.
                   </p>
                 </div>
                 {testMode === "multi" && (
                   <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">
-                    Sampel {currentSampleIndex + 1} dari 3
+                    Pengukuran {currentSampleIndex + 1} dari 3 ({currentDuration}s)
                   </span>
                 )}
               </div>
@@ -925,7 +1225,9 @@ function DosingPumpCalibrationWizard({
               {/* Form Input Volume */}
               <div>
                 <Label className="text-slate-800 font-bold mb-1.5 block">
-                  Volume Cairan Tertampung di Gelas Ukur (ml)
+                  {testMode === "multi"
+                    ? `Volume Cairan Tertampung (${currentDuration} Detik) — dalam ml:`
+                    : `Volume Cairan Tertampung di Gelas Ukur (${currentDuration} Detik) — ml:`}
                 </Label>
                 <div className="relative">
                   <Input
@@ -937,7 +1239,7 @@ function DosingPumpCalibrationWizard({
                         setValidationError(null);
                       }
                     }}
-                    placeholder="Contoh: 120"
+                    placeholder={`Contoh: ${currentDuration === 10 ? "20" : currentDuration === 30 ? "60" : "120"}`}
                     unit="ml"
                     autoFocus
                     className="font-mono text-lg bg-slate-50 py-2.5"
@@ -958,7 +1260,7 @@ function DosingPumpCalibrationWizard({
                 <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
-                      <Gauge className="h-4 w-4 text-blue-600" /> Hasil Debit (Flow Rate) Sampel Ini:
+                      <Gauge className="h-4 w-4 text-blue-600" /> Hasil Debit (Flow Rate) Tahap Ini:
                     </span>
                     <span className="font-mono font-extrabold text-blue-700 text-xl">
                       {singleFlowRate.toFixed(1)}{" "}
@@ -966,7 +1268,7 @@ function DosingPumpCalibrationWizard({
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-600 font-mono flex items-center justify-between border-t border-blue-200/60 pt-1.5">
-                    <span>Rumus: ({volumeNum} ml ÷ {testDuration} dtk) × 60</span>
+                    <span>Rumus: ({volumeNum} ml ÷ {currentDuration} dtk) × 60</span>
                     <span>= {(singleFlowRate / 60).toFixed(2)} ml/dtk</span>
                   </div>
                   {isCalibrated && (
@@ -1001,11 +1303,11 @@ function DosingPumpCalibrationWizard({
                     </>
                   ) : currentSampleIndex < 2 ? (
                     <>
-                      SIMPAN SAMPEL {currentSampleIndex + 1} & LANJUT KE SAMPEL {currentSampleIndex + 2} <ArrowRight className="h-4 w-4" />
+                      SIMPAN HASIL TAHAP {currentSampleIndex + 1} & LANJUT TAHAP {currentSampleIndex + 2} ({PROGRESSIVE_DURATIONS[currentSampleIndex + 1]}s) <ArrowRight className="h-4 w-4" />
                     </>
                   ) : (
                     <>
-                      SIMPAN SAMPEL 3 & HITUNG RATA-RATA <ArrowRight className="h-4 w-4" />
+                      SIMPAN TAHAP 3 & VALIDASI KONSISTENSI <ArrowRight className="h-4 w-4" />
                     </>
                   )}
                 </Button>
@@ -1022,22 +1324,63 @@ function DosingPumpCalibrationWizard({
                     Tinjau Hasil Kalibrasi Pompa {channel}
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Periksa nilai flow rate terhitung sebelum disimpan secara permanen ke kontroler.
+                    {testMode === "multi"
+                      ? "Evaluasi perbandingan debit 3 tahap pengujian (10s, 30s, 60s) dan validasi konsistensi pompa."
+                      : "Periksa nilai flow rate terhitung sebelum disimpan secara permanen ke kontroler."}
                   </p>
                 </div>
-                <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> Siap Disimpan
-                </span>
+                {testMode === "multi" ? (
+                  multiAgg.isConsistent ? (
+                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> Konsisten & Lolos Uji
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold bg-red-100 text-red-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <XCircle className="h-3.5 w-3.5 text-red-600" /> Tidak Konsisten (Gagal)
+                    </span>
+                  )
+                ) : (
+                  <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> Siap Disimpan
+                  </span>
+                )}
               </div>
 
+              {/* Inconsistency Alert Box if failed in multi-mode */}
+              {testMode === "multi" && !multiAgg.isConsistent && (
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-900 space-y-2.5">
+                  <div className="flex items-center gap-2 text-sm font-bold text-red-700">
+                    <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+                    <span>Hasil Debit Tidak Konsisten Antar Tahap Pengujian</span>
+                  </div>
+                  <p className="text-xs text-red-700 leading-relaxed">
+                    Deviasi debit maksimal mencapai <b>{multiAgg.maxDeviationPct.toFixed(1)}%</b>, melampaui batas toleransi <b>{DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT}%</b> terhadap nilai acuan ({multiAgg.referenceRateMlMin.toFixed(1)} ml/mnt). Kalibrasi <b>tidak dapat diaktifkan</b> demi mencegah kesalahan dosis pupuk.
+                  </p>
+                  <div className="bg-white/80 p-3 rounded-xl border border-red-200 text-xs text-slate-700 space-y-1">
+                    <span className="font-bold text-red-800 block">Saran Pemeriksaan Teknis:</span>
+                    <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-600">
+                      <li>Periksa gelembung udara dalam selang peristaltik (pastikan selang terisi penuh sebelum uji).</li>
+                      <li>Periksa apakah ada sumbatan sebagian atau lipatan pada selang output.</li>
+                      <li>Pastikan tegangan catu daya pompa stabil dan gelas ukur terbaca akurat pada skala mililiter.</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
               {/* Big Result Card */}
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 text-center">
-                <span className="text-xs font-bold text-blue-700 uppercase tracking-wider block">
-                  Flow Rate Hasil Kalibrasi
+              <div
+                className={`p-5 rounded-2xl border text-center transition-all ${
+                  testMode === "multi" && !multiAgg.isConsistent
+                    ? "bg-slate-50 border-red-200"
+                    : "bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200"
+                }`}
+              >
+                <span className={`text-xs font-bold uppercase tracking-wider block ${testMode === "multi" && !multiAgg.isConsistent ? "text-slate-400" : "text-blue-700"}`}>
+                  {testMode === "multi" && !multiAgg.isConsistent ? "Debit Rata-Rata (Tertahan / Tidak Lolos)" : "Flow Rate Hasil Kalibrasi"}
                 </span>
-                <div className="text-5xl font-extrabold font-mono text-blue-700 tracking-tight my-2">
+                <div className={`text-5xl font-extrabold font-mono tracking-tight my-2 ${testMode === "multi" && !multiAgg.isConsistent ? "text-slate-500" : "text-blue-700"}`}>
                   {finalCalculatedRate.toFixed(1)}
-                  <span className="text-lg font-bold text-blue-500 font-sans ml-2">ml/mnt</span>
+                  <span className={`text-lg font-bold font-sans ml-2 ${testMode === "multi" && !multiAgg.isConsistent ? "text-slate-400" : "text-blue-500"}`}>ml/mnt</span>
                 </div>
                 <div className="text-xs text-slate-600 font-mono">
                   Setara dengan <b>{finalRatePerSec.toFixed(2)} ml/detik</b> • Total cairan: {finalTotalVolume.toFixed(1)} ml ({finalTotalDuration} detik)
@@ -1054,7 +1397,7 @@ function DosingPumpCalibrationWizard({
                 </div>
                 <div>
                   <div className="text-slate-400 text-[11px] mb-1">Nilai Baru</div>
-                  <div className="font-mono font-bold text-blue-600">
+                  <div className={`font-mono font-bold ${testMode === "multi" && !multiAgg.isConsistent ? "text-slate-500" : "text-blue-600"}`}>
                     {finalCalculatedRate.toFixed(1)} ml/mnt
                   </div>
                 </div>
@@ -1075,30 +1418,61 @@ function DosingPumpCalibrationWizard({
               {/* Multi-sample summary table if multi-mode */}
               {testMode === "multi" && samples.length > 0 && (
                 <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
-                  <div className="bg-slate-100 px-3.5 py-2 font-bold text-slate-700 flex items-center justify-between">
-                    <span>Rincian 3 Sampel Pengukuran</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${multiAgg.isConsistent ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                      {multiAgg.isConsistent ? "✓ Konsistensi Sangat Baik" : "⚠️ Perlu Perhatian"}
+                  <div className="bg-slate-100 px-3.5 py-2.5 font-bold text-slate-700 flex items-center justify-between">
+                    <span>Rincian Hasil 3 Tahap Pengukuran (10s → 30s → 60s)</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${multiAgg.isConsistent ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700"}`}>
+                      {multiAgg.isConsistent ? "✓ Konsistensi Sangat Baik" : "⚠️ Melebihi Toleransi 10%"}
                     </span>
                   </div>
-                  <div className="divide-y divide-slate-100 bg-white">
-                    {samples.map((s, idx) => {
-                      const rate = (s.volumeMl / s.durationSec) * 60;
-                      return (
-                        <div key={idx} className="px-3.5 py-2 flex items-center justify-between text-slate-600">
-                          <span>Sampel #{idx + 1} ({s.durationSec}s): <b>{s.volumeMl} ml</b></span>
-                          <span className="font-mono font-bold text-slate-800">{rate.toFixed(1)} ml/mnt</span>
-                        </div>
-                      );
-                    })}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-[11px] font-bold text-slate-500 border-b border-slate-200">
+                          <th className="py-2 px-3">Tahap</th>
+                          <th className="py-2 px-3">Durasi</th>
+                          <th className="py-2 px-3">Volume</th>
+                          <th className="py-2 px-3">Debit (Q)</th>
+                          <th className="py-2 px-3 text-right">Deviasi vs Acuan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white font-mono text-[11px]">
+                        {samples.map((s, idx) => {
+                          const rate = (s.volumeMl / s.durationSec) * 60;
+                          const dev = multiAgg.stageDeviationsPct[idx] ?? 0;
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/50">
+                              <td className="py-2 px-3 font-sans font-bold text-slate-700">Tahap {idx + 1}</td>
+                              <td className="py-2 px-3 text-slate-600">{s.durationSec} dtk</td>
+                              <td className="py-2 px-3 text-slate-800 font-bold">{s.volumeMl} ml</td>
+                              <td className="py-2 px-3 font-bold text-blue-600">{rate.toFixed(1)} ml/mnt</td>
+                              <td className="py-2 px-3 text-right">
+                                <span className={`font-bold ${dev <= DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT ? "text-emerald-600" : "text-red-600"}`}>
+                                  {dev.toFixed(1)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="bg-slate-50 px-3.5 py-1.5 text-[10px] text-slate-500 border-t border-slate-100 flex items-center justify-between">
+                    <span>Nilai Acuan Median: <b>{multiAgg.referenceRateMlMin.toFixed(1)} ml/mnt</b></span>
+                    <span>Batas Toleransi: <b>±{DOSING_CALIBRATION_CONSISTENCY_TOLERANCE_PCT}%</b></span>
                   </div>
                 </div>
               )}
 
               {/* Plain Language Meaning */}
-              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
-                <b>Artinya:</b> Pompa Dosing {channel} mengalirkan <b>{finalCalculatedRate.toFixed(1)} ml</b> pupuk per menit (atau <b>{finalRatePerSec.toFixed(2)} ml</b> per detik). Kontroler ESP32 akan menggunakan debit riil ini untuk menghitung durasi buka pompa saat fertigasi otomatis.
-              </div>
+              {(!testMode || testMode === "single" || multiAgg.isConsistent) ? (
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+                  <b>Artinya:</b> Pompa Dosing {channel} mengalirkan rata-rata <b>{finalCalculatedRate.toFixed(1)} ml</b> pupuk per menit (atau <b>{finalRatePerSec.toFixed(2)} ml</b> per detik). Kontroler ESP32 akan menggunakan debit riil ini untuk menghitung durasi buka pompa saat fertigasi otomatis.
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                  <b>Catatan Keamanan:</b> Nilai kalibrasi lama ({isCalibrated ? `${activeRate.toFixed(1)} ml/mnt` : "Belum Dikalibrasi"}) tetap dipertahankan. Silakan klik tombol <b>Ulangi Kalibrasi</b> untuk memulai kembali pengujian dari Tahap 1.
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-2">
@@ -1109,13 +1483,22 @@ function DosingPumpCalibrationWizard({
                 >
                   <RotateCcw className="h-4 w-4 mr-1" /> Ulangi Kalibrasi
                 </Button>
-                <Button
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={calibrating}
-                  className="flex-1 py-5 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="h-5 w-5" /> SIMPAN KALIBRASI KE KONTROLER
-                </Button>
+                {testMode === "multi" && !multiAgg.isConsistent ? (
+                  <Button
+                    onClick={handleReset}
+                    className="flex-1 py-5 text-sm font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <RotateCcw className="h-5 w-5" /> ULANGI PENGUJIAN TAHAP 1
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => setConfirmOpen(true)}
+                    disabled={calibrating}
+                    className="flex-1 py-5 text-sm font-bold bg-blue-600 hover:bg-blue-700 shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="h-5 w-5" /> SIMPAN KALIBRASI KE KONTROLER
+                  </Button>
+                )}
               </div>
             </div>
           )}

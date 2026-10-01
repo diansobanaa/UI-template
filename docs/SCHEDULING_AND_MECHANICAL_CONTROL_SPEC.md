@@ -3621,3 +3621,15 @@ PYTHON SAVE + ANALYSIS
      - Queue departure: When active batch completes final mixing into `READY_TO_SEND` or fails, `try_enqueue_pending_preparations()` immediately feeds the next GH in line to central dosing.
      - Distribution completion: When an occupied greenhouse finishes delivery, it becomes unoccupied and its subsequent occurrence for the day is enqueued.
 
+3. **Mid-Day Recovery & "Belum Di-Trigger Pada Hari Itu" Invariant**
+   - If the controller was powered off at 00:00:00 and turned on later in the day (e.g. 02:50, 08:00, or 14:00), or if clock locked mid-day:
+     - The controller checks `(s_daily_trigger_completed_yday != tm_now.tm_yday || s_daily_trigger_completed_year != tm_now.tm_year)`.
+     - Because today's daily trigger was not yet completed, the controller **immediately executes the daily materialization and eager queueing**.
+     - Occurrences prior to the current time are safely marked `OCC_STATE_FAILED` / `MARKER_SKIPPED` (Spec §47.2).
+     - All upcoming occurrences for today are materialized in `PENDING` state and the first eligible batch per unoccupied greenhouse is immediately injected into the Central Dosing Queue.
+
+4. **Authoritative API & State Visibility**
+   - `POST /api/v1/schedules/trigger-today`: Explicit endpoint to force daily materialization and queue evaluation on operator demand or initial setup.
+   - `dailyTriggerExecuted` boolean flag exposed in `GET /api/v1/fertigation/status` and `GET /api/v1/fertigation/queue` providing transparent operational health status.
+
+

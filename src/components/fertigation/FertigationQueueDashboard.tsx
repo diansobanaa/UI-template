@@ -272,6 +272,20 @@ export function FertigationQueueDashboard({
     }
   };
 
+  // Trigger today's daily schedule materialization and eager queueing
+  const handleTriggerDaily = async () => {
+    setActionInProgress("trigger-daily");
+    try {
+      await esp32Client.triggerDailySchedules();
+      toast("Jadwal hari ini berhasil dimaterialisasi dan antrean pre-mix dieksekusi!", "success");
+      await fetchStatus(true);
+    } catch (err: any) {
+      toast(`Gagal memicu jadwal hari ini: ${err?.message || "Kesalahan kontroler"}`, "error");
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
   // Filter queue for selected greenhouse if embedded
   const displayQueue = useMemo(() => {
     let sourceQueue: FertigationSchedule[] = queue ?? [];
@@ -325,7 +339,29 @@ export function FertigationQueueDashboard({
         </div>
 
         {/* Live Controller Status & Sync */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Daily Schedule Trigger Invariant Badge */}
+          {liveStatus?.dailyTriggerExecuted ? (
+            <span
+              title="Jadwal hari ini telah di-trigger dan antrean mixing pre-mix aktif"
+              className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300"
+            >
+              <Sparkles className="h-3 w-3 text-sky-400" />
+              Trigger Hari Ini: Aktif
+            </span>
+          ) : !offline ? (
+            <button
+              type="button"
+              onClick={handleTriggerDaily}
+              disabled={actionInProgress === "trigger-daily"}
+              title="Jadwal hari ini belum di-trigger (misal kontroler baru boot). Klik untuk materialisasi & pre-mix sekarang."
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-300 transition hover:bg-amber-500/30 active:scale-95 disabled:opacity-50"
+            >
+              <Play className="h-3 w-3 text-amber-400" />
+              {actionInProgress === "trigger-daily" ? "Memproses…" : "Trigger Hari Ini"}
+            </button>
+          ) : null}
+
           <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
             offline
               ? "border-amber-500/30 bg-amber-500/10 text-amber-300"

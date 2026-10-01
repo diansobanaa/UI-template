@@ -1,3 +1,44 @@
+## SP-DAILY-TRIGGER-001 — Midnight Rollover, Continuous Eager Pre-Mix & Untriggered Day-Recovery Invariant
+- **Date**: 2026-10-02
+- **Git Commit**: `6555bf6`
+- **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Enforce the complete daily scheduling invariant from `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` (§10.3, §10.4, §12, §14, §52):
+     - **Trigger Jam 00:00 (Midnight Rollover)**: Automatically fetch and materialize today's fertigation schedules for all greenhouses chronologically upon day change (`s_today_yday != tm_now.tm_yday`).
+     - **Evaluasi Kontinu (Continuous Eager Pre-Mix)**: Whenever the Global Dosing Queue has capacity (or is empty) and the central unit is IDLE, immediately enqueue the first pending batch of each unoccupied greenhouse and start mixing (Raw Water $\to$ Dosing A/B/N $\to$ Final Mixing) so the batch is `MIX_READY` in the GH batch tank well before distribution time.
+     - **Belum Di-Trigger Pada Hari Itu (Mid-Day / Boot Recovery)**: If the controller booted after 00:00, or the local SNTP clock synchronized mid-day, or new schedules were deployed, and today's daily trigger has not yet completed for today's calendar date (`s_daily_trigger_completed_yday != tm_now.tm_yday || s_daily_trigger_completed_year != tm_now.tm_year`), **immediately execute the daily materialization and eager queueing**.
+  2. Implement authoritative REST API endpoint `POST /api/v1/schedules/trigger-today` and expose `dailyTriggerExecuted` boolean flag in `attach_queue_and_today_schedule()`.
+  3. Integrate UI badge and manual trigger button in `FertigationQueueDashboard.tsx` utilizing `esp32Client.triggerDailySchedules()`.
+  4. Compile firmware and flash to physical ESP32-S3 via COM3 at 460800 baud.
+  5. Update canonical documentation `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 52 and contract `contracts/UI_ESP32_OPENAPI.yaml`.
+
+### Completed Work & Verification
+- `esp32/main/services/scheduler.c` & `scheduler.h`:
+  - Added `s_daily_trigger_completed_yday` and `s_daily_trigger_completed_year` tracking.
+  - Implemented `scheduler_is_daily_triggered_today()` and `scheduler_trigger_daily_now()`.
+  - Added untriggered day recovery condition to `scheduler_evaluate_at()`: triggers whenever date does not match `s_daily_trigger_completed_yday/year`.
+  - Immediate eager pre-mix call on boot, on compiled JSON deployment, on 00:00 rollover, on queue completion, and on every 1-second tick while queue has capacity.
+  - Set `s_daily_trigger_completed_yday/year` in `scheduler_init` when clock is valid on boot.
+- `esp32/main/http/api_schedule_handlers.c`:
+  - Registered `POST /api/v1/schedules/trigger-today` calling `scheduler_trigger_daily_now()`.
+- `esp32/main/http/api_fertigation_handlers.c`:
+  - Added `dailyTriggerExecuted` boolean flag in `attach_queue_and_today_schedule()`.
+- `contracts/UI_ESP32_OPENAPI.yaml`:
+  - Documented `POST /api/v1/schedules/trigger-today` with 200/409 responses.
+- `src/lib/api/esp32-client.ts`:
+  - Added `triggerDailySchedules(): Promise<{ status: string; dailyTriggerExecuted: boolean }>`.
+- `src/components/fertigation/FertigationQueueDashboard.tsx`:
+  - Added `handleTriggerDaily()` and dynamic status badge / trigger button: displays "Trigger Hari Ini: Aktif" or "Trigger Hari Ini" button when untriggered.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 52 items 3 & 4 (Mid-Day Recovery & Authoritative API Visibility).
+- Firmware Compilation & Physical Flash:
+  - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: EXIT CODE 0 (`agrotech_esp32.bin` 0x180d60 bytes, 50% flash partition free).
+  - `powershell -ExecutionPolicy Bypass -File scripts/flash_esp32.ps1 -Port COM3`: EXIT CODE 0 (1,576,288 bytes written at 460800 baud, data hash verified, hard reset via RTS pin complete).
+- Frontend Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+
+---
+
 ## SP-EAGER-PREMIX-001 — Eager Pre-Mix & Continuous Dosing Queue Invariant
 - **Date**: 2026-10-02
 - **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`

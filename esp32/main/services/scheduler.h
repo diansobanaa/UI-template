@@ -106,6 +106,12 @@ esp_err_t scheduler_get_dosing_queue(dosing_queue_entry_t *out_entries, size_t m
 esp_err_t scheduler_get_today_occurrences(today_occurrence_t *out_occurrences, size_t max_occurrences, size_t *out_count);
 esp_err_t scheduler_get_next_occurrence(today_occurrence_t *out_occ);
 
+/** Check if today's daily schedule trigger has been executed for the current calendar date. */
+bool scheduler_is_daily_triggered_today(void);
+
+/** Force trigger today's daily schedule materialization and queueing (if not yet triggered or on operator request). */
+esp_err_t scheduler_trigger_daily_now(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,4 +1,32 @@
-# AI HANDOVER — SP-EAGER-PREMIX-001 (latest)
+# AI HANDOVER — SP-DAILY-TRIGGER-001 (latest)
+
+## Status — SP-DAILY-TRIGGER-001
+**Midnight Rollover, Continuous Eager Pre-Mix & Untriggered Day-Recovery Invariant**
+**Safe Point**: `SP-DAILY-TRIGGER-001`
+**Date**: 2026-10-02
+**Git Commit**: `6555bf6`
+**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+
+### Summary of What Was Done
+1. **Invarian Eksekusi Jam 00:00 & Evaluasi Kontinu (Spec §10.3, §10.4, §12, §14 & §52)**:
+   - **Trigger Jam 00:00 (Midnight Rollover)**: Begitu pergantian hari kalender terdeteksi (`s_today_yday != tm_now.tm_yday`), sistem otomatis mematerialisasi jadwal hari ini (`todaySchedule[]`) dan langsung memicu peracikan awal (`try_enqueue_pending_preparations()`).
+   - **Evaluasi Kontinu (Continuous Eager Pre-Mix)**: Setiap tick 1 detik FreeRTOS, selama kapasitas antrean dosing tersedia (`s_dosing_queue_count < MAX_DOSING_QUEUE`) dan ada jadwal `PENDING` untuk GH yang tidak sibuk (`!is_gh_occupied(ghId)`), kontroler langsung memasukkan batch tersebut ke antrean dan memulai mixing (Air Baku $\to$ Dosing A/B $\to$ Homogenisasi).
+   - **Belum Di-Trigger Pada Hari Itu (Mid-Day / Boot Recovery)**: Melacak tanggal eksekusi trigger harian (`s_daily_trigger_completed_yday` dan `s_daily_trigger_completed_year`). Jika ESP32 baru dinyalakan siang hari (misal jam 08:00 atau jam 14:00), atau sinkronisasi jam SNTP baru berhasil beberapa menit setelah boot, kontroler mendeteksi bahwa hari ini belum di-trigger dan **seketika itu juga mematerialisasi jadwal hari ini serta mengeksekusi antrean pre-mix**.
+2. **Endpoint Otoritatif & Telemetri Transparan**:
+   - `POST /api/v1/schedules/trigger-today`: Endpoint REST untuk memicu materialisasi dan antrean hari ini secara paksa (on-demand / operator trigger).
+   - `dailyTriggerExecuted`: Flag boolean pada payload `/api/v1/fertigation/status` dan `/api/v1/fertigation/queue` untuk visibilitas status kesehatan otomasi harian.
+3. **Web UI Integrasi (`FertigationQueueDashboard.tsx`)**:
+   - Header dashboard menampilkan badge *"Trigger Hari Ini: Aktif"* (warna sky-blue dengan ikon kilau).
+   - Jika status belum di-trigger (misal kontroler baru tersambung), tombol *"Trigger Hari Ini"* (amber) muncul sehingga operator dapat memicunya langsung dengan satu klik.
+4. **Verifikasi & Flashing**:
+   - ESP32 Firmware Build: `powershell scripts/build_esp32.ps1` EXIT CODE 0 (`agrotech_esp32.bin` 0x180d60 bytes, 50% flash partition free).
+   - ESP32 Hardware Flash: `powershell scripts/flash_esp32.ps1 -Port COM3` EXIT CODE 0 (1,576,288 bytes ter-flash ke COM3 @ 460800 baud, data hash verified, RTS hard reset sukses).
+   - Frontend Type Check: `npx tsc --noEmit` EXIT CODE 0 (0 error).
+   - Dokumentasi Otoritatif: Diperbarui pada `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 52 dan `contracts/UI_ESP32_OPENAPI.yaml`.
+
+---
+
+# AI HANDOVER — SP-EAGER-PREMIX-001 (previous)
 
 ## Status — SP-EAGER-PREMIX-001
 **Eager Pre-Mix & Continuous Dosing Queue Invariant**

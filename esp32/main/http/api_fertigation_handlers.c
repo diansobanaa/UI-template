@@ -111,6 +111,7 @@ static void attach_queue_and_today_schedule(cJSON *out) {
             cJSON_AddItemToArray(ds_arr, ds_item);
         }
     }
+    cJSON_AddBoolToObject(out, "dailyTriggerExecuted", scheduler_is_daily_triggered_today());
 }
 
 static esp_err_t status_handler(httpd_req_t *req){

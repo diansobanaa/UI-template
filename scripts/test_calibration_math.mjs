@@ -42,32 +42,36 @@ assert.strictEqual(valValid.valid, true, "120ml in 30s must be valid");
 assert.strictEqual(valValid.volumeMl, 120);
 console.log("✓ Volume input validation rules verified");
 
-// 4. MULTI-SAMPLE AGGREGATION TESTS (SECTION 4 STEP 4)
-console.log("\nTesting multi-sample aggregation...");
-// Scenario A: Three 30s samples with 118ml, 120ml, 122ml (Total: 360ml in 90s => 240 ml/min)
-const multiSampleA = [
-  { volumeMl: 118, durationSec: 30 },
-  { volumeMl: 120, durationSec: 30 },
-  { volumeMl: 122, durationSec: 30 },
-];
-const aggA = aggregateDosingSamples(multiSampleA);
-assert.strictEqual(aggA.valid, true);
-assert.strictEqual(aggA.totalVolumeMl, 360);
-assert.strictEqual(aggA.totalDurationSec, 90);
-assert.strictEqual(Math.round(aggA.flowRateMlMin), 240);
-assert.strictEqual(aggA.isConsistent, true);
-console.log(`✓ Multi-sample A PASS: 3x samples total 360ml / 90s => ${aggA.flowRateMlMin.toFixed(1)} ml/min (max dev: ${aggA.maxDeviationPct.toFixed(2)}%)`);
+// 4. MULTI-SAMPLE AGGREGATION & 3-STAGE PROGRESSIVE VALIDATION TESTS (SECTION 6 & 11)
+console.log("\nTesting 3-stage progressive calibration (10s -> 30s -> 60s)...");
 
-// Scenario B: Multi-sample with mixed durations: 40ml in 10s and 120ml in 30s => 160ml in 40s => 240 ml/min
-const multiSampleB = [
-  { volumeMl: 40, durationSec: 10 },
-  { volumeMl: 120, durationSec: 30 },
+// Section 6 & 11 Test Case 1: Consistent Set (20ml/10s, 60ml/30s, 120ml/60s => all 120 ml/min)
+const consistent3Stage = [
+  { volumeMl: 20, durationSec: 10 },
+  { volumeMl: 60, durationSec: 30 },
+  { volumeMl: 120, durationSec: 60 },
 ];
-const aggB = aggregateDosingSamples(multiSampleB);
-assert.strictEqual(aggB.valid, true);
-assert.strictEqual(aggB.totalVolumeMl, 160);
-assert.strictEqual(aggB.totalDurationSec, 40);
-assert.strictEqual(Math.round(aggB.flowRateMlMin), 240);
-console.log(`✓ Multi-sample B (mixed durations) PASS: 40ml/10s + 120ml/30s => ${aggB.flowRateMlMin.toFixed(1)} ml/min`);
+const aggConsistent = aggregateDosingSamples(consistent3Stage);
+assert.strictEqual(aggConsistent.valid, true, "Consistent set must be valid");
+assert.strictEqual(aggConsistent.totalVolumeMl, 200, "Total volume should be 200 ml");
+assert.strictEqual(aggConsistent.totalDurationSec, 100, "Total duration should be 100 s");
+assert.strictEqual(Math.round(aggConsistent.flowRateMlMin), 120, "Expected aggregated flow rate 120 ml/min");
+assert.strictEqual(aggConsistent.isConsistent, true, "Must pass consistency check");
+assert.strictEqual(aggConsistent.maxDeviationPct, 0, "Zero deviation across identical rates");
+console.log(`✓ Section 11 Consistent Set PASS: 20ml/10s + 60ml/30s + 120ml/60s => ${aggConsistent.flowRateMlMin.toFixed(1)} ml/min (isConsistent: ${aggConsistent.isConsistent})`);
+
+// Section 6 & 11 Test Case 2: Inconsistent Set (20ml/10s -> 120 ml/min, 45ml/30s -> 90 ml/min, 60ml/60s -> 60 ml/min)
+const inconsistent3Stage = [
+  { volumeMl: 20, durationSec: 10 },
+  { volumeMl: 45, durationSec: 30 },
+  { volumeMl: 60, durationSec: 60 },
+];
+const aggInconsistent = aggregateDosingSamples(inconsistent3Stage);
+assert.strictEqual(aggInconsistent.valid, true);
+assert.strictEqual(aggInconsistent.referenceRateMlMin, 90, "Median reference rate should be 90 ml/min");
+assert.strictEqual(aggInconsistent.isConsistent, false, "Must fail consistency check (>10% deviation)");
+assert.ok(aggInconsistent.maxDeviationPct > 10.0, "Deviation must exceed 10%");
+assert.ok(aggInconsistent.errorMessage && aggInconsistent.errorMessage.includes("tidak konsisten"));
+console.log(`✓ Section 11 Inconsistent Set CORRECTLY FAILED: Max deviation ${aggInconsistent.maxDeviationPct.toFixed(1)}% > 10% (isConsistent: ${aggInconsistent.isConsistent})`);
 
 console.log("\n=== ALL MATHEMATICAL TESTS PASSED SUCCESSFULLY ===");
