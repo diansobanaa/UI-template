@@ -3632,4 +3632,58 @@ PYTHON SAVE + ANALYSIS
    - `POST /api/v1/schedules/trigger-today`: Explicit endpoint to force daily materialization and queue evaluation on operator demand or initial setup.
    - `dailyTriggerExecuted` boolean flag exposed in `GET /api/v1/fertigation/status` and `GET /api/v1/fertigation/queue` providing transparent operational health status.
 
+53. Human-Centered Fertigation & Mixing Architecture Rebuild (SP-FERT-REBUILD-001)
+
+1. **Elimination of Broken Containers & Fake Loops**
+   - Removed obsolete technical runtime panels (`TodayOccurrencesPanel`, `MixingBatchesPanel`, `DistributionPanel`, `DosingQueuePanelThin`, `FertigationHistoryPanel`) that exposed raw technical keys (`occurrenceId`, raw numeric state codes, empty developer tables).
+   - Fixed FreeRTOS scheduler evaluation loop: `s_daily_trigger_completed_yday` and `s_daily_trigger_completed_year` are set unconditionally once evaluated, eliminating repetitive 1-second empty log spam (`SCHEDULER: Daily schedule trigger executing for yday 274 (schedules=0, occurrences=0)`).
+   - Enforced event-based logging: logs are emitted only when real schedules exist or actionable events occur.
+
+2. **Core Operational Pipeline**
+   ```
+   Fertigation Schedule
+           |
+           v
+   Schedule Trigger (Specific Time / Daily / Days / Date / Interval / Manual)
+           |
+           v
+   Create Fertigation Job
+           |
+           v
+   Central Dosing Queue (FIFO, Serial Central Unit)
+           |
+           v
+   5-Step Mixing Process:
+     1. Persiapan Air Baku (Water Preparation)
+     2. Injeksi Nutrisi A (Nutrient A Dosing)
+     3. Injeksi Nutrisi B (Nutrient B Dosing)
+     4. Pengadukan & Homogenisasi (Mixing Process)
+     5. Pompa Distribusi Fertigasi (Fertigation Pump Delivery)
+           |
+           v
+   Ready Fertigation Solution (MIX_READY in GH Batch Tank)
+           |
+           v
+   Fertigation Pump Execution (Delivery to Plant Drippers)
+           |
+           v
+   Completion / Failure Status (Recorded with full auditability)
+   ```
+
+3. **Multi-Greenhouse Physical Isolation**
+   ```
+   Complex
+    |
+    ├── GH-01 ── Mixing Tank GH-01 (Capacity 300L, independent level & state)
+    └── GH-02 ── Mixing Tank GH-02 (Capacity 300L, independent level & state)
+   ```
+   - Each greenhouse possesses dedicated mixing tank telemetry, level tracking, and operational lifecycle (`Waiting`, `Preparing Water`, `Adding Nutrients`, `Mixing`, `Ready`, `Delivering`, `Completed`, `Failed`).
+   - Human timing fields: Remaining Time (`02:15 tersisa`) and Expected Ready Time (`Sebelum 07:00`).
+
+4. **Hierarchical Views & User Experience**
+   - **Complex Overview View**: Summarizes all greenhouses in the complex (Total, Ready, Mixing, Waiting, Error) with actionable greenhouse cards.
+   - **Greenhouse Scoped View**: Focused telemetry for a single greenhouse (Today's cycles, next scheduled time, current mixing tank status, 5-step dosing progress).
+   - **Fertigation Schedule Manager**: Human-readable schedule cards with natural language timings, target volume, and one-click pre-mix.
+
+
 

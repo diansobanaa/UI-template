@@ -1,3 +1,48 @@
+## SP-FERT-REBUILD-001 — Human-Centered Fertigation & Mixing Queue Architecture Rebuild
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Remove the broken Fertigation & Mixing Queue implementation from zero and rebuild it properly according to product requirements and human-centered UX principles.
+  2. Eliminate repetitive meaningless FreeRTOS scheduler log spam (`I (...) SCHEDULER: Daily schedule trigger executing for yday 274 (schedules=0, occurrences=0)`) by updating `s_daily_trigger_completed_yday/year` unconditionally once evaluated and gating log emission to real schedule presence.
+  3. Delete obsolete technical containers (`FertigationRuntimePanels.tsx` and raw ID debug tables).
+  4. Implement human-centered 5-stage pipeline:
+     `Schedule -> Schedule Trigger -> Create Fertigation Job -> Dosing Queue (FIFO) -> Mixing Process (5 Steps) -> Ready Solution (MIX_READY in GH Tank) -> Pump Delivery -> Completion`.
+  5. Build dedicated human-centered components:
+     - `ComplexFertigationOverview.tsx`: Complex-level summary (Total, Ready, Running, Waiting, Error) and greenhouse cards grid.
+     - `DosingQueueSection.tsx`: Central Dosing Unit 5-step operational progress and FIFO upcoming jobs list.
+     - `GreenhouseMixingTanks.tsx`: Independent physical mixing tank widgets per greenhouse with level, remaining time, and human states.
+     - `GreenhouseFertigationDetail.tsx`: Dedicated greenhouse-scoped view with cycle counts (e.g. 2/4), next run time, tank status, and 5-step queue.
+     - `FertigationScheduleManager.tsx`: Clean human-readable schedule cards with natural language timings and one-click pre-mix.
+     - `FertigationQueueDashboard.tsx`: Unified orchestrator supporting both complex overview and scoped greenhouse detail views.
+  6. Recompile ESP32 firmware, flash to COM3, update canonical documentation `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 53, and commit all changes.
+
+### Completed Work & Verification
+- `esp32/main/services/scheduler.c`:
+  - Fixed `scheduler_evaluate_at`: sets `s_daily_trigger_completed_yday/year` unconditionally once evaluated for today.
+  - Logs only when real schedules exist (`s_runtime_count > 0`).
+  - Gated `try_enqueue_pending_preparations()` to only run if occurrences exist (`s_today_occurrence_count > 0`).
+  - Fixed `scheduler_trigger_daily_now()` similarly.
+- `src/components/fertigation/`:
+  - Created `ComplexFertigationOverview.tsx`.
+  - Created `DosingQueueSection.tsx`.
+  - Created `GreenhouseMixingTanks.tsx`.
+  - Created `GreenhouseFertigationDetail.tsx`.
+  - Created `FertigationScheduleManager.tsx`.
+  - Rebuilt `FertigationQueueDashboard.tsx`.
+  - Deleted `FertigationRuntimePanels.tsx`.
+- `src/app/fertigation/page.tsx`:
+  - Replaced technical containers with rebuilt `FertigationQueueDashboard`.
+  - Retained pump calibration test run modal and manual fertigation dialogs.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 53 documenting human-centered architecture rebuild.
+- Firmware Compilation & Physical Flash:
+  - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: EXIT CODE 0 (`agrotech_esp32.bin` 0x180d00 bytes).
+  - `powershell -ExecutionPolicy Bypass -File scripts/flash_esp32.ps1 -Port COM3`: EXIT CODE 0 (1,576,192 bytes flashed at 460800 baud, data hash verified, hard reset via RTS pin complete).
+- Frontend Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+
+---
+
 ## SP-DAILY-TRIGGER-001 — Midnight Rollover, Continuous Eager Pre-Mix & Untriggered Day-Recovery Invariant
 - **Date**: 2026-10-02
 - **Git Commit**: `6555bf6`

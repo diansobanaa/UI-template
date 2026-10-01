@@ -1,4 +1,42 @@
-# AI HANDOVER — SP-DAILY-TRIGGER-001 (latest)
+# AI HANDOVER — SP-FERT-REBUILD-001 (latest)
+
+## Status — SP-FERT-REBUILD-001
+**Rebuild Fertigation & Mixing Queue System From Zero (Human-Centered UX & Scheduler Spam Fix)**
+**Safe Point**: `SP-FERT-REBUILD-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (CODE 0) — FRONTEND PASS (0 TS ERRORS)`
+
+### Summary of What Was Done
+1. **Perbaikan FreeRTOS Scheduler Log Spam (`esp32/main/services/scheduler.c`)**:
+   - Memperbaiki bug infinite loop log `Daily schedule trigger executing for yday 274 (schedules=0, occurrences=0)` yang sebelumnya terulang setiap 1 detik.
+   - `s_daily_trigger_completed_yday` dan `s_daily_trigger_completed_year` kini diperbarui tanpa syarat begitu evaluasi jam 00:00 atau untriggered-day berjalan.
+   - Logging dibatasi hanya jika terdapat jadwal nyata (`s_runtime_count > 0`), sehingga serial monitor bersih dan hanya mencatat event esensial.
+2. **Pembersihan Kontainer Teknis Obsoleto**:
+   - Menghapus kontainer teknis yang memaparkan ID mentah (`FertigationRuntimePanels.tsx`): `TodayOccurrencesPanel`, `MixingBatchesPanel`, `DistributionPanel`, `DosingQueuePanelThin`, `FertigationHistoryPanel`.
+   - Menghapus ketergantungan tampilan pada angka/state internal FreeRTOS yang membingungkan operator.
+3. **Pembangunan Ulang Arsitektur Human-Centered UI (`src/components/fertigation/`)**:
+   - **Pipiline 5 Tahap Operasional**:
+     1. Persiapan Air Baku (Water Preparation)
+     2. Injeksi Nutrisi Stok A (Nutrient A Dosing)
+     3. Injeksi Nutrisi Stok B (Nutrient B Dosing)
+     4. Pengadukan & Homogenisasi (Mixing Process)
+     5. Pompa Distribusi Fertigasi (Fertigation Pump Delivery)
+   - **Komponen Modular**:
+     - `ComplexFertigationOverview.tsx`: Ikhtisar kompleks multi-greenhouse dengan kartu metrik (Total, Siap, Berjalan, Menunggu, Error) serta kartu ringkasan tiap greenhouse.
+     - `DosingQueueSection.tsx`: Antrean FIFO Dosing Sentral dengan status aktif 5 langkah kerja dan antrean batch berikutnya.
+     - `GreenhouseMixingTanks.tsx`: Widget tangki pencampur fisik independen per greenhouse (GH-01 vs GH-02) dengan visual level air, volume aktual, sisa waktu, dan estimasi waktu siap.
+     - `GreenhouseFertigationDetail.tsx`: Tampilan scoped untuk halaman detail spesifik greenhouse dengan ringkasan siklus harian (misal: 2/4 siklus), jadwal berikutnya, tangki pencampur, dan antrean.
+     - `FertigationScheduleManager.tsx`: Manajemen jadwal berbasis bahasa manusia (jam penyiraman, nama resep, volume liter target, tombol Racik Pre-Mix).
+     - `FertigationQueueDashboard.tsx`: Router & orkestrator yang otomatis menampilkan tampilan detail greenhouse jika scoped (`effectiveGhId`), atau ikhtisar menyeluruh kompleks jika di level komplek.
+4. **Flashing Hardware & Verifikasi**:
+   - Firmware ter-compile sukses tanpa error (`powershell scripts/build_esp32.ps1` EXIT CODE 0).
+   - Firmware ter-flash ke ESP32 fisik via COM3 (`powershell scripts/flash_esp32.ps1 -Port COM3` EXIT CODE 0, 1,576,192 bytes, hash verified, hard reset RTS sukses).
+   - Frontend TypeScript check lolos (`npx tsc --noEmit` EXIT CODE 0, 0 error).
+   - Dokumentasi kanonikal diperbarui di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 53.
+
+---
+
+# AI HANDOVER — SP-DAILY-TRIGGER-001 (previous)
 
 ## Status — SP-DAILY-TRIGGER-001
 **Midnight Rollover, Continuous Eager Pre-Mix & Untriggered Day-Recovery Invariant**

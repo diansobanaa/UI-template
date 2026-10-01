@@ -1922,7 +1922,6 @@ esp_err_t scheduler_evaluate_at(time_t now) {
 
   /* Condition 1: Midnight / Day Boundary Rollover */
   if (s_today_yday != tm_now.tm_yday) {
-    ESP_LOGI(TAG, "Day boundary rollover detected (yday %d -> %d).", s_today_yday, tm_now.tm_yday);
     s_today_yday = tm_now.tm_yday;
     daily_trigger_needed = true;
   }
@@ -1939,21 +1938,21 @@ esp_err_t scheduler_evaluate_at(time_t now) {
   }
 
   if (daily_trigger_needed) {
-    ESP_LOGI(TAG, "Daily schedule trigger executing for yday %d (schedules=%u, occurrences=%u)",
-             tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
     s_today_yday = tm_now.tm_yday;
-    materialize_today_schedule(now);
-    try_enqueue_pending_preparations(now);
+    s_daily_trigger_completed_yday = tm_now.tm_yday;
+    s_daily_trigger_completed_year = tm_now.tm_year;
     if (s_runtime_count > 0) {
-      s_daily_trigger_completed_yday = tm_now.tm_yday;
-      s_daily_trigger_completed_year = tm_now.tm_year;
+      ESP_LOGI(TAG, "Daily schedule trigger executing for yday %d (schedules=%u, occurrences=%u)",
+               tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
+      materialize_today_schedule(now);
+      try_enqueue_pending_preparations(now);
     }
   }
 
   /* Eager pre-mix invariant (Spec Section 10.3, 10.4 & 14):
    * When queue has capacity (or is empty) and there are pending occurrences for today,
    * immediately enqueue the next pending occurrence for any unoccupied greenhouse. */
-  if (s_dosing_queue_count < MAX_DOSING_QUEUE) {
+  if (s_dosing_queue_count < MAX_DOSING_QUEUE && s_today_occurrence_count > 0) {
     try_enqueue_pending_preparations(now);
   }
 
@@ -2374,12 +2373,10 @@ esp_err_t scheduler_trigger_daily_now(void) {
   struct tm tm_now;
   localtime_r(&now, &tm_now);
   s_today_yday = tm_now.tm_yday;
+  s_daily_trigger_completed_yday = tm_now.tm_yday;
+  s_daily_trigger_completed_year = tm_now.tm_year;
   materialize_today_schedule(now);
   try_enqueue_pending_preparations(now);
-  if (s_runtime_count > 0) {
-    s_daily_trigger_completed_yday = tm_now.tm_yday;
-    s_daily_trigger_completed_year = tm_now.tm_year;
-  }
   xSemaphoreGive(s_mutex);
   return ESP_OK;
 }
