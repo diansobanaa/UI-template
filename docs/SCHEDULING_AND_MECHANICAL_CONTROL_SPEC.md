@@ -3723,3 +3723,30 @@ PYTHON SAVE + ANALYSIS
 6. **FreeRTOS Scheduler Log Spam Elimination (`esp32/main/services/scheduler.c`)**
    - Removed infinite 1-second Condition 3 re-trigger when occurrences equal zero.
    - Daily schedule evaluation executes cleanly on midnight rollover, midday boot recovery, or authoritative API trigger, emitting informative logs only on actionable events.
+
+55. Operational Time-Awareness, Zero-Refresh Reactivity, and Hardware Domain Separation (SP-LOGIC-REACTIVE-001)
+
+1. **Temporal Awareness for Nearest Schedule Calculation**
+   - The UI evaluates schedule time against authoritative RTC device clock (`clock.secondsSinceMidnight`).
+   - The nearest upcoming schedule is filtered by `schedMinutes >= currentMinutes` and sorted chronologically ascending.
+   - Schedules whose designated time has already elapsed without execution today are automatically recognized as `Missed / Terlewat`, rolling `nextRun` over to `Tomorrow [HH:MM]`.
+   - Prevents past schedules (such as 06:00 when clock is 10:52) from being reported as the nearest upcoming operation.
+
+2. **Real Dynamic Cycles Completed Counter**
+   - Eliminated hardcoded placeholder `cyclesCompletedToday: 2`.
+   - Dynamically counts completed batches from authoritative controller occurrences (`state == COMPLETED`) and schedule records.
+   - Accurately reports `0 / 2 Siklus Selesai` prior to batch execution, advancing only as physical cycles conclude.
+
+3. **Strict Physical Domain Isolation for Tank Volumes**
+   - The 300L greenhouse mixing tank is strictly separated from the 1000L raw water reservoir (`gh.telemetry.tankL`).
+   - The mixing tank does not inherit or divide against the 1000L toren level, eliminating the physically impossible `1000 / 300 L (333%)` overflow artifact.
+   - When idle/waiting, the mixing tank accurately displays `0 / 300 L (0%) · Target: [X] L (Sensor tidak terpasang)`.
+
+4. **Zero-Refresh Schedule Mutation Reactivity**
+   - Subscribed `FertigationQueueDashboard` to `useDbVersion()`.
+   - Schedule creations (`+ Add Fertigation Schedule`), edits, toggles, and deletions trigger instantaneous re-render without requiring browser reloads.
+   - The component synchronizes runtime state with controller endpoints on version increments.
+
+5. **Universal Human-Readable Greenhouse Identification**
+   - `formatGreenhouseName()` resolves technical database UUIDs into human-readable greenhouse tags (`GH-01`, `GH-02`) across cards, banners, timeline lanes, and schedule tables.
+

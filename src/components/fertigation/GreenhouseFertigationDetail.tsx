@@ -71,8 +71,8 @@ export function GreenhouseFertigationDetail({
   isActionLoading = false,
   className = "",
 }: GreenhouseFertigationDetailProps) {
-  const ghCode = gh.code || formatGreenhouseName(gh);
   const displayName = formatGreenhouseName(gh);
+  const ghCode = displayName;
 
   return (
     <div className={`space-y-4 rounded-2xl border border-slate-800 bg-[#0e1a2a] p-5 shadow-sm ${className}`}>
@@ -82,7 +82,6 @@ export function GreenhouseFertigationDetail({
           <div className="flex items-center gap-2.5">
             <h3 className="text-base font-bold text-slate-100">
               Operasi Fertigasi & Nutrisi {ghCode}
-              <span className="text-xs font-normal text-slate-400 ml-1.5">({displayName})</span>
             </h3>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${

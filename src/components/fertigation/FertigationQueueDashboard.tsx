@@ -26,6 +26,8 @@ import {
 import { esp32Client } from "@/lib/api/esp32-client";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useToast } from "@/components/ui/toast";
+import { useDbVersion } from "@/lib/useDb";
+import { useDeviceClock } from "@/lib/device-clock";
 import type { FertigationSchedule, Greenhouse, Recipe } from "@/lib/types";
 import { formatGreenhouseName } from "@/lib/format";
 
@@ -65,6 +67,9 @@ export function FertigationQueueDashboard({
   onOpenCreate,
   className = "",
 }: FertigationQueueDashboardProps) {
+  const dbVersion = useDbVersion();
+  const clock = useDeviceClock();
+  const currentMinutes = Math.floor(clock.secondsSinceMidnight / 60);
   const toast = useToast();
   const effectiveGhId = selectedGhId || currentGhId;
   const effectiveComplexId =
@@ -76,6 +81,14 @@ export function FertigationQueueDashboard({
   const [offline, setOffline] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+
+  const prevDbVersion = React.useRef(dbVersion);
+  useEffect(() => {
+    if (prevDbVersion.current !== dbVersion) {
+      prevDbVersion.current = dbVersion;
+      void fetchStatus(false);
+    }
+  }, [dbVersion]);
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
   const fetchStatus = async (isManual = false) => {
@@ -233,17 +246,18 @@ export function FertigationQueueDashboard({
   // Construct Next Scheduled Operation (Section 5 & 8)
   // -------------------------------------------------------------------------
   const nextScheduledOp: NextScheduledOperation | null = useMemo(() => {
-    // 1. Check liveStatus.todaySchedule for earliest pending occurrence
+    // 1. Check liveStatus.todaySchedule for earliest pending occurrence that is >= current time
     const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    const nowSec = Math.floor(Date.now() / 1000);
     const pendingOcc = occurrences
       .filter((o) => (o.state === "PENDING" || o.state === 0) && (o.scheduled_timestamp || o.scheduledTimestamp))
+      .filter((o) => (o.scheduled_timestamp || o.scheduledTimestamp) >= nowSec - 60)
       .sort((a, b) => (a.scheduled_timestamp || a.scheduledTimestamp) - (b.scheduled_timestamp || b.scheduledTimestamp))[0];
 
     if (pendingOcc) {
       const targetGhId = pendingOcc.gh_id || pendingOcc.ghId;
       const gh = greenhouseService.get(targetGhId);
       const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
-      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
       const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
       const sched = allSchedules.find((s) => s.id === (pendingOcc.schedule_id || pendingOcc.scheduleId));
       const timeStr =
@@ -253,31 +267,38 @@ export function FertigationQueueDashboard({
           : "—");
 
       return {
-        ghCode,
+        ghCode: ghName,
         ghName,
         time: timeStr,
         jobTitle: sched?.name || "Jadwal Penyiraman",
       };
     }
 
-    // 2. Fallback to allSchedules
-    const enabledSched = allSchedules.find((s) => s.enabled);
-    if (enabledSched) {
-      const gh = greenhouseService.get(enabledSched.ghId);
-      const ghIndex = ghs.findIndex((g) => g.id === enabledSched.ghId);
-      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+    // 2. Evaluate allSchedules whose time is >= currentMinutes
+    const upcomingSched = allSchedules
+      .filter((s) => s.enabled && s.time && s.time !== "--:--")
+      .map((s) => {
+        const [h, m] = s.time.split(":").map(Number);
+        return { sched: s, minutes: (h || 0) * 60 + (m || 0) };
+      })
+      .filter((item) => item.minutes >= currentMinutes)
+      .sort((a, b) => a.minutes - b.minutes)[0]?.sched;
+
+    if (upcomingSched) {
+      const gh = greenhouseService.get(upcomingSched.ghId);
+      const ghIndex = ghs.findIndex((g) => g.id === upcomingSched.ghId);
       const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
       return {
-        ghCode,
+        ghCode: ghName,
         ghName,
-        time: enabledSched.time,
-        jobTitle: enabledSched.name,
+        time: upcomingSched.time,
+        jobTitle: upcomingSched.name,
       };
     }
 
     return null;
-  }, [liveStatus, allSchedules, ghs]);
+  }, [liveStatus, allSchedules, ghs, currentMinutes]);
 
   // -------------------------------------------------------------------------
   // Construct Error Information (Section 5 Spec)
@@ -349,10 +370,10 @@ export function FertigationQueueDashboard({
   // -------------------------------------------------------------------------
   const mixingTanks: GreenhouseTankInfo[] = useMemo(() => {
     return ghs.map((gh, idx) => {
-      const ghCode = gh.code || `GH-${String(idx + 1).padStart(2, "0")}`;
       const displayName = formatGreenhouseName(gh, idx);
+      const ghCode = displayName;
       const technicalId = gh.id;
-      const tankName = `${ghCode} Mixing Tank`;
+      const tankName = `${displayName} Mixing Tank`;
 
       const isTargetActive = activeJob?.ghId === gh.id;
       const ghDeliveries: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
@@ -373,7 +394,17 @@ export function FertigationQueueDashboard({
       );
       const queuePosition = queueItem ? liveQueue.indexOf(queueItem) + 1 : null;
 
-      const nextSched = allSchedules.find((s) => s.ghId === gh.id && s.enabled);
+      const scheds = allSchedules.filter((s) => s.ghId === gh.id);
+      const upcomingSched = scheds
+        .filter((s) => s.enabled && s.time && s.time !== "--:--")
+        .map((s) => {
+          const [h, m] = s.time.split(":").map(Number);
+          return { sched: s, minutes: (h || 0) * 60 + (m || 0) };
+        })
+        .filter((item) => item.minutes >= currentMinutes)
+        .sort((a, b) => a.minutes - b.minutes)[0]?.sched;
+
+      const nextSched = upcomingSched;
       const capacityL = 300;
 
       let status: HumanMixingState = "Standby";
@@ -432,12 +463,12 @@ export function FertigationQueueDashboard({
         canPreMixNow = false;
         isActionDisabled = true;
         actionDisabledReason = "Sudah terdaftar dalam antrean peracikan";
-      } else if (nextSched) {
+      } else if (upcomingSched) {
         status = "Waiting for schedule";
         statusTone = "slate";
-        statusDesc = `Standby menunggu jadwal berikutnya (Pukul ${nextSched.time})`;
+        statusDesc = `Standby menunggu jadwal berikutnya (Pukul ${upcomingSched.time})`;
         timingLabel = "Jadwal Mulai";
-        timingValue = `Pukul ${nextSched.time}`;
+        timingValue = `Pukul ${upcomingSched.time}`;
         canPreMixNow = true;
       } else if (ghOccCompleted.length > 0) {
         status = "Completed";
@@ -446,13 +477,21 @@ export function FertigationQueueDashboard({
         timingLabel = "Status Siklus";
         timingValue = "Selesai Hari Ini";
         canPreMixNow = false;
+      } else {
+        status = "Standby";
+        statusTone = "slate";
+        statusDesc = scheds.length > 0 ? "Jadwal hari ini sudah terlewat" : "Siaga — belum ada jadwal";
+        timingLabel = "Status";
+        timingValue = "Siaga";
+        canPreMixNow = scheds.length > 0;
       }
 
       // Volume calculation & sensor availability check (Section 7 Spec)
-      const telemetryTankL = gh.telemetry?.tankL;
-      const isSensorAvailable = typeof telemetryTankL === "number" && !isNaN(telemetryTankL);
-      const measuredVolumeL = isSensorAvailable ? telemetryTankL : null;
-      const targetWaterL = nextSched?.targetWaterL || 50;
+      // NOTE: Do NOT use gh.telemetry?.tankL because tankL is the 1000L raw water reservoir!
+      const mixingTankMeasuredL = (gh.telemetry as any)?.mixingTankL ?? null;
+      const isSensorAvailable = typeof mixingTankMeasuredL === "number" && !isNaN(mixingTankMeasuredL);
+      const measuredVolumeL = isSensorAvailable ? mixingTankMeasuredL : null;
+      const targetWaterL = nextSched?.targetWaterL || scheds[0]?.targetWaterL || 50;
 
       let volumeDisplayLabel = "Target Pencampuran";
       let volumeDisplayValue = `Target: ${targetWaterL} L (Kapasitas: ${capacityL} L)`;
@@ -463,18 +502,18 @@ export function FertigationQueueDashboard({
         volumeDisplayLabel = "Volume Aktual Terukur";
         volumeDisplayValue = `${measuredVolumeL} / ${capacityL} L (${levelPct.toFixed(0)}%)`;
       } else if (status === "Ready for fertigation") {
-        levelPct = (targetWaterL / capacityL) * 100;
+        levelPct = Math.min(100, (targetWaterL / capacityL) * 100);
         volumeDisplayLabel = "Volume Larutan Siap";
         volumeDisplayValue = `${targetWaterL} L (Siap Disiram)`;
       } else if (isTargetActive) {
         const actualWaterL = Math.round((liveStatus?.actualWaterMl || 0) / 1000);
-        levelPct = (actualWaterL / capacityL) * 100;
+        levelPct = Math.min(100, (actualWaterL / capacityL) * 100);
         volumeDisplayLabel = "Volume Terisi Saat Ini";
         volumeDisplayValue = `${actualWaterL} / ${targetWaterL} L (Proses)`;
       } else {
-        levelPct = (targetWaterL / capacityL) * 100;
-        volumeDisplayLabel = "Target Pencampuran";
-        volumeDisplayValue = `Target: ${targetWaterL} L (Sensor tidak terpasang)`;
+        levelPct = 0;
+        volumeDisplayLabel = "Volume Tangki Batch";
+        volumeDisplayValue = `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L (Sensor tidak terpasang)`;
       }
 
       return {
@@ -504,7 +543,7 @@ export function FertigationQueueDashboard({
         actionDisabledReason,
       };
     });
-  }, [ghs, activeJob, fwState, liveStatus, liveQueue, allSchedules]);
+  }, [ghs, activeJob, fwState, liveStatus, liveQueue, allSchedules, currentMinutes]);
 
   // -------------------------------------------------------------------------
   // Construct Complex Overview Summaries (Section 10 Spec)
@@ -513,9 +552,18 @@ export function FertigationQueueDashboard({
     return ghs.map((gh, idx) => {
       const tank = mixingTanks.find((t) => t.ghId === gh.id);
       const scheds = allSchedules.filter((s) => s.ghId === gh.id);
-      const nextSched = scheds.find((s) => s.enabled);
-      const ghCode = gh.code || `GH-${String(idx + 1).padStart(2, "0")}`;
+      const upcomingSched = scheds
+        .filter((s) => s.enabled && s.time && s.time !== "--:--")
+        .map((s) => {
+          const [h, m] = s.time.split(":").map(Number);
+          return { sched: s, minutes: (h || 0) * 60 + (m || 0) };
+        })
+        .filter((item) => item.minutes >= currentMinutes)
+        .sort((a, b) => a.minutes - b.minutes)[0]?.sched;
+
+      const nextSched = upcomingSched;
       const displayName = formatGreenhouseName(gh, idx);
+      const ghCode = displayName;
       const technicalId = gh.id;
 
       let status: GreenhouseFertigationSummary["status"] = "STANDBY";
@@ -564,6 +612,14 @@ export function FertigationQueueDashboard({
         statusDesc = "Peracikan batch gagal atau terhenti";
       }
 
+      const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+      const ghCompletedOccurrences = occurrences.filter(
+        (o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "COMPLETED" || o.state === 5)
+      );
+      const schedsCompleted = scheds.filter((s) => s.lastRun && (s.status === "completed" || s.lastRun.includes("Today")));
+      const cyclesCompletedToday = Math.max(ghCompletedOccurrences.length, schedsCompleted.length);
+      const totalCyclesToday = scheds.filter((s) => s.enabled).length || scheds.length;
+
       return {
         gh,
         ghCode,
@@ -574,17 +630,17 @@ export function FertigationQueueDashboard({
         statusTone,
         statusDesc,
         nextScheduleTime: nextSched?.time || null,
-        nextRecipeName: gh.recipes?.find((r) => r.id === nextSched?.recipeId)?.name || null,
+        nextRecipeName: gh.recipes?.find((r) => r.id === nextSched?.recipeId)?.name || (nextSched ? "Nutrisi Standar" : null),
         targetWaterL: nextSched?.targetWaterL || null,
-        cyclesCompletedToday: 2,
-        totalCyclesToday: scheds.length || 2,
+        cyclesCompletedToday,
+        totalCyclesToday,
         tankLevelPct: tank?.levelPct || 0,
         volumeDisplay: tank?.volumeDisplayValue,
         canPreMix: tank?.canPreMixNow ?? true,
         canDeliver: tank?.canDeliverNow ?? false,
       };
     });
-  }, [ghs, mixingTanks, allSchedules]);
+  }, [ghs, mixingTanks, allSchedules, liveStatus, currentMinutes]);
 
   // -------------------------------------------------------------------------
   // Actions: Enqueue Manual, Deliver, Abort, Trigger Daily

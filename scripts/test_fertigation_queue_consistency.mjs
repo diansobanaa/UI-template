@@ -320,6 +320,113 @@ test("10. FreeRTOS Scheduler Log Spam Elimination (scheduler.c)", () => {
   assert.match(schedulerC, /Daily schedule trigger executed for yday/);
 });
 
+// -------------------------------------------------------------
+// Test 11: Time-Aware Nearest Schedule Calculation
+// -------------------------------------------------------------
+test("11. Time-Aware Nearest Schedule (Filters past schedules >= current time)", () => {
+  const dashboardFile = fs.readFileSync(
+    path.resolve("src/components/fertigation/FertigationQueueDashboard.tsx"),
+    "utf8"
+  );
+
+  // Must compare schedule minutes against currentMinutes
+  assert.match(
+    dashboardFile,
+    /item\.minutes >= currentMinutes/,
+    "Dashboard must filter schedules where time is greater than or equal to currentMinutes"
+  );
+  assert.match(
+    dashboardFile,
+    /currentMinutes = Math\.floor\(clock\.secondsSinceMidnight \/ 60\)/,
+    "Dashboard must track currentMinutes from device clock"
+  );
+});
+
+// -------------------------------------------------------------
+// Test 12: Dynamic Real Cycles Completed Calculation
+// -------------------------------------------------------------
+test("12. Dynamic Real Cycles Calculation (Eliminates hardcoded 2)", () => {
+  const dashboardFile = fs.readFileSync(
+    path.resolve("src/components/fertigation/FertigationQueueDashboard.tsx"),
+    "utf8"
+  );
+
+  // Must NOT contain hardcoded cyclesCompletedToday: 2
+  assert.ok(
+    !dashboardFile.includes("cyclesCompletedToday: 2"),
+    "Hardcoded 'cyclesCompletedToday: 2' must be eliminated"
+  );
+  // Must calculate dynamically from actual completed runs
+  assert.match(
+    dashboardFile,
+    /cyclesCompletedToday = Math\.max\(ghCompletedOccurrences\.length, schedsCompleted\.length\)/,
+    "cyclesCompletedToday must be dynamically counted from completed occurrences and records"
+  );
+});
+
+// -------------------------------------------------------------
+// Test 13: Zero-Refresh Reactivity (External Store Subscription)
+// -------------------------------------------------------------
+test("13. Zero-Refresh Reactivity (Subscribed to useDbVersion)", () => {
+  const dashboardFile = fs.readFileSync(
+    path.resolve("src/components/fertigation/FertigationQueueDashboard.tsx"),
+    "utf8"
+  );
+
+  assert.match(
+    dashboardFile,
+    /import \{ useDbVersion \} from "@\/lib\/useDb"/,
+    "FertigationQueueDashboard must import useDbVersion"
+  );
+  assert.match(
+    dashboardFile,
+    /const dbVersion = useDbVersion\(\)/,
+    "FertigationQueueDashboard must call useDbVersion() to re-render instantly on schedule add/delete/toggle"
+  );
+});
+
+// -------------------------------------------------------------
+// Test 14: Mixing Tank Volume Isolation (Separate from 1000L Toren)
+// -------------------------------------------------------------
+test("14. Mixing Tank Volume Isolation (No 333% overflow from 1000L reservoir)", () => {
+  const dashboardFile = fs.readFileSync(
+    path.resolve("src/components/fertigation/FertigationQueueDashboard.tsx"),
+    "utf8"
+  );
+
+  // Must NOT read gh.telemetry.tankL as mixing tank volume
+  assert.ok(
+    !dashboardFile.includes("const telemetryTankL = gh.telemetry?.tankL"),
+    "gh.telemetry.tankL (1000L raw reservoir) must NOT be assigned to mixing tank"
+  );
+  assert.match(
+    dashboardFile,
+    /0 \/ \$\{capacityL\} L \(0%\)/,
+    "Empty or waiting mixing tank must report 0 / 300 L (0%), not 1000L reservoir"
+  );
+});
+
+// -------------------------------------------------------------
+// Test 15: Missed Schedule Detection on Schedule Page
+// -------------------------------------------------------------
+test("15. Missed Schedule Detection (Past schedule marked Missed)", () => {
+  const schedulePageFile = fs.readFileSync(
+    path.resolve("src/app/schedule/page.tsx"),
+    "utf8"
+  );
+
+  assert.match(
+    schedulePageFile,
+    /isMissed = isPast && \(!s\.lastRun \|\| !s\.lastRun\.includes\("Today"\)\)/,
+    "Past schedules with no execution today must be identified as missed"
+  );
+  assert.match(
+    schedulePageFile,
+    /Tomorrow \$\{s\.time\}/,
+    "Past schedules must roll over nextRun to Tomorrow"
+  );
+});
+
 console.log(`\n======================================================`);
 console.log(`TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
 console.log(`======================================================\n`);

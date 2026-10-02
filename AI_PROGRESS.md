@@ -1,3 +1,43 @@
+## SP-LOGIC-REACTIVE-001 — Operational Time-Awareness, Zero-Refresh Reactivity & Physical Isolation
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (15/15) — BUILD PASS`
+- **Objective**:
+  1. Eliminate logical flaws identified by operator in screenshot review:
+     - Fix Time-Blindness: Nearest schedule must compare against current clock (`schedMinutes >= currentMinutes`). Prevents 06:00 from showing as nearest when current time is 10:52; picks 12:00.
+     - Fix Missed Schedules: Past schedules today with no runs marked as `Missed`, with `nextRun` rolling over to `Tomorrow [HH:MM]`.
+     - Fix Dynamic Cycles Completed: Remove hardcoded `cyclesCompletedToday: 2`. Count actual completed runs (reports `0 / 2 Siklus Selesai`).
+     - Fix Volume & Physical Isolation: Disentangle 300L mixing tank from 1000L toren reservoir (`gh.telemetry.tankL`). Eliminates `1000 / 300 L (333%)` overflow; reports `0 / 300 L (0%) · Target: 80 L (Sensor tidak terpasang)`.
+     - Fix Naming: Enforce human-readable `GH-01` across cards, timeline, and tables.
+  2. Implement Zero-Refresh Reactivity:
+     - Connect `FertigationQueueDashboard` to `useDbVersion()`.
+     - When schedules are added, edited, toggled, or deleted, interface re-renders instantly without browser refresh.
+  3. Expand automated consistency test suite to 15 assertions (all 15 PASSED).
+
+### Completed Work & Verification
+- `src/lib/format.ts`:
+  - Enhanced `formatGreenhouseName`: automatically resolves index from operational snapshot when `fallbackIndex` is undefined, permanently preventing technical UUID leaks (`GH-MUI7DTG`).
+- `src/components/fertigation/FertigationQueueDashboard.tsx`:
+  - Added `useDbVersion()` and `useDeviceClock()` hooks.
+  - Replaced time-blind schedule pickers with `minutes >= currentMinutes` filtering.
+  - Dynamically counted `cyclesCompletedToday` from controller occurrences and schedule records.
+  - Isolated 300L mixing tank volume from 1000L raw reservoir.
+- `src/components/fertigation/GreenhouseFertigationDetail.tsx`:
+  - Standardized header to use `ghCode` (`GH-01`).
+- `src/app/schedule/page.tsx`:
+  - Updated `timelineEvents` to evaluate `missed` status for past events.
+  - Formatted greenhouse lanes and table rows using `formatGreenhouseName`.
+  - Updated `ScheduleTable` rows: past schedules without execution marked `Missed` with `Tomorrow [HH:MM]`.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 55 documenting all fixes.
+- `scripts/test_fertigation_queue_consistency.mjs`:
+  - Expanded to 15 test cases verifying time awareness, dynamic cycle calculation, zero-refresh reactivity, and volume isolation (15/15 PASSED).
+- Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: EXIT CODE 0 (15/15 passed).
+  - ESP32 Firmware Build: EXIT CODE 0 (`agrotech_esp32.bin` 0x180ce0 bytes).
+
+---
+
 ## SP-FERT-AUTOMATION-001 — Fully Automated FIFO Queue, Status Consistency & Human-Centered UX
 - **Date**: 2026-10-02
 - **Git Commit**: `d9b1210`

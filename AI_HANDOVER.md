@@ -1,4 +1,36 @@
-# AI HANDOVER — SP-FERT-AUTOMATION-001 (latest)
+# AI HANDOVER — SP-LOGIC-REACTIVE-001 (latest)
+
+## Status — SP-LOGIC-REACTIVE-001
+**Operational Time-Awareness, Zero-Refresh Reactivity & Hardware Domain Separation**
+**Safe Point**: `SP-LOGIC-REACTIVE-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (15/15) — BUILD PASS`
+
+### Summary of What Was Done
+1. **Penyelesaian Kebutaan Waktu (Time-Blindness)**:
+   - Jadwal terdekat kini membandingkan waktu jadwal terhadap jam nyata kontroler (`clock.secondsSinceMidnight`).
+   - Pada jam 10:52, jadwal 06:00 yang telah lewat tidak lagi dipilih; sistem secara benar memilih **Pukul 12:00** sebagai jadwal terdekat.
+   - Jadwal masa lalu hari ini yang belum dieksekusi ditandai sebagai **Missed (Terlewat)**, dan `nextRun` otomatis digulirkan ke **Tomorrow [HH:MM]**.
+2. **Kalkulasi Siklus Selesai Dinamis**:
+   - Menghapus placeholder statis `cyclesCompletedToday: 2`.
+   - Dihitung secara dinamis dari occurrence kontroler yang selesai dan rekaman eksekusi hari ini (menampilkan **0 / 2 Siklus Selesai** sebelum eksekusi).
+3. **Pemisahan Fisik Tangki Mixing dari Toren Air Baku**:
+   - Tangki pencampur 300L sepenuhnya dipisahkan dari pembacaan toren tandon air baku 1000L (`gh.telemetry.tankL`).
+   - Menghilangkan artefak luber fisik mustahil **1000 / 300 L (333%)**; tangki saat siaga melaporkan volume **0 / 300 L (0%) · Target: 80 L (Sensor tidak terpasang)**.
+4. **Reaktivitas Tanpa Refresh Halaman (Zero-Refresh UI)**:
+   - `FertigationQueueDashboard` dikoneksikan ke `useDbVersion()`.
+   - Penambahan jadwal baru, pengeditan, pengaktifan (toggle ON/OFF), dan penghapusan jadwal langsung memicu re-render instan pada kartu ringkasan, antrean, dan tabel tanpa perlu refresh browser.
+5. **Penamaan Greenhouse Ramah Manusia**:
+   - `formatGreenhouseName()` otomatis memetakan ID teknis ke label manusia (`GH-01`, `GH-02`) di seluruh kartu, timeline, dan tabel jadwal.
+6. **Verifikasi & Pengujian**:
+   - TypeScript check lolos (`npx tsc --noEmit` EXIT CODE 0).
+   - Test suite diperluas menjadi 15 kasus uji (`node scripts/test_fertigation_queue_consistency.mjs` EXIT CODE 0, 15/15 PASSED).
+   - ESP32 firmware build lolos (`scripts/build_esp32.ps1` EXIT CODE 0).
+   - Spesifikasi kanonikal diperbarui di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 55.
+
+---
+
+# AI HANDOVER — SP-FERT-AUTOMATION-001 (previous)
 
 ## Status — SP-FERT-AUTOMATION-001
 **Fertigation & Mixing Queue Logic, Status Consistency, and Fully Automated FIFO Architecture**

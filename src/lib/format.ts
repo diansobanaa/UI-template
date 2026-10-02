@@ -1,4 +1,5 @@
 import { deviceClock } from "./device-clock";
+import { getOperationalSnapshot } from "./operational-state";
 
 function currentDate(): Date {
   return deviceClock.getTime();
@@ -49,7 +50,7 @@ export function formatGreenhouseName(
   gh: { id?: string; code?: string; greenhouseTag?: string; crop?: string } | undefined | null,
   fallbackIndex?: number
 ): string {
-  if (!gh) return fallbackIndex !== undefined ? `GH-${String(fallbackIndex + 1).padStart(2, "0")}` : "Greenhouse";
+  if (!gh) return fallbackIndex !== undefined ? `GH-${String(fallbackIndex + 1).padStart(2, "0")}` : "GH-01";
 
   const candidate = (gh.code || gh.greenhouseTag || "").trim();
   // If candidate is already a human-friendly label like "GH-01", "GH-1", "Greenhouse 1"
@@ -57,7 +58,18 @@ export function formatGreenhouseName(
     return candidate;
   }
 
-  // If fallback index is provided, format as GH-01, GH-02
+  // If fallback index is not provided, try to find greenhouse in snapshot
+  if (fallbackIndex === undefined && gh?.id) {
+    try {
+      const snap = getOperationalSnapshot();
+      const idx = snap?.greenhouses?.findIndex((g) => g.id === gh.id);
+      if (idx !== undefined && idx >= 0) {
+        fallbackIndex = idx;
+      }
+    } catch {}
+  }
+
+  // If fallback index is provided (or resolved above), format as GH-01, GH-02
   if (fallbackIndex !== undefined) {
     return `GH-${String(fallbackIndex + 1).padStart(2, "0")}`;
   }
@@ -68,6 +80,7 @@ export function formatGreenhouseName(
     return `GH-${String(num).padStart(2, "0")}`;
   }
 
-  return candidate || (gh.id ? `GH-${gh.id.replace(/^gh-/, "").toUpperCase().slice(0, 4)}` : "Greenhouse");
+  return "GH-01";
 }
+
 

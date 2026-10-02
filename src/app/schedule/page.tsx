@@ -29,7 +29,7 @@ import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
-import { SYSTEM_NOW } from "@/lib/format";
+import { SYSTEM_NOW, formatGreenhouseName } from "@/lib/format";
 import { useDeviceClock } from "@/lib/device-clock";
 import type { FanSchedule, FertigationSchedule, ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
 import { complexRealtimeState } from "@/lib/realtime";
@@ -251,34 +251,49 @@ export function ScheduleContent({
     return "scheduled";
   };
 
+  const currentMinutes = Math.floor(clock.secondsSinceMidnight / 60);
+
   const timelineEvents: ScheduleTimelineEvent[] = [
     ...fertSchedules.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => ({
-        id: `fert-${s.id}-${idx}`,
-        time: occurrenceTime,
-        greenhouse: greenhouseService.get(s.ghId)?.code ?? "GH",
-        type: "fertigation" as const,
-        title: total > 1 ? `Fertigation (${idx}/${total})` : "Fertigation",
-        sub: `${s.targetWaterL} L`,
-        durationMin: 45,
-        status: toTimelineStatus(s.status),
-        occurrenceIndex: idx,
-        totalOccurrences: total,
-      }))
+      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => {
+        const ghObj = greenhouseService.get(s.ghId);
+        const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
+        const [h, m] = (occurrenceTime || "00:00").split(":").map(Number);
+        const evMin = (h || 0) * 60 + (m || 0);
+        const isPast = evMin < currentMinutes;
+        const isMissed = isPast && (!s.lastRun || !s.lastRun.includes("Today"));
+
+        return {
+          id: `fert-${s.id}-${idx}`,
+          time: occurrenceTime,
+          greenhouse: ghName,
+          type: "fertigation" as const,
+          title: total > 1 ? `Fertigation (${idx}/${total})` : "Fertigation",
+          sub: `${s.targetWaterL} L`,
+          durationMin: 45,
+          status: isMissed ? "missed" : toTimelineStatus(s.status),
+          occurrenceIndex: idx,
+          totalOccurrences: total,
+        };
+      })
     ),
     ...fanSchedules.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => ({
-        id: `fan-${s.id}-${idx}`,
-        time: occurrenceTime,
-        greenhouse: greenhouseService.get(s.ghId)?.code ?? "GH",
-        type: "fan" as const,
-        title: total > 1 ? `Fan (${idx}/${total})` : "Fan",
-        sub: `${s.durationMin} min`,
-        durationMin: s.durationMin,
-        status: toTimelineStatus(s.status),
-        occurrenceIndex: idx,
-        totalOccurrences: total,
-      }))
+      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => {
+        const ghObj = greenhouseService.get(s.ghId);
+        const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
+        return {
+          id: `fan-${s.id}-${idx}`,
+          time: occurrenceTime,
+          greenhouse: ghName,
+          type: "fan" as const,
+          title: total > 1 ? `Fan (${idx}/${total})` : "Fan",
+          sub: `${s.durationMin} min`,
+          durationMin: s.durationMin,
+          status: toTimelineStatus(s.status),
+          occurrenceIndex: idx,
+          totalOccurrences: total,
+        };
+      })
     ),
     ...waterTransfers.flatMap((s) =>
       expandScheduleOccurrences(s, (occurrenceTime, idx, total) => ({
@@ -517,7 +532,7 @@ export function ScheduleContent({
       {/* Today's timeline */}
       <div className="mb-5">
         <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
-          <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g) => ({ id: g.id, label: g.code || g.greenhouseTag || g.id }))} />
+          <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
         </DarkSectionCard>
       </div>
 
@@ -540,21 +555,41 @@ export function ScheduleContent({
         >
           <ScheduleTable
             rows={[
-              ...fertSchedules.map((s) => ({
-                id: s.id,
-                name: s.name,
-                greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
-                time: s.time,
-                repeat: s.repeat,
-                detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
-                lastRun: s.lastRun,
-                nextRun: s.nextRun,
-                enabled: s.enabled,
-                status: s.status,
-                activationState: s.activationState,
-                blockedReasons: s.blockedReasons,
-                type: "fertigation" as const,
-              })),
+              ...fertSchedules.map((s) => {
+                const [h, m] = (s.time || "00:00").split(":").map(Number);
+                const schedMinutes = (h || 0) * 60 + (m || 0);
+                const isPast = schedMinutes < currentMinutes;
+                const isMissed = isPast && (!s.lastRun || !s.lastRun.includes("Today"));
+                const rowStatus: FertigationSchedule["status"] = !s.enabled
+                  ? "disabled"
+                  : isMissed
+                  ? "missed"
+                  : s.status;
+                const rowNextRun = !s.enabled
+                  ? "Disabled"
+                  : isPast
+                  ? `Tomorrow ${s.time}`
+                  : `Today ${s.time}`;
+
+                const ghObj = greenhouseService.get(s.ghId);
+                const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
+
+                return {
+                  id: s.id,
+                  name: s.name,
+                  greenhouse: ghName,
+                  time: s.time,
+                  repeat: s.repeat,
+                  detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
+                  lastRun: s.lastRun,
+                  nextRun: rowNextRun,
+                  enabled: s.enabled,
+                  status: rowStatus,
+                  activationState: s.activationState,
+                  blockedReasons: s.blockedReasons,
+                  type: "fertigation" as const,
+                };
+              }),
               ...waterTransfers.map((s) => ({
                 id: s.id,
                 name: s.name,
