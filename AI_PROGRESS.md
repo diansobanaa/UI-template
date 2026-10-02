@@ -1,6 +1,6 @@
 ## SP-GRACE-PERIOD-FIX-001 — Fix Runtime Grace Period Visibility & Manual Sync Trigger in Web UI
 - **Date**: 2026-10-03
-- **Git Commit**: `pending`
+- **Git Commit**: `a91c9be`
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES)`
 - **Objective**:
   1. Fix root cause where the 15-second grace period loading card was never visible in Web UI due to `stVal?.todaySchedule.length > 0` short-circuiting `esp32HasData`.
