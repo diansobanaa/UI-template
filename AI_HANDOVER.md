@@ -4,7 +4,7 @@
 **Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump**
 **Safe Point**: `SP-WELL-PUMP-003`
 **Date**: 2026-10-03
-**Git Commit**: `PENDING`
+**Git Commit**: `6cd9467`
 - **Verdict**: `COMPLETE & VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,595,744 B) — REST ENDPOINTS PASS — FRONTEND PASS (0 TS ERRORS) — CANONICAL DOCS UPDATED`
 
 ### Summary of What Was Done

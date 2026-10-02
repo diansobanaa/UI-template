@@ -1,6 +1,6 @@
 ## SP-WELL-PUMP-003 — Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `6cd9467`
 - **Status**: `COMPLETE & VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,595,744 B) — FRONTEND PASS (0 TS ERRORS) — CANONICAL DOCS UPDATED`
 - **Objective**:
   1. Remove the artificial and redundant `AUTO` vs `MANUAL` operating mode toggle buttons and select fields from the Web UI (`WellPumpControlCard.tsx`, `AddWellPumpDrawer.tsx`).
