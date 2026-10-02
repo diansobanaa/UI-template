@@ -14,7 +14,7 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent } from "./api/contracts";
+import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, WellPumpMode } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
 import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
@@ -2558,7 +2558,32 @@ export const fertigationService = {
     }
   },
 
-  /** Radar interlock: pump may only start when the tank is still filling (spec #16). */
+  /** Retrieve authoritative Well Pump status, mode, and 15-minute runtime countdown from ESP32. */
+  async getWellPumpDetails(): Promise<WellPumpDetails | null> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        return await esp32Client.getWellPump();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  },
+
+  /** Switch Well Pump operating mode (AUTO or MANUAL) with zero confirmation dialogs. */
+  async setWellPumpMode(complexId: string, mode: WellPumpMode): Promise<WellPumpDetails | null> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        return await esp32Client.setWellPumpMode(mode);
+      } catch (err: unknown) {
+        const errorObj = err as { message?: string };
+        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to set Well Pump operating mode on ESP32.");
+      }
+    }
+    return null;
+  },
+
+  /** Manual Well Pump operation with 15-minute runtime ceiling. Physical 220V radar protection is independent. */
   async setWellPump(complexId: string, on: boolean): Promise<void> {
     const complex = assertFound(complexService.get(complexId), "Complex");
     if (on && complex.emergencyStopped) {

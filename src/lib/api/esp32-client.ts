@@ -38,6 +38,8 @@ import type {
   AlarmsResponse,
   AlarmSummary,
   AlarmItem,
+  WellPumpDetails,
+  WellPumpMode,
 } from "./contracts";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
 import { getActiveBootstrapIp } from "../bootstrap-address";
@@ -670,6 +672,35 @@ export class Esp32Client {
 
   async testBuzzer(durationMs = 800): Promise<{ testActive: boolean; durationMs: number }> {
     return this.postEnveloped<{ testActive: boolean; durationMs: number }>("/api/v1/alarms/test", { durationMs });
+  }
+
+  /* ----------------------- Well Pump Manager ----------------------- */
+
+  async getWellPump(): Promise<WellPumpDetails> {
+    return this.getEnveloped<WellPumpDetails>("/api/v1/well-pump");
+  }
+
+  async setWellPumpMode(mode: WellPumpMode): Promise<WellPumpDetails> {
+    return this.postEnveloped<WellPumpDetails>("/api/v1/well-pump/mode", { mode });
+  }
+
+  async startWellPumpManual(): Promise<CommandReceipt> {
+    const cmdId = `wp-start-${Date.now()}`;
+    return this.postCommand(cmdId, "WELL_PUMP_START", {
+      componentId: "pump_well",
+      durationSeconds: 900,
+      maxRuntimeSec: 900,
+      source: "MANUAL",
+    });
+  }
+
+  async stopWellPumpManual(): Promise<CommandReceipt> {
+    const cmdId = `wp-stop-${Date.now()}`;
+    return this.postCommand(cmdId, "WELL_PUMP_STOP", {
+      componentId: "pump_well",
+      durationSeconds: 0,
+      source: "MANUAL",
+    });
   }
 }
 

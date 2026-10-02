@@ -645,6 +645,52 @@ Emergency stop state is device-owned.
 
 ---
 
+# 19A. Well Pump Control & Operating Mode API
+
+## Endpoints
+
+```http
+GET  /api/v1/well-pump
+POST /api/v1/well-pump/mode
+POST /api/v1/commands (with type WELL_PUMP_START, WELL_PUMP_STOP, or ACTUATOR_SET)
+```
+
+### 1. GET /api/v1/well-pump
+Returns authoritative Well Pump operating mode (`AUTO` or `MANUAL`), confirmed physical relay state on GPIO 1 (Active-LOW), active manual session deadline, remaining monotonic seconds (out of 900s / 15-min limit), stop reason, and schedule metadata.
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "mode": "MANUAL",
+    "on": true,
+    "state": "MANUAL_RUNNING",
+    "manualActive": true,
+    "maxRuntimeSec": 900,
+    "elapsedSec": 120,
+    "remainingSec": 780,
+    "stopReason": "NONE",
+    "activeScheduleId": null,
+    "nextSchedule": "14:00"
+  }
+}
+```
+
+### 2. POST /api/v1/well-pump/mode
+Switches operating mode (`AUTO` or `MANUAL`) with zero confirmation dialogs:
+```json
+{
+  "mode": "AUTO"
+}
+```
+- **MANUAL Mode:** Operator has authoritative ON/OFF control through Web UI and physical toggle (Button 2 / GPIO 39). Manual ON enforces a mandatory 15-minute (900 seconds) continuous runtime limit on ESP32 (`MANUAL_RUNTIME_LIMIT_REACHED`). Repeated ON commands during an active session do not reset or extend the deadline. Scheduled ON/OFF commands do not override manual state.
+- **AUTO Mode:** Scheduler has control authority. Returning to AUTO immediately evaluates current schedule: turns ON if current time is within an active schedule interval, OFF if outside. Expired schedules are not replayed.
+- **Emergency Stop:** E-Stop trips force relay OFF immediately and lock out commands regardless of mode.
+- **220V Radar:** Physical radar cutoff remains independent of ESP32 software.
+
+---
+
 # 20. Crop Cycle / Masa Tanam — Direct UI ↔ ESP32 Contract
 
 This is part of the **current UI↔ESP32 MVP**, because the existing UI explicitly performs these actions against the ESP32 boundary. The existing UX specification requires the UI to send planting, pollination, date changes, harvest, and recovery/reconnect behavior through ESP32. fileciteturn12file3L278-L305 fileciteturn12file6L561-L575

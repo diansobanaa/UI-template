@@ -168,43 +168,39 @@ Maknanya:
 
 ESP32 memperlakukan durasi atau to-time sebagai batas berhenti schedule otomatis.
 
-Manual ON/OFF
+Manual ON/OFF & Mode Arbitration
 
 Manual operation diperbolehkan melalui:
+1. Tombol toggle fisik pada controller utama (Button 2 / GPIO 39).
+2. Web UI manual control card.
 
-toggle fisik pada controller utama;
+Aturan authoritative manual ON & Mode Arbitration:
+- **Operating Modes:** Sistem memiliki dua mode operasi: `AUTO` (default/scheduler) dan `MANUAL` (operator).
+- **Manual ON Maksimal 15 Menit:** Durasi continuous manual ON dibatasi keras maksimal **15 menit (900 detik)** menggunakan monotonic hardware clock (`esp_timer_get_time()`). Timer ini tidak dipengaruhi oleh sinkronisasi wall-clock / RTC.
+- **Pemberhentian Dini:** Operator dapat mematikan pompa setiap saat sebelum batas 15 menit tercapai melalui Web UI atau toggle fisik (reason: `OPERATOR_OFF`).
+- **Otomatis Berhenti pada 15 Menit:** Ketika 15 menit continuous run tercapai, firmware ESP32 otomatis mematikan relay output, membersihkan sesi manual, mencatat event `MANUAL_RUNTIME_LIMIT_REACHED`, dan memperbarui status telemetry.
+- **Idempoten (Repeated ON Tidak Mereset Timer):** Permintaan ON berulang atau klik tombol duplikat selama sesi aktif TIDAK memperpanjang batas deadline 15 menit. Deadline dihitung dari waktu perintah ON pertama diterima.
+- **Sesi Baru Bounded:** Sesi manual baru dengan batas 15 menit baru hanya dapat dimulai setelah sesi sebelumnya selesai atau dihentikan secara eksplisit.
+- **Jadwal Tidak Diubah:** Operasi manual tidak mengubah, menimpa, atau menghapus konfigurasi jadwal otomatis yang tersimpan di NVS.
+- **Isolasi Mode MANUAL:** Perintah jadwal otomatis (`AUTO`) TIDAK dapat mematikan atau menyalakan pompa saat mode `MANUAL` aktif.
+- **Transisi MANUAL ke AUTO (Zero Confirmation):** Saat operator beralih dari `MANUAL` ke `AUTO`, firmware ESP32 langsung mengevaluasi jadwal saat itu secara instan **tanpa dialog konfirmasi**:
+  * Jika waktu saat ini berada di dalam jendela jadwal ON yang aktif, pompa langsung ON.
+  * Jika waktu saat ini berada di luar jadwal aktif, pompa langsung OFF.
+- **Jadwal Kadaluarsa Tidak Dimainkan Ulang (No Replay):** Jadwal yang telah lewat selama sistem berada dalam mode MANUAL tidak dimainkan ulang (tidak ada replay historis).
+- **Prioritas Safety (Emergency Stop):** Kondisi Emergency Stop dan interlock keselamatan selalu beroperasi pada prioritas tertinggi, memaksa pompa OFF seketika dan memblokir perintah manual maupun terjadwal.
+- **Reboot Behavior:** Setelah ESP32 restart, output relay selalu diinisialisasi ke kondisi safe OFF (GPIO 1 HIGH, Relay de-energized Active-LOW). Sesi manual lama dibatalkan dan tidak pernah dilanjutkan secara otomatis. Jika mode yang dipulihkan adalah AUTO, evaluasi jadwal baru dilakukan setelah waktu tersinkronisasi.
+- **Enforcement Mandiri tanpa Web UI:** Firmware ESP32 menegakkan batas 15 menit secara otonom meskipun Web UI ditutup, browser tidak aktif, atau jaringan terputus.
 
-tombol/toggle pada web app melalui URL link/control page.
+Interlock & Hardware Protection
 
-Aturan manual ON:
-
-manual ON maksimal 15 menit;
-
-sebelum 15 menit tercapai, user dapat menghentikan dengan tombol STOP di web app atau toggle fisik;
-
-ketika batas 15 menit tercapai, ESP32 harus otomatis mematikan well pump;
-
-manual ON tidak menghapus atau mengubah schedule otomatis.
-
-Contoh:
-
-10:00 -> user tekan MANUAL ON
-10:00–10:15 -> pompa boleh ON
-10:07 -> user tekan STOP -> pompa OFF
-
-Interlock
-
-Well-pump safety cutoff tidak dikelola oleh ESP32 berdasarkan radar 220V.
-
-Arsitektur fisik yang dipilih adalah:
+Well-pump safety cutoff tidak dikelola oleh ESP32 berdasarkan radar 220V:
 
 Well Pump power/control
       │
-      └── safety cutoff lewat radar 220V
+      └── safety cutoff lewat radar 220V (Fisik / Eksternal)
 
-ESP32 tidak memotong jalur listrik radar sebagai interlock software.
-
-Dengan demikian, ESP32 dapat mengetahui state command/control yang dikirimnya, tetapi keputusan pemutusan daya karena kondisi radar/full tank dilakukan oleh rangkaian radar 220V yang memutus koneksi pump secara fisik.
+ESP32 tidak memotong jalur listrik radar sebagai interlock software, dan tidak memiliki dependensi float sensor tangki aduk untuk Well Pump.
+Keputusan pemutusan daya karena kondisi radar/full tank dilakukan oleh rangkaian radar 220V yang memutus koneksi pump secara fisik mandiri. Command relay=ON pada GPIO 1 hanya membuktikan relay ter-energize, bukan bukti aliran fisik air bergerak jika radar fisik sedang memutus sirkuit 220V.
 
 Penting: status radar 220V dan status aktual listrik pump belum menjadi telemetry ESP32 pada spesifikasi ini. Jangan menganggap commanded=ON berarti motor pasti sedang menerima daya.
 

@@ -1,3 +1,100 @@
+## SP-WELL-PUMP-001 — Well Pump Manual & Scheduled Control, 15-Minute Runtime Limit, and Operating Mode Arbitration
+- **Date**: 2026-10-03
+- **Git Commit**: `3fb3bf8`
+- **Status**: `COMPLETE & FULLY VERIFIED — ESP32 FIRMWARE BUILD PASS (agrotech_esp32.bin) — WELL PUMP SUITE PASS (24/24 SCENARIOS) — FRONTEND PASS (0 TS ERRORS) — MASTER SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Objective**:
+  1. Fix Well Pump (`pump_well`, GPIO 1, Relay 1, Active-LOW) manual ON/OFF reliability through Web UI and physical toggle (Button 2 / GPIO 39).
+  2. Implement mandatory 15-minute (900 seconds) continuous manual ON ceiling via monotonic clock (`esp_timer_get_time()`), stopping automatically and logging `MANUAL_RUNTIME_LIMIT_REACHED`.
+  3. Ensure operator can stop pump manually before 15 minutes (`OPERATOR_OFF`), clearing the session immediately.
+  4. Ensure repeated ON commands during an active session are idempotent and do not extend or reset the deadline.
+  5. Establish strict operating modes: `AUTO` (scheduler owns relay) and `MANUAL` (operator owns relay).
+  6. Ensure switching from `MANUAL` to `AUTO` immediately evaluates current schedule state without confirmation dialogs: turning ON if within active window, OFF if outside. Expired schedules are not replayed.
+  7. Ensure scheduler evaluations in `MANUAL` mode do not override or toggle relay output.
+  8. Ensure manual commands in `AUTO` mode are rejected with `MODE_RESTRICTION`.
+  9. Ensure Emergency Stop always takes precedence and forces relay OFF.
+  10. Decouple Well Pump from mixing tank lower float sensor (pump is protected independently by 220V radar cutoff).
+  11. Eliminate obsolete legacy implementations (`manual_actuator_mgr.c`/`.h`).
+- **Root Cause of Previous Manual OFF Failure**:
+  - *Immediate Scheduler Re-Triggering:* Previously, firmware lacked operating mode arbitration. In `scheduler.c`, when a schedule was due or pending while the pump was running manually, `command_mgr_submit` returned `ESP_ERR_INVALID_STATE` (`RESOURCE_BUSY`), setting `sched->pending = true`. When the operator sent `WELL_PUMP_STOP`, the relay opened, but within 1 second `scheduler_task` ran, saw `sched->pending == true` and idle relay, and immediately turned the pump back ON.
+  - *Orphaned FreeRTOS Task:* `command_mgr.c` spawned an un-cancellable `component_timed_task` sleeping in a 900s loop that did not listen to stop commands.
+  - *Fragmented Competing Logic:* `panel_button_mgr.c` had a separate hardcoded 5-minute timer and checked `PIN_IN_FLOAT_LOWER == FLOAT_LEVEL_DRY` (erroneously blocking the well pump when the mixing tank was dry). `manual_actuator_mgr.c` was vestigial dead code.
+- **Completed Work**:
+  - `esp32/main/services/well_pump_mgr.h` & `esp32/main/services/well_pump_mgr.c` (NEW):
+    - Authoritative centralized controller with FreeRTOS 250ms monitor task (`well_pump_mon`).
+    - NVS persistence for operating mode (`WELL_PUMP_MODE_AUTO` vs `WELL_PUMP_MODE_MANUAL`).
+    - Monotonic deadline calculation (`esp_timer_get_time()`), automatic shutoff after 900s with `MANUAL_RUNTIME_LIMIT_REACHED` event.
+    - Idempotent repeated ON, early manual stop (`OPERATOR_OFF`), physical toggle handling (`well_pump_toggle_physical()`).
+    - Immediate schedule evaluation on transition to `AUTO` (`well_pump_reconcile_auto_schedule()`).
+  - `esp32/main/services/scheduler.h` & `esp32/main/services/scheduler.c`:
+    - Added `scheduler_is_well_pump_schedule_active()` and `scheduler_get_well_pump_next_schedule()`.
+    - Added parsing of `"to-time"` / `"toTime"` / `"endTime"` in `parse_schedule_intent_item` to calculate explicit schedule durations.
+    - Suppressed schedule dispatch for `pump_well` while `well_pump_get_mode() == WELL_PUMP_MODE_MANUAL`, updating occurrence markers to prevent retroactive replay on return to AUTO.
+  - `esp32/main/services/panel_button_mgr.c`:
+    - Replaced isolated 5-minute timer and lower float dry-run check with delegation to `well_pump_toggle_physical()`.
+  - `esp32/main/services/command_mgr.h` & `esp32/main/services/command_mgr.c`:
+    - Added `CMD_TYPE_WELL_PUMP_MODE` and mode parameter handling.
+    - Enforced `cur_mode == WELL_PUMP_MODE_AUTO` rejection (`MODE_RESTRICTION`) for manual commands.
+    - Replaced asynchronous `component_timed_task` for well pump with direct, synchronous delegation to `well_pump_manual_start()`, `well_pump_manual_stop()`, and `well_pump_set_mode()`.
+    - Added `well_pump_emergency_stop()` hooks into safety trip paths.
+  - `esp32/main/http/api_command_handlers.c`:
+    - Added parsing for `WELL_PUMP_SET_MODE`, `SET_WELL_PUMP_MODE`, `SET_MODE`, `well_pump_manual_start`, `well_pump_manual_stop`.
+  - `esp32/main/http/api_device_handlers.h` & `esp32/main/http/api_device_handlers.c`:
+    - Added `wellPumpDetails` (mode, on, state, manualActive, maxRuntimeSec, elapsedSec, remainingSec, stopReason, nextSchedule) to `GET /api/v1/status`.
+    - Added `handler_get_well_pump` (`GET /api/v1/well-pump`) and `handler_post_well_pump_mode` (`POST /api/v1/well-pump/mode`).
+  - `esp32/main/http/http_server.c`: Registered `/api/v1/well-pump` and `/api/v1/well-pump/mode`.
+  - `esp32/main/main.c`: Replaced `manual_actuator_mgr_init()` with `well_pump_mgr_init()`.
+  - `esp32/main/CMakeLists.txt`: Replaced `services/manual_actuator_mgr.c` with `services/well_pump_mgr.c`.
+  - Removed obsolete `manual_actuator_mgr.c` and `manual_actuator_mgr.h`.
+  - `src/lib/api/contracts.ts`: Added `WellPumpMode`, `WellPumpDetails`, `WellPumpStatusResponse`.
+  - `src/lib/api/esp32-client.ts`: Added `getWellPump()`, `setWellPumpMode()`, `startWellPumpManual()`, `stopWellPumpManual()`.
+  - `src/lib/services.ts`: Added `getWellPumpDetails()`, `setWellPumpMode()`, updated `setWellPump()`.
+  - `src/components/WellPumpControlCard.tsx` (NEW):
+    - Real-time card with AUTO/MANUAL toggle (zero confirmation dialogs).
+    - Monotonic countdown display (remaining/elapsed time of 15:00 limit with progress bar).
+    - Clear stop reason indicator ("Maximum manual runtime reached").
+    - Schedule window info in AUTO mode.
+  - `src/app/schedule/page.tsx` & `src/app/dashboard/page.tsx`: Embedded `WellPumpControlCard`.
+  - Canonical documentation updated: `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+- **Verification Results**:
+  - ESP32 Firmware Build (`powershell scripts/build_esp32.ps1`): PASS (`agrotech_esp32.bin` 1,596,128 B, 49% free flash).
+  - Well Pump Test Suite (`node scripts/test_well_pump_scenarios.mjs`): 24/24 PASSED (WP-M01..M06, WP-S01..S07, WP-R01..R06, WP-H01..H05).
+  - Frontend TypeScript Check (`npx tsc --noEmit`): 0 errors.
+  - Master Simulation Suite (`node scripts/simulate_56_scenarios.mjs`): 56/56 PASSED.
+  - Regression & Consistency Suite (`node scripts/test_fertigation_queue_consistency.mjs`): 15/15 PASSED.
+- **Changed Files**:
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/main/main.c`
+  - `esp32/main/services/well_pump_mgr.h` (NEW)
+  - `esp32/main/services/well_pump_mgr.c` (NEW)
+  - `esp32/main/services/manual_actuator_mgr.h` (DELETED)
+  - `esp32/main/services/manual_actuator_mgr.c` (DELETED)
+  - `esp32/main/services/command_mgr.h`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/services/scheduler.h`
+  - `esp32/main/services/scheduler.c`
+  - `esp32/main/services/panel_button_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_device_handlers.h`
+  - `esp32/main/http/api_device_handlers.c`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/utils/psram_task.h`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/lib/services.ts`
+  - `src/components/WellPumpControlCard.tsx` (NEW)
+  - `src/app/schedule/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `UI_ESP32_COMMUNICATION_SPEC.md`
+  - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`
+  - `scripts/test_well_pump_scenarios.mjs` (NEW)
+- **Known Issues**:
+  - Physical water movement relies on the external 220V radar float switch. ESP32 commanded ON reflects relay state on GPIO 1, not confirmed flow.
+- **Next Action**:
+  - Commit repository safe point to Git.
+
+---
+
 ## SP-ALARM-BUZZER-001 — Centralized Physical Buzzer & Safety Alarm Manager (GPIO 18) Implementation & Verification
 - **Date**: 2026-10-02
 - **Git Commit**: `d0d439d`

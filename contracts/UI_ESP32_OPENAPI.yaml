@@ -169,6 +169,45 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/well-pump:
+    get:
+      tags: [Device]
+      operationId: getWellPump
+      summary: Get authoritative Well Pump state, operating mode, and 15-minute countdown
+      responses:
+        "200":
+          description: Well Pump status details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WellPumpStatusResponse"
+
+  /api/v1/well-pump/mode:
+    post:
+      tags: [Device]
+      operationId: setWellPumpMode
+      summary: Set Well Pump operating mode (AUTO or MANUAL) with zero confirmation dialogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  enum: [AUTO, MANUAL]
+      responses:
+        "200":
+          description: Well Pump mode updated and schedule reconciled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WellPumpStatusResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /api/v1/status:
     get:
       tags: [Device]
@@ -2214,6 +2253,8 @@ components:
                   $ref: "#/components/schemas/CropCycle"
                 queue: { type: object, additionalProperties: true }
                 sync: { type: object, additionalProperties: true }
+                wellPumpDetails:
+                  $ref: "#/components/schemas/WellPumpDetails"
 
     InventoryResponse:
       allOf:
@@ -3450,5 +3491,53 @@ components:
         acknowledgedAt: { type: integer, nullable: true }
         silencedAt: { type: integer, nullable: true }
         resolvedAt: { type: integer, nullable: true }
+
+    WellPumpStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WellPumpDetails"
+
+    WellPumpDetails:
+      type: object
+      required: [mode, on, state, manualActive, maxRuntimeSec, elapsedSec, remainingSec, stopReason]
+      properties:
+        mode:
+          type: string
+          enum: [AUTO, MANUAL]
+          description: "Authoritative operating mode: AUTO (scheduler owns relay) or MANUAL (operator owns relay)"
+        on:
+          type: boolean
+          description: "Confirmed relay state on GPIO 1 (true = ON / relay energized Active-LOW 0)"
+        state:
+          type: string
+          enum: [STOPPED, MANUAL_RUNNING, SCHEDULED_RUNNING]
+          description: "Granular operational runtime state"
+        manualActive:
+          type: boolean
+          description: "Whether a bounded 15-minute manual run session is actively ticking"
+        maxRuntimeSec:
+          type: integer
+          description: "Mandatory maximum continuous manual runtime ceiling (900 seconds / 15 minutes)"
+        elapsedSec:
+          type: integer
+          description: "Elapsed seconds since accepted manual start command"
+        remainingSec:
+          type: integer
+          description: "Remaining monotonic seconds until automatic ESP32 shutoff"
+        stopReason:
+          type: string
+          description: "Diagnostic reason code for last stop event (e.g. OPERATOR_OFF, MANUAL_RUNTIME_LIMIT_REACHED, SCHEDULE_STOP, SAFETY_ESTOP)"
+        activeScheduleId:
+          type: string
+          nullable: true
+          description: "Currently executed schedule ID if running under AUTO mode"
+        nextSchedule:
+          type: string
+          nullable: true
+          description: "Next scheduled start time today (HH:MM)"
+
 
 

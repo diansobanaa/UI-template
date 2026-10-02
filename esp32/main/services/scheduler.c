@@ -16,6 +16,7 @@
 #include "services/safety_monitor.h"
 #include "services/topology_capability.h"
 #include "services/fertigation_mgr.h"
+#include "services/well_pump_mgr.h"
 #include "storage/storage_mgr.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -968,6 +969,15 @@ static esp_err_t sync_intents_locked(void) {
       rs->resource_count = 1;
     }
 
+    const char *trig = json_string(it, "trigger");
+    const char *time_str = json_string(it, "time");
+    if (!time_str || !time_str[0]) {
+      cJSON *trig_obj = cJSON_GetObjectItem(it, "trigger");
+      if (trig_obj && cJSON_IsObject(trig_obj)) {
+        time_str = json_string(trig_obj, "time");
+      }
+    }
+
     int32_t dur_sec = (int32_t)json_i64(it, "durationSec", 0);
     if (dur_sec <= 0) {
       cJSON *params = cJSON_GetObjectItem(it, "parameters");
@@ -981,17 +991,23 @@ static esp_err_t sync_intents_locked(void) {
       if (dm && cJSON_IsNumber(dm)) dur_min = dm->valuedouble;
       if (dur_min > 0) dur_sec = (int32_t)(dur_min * 60.0 + 0.5);
     }
-    if (dur_sec <= 0) dur_sec = 60;
-    rs->duration_sec = dur_sec;
-
-    const char *trig = json_string(it, "trigger");
-    const char *time_str = json_string(it, "time");
-    if (!time_str || !time_str[0]) {
-      cJSON *trig_obj = cJSON_GetObjectItem(it, "trigger");
-      if (trig_obj && cJSON_IsObject(trig_obj)) {
-        time_str = json_string(trig_obj, "time");
+    /* Parse to-time / endTime if explicit stop time is specified (e.g. time: "06:00", to-time: "06:01") */
+    const char *to_time = json_string(it, "to-time");
+    if (!to_time || !to_time[0]) to_time = json_string(it, "toTime");
+    if (!to_time || !to_time[0]) to_time = json_string(it, "endTime");
+    if (to_time && to_time[0] && time_str && time_str[0]) {
+      unsigned int sh = 0, sm = 0, eh = 0, em = 0;
+      if (sscanf(time_str, "%u:%u", &sh, &sm) == 2 && sscanf(to_time, "%u:%u", &eh, &em) == 2) {
+        int start_sec = (sh % 24) * 3600 + (sm % 60) * 60;
+        int end_sec = (eh % 24) * 3600 + (em % 60) * 60;
+        int diff = end_sec - start_sec;
+        if (diff > 0) {
+          dur_sec = diff;
+        }
       }
     }
+    if (dur_sec <= 0) dur_sec = 60;
+    rs->duration_sec = dur_sec;
 
     /* Parse days of week: support days array, daysOfWeek number/array */
     uint8_t dow_mask = 0;
@@ -2286,6 +2302,22 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     if (strcmp(sched->action, "FERTIGATION") == 0)
       continue;
 
+    /* Check if Well Pump is under MANUAL mode */
+    bool is_well_pump_sched = (strcmp(sched->action, "WATER_PUMP") == 0) ||
+        (sched->component_count > 0 && strcmp(sched->component_ids[0], "pump_well") == 0);
+    if (is_well_pump_sched && well_pump_get_mode() == WELL_PUMP_MODE_MANUAL) {
+      /* While in MANUAL mode, operator has exclusive direct control.
+       * Ordinary schedule evaluations must not override manual state.
+       * Track occurrence so expired schedules are not replayed when returning to AUTO. */
+      int64_t occ = 0;
+      bool mis = false;
+      if (occurrence_is_due(sched, now, &occ, &mis)) {
+        sched->last_occurrence_timestamp = occ;
+      }
+      sched->pending = false;
+      continue;
+    }
+
     int64_t occurrence = 0;
     bool is_missed = false;
     if (sched->pending && sched->pending_occurrence_timestamp > 0) {
@@ -2696,4 +2728,107 @@ esp_err_t scheduler_trigger_daily_now(void) {
   try_enqueue_pending_preparations(now);
   xSemaphoreGive(s_mutex);
   return ESP_OK;
+}
+
+bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len) {
+  if (!s_mutex || !local_clock_valid(now)) return false;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return false;
+
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  int current_sec_of_day = tm_now.tm_hour * 3600 + tm_now.tm_min * 60 + tm_now.tm_sec;
+  int current_dow = tm_now.tm_wday; // 0 = Sunday
+
+  bool active = false;
+  for (size_t i = 0; i < s_runtime_count; ++i) {
+    runtime_schedule_t *rs = &s_runtime[i];
+    if (!rs->valid) continue;
+    if (strcmp(rs->action, "WATER_PUMP") != 0 &&
+        !(rs->component_count > 0 && strcmp(rs->component_ids[0], "pump_well") == 0)) {
+      continue;
+    }
+
+    if (rs->type == SCHED_TYPE_DAILY || rs->type == SCHED_TYPE_INTERVAL) {
+      if (!(rs->days_of_week & (1 << current_dow))) continue;
+
+      int sched_start_sec = rs->hour * 3600 + rs->minute * 60;
+      int sched_end_sec = sched_start_sec + rs->duration_sec;
+
+      if (current_sec_of_day >= sched_start_sec && current_sec_of_day < sched_end_sec) {
+        active = true;
+        if (out_remaining_sec) *out_remaining_sec = (uint32_t)(sched_end_sec - current_sec_of_day);
+        if (out_schedule_id && id_len > 0) {
+          strncpy(out_schedule_id, rs->schedule_id, id_len - 1);
+          out_schedule_id[id_len - 1] = '\0';
+        }
+        break;
+      }
+    } else if (rs->type == SCHED_TYPE_ONCE) {
+      if (now >= rs->once_timestamp && now < (rs->once_timestamp + rs->duration_sec)) {
+        active = true;
+        if (out_remaining_sec) *out_remaining_sec = (uint32_t)((rs->once_timestamp + rs->duration_sec) - now);
+        if (out_schedule_id && id_len > 0) {
+          strncpy(out_schedule_id, rs->schedule_id, id_len - 1);
+          out_schedule_id[id_len - 1] = '\0';
+        }
+        break;
+      }
+    }
+  }
+
+  xSemaphoreGive(s_mutex);
+  return active;
+}
+
+bool scheduler_get_well_pump_next_schedule(time_t now, char *out_next_time, size_t len) {
+  if (!s_mutex || !local_clock_valid(now) || !out_next_time || len == 0) return false;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return false;
+
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  int current_sec_of_day = tm_now.tm_hour * 3600 + tm_now.tm_min * 60 + tm_now.tm_sec;
+  int current_dow = tm_now.tm_wday;
+
+  int min_diff = 86400 * 7;
+  int next_hour = -1, next_min = -1;
+
+  for (size_t i = 0; i < s_runtime_count; ++i) {
+    runtime_schedule_t *rs = &s_runtime[i];
+    if (!rs->valid) continue;
+    if (strcmp(rs->action, "WATER_PUMP") != 0 &&
+        !(rs->component_count > 0 && strcmp(rs->component_ids[0], "pump_well") == 0)) {
+      continue;
+    }
+    if (rs->type == SCHED_TYPE_DAILY || rs->type == SCHED_TYPE_INTERVAL) {
+      int sched_start_sec = rs->hour * 3600 + rs->minute * 60;
+      if ((rs->days_of_week & (1 << current_dow)) && sched_start_sec > current_sec_of_day) {
+        int diff = sched_start_sec - current_sec_of_day;
+        if (diff < min_diff) {
+          min_diff = diff;
+          next_hour = rs->hour;
+          next_min = rs->minute;
+        }
+      } else {
+        for (int day_offset = 1; day_offset <= 7; day_offset++) {
+          int dow = (current_dow + day_offset) % 7;
+          if (rs->days_of_week & (1 << dow)) {
+            int diff = day_offset * 86400 + (sched_start_sec - current_sec_of_day);
+            if (diff < min_diff) {
+              min_diff = diff;
+              next_hour = rs->hour;
+              next_min = rs->minute;
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  xSemaphoreGive(s_mutex);
+  if (next_hour >= 0) {
+    snprintf(out_next_time, len, "%02d:%02d", next_hour, next_min);
+    return true;
+  }
+  return false;
 }

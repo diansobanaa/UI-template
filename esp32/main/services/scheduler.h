@@ -62,6 +62,18 @@ esp_err_t scheduler_clear_compiled(void);
 /** One deterministic scheduler evaluation pass. Useful for host/simulation tests. */
 esp_err_t scheduler_evaluate_at(time_t now);
 
+/**
+ * @brief Checks if any Well Pump schedule is currently active at epoch time 'now'.
+ * If active, returns true and populates out_remaining_sec and out_schedule_id.
+ */
+bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len);
+
+/**
+ * @brief Find the next scheduled start time for Well Pump.
+ * Returns true if an upcoming schedule was found, populating out_next_time (e.g. "14:00").
+ */
+bool scheduler_get_well_pump_next_schedule(time_t now, char *out_next_time, size_t len);
+
 typedef enum {
     OCC_STATE_PENDING = 0,
     OCC_STATE_PREPARING,

@@ -1,4 +1,42 @@
-# AI HANDOVER — SP-ALARM-BUZZER-001 (latest)
+# AI HANDOVER — SP-WELL-PUMP-001 (latest)
+
+## Status — SP-WELL-PUMP-001
+**Well Pump Manual & Scheduled Control, 15-Minute Runtime Limit, and Operating Mode Arbitration**
+**Safe Point**: `SP-WELL-PUMP-001`
+**Date**: 2026-10-03
+**Git Commit**: `3fb3bf8`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — ESP32 FIRMWARE BUILD PASS (agrotech_esp32.bin) — WELL PUMP SUITE PASS (24/24 SCENARIOS) — FRONTEND PASS (0 TS ERRORS) — MASTER SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis (Why Manual OFF Failed & Timers Stuck)**:
+   - *Scheduler Re-Triggering Race:* Firmware previously lacked mode arbitration. When pump was running manually, scheduled attempts failed with `ESP_ERR_INVALID_STATE` (`RESOURCE_BUSY`), latching `sched->pending = true`. When operator stopped pump manually, `scheduler_task` ran on the next 1-second tick, saw `sched->pending == true` and idle relay, and re-energized the pump immediately.
+   - *Orphaned Timed Task:* `command_mgr.c` spawned an un-cancellable `component_timed_task` sleeping in a 900-second loop that did not listen to stop events.
+   - *Fragmented Competing Logic:* `panel_button_mgr.c` had a separate hardcoded 5-minute timer and checked `PIN_IN_FLOAT_LOWER == FLOAT_LEVEL_DRY` (erroneously blocking the well pump when the mixing tank was dry). `manual_actuator_mgr.c` was vestigial dead code.
+2. **Authoritative Well Pump Manager (`well_pump_mgr.h`/`well_pump_mgr.c`)**:
+   - Centralized state machine owning GPIO 1 (Relay 1, Active-LOW 0 = ON, 1 = OFF).
+   - NVS persistence for operating mode (`WELL_PUMP_MODE_AUTO` vs `WELL_PUMP_MODE_MANUAL`).
+   - FreeRTOS 250ms monitor task (`well_pump_mon`) enforcing strict 15-minute (900 seconds) ceiling via monotonic hardware clock (`esp_timer_get_time()`).
+   - Idempotent repeated ON requests preserve existing deadline without resetting.
+   - Early manual stop (`OPERATOR_OFF`) immediately de-energizes relay and clears active session.
+   - Automatic stop at 15 minutes logs `MANUAL_RUNTIME_LIMIT_REACHED` and emits event.
+   - Switching from `MANUAL` to `AUTO` immediately evaluates current schedule state without confirmation dialogs.
+   - Deadlock-free concurrency: non-blocking volatile mode query allows scheduler lock acquisition without lock inversion.
+3. **Web UI & REST Endpoints**:
+   - `GET /api/v1/well-pump`: Returns mode, state, relay on/off, manualActive, maxRuntimeSec (900), elapsedSec, remainingSec, stopReason, nextSchedule.
+   - `POST /api/v1/well-pump/mode`: Direct mode switch (`AUTO` / `MANUAL`) with zero confirmation dialogs.
+   - `WellPumpControlCard.tsx`: Real-time reactive component with live monotonic countdown, progress bar, stop reason alerts, and schedule window info. Mounted in both Dashboard and Schedule views.
+4. **Code Cleanup**:
+   - Safely removed obsolete `manual_actuator_mgr.c` and `manual_actuator_mgr.h`.
+5. **Verification**:
+   - ESP32 firmware build: PASS (`agrotech_esp32.bin` 1,596,128 B, 49% free flash).
+   - `scripts/test_well_pump_scenarios.mjs`: 24/24 PASSED (WP-M01..M06, WP-S01..S07, WP-R01..R06, WP-H01..H05).
+   - `npx tsc --noEmit`: 0 TypeScript errors.
+   - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASSED.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASSED.
+
+---
+
+# AI HANDOVER — SP-ALARM-BUZZER-001 (previous)
 
 ## Status — SP-ALARM-BUZZER-001
 **Centralized Physical Buzzer & Safety Alarm Manager (GPIO 18) Implementation & Verification**

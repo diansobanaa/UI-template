@@ -25,7 +25,7 @@ idf_component_register(
         "services/event_mgr.c"
         "services/fertigation_mgr.c"
         "services/offline_sync_mgr.c"
-        "services/manual_actuator_mgr.c"
+        "services/well_pump_mgr.c"
         "services/transfer_mgr.c"
         "services/topology_capability.c"
         "services/topology_pool.c"

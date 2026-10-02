@@ -13,7 +13,7 @@
 #include "hal/hardware_registry.h"
 #include "services/event_mgr.h"
 #include "services/fertigation_mgr.h"
-#include "services/manual_actuator_mgr.h"
+#include "services/well_pump_mgr.h"
 #include "services/safety_monitor.h"
 #include "services/transfer_mgr.h"
 #include "storage/storage_mgr.h"
@@ -63,6 +63,8 @@ static const char *type_name(cmd_type_t type) {
     return "RESUME";
   case CMD_TYPE_COMPONENT_TIMED:
     return "COMPONENT_TIMED";
+  case CMD_TYPE_WELL_PUMP_MODE:
+    return "WELL_PUMP_MODE";
   default:
     return "CUSTOM";
   }
@@ -203,7 +205,8 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
     cmd->submitted_at = esp_timer_get_time() / 1000LL;
 
   const bool lifecycle_control =
-      cmd->type == CMD_TYPE_EMERGENCY_STOP || cmd->type == CMD_TYPE_RESUME;
+      cmd->type == CMD_TYPE_EMERGENCY_STOP || cmd->type == CMD_TYPE_RESUME ||
+      cmd->type == CMD_TYPE_WELL_PUMP_MODE;
   const bool component_physical = cmd->type == CMD_TYPE_COMPONENT_TIMED ||
                                   cmd->type == CMD_TYPE_WELL_PUMP ||
                                   cmd->type == CMD_TYPE_DIST_PUMP ||
@@ -387,6 +390,24 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
 
   bool on = false;
   actuator_owner_t owner = ACTUATOR_OWNER_NONE;
+  if (cmd->type == CMD_TYPE_WELL_PUMP || (cmd->component_id[0] && strcasestr(cmd->component_id, "well"))) {
+    well_pump_mode_t cur_mode = well_pump_get_mode();
+    bool is_scheduler = (strcasecmp(cmd->source, "SCHEDULER") == 0);
+    if (!is_scheduler) {
+      if (cur_mode == WELL_PUMP_MODE_AUTO) {
+        copy_str(code, code_len, "MODE_RESTRICTION");
+        copy_str(message, message_len, "Well pump is in AUTO mode. Switch to MANUAL mode to control manually.");
+        return ESP_ERR_INVALID_STATE;
+      }
+    } else {
+      if (cur_mode == WELL_PUMP_MODE_MANUAL) {
+        copy_str(code, code_len, "MODE_RESTRICTION");
+        copy_str(message, message_len, "Schedule rejected: Well pump is in MANUAL mode.");
+        return ESP_ERR_INVALID_STATE;
+      }
+    }
+  }
+
   uint32_t running_sec = 0;
   if (actuator_hal_get_component_status(cmd->component_id, &on, &owner,
                                         &running_sec) == ESP_OK) {
@@ -397,6 +418,10 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
       return ESP_ERR_INVALID_STATE;
     }
     if (cmd->param_on && on) {
+      if (cmd->type == CMD_TYPE_WELL_PUMP && strcasecmp(cmd->source, "SCHEDULER") != 0) {
+        /* Repeated manual ON during active session is idempotent per spec WP-M04 */
+        return ESP_OK;
+      }
       copy_str(code, code_len, "RESOURCE_BUSY");
       copy_str(message, message_len, "Target component is already running.");
       return ESP_ERR_INVALID_STATE;
@@ -628,8 +653,27 @@ static void command_worker_task(void *pvParameters) {
       result_message = err == ESP_OK
                            ? "Safety latch cleared after validated recovery."
                            : recovery_msg;
-    } else if (cmd->type == CMD_TYPE_WELL_PUMP ||
-               cmd->type == CMD_TYPE_DIST_PUMP ||
+    } else if (cmd->type == CMD_TYPE_WELL_PUMP) {
+      if (cmd->param_on) {
+        if (strcasecmp(cmd->source, "SCHEDULER") == 0) {
+          (void)actuator_hal_acquire_component(cmd->component_id, ACTUATOR_OWNER_SCHEDULER);
+          err = actuator_hal_set_by_component_id(cmd->component_id, true);
+        } else {
+          err = well_pump_manual_start((uint32_t)cmd->param_duration_sec);
+        }
+      } else {
+        if (strcasecmp(cmd->source, "SCHEDULER") == 0) {
+          err = actuator_hal_stop_component(cmd->component_id, ACTUATOR_OWNER_SCHEDULER);
+        } else {
+          err = well_pump_manual_stop("OPERATOR_OFF");
+        }
+      }
+      result_message = err == ESP_OK ? "Well pump command executed." : "Well pump command failed.";
+    } else if (cmd->type == CMD_TYPE_WELL_PUMP_MODE) {
+      well_pump_mode_t m = (strcasecmp(cmd->param_mode, "MANUAL") == 0) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
+      err = well_pump_set_mode(m);
+      result_message = err == ESP_OK ? "Well pump mode updated." : "Failed to set well pump mode.";
+    } else if (cmd->type == CMD_TYPE_DIST_PUMP ||
                cmd->type == CMD_TYPE_DOSING_RUN ||
                cmd->type == CMD_TYPE_COMPONENT_TIMED) {
       if (cmd->param_on) {
@@ -909,6 +953,7 @@ esp_err_t command_mgr_notify_safety_trip(const char *reason_code,
   xSemaphoreGive(s_cache_mutex);
   /* A global safety trip must also terminate orchestration state, not merely
    * GPIO outputs. */
+  (void)well_pump_emergency_stop();
   (void)transfer_mgr_stop();
   (void)fertigation_mgr_cancel_batch();
   return ESP_OK;

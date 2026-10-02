@@ -43,6 +43,7 @@ import { errorMessage } from "@/lib/errors";
 import { SYSTEM_NOW, delta, lux, n } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/overlay";
+import { WellPumpControlCard } from "@/components/WellPumpControlCard";
 import { complexRealtimeState, greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
@@ -795,6 +796,7 @@ function ComplexDashboardContent() {
               )}
             </div>
           </SectionCard>
+          <WellPumpControlCard complexId={complex.id} className="mt-4" />
         </div>
       </div>
 

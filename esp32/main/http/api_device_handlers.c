@@ -8,6 +8,7 @@
 #include "services/scheduler.h"
 #include "services/fertigation_mgr.h"
 #include "services/alarm_mgr.h"
+#include "services/well_pump_mgr.h"
 #include "config/system_config.h"
 #include "network/network_mgr.h"
 #include "esp_system.h"
@@ -118,6 +119,28 @@ esp_err_t handler_get_status(httpd_req_t *req)
         cJSON_AddItemToArray(components, item);
     }
     cJSON_AddBoolToObject(actuators, "wellPump", actuator_hal_get_state(ACTUATOR_WELL_PUMP));
+
+    well_pump_status_t wp_st;
+    if (well_pump_get_status(&wp_st) == ESP_OK) {
+        cJSON *wp_det = cJSON_AddObjectToObject(actuators, "wellPumpDetails");
+        cJSON_AddStringToObject(wp_det, "mode", wp_st.mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
+        cJSON_AddBoolToObject(wp_det, "on", wp_st.on);
+        cJSON_AddStringToObject(wp_det, "state", wp_st.on ? "RUNNING" : "STOPPED");
+        cJSON_AddBoolToObject(wp_det, "manualActive", wp_st.is_manual_session_active);
+        cJSON_AddNumberToObject(wp_det, "maxRuntimeSec", wp_st.max_runtime_sec);
+        cJSON_AddNumberToObject(wp_det, "elapsedSec", wp_st.elapsed_sec);
+        cJSON_AddNumberToObject(wp_det, "remainingSec", wp_st.remaining_sec);
+        cJSON_AddStringToObject(wp_det, "stopReason", wp_st.stop_reason);
+        cJSON_AddStringToObject(wp_det, "activeScheduleId", wp_st.active_schedule_id);
+
+        char next_buf[16] = {0};
+        time_t now_clk; time(&now_clk);
+        if (scheduler_get_well_pump_next_schedule(now_clk, next_buf, sizeof(next_buf))) {
+            cJSON_AddStringToObject(wp_det, "nextSchedule", next_buf);
+        } else {
+            cJSON_AddNullToObject(wp_det, "nextSchedule");
+        }
+    }
     cJSON_AddBoolToObject(actuators, "distPump", actuator_hal_get_state(ACTUATOR_DIST_PUMP));
     cJSON_AddBoolToObject(actuators, "rawSubmersible", actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE));
     cJSON_AddBoolToObject(actuators, "dosingA", actuator_hal_get_state(ACTUATOR_DOSING_A));
@@ -728,4 +751,69 @@ esp_err_t handler_post_topology_pool_mutate(httpd_req_t *req)
         return http_send_error(req, 500, "MUTATION_FAILED", "Failed to apply topology mutation.", p_req_id);
     }
     return http_send_enveloped_response(req, 200, p_req_id, result);
+}
+
+esp_err_t handler_get_well_pump(httpd_req_t *req)
+{
+    well_pump_status_t st;
+    if (well_pump_get_status(&st) != ESP_OK) {
+        return http_send_error(req, 500, "WELL_PUMP_ERROR", "Failed to retrieve Well Pump status.", NULL);
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "mode", st.mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
+    cJSON_AddBoolToObject(data, "on", st.on);
+    cJSON_AddStringToObject(data, "state", st.on ? "RUNNING" : "STOPPED");
+    cJSON_AddBoolToObject(data, "manualActive", st.is_manual_session_active);
+    cJSON_AddNumberToObject(data, "maxRuntimeSec", st.max_runtime_sec);
+    cJSON_AddNumberToObject(data, "elapsedSec", st.elapsed_sec);
+    cJSON_AddNumberToObject(data, "remainingSec", st.remaining_sec);
+    cJSON_AddStringToObject(data, "stopReason", st.stop_reason);
+    cJSON_AddStringToObject(data, "activeScheduleId", st.active_schedule_id);
+
+    char next_buf[16] = {0};
+    time_t now_clk; time(&now_clk);
+    if (scheduler_get_well_pump_next_schedule(now_clk, next_buf, sizeof(next_buf))) {
+        cJSON_AddStringToObject(data, "nextSchedule", next_buf);
+    } else {
+        cJSON_AddNullToObject(data, "nextSchedule");
+    }
+
+    return http_send_enveloped_response(req, 200, NULL, data);
+}
+
+static const char *get_json_str(cJSON *obj, const char *key)
+{
+    cJSON *v = obj ? cJSON_GetObjectItem(obj, key) : NULL;
+    return (v && cJSON_IsString(v)) ? v->valuestring : NULL;
+}
+
+esp_err_t handler_post_well_pump_mode(httpd_req_t *req)
+{
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload.", NULL);
+    }
+
+    const char *mode_str = get_json_str(body, "mode");
+    if (!mode_str) {
+        cJSON *params = cJSON_GetObjectItem(body, "parameters");
+        if (params && cJSON_IsObject(params)) mode_str = get_json_str(params, "mode");
+    }
+
+    if (!mode_str || !mode_str[0]) {
+        cJSON_Delete(body);
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Mode parameter ('AUTO' or 'MANUAL') is required.", NULL);
+    }
+
+    well_pump_mode_t target_mode = (strcasecmp(mode_str, "MANUAL") == 0) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
+    cJSON_Delete(body);
+
+    err = well_pump_set_mode(target_mode);
+    if (err != ESP_OK) {
+        return http_send_error(req, 500, "SET_MODE_FAILED", "Failed to update Well Pump operating mode.", NULL);
+    }
+
+    return handler_get_well_pump(req);
 }

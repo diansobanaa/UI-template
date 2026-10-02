@@ -25,6 +25,7 @@ import { ConfirmDialog } from "@/components/ui/overlay";
 import { AddFertigationDrawer } from "@/components/schedule/AddFertigationDrawer";
 import { AddWellPumpDrawer } from "@/components/schedule/AddWellPumpDrawer";
 import { AddFanScheduleDrawer } from "@/components/schedule/AddFanScheduleDrawer";
+import { WellPumpControlCard } from "@/components/WellPumpControlCard";
 import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
@@ -656,32 +657,7 @@ export function ScheduleContent({
           </DarkSectionCard>
         </div>
 
-        <DarkSectionCard title="Well Pump" icon={Radar} iconTone="slate" subtitle="AUTO MODE">
-          <div className="space-y-3">
-            <div className={`rounded-xl border px-4 py-4 ${radarState === "filling" ? "border-emerald-400/20 bg-emerald-500/8" : "border-slate-800 bg-slate-950/30"}`}>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Radar Tank Status</div>
-              <div className="mt-3 space-y-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-300">
-                    <span className={`h-2 w-2 rounded-full ${radarState === "filling" ? "bg-emerald-400 pulse-dot shadow-[0_0_10px_rgba(52,211,153,0.7)]" : "bg-emerald-400/35"}`} />
-                    Dalam Pengisian
-                  </span>
-                  {radarState === "filling" && <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />Pump allowed</span>}
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-400">
-                    <span className={`h-2 w-2 rounded-full ${radarState === "full" ? "bg-slate-300" : "bg-slate-700"}`} />
-                    Penuh
-                  </span>
-                  {radarState === "full" && <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/50 px-2.5 py-1 text-[10px] font-semibold text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" />Pump OFF</span>}
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-blue-400/10 bg-blue-500/7 px-3.5 py-3 text-[11px] leading-5 text-slate-400">
-              <span className="font-semibold text-blue-300">Binary radar state.</span> The schedule remains scheduled; radar only determines whether the physical pump is permitted to run.
-            </div>
-          </div>
-        </DarkSectionCard>
+        <WellPumpControlCard complexId={complex.id} dark={true} />
       </div>
 
       {/* Fan schedules (GH-level) */}

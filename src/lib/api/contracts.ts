@@ -1154,3 +1154,25 @@ export interface AlarmsResponse {
   recentAlarms: AlarmItem[];
 }
 
+/* -------------------- Well Pump Manager -------------------- */
+
+export type WellPumpMode = "AUTO" | "MANUAL";
+
+export interface WellPumpDetails {
+  mode: WellPumpMode;
+  on: boolean;
+  state: "STOPPED" | "MANUAL_RUNNING" | "SCHEDULED_RUNNING";
+  manualActive: boolean;
+  maxRuntimeSec: number;
+  elapsedSec: number;
+  remainingSec: number;
+  stopReason: string;
+  activeScheduleId?: string | null;
+  nextSchedule?: string | null;
+}
+
+export interface WellPumpStatusResponse {
+  success: boolean;
+  data: WellPumpDetails;
+}
+

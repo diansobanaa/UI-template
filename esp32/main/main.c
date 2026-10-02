@@ -29,7 +29,7 @@
 #include "services/crop_cycle_mgr.h"
 #include "services/event_mgr.h"
 #include "services/fertigation_mgr.h"
-#include "services/manual_actuator_mgr.h"
+#include "services/well_pump_mgr.h"
 #include "services/offline_sync_mgr.h"
 #include "services/panel_button_mgr.h"
 #include "services/safety_monitor.h"
@@ -352,7 +352,7 @@ void app_main(void) {
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
   ESP_ERROR_CHECK(command_mgr_init());
-  ESP_ERROR_CHECK(manual_actuator_mgr_init());
+  ESP_ERROR_CHECK(well_pump_mgr_init());
   ESP_ERROR_CHECK(transfer_mgr_init());
   ESP_ERROR_CHECK(calibration_mgr_init());
   ESP_ERROR_CHECK(alarm_mgr_init());
