@@ -48,7 +48,8 @@ export function AddWellPumpDrawer({
     const complex = snapshot.complexes.find((c) => c.id === complexId);
     const complexEq = complex?.equipment || [];
     const complexMatching = complexEq.filter((e) =>
-      /WELL_PUMP|WATER_PUMP|RAW_SUBMERSIBLE|pump_well|Deep Well|Well Pump/i.test(`${e.name} ${e.type} ${e.category}`)
+      /WELL_PUMP|WATER_PUMP|pump_well|Deep Well|Well Pump/i.test(`${e.name} ${e.type} ${e.category}`) &&
+      !/submersible/i.test(`${e.name} ${e.type} ${e.category}`)
     );
     if (complexMatching.length > 0) {
       return complexMatching.map((e) => ({
@@ -59,7 +60,10 @@ export function AddWellPumpDrawer({
     // 2. Fallback: search GH equipment (legacy)
     const ghList = snapshot.greenhouses.filter((g) => g.complexId === complexId);
     const eqList = ghList.flatMap((g) => g.equipment || []);
-    const matching = eqList.filter((e) => /WELL_PUMP|WATER_PUMP|RAW_SUBMERSIBLE|pump_well|Deep Well|Well Pump/i.test(`${e.name} ${e.type} ${e.category}`));
+    const matching = eqList.filter((e) =>
+      /WELL_PUMP|WATER_PUMP|pump_well|Deep Well|Well Pump/i.test(`${e.name} ${e.type} ${e.category}`) &&
+      !/submersible/i.test(`${e.name} ${e.type} ${e.category}`)
+    );
     if (matching.length > 0) {
       return matching.map((e) => ({
         value: e.name || "pump_well",
@@ -68,13 +72,12 @@ export function AddWellPumpDrawer({
     }
     // 3. Canonical default
     return [
-      { value: "Well Pump", label: "Well Pump (Omron Relay #1 / GPIO 1)" },
+      { value: "Well Pump", label: "Well Pump (Relay #1 / GPIO 1)" },
     ];
   }, [snapshot, complexId]);
 
   const [task, setTask] = useState("Run Well Pump (Fill Raw Tank)");
-  const [pump, setPump] = useState(() => installedWellPumps[0]?.value ?? "Well Pump");
-  const [mode, setMode] = useState<"auto" | "manual">("auto");
+  const [pump, setPump] = useState("Well Pump");
   const [trigger, setTrigger] = useState<"time" | "days" | "interval">("time");
   const [time, setTime] = useState("08:00");
   const [endTime, setEndTime] = useState("12:00");
@@ -97,7 +100,6 @@ export function AddWellPumpDrawer({
     if (initial) {
       setTask(initial.task);
       setPump(initial.pump || installedWellPumps[0]?.value || "Well Pump");
-      setMode("auto");
       const trig = initial.trigger ?? ((initial.repeat as string) === "Interval" ? "interval" : initial.repeat.includes(",") ? "days" : "time");
       setTrigger(trig);
       setTime(initial.time);
@@ -131,8 +133,7 @@ export function AddWellPumpDrawer({
       setUseRadar(true);
     } else {
       setTask("Run Well Pump (Fill Raw Tank)");
-      setPump("wp-main");
-      setMode("auto");
+      setPump("Well Pump");
       setTrigger("time");
       setTime("08:00");
       setEndTime("12:00");
@@ -260,26 +261,13 @@ export function AddWellPumpDrawer({
                 <Input value={task} onChange={(e) => setTask(e.target.value)} />
                 <FieldError>{errors.task}</FieldError>
               </div>
-              <div className="grid grid-cols-2 gap-3.5">
-                <div>
-                  <Label required>Pump</Label>
-                  <Select
-                    value={pump}
-                    onChange={(e) => setPump(e.target.value)}
-                    options={installedWellPumps}
-                  />
-                </div>
-                <div>
-                  <Label>Mode</Label>
-                  <Select
-                    value={mode}
-                    onChange={(e) => setMode(e.target.value as "auto" | "manual")}
-                    options={[
-                      { value: "auto", label: "AUTO (schedule)" },
-                      { value: "manual", label: "MANUAL" },
-                    ]}
-                  />
-                </div>
+              <div>
+                <Label required>Target Pump</Label>
+                <Select
+                  value={pump}
+                  onChange={(e) => setPump(e.target.value)}
+                  options={installedWellPumps}
+                />
               </div>
             </div>
           </section>

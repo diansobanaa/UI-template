@@ -32,26 +32,12 @@ extern void telemetry_mgr_trigger_transition(const char *reason);
 
 static void load_persisted_mode(void)
 {
-    nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-        uint8_t val = 0;
-        if (nvs_get_u8(handle, NVS_KEY_MODE, &val) == ESP_OK) {
-            s_mode = (val == 1) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
-            ESP_LOGI(TAG, "Restored Well Pump operating mode: %s", s_mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
-        }
-        nvs_close(handle);
-    }
+    s_mode = WELL_PUMP_MODE_AUTO;
 }
 
 static void persist_mode(well_pump_mode_t mode)
 {
-    nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        uint8_t val = (mode == WELL_PUMP_MODE_MANUAL) ? 1 : 0;
-        nvs_set_u8(handle, NVS_KEY_MODE, val);
-        nvs_commit(handle);
-        nvs_close(handle);
-    }
+    (void)mode;
 }
 
 static esp_err_t well_pump_apply_relay(bool on, actuator_owner_t owner)
@@ -156,12 +142,7 @@ esp_err_t well_pump_mgr_init(void)
 
 well_pump_mode_t well_pump_get_mode(void)
 {
-    well_pump_mode_t m = WELL_PUMP_MODE_AUTO;
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-        m = s_mode;
-        xSemaphoreGive(s_mutex);
-    }
-    return m;
+    return s_manual_session_active ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
 }
 
 esp_err_t well_pump_set_mode(well_pump_mode_t mode)
@@ -226,13 +207,6 @@ esp_err_t well_pump_set_mode(well_pump_mode_t mode)
 esp_err_t well_pump_manual_start(uint32_t duration_sec)
 {
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
-
-    /* If system is in AUTO mode, automatically transition to MANUAL mode */
-    if (s_mode != WELL_PUMP_MODE_MANUAL) {
-        s_mode = WELL_PUMP_MODE_MANUAL;
-        persist_mode(s_mode);
-        ESP_LOGI(TAG, "Manual ON requested: Automatically transitioned mode from AUTO to MANUAL.");
-    }
 
     /* Validate safety protections */
     if (actuator_hal_is_emergency_stopped() || !safety_monitor_allows_commands()) {
@@ -305,10 +279,6 @@ void well_pump_toggle_physical(void)
     bool currently_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
 
     if (!currently_on) {
-        /* Physical toggle turning ON: switch to MANUAL mode if not already, and start 15-min session */
-        s_mode = WELL_PUMP_MODE_MANUAL;
-        persist_mode(s_mode);
-
         esp_err_t err = well_pump_apply_relay(true, ACTUATOR_OWNER_MANUAL);
         if (err == ESP_OK) {
             s_manual_session_active = true;

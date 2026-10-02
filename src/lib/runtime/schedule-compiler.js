@@ -283,8 +283,8 @@ function buildDependencyList(configuration, intent, topologyState, capabilitySta
       }
     }
   } else if (intent.action === "WATER_PUMP") {
-    const pumps = findComponentByRole(configuration, null, ["WELL_PUMP", "WATER_PUMP", "RAW_SUBMERSIBLE"]);
-    if (!pumps.length) blocked.push(issue("MISSING_WELL_PUMP", "No well/raw-water pump is installed."));
+    const pumps = findComponentByRole(configuration, null, ["WELL_PUMP", "WATER_PUMP"]);
+    if (!pumps.length) blocked.push(issue("MISSING_WELL_PUMP", "No well pump is installed."));
     for (const component of pumps.slice(0, 1)) {
       resolvedComponents.push(component);
       if (resourceIdForComponent(component, configuration)) resolvedResources.push(resourceIdForComponent(component, configuration));

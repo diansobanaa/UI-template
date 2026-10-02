@@ -1,11 +1,30 @@
-# AI HANDOVER — SP-WELL-PUMP-002 (latest)
+# AI HANDOVER — SP-WELL-PUMP-003 (latest)
 
-## Status — SP-WELL-PUMP-002
-**Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons**
-**Safe Point**: `SP-WELL-PUMP-002`
+## Status — SP-WELL-PUMP-003
+**Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump**
+**Safe Point**: `SP-WELL-PUMP-003`
 **Date**: 2026-10-03
-**Git Commit**: `22505b6`
-- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,480 B) — REST ENDPOINTS PASS (GET/POST /api/v1/well-pump, /api/v1/well-pump/mode, /api/v1/commands) — FRONTEND PASS (0 TS ERRORS) — PHYSICAL TOGGLE PASS — 15-MIN MONOTONIC CLAMP VERIFIED`
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,595,744 B) — REST ENDPOINTS PASS — FRONTEND PASS (0 TS ERRORS) — CANONICAL DOCS UPDATED`
+
+### Summary of What Was Done
+1. **Dihapus Pilihan Mode AUTO / MANUAL (User Requirement 1)**:
+   - Dihilangkan seluruh toggle dan selector mode `AUTO` vs `MANUAL` di UI (`WellPumpControlCard.tsx`, `AddWellPumpDrawer.tsx`).
+   - Operator tidak perlu lagi berganti mode sebelum mengoperasikan pompa; aksi langsung `[ TURN ON (MAX 15M) ]` dan `[ TURN OFF ]` langsung memicu operasi.
+2. **Perbaikan Mekanisme Autonomous Well Pump Scheduler (User Requirement 2)**:
+   - Menghapus blok pengecekan mode manual di `scheduler.c` (`if (is_well_pump_sched && well_pump_get_mode() == WELL_PUMP_MODE_MANUAL) continue;`) yang sebelumnya menyebabkan jadwal otomatis terlewat (skipped) tanpa sengaja.
+   - Menghapus penolakan `MODE_RESTRICTION` di `command_mgr.c`.
+   - Mengembalikan dispatch jadwal `WATER_PUMP` via `CMD_TYPE_COMPONENT_TIMED` dengan `component_id = "pump_well"` dan durasi waktu jadwal (`sched->duration_sec`) langsung ke `component_timed_task`.
+   - Menjaga proteksi 15 menit safety ceiling pada manual run tetap aktif secara monotonic (`esp_timer_get_time()`).
+3. **Isolasi Well Pump dari Raw Submersible Pump (User Requirement 3)**:
+   - Di `AddWellPumpDrawer.tsx`, menghapus opsi/filter `RAW_SUBMERSIBLE` sehingga form jadwal terfokus 100% pada Well Pump (`pump_well`, Relay #1 / GPIO 1).
+   - Di `schedule-compiler.js`, resolusi `WATER_PUMP` dibatasi hanya untuk `["WELL_PUMP", "WATER_PUMP"]` (`pump_well`), mengabaikan submersible pump.
+4. **Dokumentasi Kanonikal**:
+   - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` diperbarui mencerminkan penghapusan mode friction, otonomi scheduler, dan fokus eksklusif pada well pump.
+
+---
+
+# AI HANDOVER — SP-WELL-PUMP-002 (previous)
 
 ### Summary of What Was Done
 1. **DRAM Heap Exhaustion Fix**:

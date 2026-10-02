@@ -1453,9 +1453,11 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
                 sched->fertigation_payload_json);
     cmd->type = CMD_TYPE_FERTIGATION_BATCH;
   } else if (strcmp(sched->action, "WATER_PUMP") == 0) {
-    cmd->type = (sched->component_count > 0 && strcmp(sched->component_ids[0], "pump_well") == 0)
-                    ? CMD_TYPE_WELL_PUMP
-                    : CMD_TYPE_COMPONENT_TIMED;
+    cmd->type = CMD_TYPE_COMPONENT_TIMED;
+    if (!cmd->component_id[0]) {
+      copy_string(cmd->component_id, sizeof(cmd->component_id), "pump_well");
+    }
+    cmd->param_duration_sec = sched->duration_sec;
   } else if (strcmp(sched->action, "FAN_TOGGLE") == 0) {
     cmd->type = CMD_TYPE_COMPONENT_TIMED;
   } else {
@@ -2301,22 +2303,6 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     /* FERTIGATION schedules are governed by Today's Operational Schedule and Global Dosing Queue */
     if (strcmp(sched->action, "FERTIGATION") == 0)
       continue;
-
-    /* Check if Well Pump is under MANUAL mode */
-    bool is_well_pump_sched = (strcmp(sched->action, "WATER_PUMP") == 0) ||
-        (sched->component_count > 0 && strcmp(sched->component_ids[0], "pump_well") == 0);
-    if (is_well_pump_sched && well_pump_get_mode() == WELL_PUMP_MODE_MANUAL) {
-      /* While in MANUAL mode, operator has exclusive direct control.
-       * Ordinary schedule evaluations must not override manual state.
-       * Track occurrence so expired schedules are not replayed when returning to AUTO. */
-      int64_t occ = 0;
-      bool mis = false;
-      if (occurrence_is_due(sched, now, &occ, &mis)) {
-        sched->last_occurrence_timestamp = occ;
-      }
-      sched->pending = false;
-      continue;
-    }
 
     int64_t occurrence = 0;
     bool is_missed = false;

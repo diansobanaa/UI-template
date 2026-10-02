@@ -1,3 +1,27 @@
+## SP-WELL-PUMP-003 — Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,595,744 B) — FRONTEND PASS (0 TS ERRORS) — CANONICAL DOCS UPDATED`
+- **Objective**:
+  1. Remove the artificial and redundant `AUTO` vs `MANUAL` operating mode toggle buttons and select fields from the Web UI (`WellPumpControlCard.tsx`, `AddWellPumpDrawer.tsx`).
+  2. Restore the proven autonomous schedule execution for Well Pump (`pump_well`, Relay #1 / GPIO 1) in firmware, removing the artificial mode-suppression logic in `scheduler.c` and mode-restriction rejection in `command_mgr.c`.
+  3. Keep the mandatory 15-minute monotonic safety cutoff for manual operation intact without requiring the user to switch modes beforehand.
+  4. Isolate Well Pump (`pump_well`) from Raw Submersible Pump (`pump_submersible`), removing `RAW_SUBMERSIBLE` from well pump schedule drawers and runtime schedule compilation.
+  5. Update canonical documentation in `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+- **Root Cause & Resolutions**:
+  - *Artificial Mode Blocking:* In `SP-WELL-PUMP-001`/`002`, an artificial dual-mode state machine was introduced. When manual mode was stored in NVS, `scheduler.c` evaluated `well_pump_get_mode() == WELL_PUMP_MODE_MANUAL` and marked all due schedules `SKIPPED`. Furthermore, `command_mgr.c` rejected commands with `MODE_RESTRICTION`.
+    - *Resolution:* Removed the mode suppression block from `scheduler.c` (lines 2305-2319). Restored standard `CMD_TYPE_COMPONENT_TIMED` schedule dispatch with `pump_well` and `duration_sec`. Removed `MODE_RESTRICTION` check in `command_mgr.c`.
+  - *Confusing UI Mode Toggle:* The UI forced operators to toggle "AUTO" / "MANUAL" before taking action.
+    - *Resolution:* Removed all mode toggles and badges from `WellPumpControlCard.tsx` and `AddWellPumpDrawer.tsx`. Replaced with clear status (`RUNNING` / `STOPPED`) and direct action buttons (`[ TURN ON (MAX 15M) ]` and `[ TURN OFF ]`).
+  - *Equipment Collision with Raw Submersible:* `AddWellPumpDrawer.tsx` and `schedule-compiler.js` offered `RAW_SUBMERSIBLE` as a well pump candidate, despite being an entirely separate piece of hardware.
+    - *Resolution:* Removed `RAW_SUBMERSIBLE` filtering from `AddWellPumpDrawer.tsx` and restricted `schedule-compiler.js` `WATER_PUMP` resolution strictly to `["WELL_PUMP", "WATER_PUMP"]` (`pump_well`).
+- **Verification Results**:
+  - Firmware Build: Clean compilation with Ninja (`agrotech_esp32.bin` 1,595,744 B).
+  - Firmware Flash: Flashed 100% to COM3 at 460800 baud.
+  - Device REST Endpoints: `/api/v1/health`, `/api/v1/status`, `/api/v1/well-pump`, `/api/v1/clock` all responding HTTP 200 OK.
+  - TypeScript Compiler: `npx tsc --noEmit` exited with code 0 (zero errors).
+  - Physical & Schedule Control: Confirmed operating autonomously and verified on hardware.
+
 ## SP-WELL-PUMP-002 — Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons
 - **Date**: 2026-10-03
 - **Git Commit**: `22505b6`

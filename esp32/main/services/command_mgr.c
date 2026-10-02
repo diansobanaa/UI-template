@@ -390,21 +390,6 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
 
   bool on = false;
   actuator_owner_t owner = ACTUATOR_OWNER_NONE;
-  if (cmd->type == CMD_TYPE_WELL_PUMP || (cmd->component_id[0] && strcasestr(cmd->component_id, "well"))) {
-    well_pump_mode_t cur_mode = well_pump_get_mode();
-    bool is_scheduler = (strcasecmp(cmd->source, "SCHEDULER") == 0);
-    if (!is_scheduler) {
-      if (cmd->param_on && cur_mode == WELL_PUMP_MODE_AUTO) {
-        well_pump_set_mode(WELL_PUMP_MODE_MANUAL);
-      }
-    } else {
-      if (cur_mode == WELL_PUMP_MODE_MANUAL) {
-        copy_str(code, code_len, "MODE_RESTRICTION");
-        copy_str(message, message_len, "Schedule rejected: Well pump is in MANUAL mode.");
-        return ESP_ERR_INVALID_STATE;
-      }
-    }
-  }
 
   uint32_t running_sec = 0;
   if (actuator_hal_get_component_status(cmd->component_id, &on, &owner,
@@ -651,22 +636,38 @@ static void command_worker_task(void *pvParameters) {
       result_message = err == ESP_OK
                            ? "Safety latch cleared after validated recovery."
                            : recovery_msg;
-    } else if (cmd->type == CMD_TYPE_WELL_PUMP) {
+    } else if (cmd->type == CMD_TYPE_WELL_PUMP ||
+               cmd->type == CMD_TYPE_DIST_PUMP ||
+               cmd->type == CMD_TYPE_DOSING_RUN ||
+               cmd->type == CMD_TYPE_COMPONENT_TIMED) {
       if (cmd->param_on) {
-        if (strcasecmp(cmd->source, "SCHEDULER") == 0) {
-          (void)actuator_hal_acquire_component(cmd->component_id, ACTUATOR_OWNER_SCHEDULER);
-          err = actuator_hal_set_by_component_id(cmd->component_id, true);
-        } else {
+        if (cmd->type == CMD_TYPE_WELL_PUMP && strcasecmp(cmd->source, "SCHEDULER") != 0) {
           err = well_pump_manual_start((uint32_t)cmd->param_duration_sec);
+          result_message = err == ESP_OK ? "Well pump manual run started." : "Well pump command failed.";
+        } else {
+          component_timed_task_ctx_t *ctx = calloc(1, sizeof(*ctx));
+          if (!ctx) {
+            err = ESP_ERR_NO_MEM;
+          } else {
+            ctx->command = *cmd;
+            BaseType_t task_created = xTaskCreate(
+                component_timed_task, "cmd_component", 4096, ctx, 5, NULL);
+            if (task_created != pdPASS) {
+              free(ctx);
+              err = ESP_ERR_NO_MEM;
+            } else {
+              async_task = true;
+              result_message = "Bounded component run started.";
+            }
+          }
         }
       } else {
-        if (strcasecmp(cmd->source, "SCHEDULER") == 0) {
-          err = actuator_hal_stop_component(cmd->component_id, ACTUATOR_OWNER_SCHEDULER);
-        } else {
-          err = well_pump_manual_stop("OPERATOR_OFF");
+        if (cmd->type == CMD_TYPE_WELL_PUMP) {
+          well_pump_manual_stop("OPERATOR_OFF");
         }
+        err = actuator_hal_stop_component(cmd->component_id,
+                                          owner_for_source(cmd));
       }
-      result_message = err == ESP_OK ? "Well pump command executed." : "Well pump command failed.";
     } else if (cmd->type == CMD_TYPE_WELL_PUMP_MODE) {
       well_pump_mode_t m = (strcasecmp(cmd->param_mode, "MANUAL") == 0) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
       err = well_pump_set_mode(m);
