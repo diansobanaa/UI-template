@@ -1,6 +1,6 @@
 ## SP-CONFIG-STAGE-001 — Elimination of NVS Page Exhaustion (0x1105) & Failed to Stage Configuration Fix
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `67529ce`
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE BUILD & FLASH PASS (1,596,080 B) — REST ENDPOINT PASS (PUT /api/v1/configuration v32->v33->v34) — NVS HEALTH RECOVERED (>60% FREE) — FRONTEND PASS (0 TS ERRORS)`
 - **Objective**:
   1. Fix the recurring "Gagal menerapkan konfigurasi ke ESP32: Failed to stage configuration" error when saving equipment configuration from Web UI (`SupportedEquipmentChecklist.tsx`).
