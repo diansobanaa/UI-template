@@ -37,6 +37,7 @@ static const char *TAG = "SCHEDULER";
 #define NVS_KEY_COMPILED "compiled_sched"
 #define NVS_KEY_MARKERS "sched_marks"
 #define SPIFFS_SCHEDULE_INTENTS_FILE "/spiffs/sched_intents.json"
+#define SPIFFS_SCHEDULE_MARKERS_FILE "/spiffs/sched_markers.bin"
 #define SCHEDULER_TICK_MS 1000U
 #define CLOCK_VALID_YEAR 120
 
@@ -479,11 +480,31 @@ static void hydrate_runtime_markers(void) {
   }
 }
 
-// RC-1: Tulis snapshot marker ke NVS. Tidak mengakses s_mutex; pemanggil harus
-// sudah meng-copy s_markers[] ke buffer lokal sebelum memanggil fungsi ini.
+// RC-1 & RC-NVS-BLOAT: Tulis snapshot marker ke SPIFFS (primary) dan scrub dari NVS
+// agar partisi NVS 24KB tidak kehabisan halaman (0x1105).
 static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf) {
   if (!buf)
     return ESP_ERR_INVALID_ARG;
+
+  /* Primary storage: SPIFFS (9MB) to avoid exhausting 24KB NVS */
+  int fd = open(SPIFFS_SCHEDULE_MARKERS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd >= 0) {
+    size_t to_write = sizeof(scheduler_marker_t) * MAX_COMPILED_SCHEDULES;
+    ssize_t written = write(fd, buf, to_write);
+    close(fd);
+    if ((size_t)written == to_write) {
+      /* Ensure legacy sched_marks is scrubbed from NVS */
+      nvs_handle_t handle;
+      if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
+        (void)nvs_erase_key(handle, NVS_KEY_MARKERS);
+        (void)nvs_commit(handle);
+        nvs_close(handle);
+      }
+      return ESP_OK;
+    }
+  }
+
+  /* Fallback to NVS only if SPIFFS is unavailable */
   nvs_handle_t handle;
   esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
   if (err != ESP_OK)
@@ -552,12 +573,30 @@ static void marker_persist_task(void *pvParameters) {
 
 static void load_markers(void) {
   memset(s_markers, 0, sizeof(s_markers));
+
+  /* 1. Try SPIFFS primary storage */
+  int fd = open(SPIFFS_SCHEDULE_MARKERS_FILE, O_RDONLY);
+  if (fd >= 0) {
+    size_t expected_len = sizeof(s_markers);
+    ssize_t n = read(fd, s_markers, expected_len);
+    close(fd);
+    if ((size_t)n == expected_len) {
+      ESP_LOGI(TAG, "Loaded schedule markers from SPIFFS (%u bytes)", (unsigned)n);
+      return;
+    }
+    memset(s_markers, 0, sizeof(s_markers));
+  }
+
+  /* 2. Fallback to NVS (upgrade migration path) */
   nvs_handle_t handle;
   if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK)
     return;
   size_t length = sizeof(s_markers);
-  if (nvs_get_blob(handle, NVS_KEY_MARKERS, s_markers, &length) != ESP_OK ||
-      length != sizeof(s_markers)) {
+  if (nvs_get_blob(handle, NVS_KEY_MARKERS, s_markers, &length) == ESP_OK &&
+      length == sizeof(s_markers)) {
+    ESP_LOGI(TAG, "Loaded legacy schedule markers from NVS (%u bytes), migrating to SPIFFS", (unsigned)length);
+    (void)persist_markers_from_buffer(s_markers);
+  } else {
     memset(s_markers, 0, sizeof(s_markers));
   }
   nvs_close(handle);
@@ -815,12 +854,16 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
   if (err == ESP_OK) {
     const size_t compiled_len = strlen(json_str) + 1;
     err = nvs_set_blob(handle, NVS_KEY_COMPILED, json_str, compiled_len);
-    if (err == ESP_OK)
-      err = nvs_set_blob(handle, NVS_KEY_MARKERS, staged_markers,
-                         sizeof(staged_markers));
+    if (err == ESP_OK) {
+      /* Erase legacy NVS markers; markers are persisted to SPIFFS */
+      (void)nvs_erase_key(handle, NVS_KEY_MARKERS);
+    }
     if (err == ESP_OK)
       err = nvs_commit(handle);
     nvs_close(handle);
+    if (err == ESP_OK) {
+      (void)persist_markers_from_buffer(staged_markers);
+    }
   }
   if (err == ESP_OK) {
     memcpy(s_markers, staged_markers, sizeof(s_markers));
@@ -1185,6 +1228,7 @@ esp_err_t scheduler_clear_compiled(void) {
     if (err == ESP_OK)
       err = nvs_commit(handle);
     nvs_close(handle);
+    (void)unlink(SPIFFS_SCHEDULE_MARKERS_FILE);
   }
   if (err == ESP_OK) {
     memset(s_runtime, 0, sizeof(s_runtime));

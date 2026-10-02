@@ -55,9 +55,11 @@ To guarantee seamless persistence when a user refreshes the browser:
 The `components.json` file on ESP32 Flash defines the array of components recognized by the system.
 
 ### 2.1. File Path & Storage Location
-* **Filesystem:** SPIFFS (or LittleFS) mounted at `/spiffs`.
+* **Filesystem:** SPIFFS mounted at `/spiffs` (9MB dedicated partition).
+* **Configuration Payloads & Blobs:** All multi-kilobyte JSON documents (`/spiffs/lvc_config.json`, `/spiffs/cand_config.json`, `/spiffs/prev_config.json`, `/spiffs/components.json`) and schedule markers (`/spiffs/sched_markers.bin`) are stored in SPIFFS using POSIX file descriptors (`open`, `read`, `write`, `close`).
+* **NVS Partition Authority (24KB):** NVS is strictly reserved for scalar configuration metadata (`cfg_ver`, `cfg_crc`, `cfg_hash`, `dep_id`, `dep_status`, `boot_cnt`, `dev_id`, `cplx_id`, Wi-Fi credentials). Storing large JSON strings in NVS is prohibited to prevent page allocation exhaustion (`0x1105` / `ESP_ERR_NVS_NOT_ENOUGH_PAGES`).
 * **Migration Input:** `/spiffs/components.json` may be used only by an explicit migration/bootstrap procedure that validates and activates the resulting configuration.
-* **Operational Authority:** Persisted versioned active configuration in NVS. No static fallback is used for physical operation.
+* **Operational Authority:** Persisted versioned active configuration in SPIFFS (`/spiffs/lvc_config.json`) with active CRC and version tracking in NVS. No static fallback is used for physical operation.
 
 ### 2.2. JSON Schema Definition
 ```json

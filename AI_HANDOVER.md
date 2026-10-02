@@ -1,4 +1,39 @@
-# AI HANDOVER — SP-UI-BUZZER-OVERLAY-001 (latest)
+# AI HANDOVER — SP-CONFIG-STAGE-001 (latest)
+
+## Status — SP-CONFIG-STAGE-001
+**Elimination of NVS Page Exhaustion (0x1105) & Failed to Stage Configuration Fix**
+**Safe Point**: `SP-CONFIG-STAGE-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,080 B) — REST ENDPOINT PASS (PUT /api/v1/configuration v32->v33->v34) — NVS HEALTH RECOVERED (>60% FREE) — FRONTEND PASS (0 TS ERRORS)`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah (Root Cause Investigation)**:
+   - Terjadi error `500 INTERNAL_ERROR: Failed to stage configuration` saat user menyimpan konfigurasi dari UI (`SupportedEquipmentChecklist.tsx`).
+   - Melalui dumping partisi NVS (`0x9000`, 24KB) dan monitoring serial saat request PUT, ditemukan bahwa partisi NVS mengalami `0x1105` (`ESP_ERR_NVS_NOT_ENOUGH_PAGES`).
+   - Kelima halaman data aktif NVS berada dalam status `FULL` (`empty=0, written=126, erased=0`) akibat penulisan blob/string multi-kilobyte (`comp_json` 3.3KB, `sched_marks` 4.6KB, dan percobaan `cand_json` 4.5KB).
+   - NVS tidak memiliki halaman kosong untuk garbage collection, sehingga pemanggilan `nvs_set_u32(handle, "cand_ver", ...)` gagal dengan `0x1105`, menyebabkan staging konfigurasi ditolak.
+
+2. **Perbaikan Firmware & Tata Kelola Penyimpanan**:
+   - `esp32/main/storage/storage_mgr.c`:
+     - Menghapus penulisan payload JSON besar (`cand_json`, `lvc_json`, `comp_json`) ke partisi NVS 24KB.
+     - Seluruh JSON konfigurasi aktif, kandidat, backup, dan komponen kini disimpan eksklusif di partisi SPIFFS 9MB (`/spiffs/cand_config.json`, `/spiffs/lvc_config.json`, `/spiffs/prev_config.json`, `/spiffs/components.json`) menggunakan POSIX file I/O yang handal dan bebas kebocoran memori.
+     - NVS difokuskan murni untuk metadata skalar ringan (`cand_ver`, `cand_crc`, `cand_hash`, `cand_dep`, `dep_status`, `cfg_ver`, `cfg_crc`, identitas perangkat).
+     - Menambahkan automatic scrub saat boot (`storage_mgr_init`) dan saat siklus deploy untuk menghapus entri usang (`comp_json`, `cand_json`, `lvc_json`, `prev_json`, `sched_marks`) dari NVS.
+   - `esp32/main/services/scheduler.c`:
+     - Memindahkan persistensi marker jadwal (`scheduler_marker_t` 4.6KB) ke `/spiffs/sched_markers.bin` dengan auto-scrub `sched_marks` dari NVS.
+   - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`:
+     - Memperbarui dokumentasi kanonik arsitektur penyimpanan (pemisahan peran SPIFFS vs NVS).
+
+3. **Verifikasi Hardware Nyata**:
+   - Firmware di-build dan di-flash 100% ke ESP32 COM3 (`192.168.0.151`).
+   - Pengujian live HTTP `PUT /api/v1/configuration`: Konfigurasi berhasil di-stage dan di-commit atomik dari v32 ke v33 (`"success": true`, status 200 OK), lalu diuji ulang dari v33 ke v34 (sukses 200 OK).
+   - Dump NVS pasca perbaikan memverifikasi halaman 1 dan 4 terformat/terhapus, halaman 2 aktif dengan slot kosong, dan halaman 5 siap sebagai halaman spare GC (>60% kapasitas NVS terbebas).
+   - `npx tsc --noEmit` lolos bersih dengan 0 error.
+
+---
+
+# AI HANDOVER — SP-UI-BUZZER-OVERLAY-001 (previous)
 
 ## Status — SP-UI-BUZZER-OVERLAY-001
 **Hide Floating Buzzer Standby Badge When Inactive**

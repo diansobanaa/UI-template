@@ -1,3 +1,26 @@
+## SP-CONFIG-STAGE-001 — Elimination of NVS Page Exhaustion (0x1105) & Failed to Stage Configuration Fix
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE BUILD & FLASH PASS (1,596,080 B) — REST ENDPOINT PASS (PUT /api/v1/configuration v32->v33->v34) — NVS HEALTH RECOVERED (>60% FREE) — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Fix the recurring "Gagal menerapkan konfigurasi ke ESP32: Failed to stage configuration" error when saving equipment configuration from Web UI (`SupportedEquipmentChecklist.tsx`).
+  2. Perform forensic root-cause analysis on ESP32 storage and flash partition states.
+  3. Relieve NVS partition pressure and permanently eliminate `ESP_ERR_NVS_NOT_ENOUGH_PAGES` (`0x1105`).
+  4. Ensure all multi-kilobyte configuration payloads (`lvc_config.json`, `cand_config.json`, `prev_config.json`, `components.json`) and schedule markers (`sched_markers.bin`) are stored solely in the 9MB SPIFFS filesystem.
+  5. Clean up bloated legacy keys from NVS during boot and stage/activate cycles so NVS remains lightweight and never exhausts its 24KB partition.
+- **Root Cause & Resolution**:
+  - *Root Cause:* The ESP32 partition table allocates `0x6000` (24 KB = 6 pages) to NVS and `0x900000` (9 MB) to SPIFFS. Over successive boots and deployments, multi-kilobyte strings (`comp_json` with 102 entries = 3.3KB, legacy `cand_json` and `lvc_json` writes) and schedule markers (`sched_marks` with 145 entries = 4.6KB blob) were written into NVS. Because active multi-page entries filled all 5 available data pages (`written=126, empty=0, erased=0`), NVS garbage collection deadlocked with `ESP_ERR_NVS_NOT_ENOUGH_PAGES` (`0x1105`). When `storage_mgr_stage_candidate()` attempted to write `cand_ver` to NVS, it failed with `0x1105`, resulting in `500 INTERNAL_ERROR "Failed to stage configuration"`.
+  - *Resolution:*
+    1. `storage_mgr.c`: Removed `nvs_set_str(handle, "cand_json", json_str)`, `nvs_set_str(handle, "lvc_json", candidate)`, and `nvs_set_str(handle, "comp_json", json_str)`. All configuration JSONs and components are written strictly to SPIFFS using POSIX file operations (`open`, `write`, `close`). NVS only stores scalar metadata (`cand_ver`, `cand_crc`, `cand_hash`, `cand_dep`, `dep_status`, `cfg_ver`, `cfg_crc`, etc.).
+    2. `storage_mgr.c`: Added an automatic scrub during `storage_mgr_init()` and stage/activate cycles to erase legacy bloated keys (`comp_json`, `cand_json`, `lvc_json`, `prev_json`, `sched_marks`) from NVS, freeing up hundreds of entries and restoring healthy garbage collection.
+    3. `scheduler.c`: Migrated schedule markers to `/spiffs/sched_markers.bin` with POSIX file descriptor I/O and fallback NVS migration, removing the 4.6KB `sched_marks` blob from NVS.
+- **Verification Results**:
+  - Firmware Build: Clean compilation with Ninja (`agrotech_esp32.bin` 1,596,080 B).
+  - Firmware Flash: Flashed 100% to COM3 at 460800 baud.
+  - Live Endpoint Test (`PUT /api/v1/configuration`): Successfully staged and atomically committed candidate payload from v32 to v33, then v33 to v34 with HTTP 200 OK (`"success": true`, `"deploymentStatus": "ACTIVE"`).
+  - NVS Flash Inspection: Dumper verified Page 1 and Page 4 completely erased and ready for reuse, Page 2 active with free slots, and Page 5 formatted as spare GC page (>60% total NVS capacity freed).
+  - TypeScript Compiler: `npx tsc --noEmit` exited with code 0 (zero errors).
+
 ## SP-UI-BUZZER-OVERLAY-001 — Hide Floating Buzzer Standby Badge When Inactive
 - **Date**: 2026-10-03
 - **Git Commit**: `1404643`

@@ -57,6 +57,8 @@ static SemaphoreHandle_t s_fertigation_mutex = NULL; /* Fertigation run log lock
 static StaticSemaphore_t s_nvs_mutex_buf;
 static SemaphoreHandle_t s_nvs_mutex = NULL;         /* General NVS identity lock */
 
+static esp_err_t nvs_erase_key_optional(nvs_handle_t handle, const char *key);
+
 static void generate_boot_id(char *out_uuid, size_t max_len)
 {
     uint32_t r1 = esp_random();
@@ -170,7 +172,15 @@ esp_err_t storage_mgr_init(void)
     uint8_t safe_boot = 1;
     (void)nvs_get_u8(handle, "safe_boot", &safe_boot);
     (void)safe_boot;
-    s_state.safe_boot_active = true;
+    /* RC-NVS-BLOAT: Scrub legacy multi-KB keys from NVS to guarantee free pages.
+     * SPIFFS is the authoritative primary storage for JSON configs and components.
+     * Storing 4KB strings in a 24KB NVS partition exhausts page allocation (0x1105)
+     * and deadlocks configuration staging and activation. */
+    (void)nvs_erase_key_optional(handle, "comp_json");
+    (void)nvs_erase_key_optional(handle, "cand_json");
+    (void)nvs_erase_key_optional(handle, "lvc_json");
+    (void)nvs_erase_key_optional(handle, "prev_json");
+    (void)nvs_erase_key_optional(handle, "sched_marks");
 
     nvs_commit(handle);
     nvs_close(handle);
@@ -386,7 +396,12 @@ esp_err_t storage_mgr_stage_candidate(const char *json_str, uint32_t version, co
     if (xSemaphoreTake(s_config_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
 
     /* Always persist candidate to SPIFFS */
-    (void)save_spiffs_string(CONFIG_CAND_FILE, json_str);
+    esp_err_t spiffs_err = save_spiffs_string(CONFIG_CAND_FILE, json_str);
+    if (spiffs_err != ESP_OK) {
+        ESP_LOGE(TAG, "stage_candidate: failed to write candidate to SPIFFS: %s", esp_err_to_name(spiffs_err));
+        xSemaphoreGive(s_config_mutex);
+        return spiffs_err;
+    }
 
     uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)json_str, strlen(json_str));
     char hash[80] = {0};
@@ -395,10 +410,6 @@ esp_err_t storage_mgr_stage_candidate(const char *json_str, uint32_t version, co
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err == ESP_OK) {
         (void)nvs_erase_key_optional(handle, "cand_json");
-        esp_err_t str_err = nvs_set_str(handle, "cand_json", json_str);
-        if (str_err != ESP_OK) {
-            ESP_LOGW(TAG, "stage_candidate: cand_json NVS write bypassed (0x%x); using SPIFFS storage", str_err);
-        }
         err = nvs_set_u32(handle, "cand_ver", version);
         if (err == ESP_OK) err = nvs_set_u32(handle, "cand_crc", crc);
         if (err == ESP_OK) {
@@ -542,10 +553,6 @@ esp_err_t storage_mgr_activate_candidate(void)
             if (prev_hash[0]) (void)nvs_set_str(handle, "prev_hash", prev_hash);
             else (void)nvs_erase_key_optional(handle, "prev_hash");
 
-            esp_err_t lvc_err = nvs_set_str(handle, "lvc_json", candidate);
-            if (lvc_err != ESP_OK) {
-                ESP_LOGW(TAG, "activate_candidate: lvc_json NVS write bypassed (0x%x); SPIFFS is authoritative", lvc_err);
-            }
             err = nvs_set_u32(handle, "cfg_ver", new_version);
             if (err == ESP_OK) err = nvs_set_u32(handle, "cfg_crc", new_crc);
             if (err == ESP_OK) {
@@ -1048,13 +1055,12 @@ esp_err_t storage_mgr_save_components_json(const char *json_str)
         ESP_LOGW(TAG, "Could not open %s for write", COMPONENTS_JSON_FILE);
     }
 
-    /* 2. Also persist to NVS as durable backup */
+    /* 2. Scrub comp_json from NVS if previously present */
     nvs_handle_t handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        nvs_set_str(handle, "comp_json", json_str);
+        (void)nvs_erase_key_optional(handle, "comp_json");
         nvs_commit(handle);
         nvs_close(handle);
-        ESP_LOGI(TAG, "Saved components.json to NVS backup");
     }
 
     return ESP_OK;
