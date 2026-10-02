@@ -4,7 +4,7 @@
 **Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons**
 **Safe Point**: `SP-QUEUE-UNIFY-EAGER-002`
 **Date**: 2026-10-03
-**Git Commit**: `PENDING`
+**Git Commit**: `e9fc011`
 - **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — CANONICAL MODEL UPDATED`
 
 ### Summary of What Was Done

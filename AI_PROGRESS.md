@@ -1,6 +1,6 @@
 ## SP-QUEUE-UNIFY-EAGER-002 — Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `e9fc011`
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — CANONICAL MODEL UPDATED`
 - **Objective**:
   1. Document and implement protocol distinction between 1 GH in complex (Single-GH) and several GHs in complex (Multi-GH).
