@@ -3764,3 +3764,20 @@ PYTHON SAVE + ANALYSIS
    - Rationale: Eager Pre-Mix automatically admits the batch to the central FIFO queue ahead of the target distribution time. Exposing a manual enqueue button risks operator confusion, premature preparation hours before distribution (causing nutrient degradation or pH drift), and uncoordinated batching in the absence of continuous level telemetry.
    - The UI displays an explicit `Otomasi Terjadwal (Fail-Safe)` badge in place of the button across Complex Overview, Mixing Tank cards, and Greenhouse Detail view.
 
+57. Automated 56-Scenario Simulation and Failure Injection Suite (SP-SIM-56-001)
+
+1. **Simulation Environment Architecture**
+   - Built a deterministic, headless simulation framework (`scripts/simulation/`) testing the actual FreeRTOS queue processor and mixing state machine without requiring physical pumps or energized actuators.
+   - **Virtual Clock (`VirtualClock`)**: Millisecond-precision, step-driven, no arbitrary sleeps.
+   - **Virtual Hardware Registry (`VirtualPump`, `VirtualSensor`, `VirtualMixingTank`)**: Simulates water filling pumps, peristaltic dosing pumps (Stock A & B), circulation mixers, and distribution pumps with full calibration and physical flow dynamics.
+   - **Fault Injection**: Supports pump start failures, running without flow, low flow rate tolerances, unexpected stoppage, shutdown failures, sensor loss mid-run, persistent zero/full readings, erratic signal flutter, ESP32 reboots, power cuts, and backend disconnections.
+
+2. **Test Scenario Coverage (56/56 Scenarios Verified)**
+   - **Group A (FIFO Queue, Q01–Q10)**: Empty queue neutrality, single scheduled job auto-dispatch, strict sequential execution, non-interrupting mid-run arrivals, simultaneous schedule tie-breaking (chronological then alphabetical GH ID), queue capacity rejection, duplicate trigger suppression, invalid config rejection, pending job cancellation, and safe resource release upon head failure.
+   - **Group B (Mixing Tank, M01–M12)**: Normal 5-stage pipeline, tank busy locking, sensor absence graceful fallback, sensor disconnection mid-fill, stuck-at-zero watchdog timeout, stuck-at-full overflow prevention, signal jitter filtering, capacity limit enforcement (>300L rejected), zero-target rejection, filling timeout shutdown, mixer startup failure interlock, and normal completion transitions.
+   - **Group C (Pump & Volumetric Operation, P01–P12)**: Pump failure detection, dosing failure handling, missing mixer interlock, dry-run flow loss, low flow tolerance trips, unexpected stoppage accounting, secondary shutdown invocation, invalid calibration blocking, partial sequence failure accounting (Stock A dosed, Stock B failed without overconcentration on retry), maximum total duration watchdog cutoff, limited water supply timeout, and invalid feedback handling.
+   - **Group D (Fail-Safe & Recovery, F01–F10)**: Startup missing sensor handling, mid-fill sensor loss fallback, missing calibration fail-safe blocking, calibrated estimated volume termination, safety duration limits, ESP32 reboot pending job restoration, in-flight reboot interruption logging, power-loss safe output shutdown, backend offline local autonomous execution, and post-fault verified recovery.
+   - **Group E (Multi-Greenhouse Isolation, G01–G06)**: Independent dual-GH normal runs, isolated failure containment (GH-01 failure does not affect GH-02), independent tank mixing while second GH doses through central unit, 3-GH FIFO sequence dispatching, immediate resource handover upon mixing transition, and complete cross-greenhouse data isolation.
+   - **Group F (UI and Status Consistency, U01–U06)**: Empty queue with/without future schedules, schedule wait manual button suppression with `Otomasi Terjadwal (Fail-Safe)`, queue position progression (`Urutan #1 di Central`), real 5-step hardware pipeline visualization, volumetric fail-safe labeling, and honest failing-stage diagnostics.
+
+

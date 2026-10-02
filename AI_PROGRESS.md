@@ -1,3 +1,42 @@
+## SP-SIM-56-001 — Automated Fertigation Queue & Mixing 56-Scenario Simulation & Acceptance Suite
+- **Date**: 2026-10-02
+- **Git Commit**: pending
+- **Status**: `COMPLETE — SIMULATION SUITE PASS (56/56 SCENARIOS) — REGRESSION SUITE PASS (15/15) — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Build a deterministic, headless automated simulation environment for Fertigation Queue & Mixing:
+     - Virtual clock (`VirtualClock`): millisecond-level step-driven without real sleeps.
+     - Virtual hardware registry (`VirtualPump`, `VirtualSensor`, `VirtualMixingTank`): water, nutrient A/B, mixer, and distribution pumps with physical calibrations and fault injection.
+     - Authoritative FreeRTOS queue processor & mixing state machine (`FertigationSimulationEngine`): deterministic tie-breaking, latching DISPATCHED, fail-safe volumetric fallback, and reboot/reconnect recovery.
+     - UI state adapter (`computeUIState`): bridges firmware state machine to exact UI component representations.
+  2. Implement and execute all 56 defined test scenarios across 6 groups:
+     - Group A: FIFO Queue (10 scenarios: Q01–Q10)
+     - Group B: Mixing Tank (12 scenarios: M01–M12)
+     - Group C: Pump & Volumetric Operation (12 scenarios: P01–P12)
+     - Group D: Fail-Safe & Recovery (10 scenarios: F01–F10)
+     - Group E: Multi-Greenhouse Isolation (6 scenarios: G01–G06)
+     - Group F: UI & Status Consistency (6 scenarios: U01–U06)
+  3. All 56 scenarios executed and verified (56/56 PASSED).
+  4. Machine-readable evidence generated: `scripts/simulation/simulation_results.json`.
+  5. Canonical documentation updated: `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` §57.
+
+### Completed Work & Verification
+- `scripts/simulation/virtual_components.mjs`:
+  - Implemented `VirtualClock`, `VirtualPump`, `VirtualSensor`, `VirtualMixingTank` with fault injection.
+- `scripts/simulation/fertigation_engine.mjs`:
+  - Implemented authoritative FreeRTOS queue manager, sequential nutrient dosing, mixing state machine, and fail-safe volumetric fallback.
+- `scripts/simulation/ui_adapter.mjs`:
+  - Implemented UI state computation with fail-safe volume labeling and scheduled wait button suppression.
+- `scripts/simulate_56_scenarios.mjs`:
+  - Implemented comprehensive scenario test runner with rich assertions and machine-readable output.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 57 detailing the simulation framework and 56 scenario coverage.
+- Verification:
+  - `node scripts/simulate_56_scenarios.mjs`: EXIT CODE 0 (56/56 PASSED).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: EXIT CODE 0 (15/15 PASSED).
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 TS errors).
+
+---
+
 ## SP-FAILSAFE-VOLUMETRIC-001 — Fail-Safe Volumetric Batching & Scheduled Wait Enqueue Suppression
 - **Date**: 2026-10-02
 - **Git Commit**: `81396af`

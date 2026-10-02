@@ -1,4 +1,39 @@
-# AI HANDOVER — SP-FAILSAFE-VOLUMETRIC-001 (latest)
+# AI HANDOVER — SP-SIM-56-001 (latest)
+
+## Status — SP-SIM-56-001
+**Automated Fertigation Queue & Mixing 56-Scenario Simulation & Acceptance Suite**
+**Safe Point**: `SP-SIM-56-001`
+**Date**: 2026-10-02
+**Git Commit**: pending
+**Verdict**: `COMPLETE — SIMULATION SUITE PASS (56/56 SCENARIOS) — REGRESSION SUITE PASS (15/15) — FRONTEND PASS (0 TS ERRORS) — SPECIFICATION UPDATED`
+
+### Summary of What Was Done
+1. **Pembangunan Lingkungan Simulasi Otomatis Deterministik**:
+   - `VirtualClock`: Jam virtual presisi milidetik step-driven tanpa sleep/delay arbitrer.
+   - `VirtualPump`: Pompa Air, Dosing A/B, Pengaduk, dan Distribusi dengan kalibrasi (`CAL-*-V1`), laju alir, injeksi kegagalan hardware (`failsToStart`, `stopsUnexpectedly`, `runsWithoutFlow`, `insufficientFlowFactor`, `failsToStop`, `invalidCalibration`).
+   - `VirtualSensor`: Sensor level volume kontinu, flow meter pulsa ZJ-B1, dan pelampung/float switch dengan mode kegagalan (`notInstalled`, `disconnected`, `alwaysZero`, `alwaysFull`, `unstableReadings`, `invalidFeedback`).
+   - `VirtualMixingTank`: Tangki batch 300L/500L dengan pelacakan volume air, nutrisi A/B, konsentrasi, dan deteksi overflow.
+2. **Authoritative Fertigation Engine**:
+   - Memodelkan FreeRTOS `scheduler.c` dan `fertigation_mgr.c`.
+   - Mengimplementasikan antrean FIFO sentral (`MAX_DOSING_QUEUE = 4`), pemecah seri deterministik (prioritas waktu lalu ID greenhouse), penguncian latching `DISPATCHED`, penolakan duplikasi jadwal aktif, pelepasan kunci sentral setelah dosing selesai sehingga pencampuran lokal dan antrean berikutnya berjalan independen, fail-safe volumetrik berbasis waktu dan flow meter pulsa, serta pemulihan pasca reboot/pemadaman listrik.
+3. **UI State Adapter**:
+   - Memetakan state firmware ke representasi UI dashboard: status antrean (#1, #2), supresi tombol manual saat menunggu jadwal otomatis, label volumetrik fail-safe, dan pemisahan toren air baku dari tangki batch pencampur.
+4. **Eksekusi 56 Skenario Pengujian (100% PASS)**:
+   - Group A (FIFO Queue): Q01–Q10 (10 skenario) -> 10 PASS.
+   - Group B (Mixing Tank): M01–M12 (12 skenario) -> 12 PASS.
+   - Group C (Pump & Volumetric): P01–P12 (12 skenario) -> 12 PASS.
+   - Group D (Fail-Safe & Recovery): F01–F10 (10 skenario) -> 10 PASS.
+   - Group E (Multi-GH Isolation): G01–G06 (6 skenario) -> 6 PASS.
+   - Group F (UI & Status Consistency): U01–U06 (6 skenario) -> 6 PASS.
+5. **Verifikasi Regresi & Dokumentasi**:
+   - Mesin pengujian menghasilkan bukti terstruktur `scripts/simulation/simulation_results.json`.
+   - Regresi konsistensi antrean: 15/15 PASS (`scripts/test_fertigation_queue_consistency.mjs`).
+   - Validasi TypeScript: 0 error (`npx tsc --noEmit`).
+   - Spesifikasi kanonikal diperbarui di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 57.
+
+---
+
+# AI HANDOVER — SP-FAILSAFE-VOLUMETRIC-001 (previous)
 
 ## Status — SP-FAILSAFE-VOLUMETRIC-001
 **Fail-Safe Volumetric Batching & Scheduled Wait Enqueue Suppression**

@@ -1,0 +1,458 @@
+{
+  "timestamp": "2026-10-02T07:00:56.751Z",
+  "totalScenarios": 56,
+  "passed": 56,
+  "failed": 0,
+  "blocked": 0,
+  "notRun": 0,
+  "results": [
+    {
+      "id": "Q01",
+      "title": "Empty Queue",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 8,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q02",
+      "title": "Single Scheduled Job",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 5,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q03",
+      "title": "Multiple FIFO Jobs",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q04",
+      "title": "New Job Arrives During Active Execution",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q05",
+      "title": "Simultaneous Schedule Triggers",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 42,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q06",
+      "title": "Queue Capacity Reached",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 2,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q07",
+      "title": "Duplicate Scheduler Trigger",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q08",
+      "title": "Invalid Job Configuration",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q09",
+      "title": "Cancel Pending Job",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "Q10",
+      "title": "First Job Fails",
+      "group": "A: FIFO Queue",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M01",
+      "title": "Normal Mixing Process",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M02",
+      "title": "Mixing Tank Busy",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M03",
+      "title": "Sensor Not Installed",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M04",
+      "title": "Sensor Disconnected During Operation",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 2,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M05",
+      "title": "Sensor Always Reads Zero",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M06",
+      "title": "Sensor Always Reads Full",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M07",
+      "title": "Unstable Sensor Readings",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M08",
+      "title": "Target Exceeds Tank Capacity",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M09",
+      "title": "Zero Mixing Target",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M10",
+      "title": "Water Filling Timeout",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M11",
+      "title": "Mixing Failure",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 3,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "M12",
+      "title": "Normal Completion",
+      "group": "B: Mixing Tank",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P01",
+      "title": "Water Pump Fails to Start",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P02",
+      "title": "Dosing Pump Fails to Start",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P03",
+      "title": "Mixing Pump Fails to Start",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P04",
+      "title": "Pump Runs Without Flow",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P05",
+      "title": "Insufficient Flow Rate",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P06",
+      "title": "Pump Stops Unexpectedly",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P07",
+      "title": "Pump Fails to Stop",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P08",
+      "title": "Invalid Pump Calibration",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P09",
+      "title": "One Pump in Multi-Pump Sequence Fails",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P10",
+      "title": "Maximum Operating Duration Exceeded",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P11",
+      "title": "Limited Water Supply",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "P12",
+      "title": "Invalid Pump Feedback",
+      "group": "C: Pump & Volumetric",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F01",
+      "title": "No Sensor Installed From Startup",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F02",
+      "title": "Sensor Lost During Filling",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F03",
+      "title": "No Sensor and No Valid Calibration",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F04",
+      "title": "Estimated Volume Reaches Target",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F05",
+      "title": "Estimated Filling Exceeds Safety Limit",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F06",
+      "title": "ESP32 Reboot While Jobs Are Waiting",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F07",
+      "title": "ESP32 Reboot During Water Filling",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F08",
+      "title": "ESP32 Reboot During Dosing",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F09",
+      "title": "Backend Offline",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "F10",
+      "title": "Recovery After Sensor or Pump Fault",
+      "group": "D: Fail-Safe & Recovery",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G01",
+      "title": "Two Greenhouses Operating Normally",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G02",
+      "title": "One Greenhouse Fails",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G03",
+      "title": "First Mixing Tank Is Busy",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G04",
+      "title": "Three Greenhouses in Sequence",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G05",
+      "title": "One Tank Completes While Another Is Queued",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 5,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "G06",
+      "title": "Greenhouse Data Isolation",
+      "group": "E: Multi-GH Isolation",
+      "status": "PASS",
+      "durationMs": 0,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U01",
+      "title": "Empty Queue With and Without Future Schedules",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U02",
+      "title": "Waiting for Schedule",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U03",
+      "title": "Waiting in FIFO Queue",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U04",
+      "title": "Active Process",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 2,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U05",
+      "title": "Active Volumetric Fallback",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    },
+    {
+      "id": "U06",
+      "title": "Failed Process",
+      "group": "F: UI Consistency",
+      "status": "PASS",
+      "durationMs": 1,
+      "evidence": "All assertions satisfied."
+    }
+  ]
+}
