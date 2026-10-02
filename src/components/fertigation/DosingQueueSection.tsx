@@ -100,9 +100,7 @@ export function DosingQueueSection({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold tracking-tight text-slate-100">
-                {isMultiGh
-                  ? "Antrean Dosing Central (Multi-GH • Serial FIFO • Distribusi Paralel)"
-                  : "Antrean Dosing Central (Single-GH)"}
+                Antrean Dosing Central (FIFO Execution Order)
               </h3>
               <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
                 {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Menunggu Giliran
@@ -110,7 +108,7 @@ export function DosingQueueSection({
             </div>
             <p className="text-[11px] text-slate-400">
               {isMultiGh
-                ? "Unit Dosing Sentral meracik tangki batch setiap greenhouse bergantian (FIFO) agar seluruh tangki siap sebelum jam penyiraman (Distribusi Paralel)."
+                ? "Multi-GH: Unit Dosing Sentral meracik tangki batch setiap greenhouse bergantian (FIFO) agar seluruh tangki siap sebelum jam penyiraman (Distribusi Paralel)."
                 : "Unit Dosing Sentral menyiapkan larutan nutrisi di tangki batch sebelum jadwal penyiraman fertigasi dimulai."}
             </p>
           </div>
@@ -319,16 +317,14 @@ export function DosingQueueSection({
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <span className="font-semibold text-slate-200">Central Dosing Unit: Standby (Siaga)</span>
             <span className="text-slate-400">
-              {queuedJobs.length > 0
-                ? "• Antrean peracikan siap dieksekusi berurutan FIFO"
-                : "• Tangki mixing siap / tidak ada peracikan aktif"}
+              • Tidak ada operasi dosing yang sedang berjalan saat ini.
             </span>
           </div>
 
           {nextScheduledOp ? (
             <div className="flex items-center gap-2 text-slate-300">
               <Clock className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-slate-400">Jadwal Fertigasi Tanaman Berikutnya:</span>
+              <span className="text-slate-400">Operasi berikutnya:</span>
               <span className="font-bold text-amber-300">
                 {nextScheduledOp.ghCode} ({nextScheduledOp.ghName}) pukul {nextScheduledOp.time}
               </span>
@@ -392,11 +388,15 @@ export function DosingQueueSection({
         ) : (
           <div className="rounded-xl border border-dashed border-slate-800/80 bg-slate-950/20 px-4 py-3 text-center text-xs text-slate-400">
             {activeJob ? (
-              <span>Tidak ada batch tambahan dalam antrean menunggu giliran.</span>
-            ) : (
+              <span>Batch sedang diproses di unit peracikan. Tidak ada operasi peracikan dalam antrean saat ini.</span>
+            ) : nextScheduledOp ? (
               <span>
-                Antrean peracikan sentral saat ini kosong. Jadwal fertigasi akan otomatis masuk ke antrean peracikan saat waktu operasional tercapai.
+                Tidak ada operasi peracikan dalam antrean saat ini. Jadwal fertigasi berikutnya adalah pukul{" "}
+                <strong className="text-amber-300">{nextScheduledOp.time}</strong> untuk{" "}
+                <strong className="text-slate-200">{nextScheduledOp.ghCode} ({nextScheduledOp.ghName})</strong>.
               </span>
+            ) : (
+              <span>Tidak ada operasi peracikan dalam antrean saat ini.</span>
             )}
           </div>
         )}

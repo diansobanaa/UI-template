@@ -65,7 +65,7 @@ export function ScheduleContent({
 
   const complexes = complexService.list();
   const rawComplexId = (selectedComplexId ?? params.get("complex") ?? "").trim();
-  const complex = (rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null) ?? complexes[0];
+  const complex = (rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null) ?? complexes.at(0);
   if (!complex) {
     return (
       <ScheduleFrame embedded={embedded} complexId="">
@@ -93,6 +93,7 @@ export function ScheduleContent({
   };
 
   const clock = useDeviceClock();
+  const [activeTab, setActiveTab] = useState<"fertigation" | "pump" | "fan" | "hardware" | "all">("fertigation");
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
   const [fanOpen, setFanOpen] = useState(false);
@@ -115,7 +116,7 @@ export function ScheduleContent({
         const inventory = isDirectEsp32Enabled()
           ? await esp32Client.getInventory()
           : isPythonBackendEnabled()
-            ? await new PythonClient().getInventory(complex.id)
+            ? await new PythonClient().getInventory(complex?.id || "")
             : null;
         if (!inventory || !Array.isArray(inventory.components)) {
           if (!cancelled) setDosingComponents([]);
@@ -139,20 +140,22 @@ export function ScheduleContent({
     }
     loadDosingComponents();
     return () => { cancelled = true; };
-  }, [complex.id]);
+  }, [complex?.id]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadSchedules() {
       try {
-        await scheduleService.refreshSchedulesFromEsp32(complex.id);
+        if (complex?.id) {
+          await scheduleService.refreshSchedulesFromEsp32(complex.id);
+        }
       } catch (err) {
         console.warn("[ScheduleContent] Authoritative ESP32 schedule fetch failed:", err);
       }
     }
     void loadSchedules();
     return () => { cancelled = true; };
-  }, [complex.id]);
+  }, [complex?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -482,163 +485,162 @@ export function ScheduleContent({
         </div>
       )}
 
-      {/* Summary */}
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Category Navigation Tabs: Eliminates vertical stacking and duplicate schedules/queues */}
+      <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-3">
         {[
-          { label: "Fertigation Schedules", value: fertSchedules.filter((s) => s.enabled).length, icon: Droplets, tone: "blue", spark: 0 },
-          { label: "Well Pump Schedules", value: wellPumps.filter((s) => s.enabled).length, icon: Waves, tone: "cyan", spark: 1 },
-          { label: "Fan Schedules", value: fanSchedules.filter((s) => s.enabled).length, icon: Fan, tone: "green", spark: 2 },
-          { label: "Queue (pending today)", value: queue.length, icon: ListOrdered, tone: "violet", spark: 3 },
-        ].map((s) => {
-          const tones = {
-            blue: { glow: "from-blue-500/18 via-blue-500/5 to-transparent", icon: "border-blue-400/20 bg-blue-500/12 text-blue-300", line: "text-blue-300" },
-            cyan: { glow: "from-cyan-500/18 via-cyan-500/5 to-transparent", icon: "border-cyan-400/20 bg-cyan-500/12 text-cyan-300", line: "text-cyan-300" },
-            green: { glow: "from-emerald-500/18 via-emerald-500/5 to-transparent", icon: "border-emerald-400/20 bg-emerald-500/12 text-emerald-300", line: "text-emerald-300" },
-            violet: { glow: "from-violet-500/18 via-violet-500/5 to-transparent", icon: "border-violet-400/20 bg-violet-500/12 text-violet-300", line: "text-violet-300" },
-          }[s.tone as "blue" | "cyan" | "green" | "violet"];
+          { id: "fertigation" as const, label: "Fertigasi & Dosing", icon: Droplets, count: fertSchedules.filter((s) => s.enabled).length },
+          { id: "pump" as const, label: "Pompa Air Baku (Sumur)", icon: Waves, count: wellPumps.filter((s) => s.enabled).length },
+          { id: "fan" as const, label: "Kipas Sirkulasi (Fan)", icon: Fan, count: fanSchedules.filter((s) => s.enabled).length },
+          { id: "hardware" as const, label: "Hardware & ESP32", icon: MonitorCog },
+          { id: "all" as const, label: "Semua Jadwal", icon: ListOrdered },
+        ].map((tab) => {
+          const isActive = activeTab === tab.id;
+          const Icon = tab.icon;
           return (
-            <div key={s.label} className="relative overflow-hidden rounded-xl border border-slate-800/90 bg-[#0e1a2a]/95 px-4 py-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
-              <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${tones.glow}`} />
-              <div className="relative flex items-center gap-3">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${tones.icon}`}>
-                  <s.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[23px] font-bold leading-none tracking-tight text-slate-50">{s.value}</div>
-                  <div className="mt-1 text-[11px] font-medium text-slate-400">{s.label}</div>
-                </div>
-                <div className={`ml-auto ${tones.line}`}>
-                  <MiniSparkline offset={s.spark} />
-                </div>
-              </div>
-            </div>
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                isActive
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                  : "bg-slate-900/60 text-slate-400 border border-slate-800 hover:bg-slate-800/80 hover:text-slate-200"
+              }`}
+            >
+              <Icon className={`h-4 w-4 ${isActive ? "text-cyan-400" : "text-slate-500"}`} />
+              <span>{tab.label}</span>
+              {typeof tab.count === "number" && (
+                <span
+                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                    isActive ? "bg-cyan-500/30 text-cyan-200" : "bg-slate-800 text-slate-400"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
           );
         })}
       </div>
 
-      <div className="mb-5">
-        <TopologyCapabilityPanel states={topologyStates} loading={topologyLoading} unavailableReason={topologyError} />
-      </div>
+      {/* ---------------- Tab 1: Fertigasi & Dosing (Default Focus) ---------------- */}
+      {activeTab === "fertigation" && (
+        <div className="space-y-5">
+          {/* Real-time Complex Dosing Queue, Mixing Tanks & Fertigation Schedule Manager */}
+          <FertigationQueueDashboard
+            queue={queue}
+            complexId={complex.id}
+            selectedGhId={gh?.id}
+            onOpenCreate={openFertigationCreate}
+          />
 
-      {/* Real-time Complex Dosing Queue & Batch Execution (Section 10.3 & Section 20) */}
-      <div className="mb-5">
-        <FertigationQueueDashboard
-          queue={queue}
-          complexId={complex.id}
-          selectedGhId={gh?.id}
-          onOpenCreate={openFertigationCreate}
-        />
-      </div>
+          {/* Today's timeline */}
+          <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
+            <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
+          </DarkSectionCard>
 
-      {/* Today's timeline */}
-      <div className="mb-5">
-        <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
-          <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
-        </DarkSectionCard>
-      </div>
-
-      <div className="mb-5">
-        <DarkSectionCard
-          title={`Fertigation & Transfer Schedules — ${complex.code}`}
-          icon={Droplets}
-          iconTone="blue"
-          subtitle="Greenhouse & Complex-level schedules"
-          action={
-            <div className="flex gap-2">
-              <ActionButton tone="violet" onClick={() => { toast("Form Water Transfer belum diimplementasikan", "info"); }}>
-                <Plus className="h-3.5 w-3.5" /> Add Water Transfer
-              </ActionButton>
-              <ActionButton tone="blue" onClick={openFertigationCreate}>
-                <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
-              </ActionButton>
-            </div>
-          }
-        >
-          <ScheduleTable
-            rows={[
-              ...fertSchedules.map((s) => {
-                const [h, m] = (s.time || "00:00").split(":").map(Number);
-                const schedMinutes = (h || 0) * 60 + (m || 0);
-                const isPast = schedMinutes < currentMinutes;
-                const isMissed = isPast && (!s.lastRun || !s.lastRun.includes("Today"));
-                const rowStatus: FertigationSchedule["status"] = !s.enabled
-                  ? "disabled"
-                  : isMissed
-                  ? "missed"
-                  : s.status;
-                const rowNextRun = !s.enabled
-                  ? "Disabled"
-                  : isPast
-                  ? `Tomorrow ${s.time}`
-                  : `Today ${s.time}`;
-
-                const ghObj = greenhouseService.get(s.ghId);
-                const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
-
-                return {
+          {waterTransfers.length > 0 && (
+            <DarkSectionCard
+              title={`Water Transfer Schedules — ${complex.code}`}
+              icon={Waves}
+              iconTone="violet"
+              subtitle="Complex-level water transfers"
+            >
+              <ScheduleTable
+                rows={waterTransfers.map((s) => ({
                   id: s.id,
                   name: s.name,
-                  greenhouse: ghName,
+                  greenhouse: "Complex",
                   time: s.time,
                   repeat: s.repeat,
-                  detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
+                  detail: `Transfer: ${s.durationMin} min`,
                   lastRun: s.lastRun,
-                  nextRun: rowNextRun,
+                  nextRun: s.nextRun,
                   enabled: s.enabled,
-                  status: rowStatus,
+                  status: s.status,
                   activationState: s.activationState,
                   blockedReasons: s.blockedReasons,
-                  type: "fertigation" as const,
-                };
-              }),
-              ...waterTransfers.map((s) => ({
-                id: s.id,
-                name: s.name,
-                greenhouse: "Complex",
-                time: s.time,
-                repeat: s.repeat,
-                detail: `Transfer: ${s.durationMin} min`,
-                lastRun: s.lastRun,
-                nextRun: s.nextRun,
-                enabled: s.enabled,
-                status: s.status,
-                activationState: s.activationState,
-                blockedReasons: s.blockedReasons,
-                type: "water-transfer" as const,
-              }))
-            ]}
-            addLabel="Add Fertigation Schedule"
-            onAdd={() => { setEditFert(null); setFertOpen(true); }}
-            onToggle={(id, v) => handleToggle("fert", id, v, "Schedule")}
-            onEdit={(id) => { setEditFert(fertSchedules.find((s) => s.id === id) ?? null); setFertOpen(true); }}
-            onDelete={(id, name) => setDeleteTarget({ kind: "fert", id, name })}
-            togglingId={togglingId}
-          />
-        </DarkSectionCard>
-      </div>
+                  type: "water-transfer" as const,
+                }))}
+                addLabel="Add Water Transfer"
+                onAdd={() => { toast("Form Water Transfer belum diimplementasikan", "info"); }}
+                onToggle={(id, v) => handleToggle("fert", id, v, "Water transfer")}
+                onEdit={(id) => {}}
+                onDelete={(id, name) => setDeleteTarget({ kind: "fert", id, name })}
+                togglingId={togglingId}
+              />
+            </DarkSectionCard>
+          )}
+        </div>
+      )}
 
-      {/* Well pump (Complex-level) + radar */}
-      <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+      {/* ---------------- Tab 2: Pompa Air Baku (Sumur) ---------------- */}
+      {activeTab === "pump" && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            <DarkSectionCard
+              title={`Well Pump Schedule — ${complex.code}`}
+              icon={Waves}
+              iconTone="sky"
+              subtitle="Complex-level: fills the shared raw water tank"
+              action={
+                <ActionButton tone="cyan" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
+                  <Plus className="h-3.5 w-3.5" /> Add Well Pump Schedule
+                </ActionButton>
+              }
+            >
+              <ScheduleTable
+                rows={wellPumps.map((s) => ({
+                  id: s.id,
+                  name: s.task,
+                  greenhouse: "Complex",
+                  time: s.time,
+                  repeat: s.trigger === "interval" && s.intervalMin ? `Tiap ${s.intervalMin}m` : s.repeat,
+                  detail: `${s.durationSec ? (s.durationSec < 60 ? `${s.durationSec}s` : `${Math.round(s.durationSec / 60)} min`) : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s` : `${s.durationMin} min`)} run${s.trigger === 'interval' && s.intervalMin ? ` • Window: ${s.time}–${s.endTime || '...'}` : ''}`,
+                  lastRun: s.lastRun,
+                  nextRun: s.nextRun,
+                  enabled: s.enabled,
+                  status: s.status,
+                  activationState: s.activationState,
+                  blockedReasons: s.blockedReasons,
+                }))}
+                accent="sky"
+                addLabel="Add Well Pump Schedule"
+                onAdd={() => { setEditPump(null); setPumpOpen(true); }}
+                onToggle={(id, v) => handleToggle("pump", id, v, "Well pump schedule")}
+                onEdit={(id) => { setEditPump(wellPumps.find((s) => s.id === id) ?? null); setPumpOpen(true); }}
+                onDelete={(id, name) => setDeleteTarget({ kind: "pump", id, name })}
+                togglingId={togglingId}
+              />
+            </DarkSectionCard>
+          </div>
+
+          <WellPumpControlCard complexId={complex.id} dark={true} />
+        </div>
+      )}
+
+      {/* ---------------- Tab 3: Kipas Sirkulasi (Fan) ---------------- */}
+      {activeTab === "fan" && (
+        <div>
           <DarkSectionCard
-            title={`Well Pump Schedule — ${complex.code}`}
-            icon={Waves}
-            iconTone="sky"
-            subtitle="Complex-level: fills the shared raw water tank"
+            title={`Fan Schedules — ${complex.code}`}
+            icon={Fan}
+            iconTone="green"
+            subtitle="Greenhouse-level schedules"
             action={
-              <ActionButton tone="cyan" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
-                <Plus className="h-3.5 w-3.5" /> Add Well Pump Schedule
+              <ActionButton tone="green" onClick={openFanCreate}>
+                <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
               </ActionButton>
             }
           >
             <ScheduleTable
-              rows={wellPumps.map((s) => ({
+              rows={fanSchedules.map((s) => ({
                 id: s.id,
-                name: s.task,
-                greenhouse: "Complex",
-                time: s.time,
-                repeat: s.trigger === "interval" && s.intervalMin ? `Tiap ${s.intervalMin}m` : s.repeat,
-                detail: `${s.durationSec ? (s.durationSec < 60 ? `${s.durationSec}s` : `${Math.round(s.durationSec / 60)} min`) : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s` : `${s.durationMin} min`)} run${s.trigger === 'interval' && s.intervalMin ? ` • Window: ${s.time}–${s.endTime || '...'}` : ''}`,
+                name: s.mode === "time" ? `Fan — ${s.time}` : "Fan — Temperature",
+                greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
+                time: s.mode === "time" ? s.time : "Auto",
+                repeat: s.mode === "time" ? s.repeat : `ON > ${s.onAboveC}°C / OFF < ${s.offBelowC}°C`,
+                detail: s.mode === "time" ? `${s.durationMin} min run` : "Hysteresis control",
                 lastRun: s.lastRun,
                 nextRun: s.nextRun,
                 enabled: s.enabled,
@@ -646,115 +648,284 @@ export function ScheduleContent({
                 activationState: s.activationState,
                 blockedReasons: s.blockedReasons,
               }))}
-              accent="sky"
-              addLabel="Add Well Pump Schedule"
-              onAdd={() => { setEditPump(null); setPumpOpen(true); }}
-              onToggle={(id, v) => handleToggle("pump", id, v, "Well pump schedule")}
-              onEdit={(id) => { setEditPump(wellPumps.find((s) => s.id === id) ?? null); setPumpOpen(true); }}
-              onDelete={(id, name) => setDeleteTarget({ kind: "pump", id, name })}
+              accent="green"
+              addLabel="Add Fan Schedule"
+              onAdd={() => { setEditFan(null); setFanOpen(true); }}
+              onToggle={(id, v) => handleToggle("fan", id, v, "Fan schedule")}
+              onEdit={(id) => { setEditFan(fanSchedules.find((s) => s.id === id) ?? null); setFanOpen(true); }}
+              onDelete={(id, name) => setDeleteTarget({ kind: "fan", id, name })}
               togglingId={togglingId}
             />
           </DarkSectionCard>
         </div>
+      )}
 
-        <WellPumpControlCard complexId={complex.id} dark={true} />
-      </div>
+      {/* ---------------- Tab 4: Hardware & ESP32 ---------------- */}
+      {activeTab === "hardware" && (
+        <div className="space-y-5">
+          <TopologyCapabilityPanel states={topologyStates} loading={topologyLoading} unavailableReason={topologyError} />
 
-      {/* Fan schedules (GH-level) */}
-      <div className="mb-5">
-        <DarkSectionCard
-          title={`Fan Schedules — ${complex.code}`}
-          icon={Fan}
-          iconTone="green"
-          subtitle="Greenhouse-level schedules"
-          action={
-            <ActionButton tone="green" onClick={openFanCreate}>
-              <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
-            </ActionButton>
-          }
-        >
-          <ScheduleTable
-            rows={fanSchedules.map((s) => ({
-              id: s.id,
-              name: s.mode === "time" ? `Fan — ${s.time}` : "Fan — Temperature",
-              greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
-              time: s.mode === "time" ? s.time : "Auto",
-              repeat: s.mode === "time" ? s.repeat : `ON > ${s.onAboveC}°C / OFF < ${s.offBelowC}°C`,
-              detail: s.mode === "time" ? `${s.durationMin} min run` : "Hysteresis control",
-              lastRun: s.lastRun,
-              nextRun: s.nextRun,
-              enabled: s.enabled,
-              status: s.status,
-              activationState: s.activationState,
-              blockedReasons: s.blockedReasons,
-            }))}
-            accent="green"
-            addLabel="Add Fan Schedule"
-            onAdd={() => { setEditFan(null); setFanOpen(true); }}
-            onToggle={(id, v) => handleToggle("fan", id, v, "Fan schedule")}
-            onEdit={(id) => { setEditFan(fanSchedules.find((s) => s.id === id) ?? null); setFanOpen(true); }}
-            onDelete={(id, name) => setDeleteTarget({ kind: "fan", id, name })}
-            togglingId={togglingId}
-          />
-        </DarkSectionCard>
-      </div>
-
-      {/* Queue + ESP32 config */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <DarkSectionCard title="Queue" icon={ListOrdered} iconTone="violet" subtitle="Pending executions for today">
-          {queue.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 py-7 text-center">
-              <p className="text-[13px] text-slate-500">No fertigation schedules configured.</p>
-              <ActionButton tone="violet" size="sm" className="mt-3" onClick={openFertigationCreate}>
-                <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
+          <DarkSectionCard
+            title="ESP32 Configuration"
+            icon={MonitorCog}
+            iconTone="slate"
+            action={
+              <ActionButton tone="slate" onClick={handleSync} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Synchronizing…" : "Sync Now"}
               </ActionButton>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {queue.map((s) => (
-                <div key={s.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-[#0d1929] px-3.5 py-3 shadow-[0_8px_18px_rgba(0,0,0,0.12)]">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-500/10 text-violet-300">
-                    <ListOrdered className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold text-slate-100">{s.name} • {greenhouseService.get(s.ghId)?.code ?? "GH"}</div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">{s.nextRun} • {s.targetWaterL} L</div>
-                  </div>
-                  <StatusPill status="scheduled" />
+            }
+          >
+            <div className="space-y-1.5 text-[12px]">
+              {[
+                ["Device", `ESP32-S3 • ${complex.code}`],
+                ["Status", complex.esp32.online ? "ONLINE" : "OFFLINE"],
+                ["Last Sync", complex.esp32.lastSync],
+                ["Configuration Version", `v${complex.esp32.configVersion}`],
+                ["ESP32 Config Version", `v${complex.esp32.esp32ConfigVersion}`],
+                ["Synchronization", complex.esp32.synchronized ? "SYNCHRONIZED" : "PENDING"],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-4 rounded-lg border border-slate-800/70 bg-slate-950/25 px-3.5 py-2.5">
+                  <span className="text-slate-500">{k}</span>
+                  <span className="text-right font-semibold text-slate-200">{v}</span>
                 </div>
               ))}
             </div>
-          )}
-        </DarkSectionCard>
+          </DarkSectionCard>
+        </div>
+      )}
 
-        <DarkSectionCard
-          title="ESP32 Configuration"
-          icon={MonitorCog}
-          iconTone="slate"
-          action={
-            <ActionButton tone="slate" onClick={handleSync} disabled={syncing}>
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Synchronizing…" : "Sync Now"}
-            </ActionButton>
-          }
-        >
-          <div className="space-y-1.5 text-[12px]">
+      {/* ---------------- Tab 5: Semua Jadwal (Overview Tab) ---------------- */}
+      {activeTab === "all" && (
+        <div className="space-y-5">
+          {/* Summary Metric Cards */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ["Device", `ESP32-S3 • ${complex.code}`],
-              ["Status", complex.esp32.online ? "ONLINE" : "OFFLINE"],
-              ["Last Sync", complex.esp32.lastSync],
-              ["Configuration Version", `v${complex.esp32.configVersion}`],
-              ["ESP32 Config Version", `v${complex.esp32.esp32ConfigVersion}`],
-              ["Synchronization", complex.esp32.synchronized ? "SYNCHRONIZED" : "PENDING"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between gap-4 rounded-lg border border-slate-800/70 bg-slate-950/25 px-3.5 py-2.5">
-                <span className="text-slate-500">{k}</span>
-                <span className="text-right font-semibold text-slate-200">{v}</span>
-              </div>
-            ))}
+              { label: "Fertigation Schedules", value: fertSchedules.filter((s) => s.enabled).length, icon: Droplets, tone: "blue", spark: 0 },
+              { label: "Well Pump Schedules", value: wellPumps.filter((s) => s.enabled).length, icon: Waves, tone: "cyan", spark: 1 },
+              { label: "Fan Schedules", value: fanSchedules.filter((s) => s.enabled).length, icon: Fan, tone: "green", spark: 2 },
+              { label: "Queue (pending today)", value: queue.length, icon: ListOrdered, tone: "violet", spark: 3 },
+            ].map((s) => {
+              const tones = {
+                blue: { glow: "from-blue-500/18 via-blue-500/5 to-transparent", icon: "border-blue-400/20 bg-blue-500/12 text-blue-300", line: "text-blue-300" },
+                cyan: { glow: "from-cyan-500/18 via-cyan-500/5 to-transparent", icon: "border-cyan-400/20 bg-cyan-500/12 text-cyan-300", line: "text-cyan-300" },
+                green: { glow: "from-emerald-500/18 via-emerald-500/5 to-transparent", icon: "border-emerald-400/20 bg-emerald-500/12 text-emerald-300", line: "text-emerald-300" },
+                violet: { glow: "from-violet-500/18 via-violet-500/5 to-transparent", icon: "border-violet-400/20 bg-violet-500/12 text-violet-300", line: "text-violet-300" },
+              }[s.tone as "blue" | "cyan" | "green" | "violet"];
+              return (
+                <div key={s.label} className="relative overflow-hidden rounded-xl border border-slate-800/90 bg-[#0e1a2a]/95 px-4 py-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.18)]">
+                  <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${tones.glow}`} />
+                  <div className="relative flex items-center gap-3">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${tones.icon}`}>
+                      <s.icon className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[23px] font-bold leading-none tracking-tight text-slate-50">{s.value}</div>
+                      <div className="mt-1 text-[11px] font-medium text-slate-400">{s.label}</div>
+                    </div>
+                    <div className={`ml-auto ${tones.line}`}>
+                      <MiniSparkline offset={s.spark} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </DarkSectionCard>
-      </div>
+
+          {/* Today's timeline */}
+          <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
+            <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
+          </DarkSectionCard>
+
+          {/* Fertigation & Transfer Schedules */}
+          <DarkSectionCard
+            title={`Fertigation & Transfer Schedules — ${complex.code}`}
+            icon={Droplets}
+            iconTone="blue"
+            subtitle="Greenhouse & Complex-level schedules"
+            action={
+              <div className="flex gap-2">
+                <ActionButton tone="violet" onClick={() => { toast("Form Water Transfer belum diimplementasikan", "info"); }}>
+                  <Plus className="h-3.5 w-3.5" /> Add Water Transfer
+                </ActionButton>
+                <ActionButton tone="blue" onClick={openFertigationCreate}>
+                  <Plus className="h-3.5 w-3.5" /> Add Fertigation Schedule
+                </ActionButton>
+              </div>
+            }
+          >
+            <ScheduleTable
+              rows={[
+                ...fertSchedules.map((s) => {
+                  const [h, m] = (s.time || "00:00").split(":").map(Number);
+                  const schedMinutes = (h || 0) * 60 + (m || 0);
+                  const isPast = schedMinutes < currentMinutes;
+                  const isMissed = isPast && (!s.lastRun || !s.lastRun.includes("Today"));
+                  const rowStatus: FertigationSchedule["status"] = !s.enabled
+                    ? "disabled"
+                    : isMissed
+                    ? "missed"
+                    : s.status;
+                  const rowNextRun = !s.enabled
+                    ? "Disabled"
+                    : isPast
+                    ? `Tomorrow ${s.time}`
+                    : `Today ${s.time}`;
+
+                  const ghObj = greenhouseService.get(s.ghId);
+                  const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
+
+                  return {
+                    id: s.id,
+                    name: s.name,
+                    greenhouse: ghName,
+                    time: s.time,
+                    repeat: s.repeat,
+                    detail: `${s.targetWaterL} L • A ${s.dosingAml}ml / B ${s.dosingBml}ml`,
+                    lastRun: s.lastRun,
+                    nextRun: rowNextRun,
+                    enabled: s.enabled,
+                    status: rowStatus,
+                    activationState: s.activationState,
+                    blockedReasons: s.blockedReasons,
+                    type: "fertigation" as const,
+                  };
+                }),
+                ...waterTransfers.map((s) => ({
+                  id: s.id,
+                  name: s.name,
+                  greenhouse: "Complex",
+                  time: s.time,
+                  repeat: s.repeat,
+                  detail: `Transfer: ${s.durationMin} min`,
+                  lastRun: s.lastRun,
+                  nextRun: s.nextRun,
+                  enabled: s.enabled,
+                  status: s.status,
+                  activationState: s.activationState,
+                  blockedReasons: s.blockedReasons,
+                  type: "water-transfer" as const,
+                }))
+              ]}
+              addLabel="Add Fertigation Schedule"
+              onAdd={() => { setEditFert(null); setFertOpen(true); }}
+              onToggle={(id, v) => handleToggle("fert", id, v, "Schedule")}
+              onEdit={(id) => { setEditFert(fertSchedules.find((s) => s.id === id) ?? null); setFertOpen(true); }}
+              onDelete={(id, name) => setDeleteTarget({ kind: "fert", id, name })}
+              togglingId={togglingId}
+            />
+          </DarkSectionCard>
+
+          {/* Well pump grid */}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <div className="xl:col-span-2">
+              <DarkSectionCard
+                title={`Well Pump Schedule — ${complex.code}`}
+                icon={Waves}
+                iconTone="sky"
+                subtitle="Complex-level: fills the shared raw water tank"
+                action={
+                  <ActionButton tone="cyan" onClick={() => { setEditPump(null); setPumpOpen(true); }}>
+                    <Plus className="h-3.5 w-3.5" /> Add Well Pump Schedule
+                  </ActionButton>
+                }
+              >
+                <ScheduleTable
+                  rows={wellPumps.map((s) => ({
+                    id: s.id,
+                    name: s.task,
+                    greenhouse: "Complex",
+                    time: s.time,
+                    repeat: s.trigger === "interval" && s.intervalMin ? `Tiap ${s.intervalMin}m` : s.repeat,
+                    detail: `${s.durationSec ? (s.durationSec < 60 ? `${s.durationSec}s` : `${Math.round(s.durationSec / 60)} min`) : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s` : `${s.durationMin} min`)} run${s.trigger === 'interval' && s.intervalMin ? ` • Window: ${s.time}–${s.endTime || '...'}` : ''}`,
+                    lastRun: s.lastRun,
+                    nextRun: s.nextRun,
+                    enabled: s.enabled,
+                    status: s.status,
+                    activationState: s.activationState,
+                    blockedReasons: s.blockedReasons,
+                  }))}
+                  accent="sky"
+                  addLabel="Add Well Pump Schedule"
+                  onAdd={() => { setEditPump(null); setPumpOpen(true); }}
+                  onToggle={(id, v) => handleToggle("pump", id, v, "Well pump schedule")}
+                  onEdit={(id) => { setEditPump(wellPumps.find((s) => s.id === id) ?? null); setPumpOpen(true); }}
+                  onDelete={(id, name) => setDeleteTarget({ kind: "pump", id, name })}
+                  togglingId={togglingId}
+                />
+              </DarkSectionCard>
+            </div>
+
+            <WellPumpControlCard complexId={complex.id} dark={true} />
+          </div>
+
+          {/* Fan schedules */}
+          <DarkSectionCard
+            title={`Fan Schedules — ${complex.code}`}
+            icon={Fan}
+            iconTone="green"
+            subtitle="Greenhouse-level schedules"
+            action={
+              <ActionButton tone="green" onClick={openFanCreate}>
+                <Plus className="h-3.5 w-3.5" /> Add Fan Schedule
+              </ActionButton>
+            }
+          >
+            <ScheduleTable
+              rows={fanSchedules.map((s) => ({
+                id: s.id,
+                name: s.mode === "time" ? `Fan — ${s.time}` : "Fan — Temperature",
+                greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
+                time: s.mode === "time" ? s.time : "Auto",
+                repeat: s.mode === "time" ? s.repeat : `ON > ${s.onAboveC}°C / OFF < ${s.offBelowC}°C`,
+                detail: s.mode === "time" ? `${s.durationMin} min run` : "Hysteresis control",
+                lastRun: s.lastRun,
+                nextRun: s.nextRun,
+                enabled: s.enabled,
+                status: s.status,
+                activationState: s.activationState,
+                blockedReasons: s.blockedReasons,
+              }))}
+              accent="green"
+              addLabel="Add Fan Schedule"
+              onAdd={() => { setEditFan(null); setFanOpen(true); }}
+              onToggle={(id, v) => handleToggle("fan", id, v, "Fan schedule")}
+              onEdit={(id) => { setEditFan(fanSchedules.find((s) => s.id === id) ?? null); setFanOpen(true); }}
+              onDelete={(id, name) => setDeleteTarget({ kind: "fan", id, name })}
+              togglingId={togglingId}
+            />
+          </DarkSectionCard>
+
+          {/* ESP32 Config */}
+          <DarkSectionCard
+            title="ESP32 Configuration"
+            icon={MonitorCog}
+            iconTone="slate"
+            action={
+              <ActionButton tone="slate" onClick={handleSync} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Synchronizing…" : "Sync Now"}
+              </ActionButton>
+            }
+          >
+            <div className="space-y-1.5 text-[12px]">
+              {[
+                ["Device", `ESP32-S3 • ${complex.code}`],
+                ["Status", complex.esp32.online ? "ONLINE" : "OFFLINE"],
+                ["Last Sync", complex.esp32.lastSync],
+                ["Configuration Version", `v${complex.esp32.configVersion}`],
+                ["ESP32 Config Version", `v${complex.esp32.esp32ConfigVersion}`],
+                ["Synchronization", complex.esp32.synchronized ? "SYNCHRONIZED" : "PENDING"],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-4 rounded-lg border border-slate-800/70 bg-slate-950/25 px-3.5 py-2.5">
+                  <span className="text-slate-500">{k}</span>
+                  <span className="text-right font-semibold text-slate-200">{v}</span>
+                </div>
+              ))}
+            </div>
+          </DarkSectionCard>
+        </div>
+      )}
 
       {/* Drawers */}
       {gh && <AddFertigationDrawer

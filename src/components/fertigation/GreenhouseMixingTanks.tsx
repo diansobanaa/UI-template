@@ -280,6 +280,7 @@ export function GreenhouseMixingTanks({
                     )}
 
 
+                    {/* Otomasi Penuh: Masuk Antrean Dosing dikelola otomatis via Central Dosing Engine */}
                     {(isMixing || isDelivering || isQueued) && (
                       <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
                         <Activity className="h-3 w-3 text-cyan-400 animate-spin" />

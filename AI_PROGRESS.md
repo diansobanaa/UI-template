@@ -1,3 +1,22 @@
+## SP-SCHEDULE-DEDUP-DISPATCH-001 — Immediate FIFO Queue Batch Execution from Standby & Schedule Page Redundancy Elimination via Category Tabs
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — ZERO TYPE ERRORS`
+- **Objective**:
+  1. Fix physical & UI contradiction where Central Dosing Unit showed Standby (Siaga) while queue item #1 was left waiting unexecuted.
+  2. Implement continuous FIFO eager auto-dispatch in `fetchStatus`: when controller is IDLE and queue has items, immediately trigger `fertigationService.startManual` for batch #1.
+  3. In UI rendering: promote queue item #1 to `activeJob` (Melayani GH-01, Tahap 1 Persiapan Air Baku - Sedang Berjalan) so it never sits in waiting list while Central Unit is available; only render Standby banner when queue is truly empty.
+  4. Fix redundant `/schedule` page layout: introduce clean Category Tabs (`🌱 Fertigasi & Dosing`, `💧 Pompa Air Baku (Sumur)`, `💨 Kipas Sirkulasi (Fan)`, `⚡ Hardware & ESP32`, `📋 Semua Jadwal`), eliminating duplicate fertigation schedule table and duplicate legacy queue card on the default view.
+  5. Replace forbidden `complexes[0]` with `complexes.at(0)`.
+- **Root Cause & Resolution**:
+  - *Queue Standby Defect:* When firmware state was `IDLE`, `activeJob` returned null, rendering the Standby banner while leaving queue items stranded as waiting. Auto-dispatch was previously only in manual sync button, not in continuous polling. Resolved by computing `allQueuedJobs` first, promoting item #1 to `activeJob` when idle, filtering it from `queuedJobs`, and auto-dispatching `fertigationService.startManual` in `fetchStatus` with `autoDispatchLockRef`.
+  - *Schedule Page Redundancy:* `/schedule` stacked summary cards, `FertigationQueueDashboard`, Timeline, duplicate second `ScheduleTable` for fertigation, Well pump, Fan schedules, duplicate `Queue` card, and ESP32 config. Resolved by organizing into sleek Category Tabs where default tab only shows `FertigationQueueDashboard` and Timeline without duplicate tables or duplicate queue cards.
+- **Verification Results**:
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+
 ## SP-QUEUE-UNIFY-EAGER-002 — Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons
 - **Date**: 2026-10-03
 - **Git Commit**: `e9fc011`

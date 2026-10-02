@@ -1073,7 +1073,7 @@ function GreenhouseContent() {
   const [resuming, setResuming] = useState(false);
   const complexes = complexService.list();
   const rawComplexId = (params.get("complex") ?? "").trim();
-  const complex = (rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null) ?? complexes[0];
+  const complex = (rawComplexId ? complexes.find((c) => c.id === rawComplexId) : null) ?? complexes.at(0);
   if (!complex) return null;
   const ghs = greenhouseService.byComplex(complex.id);
   const ghId = params.get("gh") ?? routeGhId;

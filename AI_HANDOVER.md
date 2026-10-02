@@ -1,4 +1,44 @@
-# AI HANDOVER — SP-QUEUE-UNIFY-EAGER-002 (latest)
+# AI HANDOVER — SP-SCHEDULE-DEDUP-DISPATCH-001 (latest)
+
+## Status — SP-SCHEDULE-DEDUP-DISPATCH-001
+**Immediate FIFO Queue Batch Execution from Standby & Schedule Page Redundancy Elimination via Category Tabs**
+**Safe Point**: `SP-SCHEDULE-DEDUP-DISPATCH-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — ZERO TYPE ERRORS`
+
+### Summary of What Was Done
+1. **Perbaikan Masalah: Standby tapi Queue Pertama Tidak Dieksekusi**:
+   - Menghilangkan kontradiksi di mana Central Dosing Unit menampilkan banner `Standby (Siaga)` sementara antrean #1 dibiarkan terkatung-katung sebagai `Menunggu Giliran`.
+   - Mengubah komputasi: `allQueuedJobs` dihitung terlebih dahulu. Jika controller berstatus `IDLE` dan antrean berisi pekerjaan, batch #1 (`allQueuedJobs[0]`) **langsung dipromosikan sebagai `activeJob`** (Melayani GH-01, Tahapan Peracikan: Tahap 1 Persiapan Air Baku - Sedang Berjalan).
+   - Antrean yang ditampilkan pada daftar antrean hanya menyisakan batch berikutnya (`allQueuedJobs.slice(1)`).
+   - Banner `Standby (Siaga)` hanya dirender jika antrean benar-benar kosong dan tidak ada batch yang sedang berjalan.
+   - Mengimplementasikan **Continuous FIFO Eager Auto-Dispatch** pada loop `fetchStatus` (polling tiap 3 detik): jika status controller `IDLE` dan ada antrean, sistem langsung memanggil `fertigationService.startManual` secara otomatis (dilindungi `autoDispatchLockRef`) untuk segera menggerakkan hardware pipeline tanpa menunggu user menekan tombol sinkron manual.
+2. **Perbaikan Tampilan Halaman Schedule (`/schedule?complex=complex-01`) yang Sangat Redundan**:
+   - Membongkar tumpukan vertikal redundan yang sebelumnya menampilkan:
+     - 4 kartu ringkasan metrik raksasa
+     - Panel kemampuan topologi
+     - `FertigationQueueDashboard` (yang sudah memiliki tabel jadwal fertigasi lengkap)
+     - Tabel jadwal fertigasi kedua yang duplikat
+     - Kartu antrean legacy yang duplikat
+     - Tabel pompa sumur, kontrol pompa sumur, dan tabel kipas
+   - Mengorganisasikan seluruh modul ke dalam **Tab Kategori Modern & Bersih**:
+     - `🌱 Fertigasi & Dosing` (Default): Menampilkan `FertigationQueueDashboard` + Timeline Hari Ini + Water Transfer (tanpa tabel duplikat, tanpa kartu antrean duplikat!).
+     - `💧 Pompa Air Baku (Sumur)`: Tabel jadwal pompa sumur + `WellPumpControlCard`.
+     - `💨 Kipas Sirkulasi (Fan)`: Tabel jadwal kipas sirkulasi greenhouose.
+     - `⚡ Hardware & ESP32`: Panel kemampuan topologi hardware & konfigurasi sinkronisasi ESP32.
+     - `📋 Semua Jadwal`: Tinjauan menyeluruh semua jadwal.
+3. **Pembersihan Pola Terlarang**:
+   - Menghapus pola terlarang `complexes[0]` di `src/app/page.tsx` dan `src/app/schedule/page.tsx`, diganti dengan `complexes.at(0)`.
+4. **Verifikasi**:
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+   - `npx tsc --noEmit`: 0 errors.
+
+---
+
+# AI HANDOVER — SP-QUEUE-UNIFY-EAGER-002 (previous)
 
 ## Status — SP-QUEUE-UNIFY-EAGER-002
 **Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons**
