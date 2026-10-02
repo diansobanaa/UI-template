@@ -979,7 +979,6 @@ export function FertigationQueueDashboard({
           nextScheduledOp={nextScheduledOp}
           errorInfo={errorInfo}
           onAbortActive={handleAbort}
-          onPreMixJob={(job) => handlePreMixGh(job.ghId)}
           onSyncQueue={handleTriggerQueueSync}
           isActionLoading={actionInProgress !== null}
           isSyncingQueue={isAwaitingQueueSync}
@@ -999,7 +998,6 @@ export function FertigationQueueDashboard({
           schedules={allSchedules}
           greenhouses={ghs}
           onOpenCreate={onOpenCreate}
-          onPreMixSchedule={(s) => handlePreMixGh(s.ghId)}
           isActionLoading={actionInProgress !== null}
         />
       </div>

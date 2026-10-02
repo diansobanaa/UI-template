@@ -1,3 +1,19 @@
+## SP-REMOVE-PREMIX-BUTTONS-001 — Remove Redundant Pre-Mix Action Buttons for Pure Autonomous Scheduling
+- **Date**: 2026-10-03
+- **Git Commit**: `pending`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES)`
+- **Objective**:
+  1. Remove conflicting manual "Racik Lebih Awal (Pre-mix)" button from automated schedule cards in `FertigationScheduleManager.tsx`.
+  2. Remove manual "Racik Lebih Awal" button from FIFO dosing queue items in `DosingQueueSection.tsx`.
+  3. Clean up `onPreMixJob` and `onPreMixSchedule` props and handlers across `FertigationQueueDashboard.tsx` to align strictly with 100% automated system operation by the ESP32 scheduler.
+- **Root Cause & Resolution**:
+  - *Root Cause:* The fertigation system operates autonomously under the ESP32 scheduler based on time and biological plant schedules. Manual buttons to trigger pre-mixing inside individual schedule cards contradicted the autonomous execution paradigm.
+  - *Resolution:* Removed `onPreMixSchedule` and `onPreMixJob` buttons. Replaced schedule card footer with an autonomous status badge (`Otomatis by Sistem`), preserving standard schedule toggle (`Aktifkan/Nonaktifkan`). The FIFO queue now displays clear automated serial order status (`Menunggu Giliran Unit Central (Otomatis)`).
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: All 7 invariants PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS.
+  - `npm run build`: Singlefile bundle 1,232.96 kB clean in 10.16s (0 TypeScript errors).
+
 ## SP-GRACE-PERIOD-FIX-001 — Fix Runtime Grace Period Visibility & Manual Sync Trigger in Web UI
 - **Date**: 2026-10-03
 - **Git Commit**: `a91c9be`

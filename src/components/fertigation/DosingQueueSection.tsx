@@ -66,7 +66,6 @@ interface DosingQueueSectionProps {
   nextScheduledOp?: NextScheduledOperation | null;
   errorInfo?: DosingErrorInfo | null;
   onAbortActive?: () => void;
-  onPreMixJob?: (job: DosingQueueJob) => void;
   onSyncQueue?: () => void;
   isActionLoading?: boolean;
   isSyncingQueue?: boolean;
@@ -80,7 +79,6 @@ export function DosingQueueSection({
   nextScheduledOp,
   errorInfo,
   onAbortActive,
-  onPreMixJob,
   onSyncQueue,
   isActionLoading = false,
   isSyncingQueue = false,
@@ -444,20 +442,8 @@ export function DosingQueueSection({
 
                 <div className="flex items-center gap-2">
                   <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium">
-                    Menunggu Giliran Unit Central
+                    Menunggu Giliran Unit Central (Otomatis)
                   </span>
-                  {onPreMixJob && (
-                    <button
-                      type="button"
-                      onClick={() => onPreMixJob(q)}
-                      disabled={isActionLoading}
-                      title="Mulai racik batch ini sekarang agar larutan siap sebelum jam jadwal"
-                      className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-600/80 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
-                    >
-                      <Play className="h-3 w-3" />
-                      Racik Lebih Awal
-                    </button>
-                  )}
                 </div>
               </div>
             ))}

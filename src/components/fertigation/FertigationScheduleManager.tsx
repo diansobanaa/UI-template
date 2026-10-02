@@ -19,7 +19,6 @@ interface FertigationScheduleManagerProps {
   schedules: FertigationSchedule[];
   greenhouses: Greenhouse[];
   onOpenCreate?: () => void;
-  onPreMixSchedule?: (schedule: FertigationSchedule) => void;
   onToggleSchedule?: (id: string, enabled: boolean) => void;
   isActionLoading?: boolean;
   className?: string;
@@ -29,7 +28,6 @@ export function FertigationScheduleManager({
   schedules,
   greenhouses,
   onOpenCreate,
-  onPreMixSchedule,
   onToggleSchedule,
   isActionLoading = false,
   className = "",
@@ -200,7 +198,7 @@ export function FertigationScheduleManager({
                   </div>
                 </div>
 
-                {/* Footer: Quick Actions */}
+                {/* Footer: Schedule Automation Status */}
                 <div className="mt-3.5 flex items-center justify-between border-t border-slate-800/80 pt-3">
                   {onToggleSchedule ? (
                     <button
@@ -213,18 +211,10 @@ export function FertigationScheduleManager({
                     </button>
                   ) : <span />}
 
-                  {onPreMixSchedule && (
-                    <button
-                      type="button"
-                      onClick={() => onPreMixSchedule(s)}
-                      disabled={isActionLoading || !s.enabled}
-                      title="Mulai racik batch untuk jadwal ini sekarang"
-                      className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-600/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
-                    >
-                      <Play className="h-3 w-3" />
-                      Racik Lebih Awal (Pre-mix)
-                    </button>
-                  )}
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Otomatis by Sistem
+                  </span>
                 </div>
               </div>
             );

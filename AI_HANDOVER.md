@@ -1,4 +1,27 @@
-# AI HANDOVER — SP-GRACE-PERIOD-FIX-001 (latest)
+# AI HANDOVER — SP-REMOVE-PREMIX-BUTTONS-001 (latest)
+
+## Status — SP-REMOVE-PREMIX-BUTTONS-001
+**Remove Redundant Pre-Mix Action Buttons for Pure Autonomous Scheduling**
+**Safe Point**: `SP-REMOVE-PREMIX-BUTTONS-001`
+**Date**: 2026-10-03
+**Git Commit**: `pending`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES)`
+
+### Summary of What Was Done
+1. **Pembersihan Tombol Manual "Racik Lebih Awal"**:
+   - Menghapus tombol `Racik Lebih Awal (Pre-mix)` dari setiap kartu jadwal otomatis di `src/components/fertigation/FertigationScheduleManager.tsx`.
+   - Menggantinya dengan status indikator otomasi yang bersih: `Otomatis by Sistem` dengan icon check hijau, tetap mempertahankan tombol toggle aktif/nonaktif jadwal.
+   - Menghapus tombol `Racik Lebih Awal` dari baris antrean FIFO di `src/components/fertigation/DosingQueueSection.tsx`, menampilkan status antrean murni otomatis: `Menunggu Giliran Unit Central (Otomatis)`.
+   - Membersihkan prop `onPreMixJob` dan `onPreMixSchedule` dari `FertigationQueueDashboard.tsx` agar selaras dengan model otomasi murni controller ESP32.
+
+2. **Verifikasi**:
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS.
+   - `npm run build`: Singlefile bundle 1,232.96 kB selesai dalam 10.16s (0 TypeScript errors).
+
+---
+
+# AI HANDOVER — SP-GRACE-PERIOD-FIX-001 (previous)
 
 ## Status — SP-GRACE-PERIOD-FIX-001
 **Fix Runtime Grace Period Visibility & Manual Sync Trigger in Web UI**
