@@ -1,5 +1,6 @@
 ## SP-SCHED-ACTUATION-001 — Autonomous Schedule Execution & Physical Relay Actuation Resolution
 - **Date**: 2026-10-02
+- **Git Commit**: `aa2f293`
 - **Status**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,580,640 B) — RELAY ACTUATION PASS (GPIO 1 CLICKED ON & OFF) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
 - **Objective**:
   1. Fix schedule timeline entries failing to trigger physical relay actuation:
