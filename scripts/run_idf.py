@@ -5,7 +5,7 @@ import sys
 def main():
     idf_path = r"D:\Espressif"
     tools_path = r"D:\Espressif-tool\Espressif"
-    python_env = r"D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env"
+    python_env = r"D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env"
     python_exe = os.path.join(python_env, "Scripts", "python.exe")
     idf_py = os.path.join(idf_path, "tools", "idf.py")
 

@@ -1,3 +1,19 @@
+## SP-FLASH-UI-SYNC-001 — Live Hardware Firmware Flashed (COM3) & Engaging 15s Grace Period UI
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3) — FIRMWARE FLASH PASS (1,596,176 B WROTE & HASH VERIFIED) — FRONTEND BUILD PASS (1,765 MODULES)`
+- **Objective**:
+  1. Compile and flash the updated ESP32-S3 firmware with the autonomous 2-hour periodic guard and 00:00 midnight power-loss recovery to live hardware on `COM3`.
+  2. Implement an eye-catching, engaging, premium loading UI for the 15-second grace period in `DosingQueueSection.tsx` (glassmorphic gradient container, animated radar ping, smooth 15s progress bar, countdown gauge).
+  3. Ensure seamless synchronization between live ESP32 controller and Web UI.
+- **Root Cause & Resolution**:
+  - *Firmware Build & Flash:* Updated `scripts/run_idf.py` to point to Python 3.12 ESP-IDF environment. Successfully compiled firmware with Ninja (`agrotech_esp32.bin` size 0x185b10 bytes, 49% app partition free) and flashed directly to ESP32-S3 via `COM3` at 460800 baud. Bootloader, partition table, OTA data, and app verified with MD5 hash check and hardware reset via RTS.
+  - *Web UI Enhancement:* In `DosingQueueSection.tsx`, upgraded the 15-second grace period display to a rich glassmorphic container with an animated radar ping icon, live countdown gauge (`00:15` -> `00:00`), dynamic progress track, and clear informative indicators.
+- **Verification Results**:
+  - `python scripts/run_idf.py -p COM3 flash`: Wrote 1,596,176 bytes at 0x20000; hash verified; reset OK.
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers + schema tests PASS.
+  - `npm run build`: Singlefile bundle 1,232.40 kB clean in 10.14s (0 TypeScript errors).
+
 ## SP-DUAL-GUARD-AUTO-001 — Autonomous 2-Hour ESP32 Periodic Guard & 15-Second Web UI Grace Period
 - **Date**: 2026-10-03
 - **Git Commit**: `c5b4a7e`

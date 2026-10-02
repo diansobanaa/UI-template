@@ -335,17 +335,54 @@ export function DosingQueueSection({
         </div>
 
         {isSyncingQueue ? (
-          /* Grace period loading display (waiting up to 15s for ESP32 queue confirmation) */
-          <div className="rounded-xl border border-dashed border-cyan-800/60 bg-[#0e1a2a]/60 p-5 text-center text-xs text-slate-300 space-y-2 animate-pulse">
-            <div className="flex items-center justify-center gap-2 text-cyan-400">
-              <RefreshCw className="h-4 w-4 animate-spin text-cyan-400" />
-              <span className="font-semibold text-cyan-300">
-                Memverifikasi antrean peracikan dengan ESP32...
-              </span>
+          /* Grace period loading display with engaging visual indicator (waiting up to 15s for ESP32 queue confirmation) */
+          <div className="relative overflow-hidden rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-slate-900/95 via-cyan-950/30 to-[#0e1a2a]/95 p-5 shadow-[0_0_25px_rgba(6,182,212,0.12)] backdrop-blur">
+            {/* Ambient background glow accents */}
+            <div className="pointer-events-none absolute -left-8 -top-8 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl" />
+            <div className="pointer-events-none absolute -right-8 -bottom-8 h-28 w-28 rounded-full bg-emerald-500/10 blur-2xl" />
+
+            <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                {/* Radar / Pulsing Ring Visual */}
+                <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-500/40 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
+                  <div className="absolute inset-0 rounded-xl bg-cyan-400/20 animate-ping opacity-60" />
+                  <RefreshCw className="h-6 w-6 animate-spin text-cyan-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm tracking-wide text-cyan-200">
+                      Sinkronisasi Antrean Peracikan Central
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      Grace Period {syncCountdownSec}s
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-300">
+                    Menunggu transmisi status antrean dari ESP32 controller. Jika data antrean sudah tersedia, tampilan akan diperbarui otomatis tanpa fetch ulang.
+                  </p>
+                </div>
+              </div>
+
+              {/* Countdown Gauge */}
+              <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/30 bg-slate-900/80 px-3.5 py-2 shadow-inner">
+                <Clock className="h-4 w-4 text-cyan-400 animate-pulse" />
+                <div className="text-right">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Jeda Sinkronisasi</div>
+                  <div className="text-sm font-extrabold text-cyan-300 font-mono">
+                    00:{syncCountdownSec < 10 ? `0${syncCountdownSec}` : syncCountdownSec}
+                  </div>
+                </div>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Menunggu status antrean terverifikasi dari controller sebelum pemicuan otomatis ({syncCountdownSec} detik tersisa).
-            </p>
+
+            {/* Smooth animated progress track */}
+            <div className="relative mt-3.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-emerald-400 to-cyan-300 transition-all duration-1000 ease-linear shadow-[0_0_8px_rgba(6,182,212,0.5)]"
+                style={{ width: `${Math.min(100, Math.max(0, (syncCountdownSec / 15) * 100))}%` }}
+              />
+            </div>
           </div>
         ) : queuedJobs.length === 0 ? (
           /* Neutral and Accurate Empty Queue State (Section 6 Spec) */

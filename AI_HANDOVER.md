@@ -1,4 +1,39 @@
-# AI HANDOVER — SP-DUAL-GUARD-AUTO-001 (latest)
+# AI HANDOVER — SP-FLASH-UI-SYNC-001 (latest)
+
+## Status — SP-FLASH-UI-SYNC-001
+**Live Hardware Firmware Flashed (COM3) & Engaging 15s Grace Period UI**
+**Safe Point**: `SP-FLASH-UI-SYNC-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3) — FIRMWARE FLASH PASS (1,596,176 B WROTE & HASH VERIFIED) — FRONTEND BUILD PASS (1,765 MODULES)`
+
+### Summary of What Was Done
+1. **Flashing Firmware ke ESP32 Fisik (COM3)**:
+   - Mengompilasi kode firmware C terbaru (`scheduler.c`, `api_device_handlers.c`, `api_config_handlers.c`) menggunakan Ninja + ESP-IDF 5.5 (`agrotech_esp32.bin` ukuran 1.596.176 byte).
+   - Sukses mem-flash langsung ke perangkat keras fisik ESP32-S3 melalui port `COM3` pada baud rate 460800:
+     - Bootloader (`0x00000000`): 20.832 byte, hash diverifikasi.
+     - Partition Table (`0x00008000`): 3.072 byte, hash diverifikasi.
+     - OTA Data (`0x0000f000`): 8.192 byte, hash diverifikasi.
+     - App Binary (`0x00020000`): 1.596.176 byte, hash diverifikasi.
+   - Perangkat telah di-hard reset secara otomatis via pin RTS dan berhasil boot dengan firmware baru.
+
+2. **Peningkatan Tampilan Loading Grace Period 15 Detik di Web UI**:
+   - Di file `src/components/fertigation/DosingQueueSection.tsx`:
+     - Merombak tampilan loading grace period menjadi card glassmorphism bernuansa futuristik modern:
+       - Radar icon dengan efek gelombang berdenyut (*pulsing radar ping*).
+       - Badge dinamis: `Grace Period 15s`.
+       - Countdown digital gauge yang menghitung mundur dari `00:15` ke `00:00`.
+       - Progress bar halus bergradasi warna cyan-emerald yang menyusut sesuai waktu hitung mundur.
+       - Teks penjelasan yang jelas agar pengguna paham sistem sedang menunggu konfirmasi transmisi antrean dari ESP32 controller.
+
+3. **Verifikasi**:
+   - `python scripts/run_idf.py -p COM3 flash`: PASS 100% hash verified.
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS.
+   - `npm run build`: Singlefile bundle 1,232.40 kB selesai dalam 10.14s (0 TypeScript errors).
+
+---
+
+# AI HANDOVER — SP-DUAL-GUARD-AUTO-001 (previous)
 
 ## Status — SP-DUAL-GUARD-AUTO-001
 **Autonomous 2-Hour ESP32 Periodic Guard & 15-Second Web UI Grace Period**
