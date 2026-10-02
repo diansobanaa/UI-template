@@ -7,11 +7,15 @@
 #include "nvs.h"
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 static const char *TAG = "API_SCHED";
 
 #define NVS_NAMESPACE_AGROTECH "agrotech"
 #define NVS_KEY_SCHEDULE_INTENTS "sched_intents"
+#define SPIFFS_SCHEDULE_INTENTS_FILE "/spiffs/sched_intents.json"
 #define MAX_SCHEDULE_INTENTS 32
 #define MAX_INTENTS_BLOB_SIZE 16384
 
@@ -35,10 +39,57 @@ static const char *action_to_str(schedule_action_t a)
     }
 }
 
-/* ------------------- Authoritative Schedule Intent Store (NVS) ------------------- */
+/* ------------------- Authoritative Schedule Intent Store (SPIFFS Primary + NVS Mirror) ------------------- */
+
+static cJSON *load_schedule_intents_from_spiffs(void)
+{
+    int fd = open(SPIFFS_SCHEDULE_INTENTS_FILE, O_RDONLY);
+    if (fd < 0) return NULL;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > MAX_INTENTS_BLOB_SIZE) {
+        close(fd);
+        return NULL;
+    }
+
+    char *buf = malloc(st.st_size + 1);
+    if (!buf) {
+        close(fd);
+        return NULL;
+    }
+
+    ssize_t n = read(fd, buf, st.st_size);
+    close(fd);
+    if (n <= 0) {
+        free(buf);
+        return NULL;
+    }
+    buf[n] = '\0';
+
+    cJSON *parsed = cJSON_Parse(buf);
+    free(buf);
+    if (!parsed || !cJSON_IsObject(parsed)) {
+        if (parsed) cJSON_Delete(parsed);
+        return NULL;
+    }
+
+    cJSON *items = cJSON_GetObjectItem(parsed, "items");
+    if (!items || !cJSON_IsArray(items)) {
+        cJSON_DeleteItemFromObject(parsed, "items");
+        cJSON_AddArrayToObject(parsed, "items");
+    }
+    return parsed;
+}
 
 static cJSON *load_schedule_intents_from_nvs(void)
 {
+    /* 1. Try SPIFFS primary storage first */
+    cJSON *spiffs_data = load_schedule_intents_from_spiffs();
+    if (spiffs_data) {
+        return spiffs_data;
+    }
+
+    /* 2. Fallback to NVS blob for backward compatibility / migration */
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE_AGROTECH, NVS_READONLY, &handle);
     if (err != ESP_OK) {
@@ -103,6 +154,17 @@ static cJSON *load_schedule_intents_from_nvs(void)
     return parsed;
 }
 
+static esp_err_t save_schedule_intents_to_spiffs(const char *json_str)
+{
+    if (!json_str) return ESP_ERR_INVALID_ARG;
+    int fd = open(SPIFFS_SCHEDULE_INTENTS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return ESP_FAIL;
+    size_t len = strlen(json_str);
+    ssize_t written = write(fd, json_str, (int)len);
+    close(fd);
+    return ((size_t)written == len) ? ESP_OK : ESP_FAIL;
+}
+
 static esp_err_t save_schedule_intents_to_nvs(cJSON *root)
 {
     if (!root) return ESP_ERR_INVALID_ARG;
@@ -124,20 +186,36 @@ static esp_err_t save_schedule_intents_to_nvs(cJSON *root)
         return ESP_ERR_NO_MEM;
     }
 
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE_AGROTECH, NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        free(json_str);
-        return err;
+    /* 1. Primary flash persistence: SPIFFS (resilient against 24KB NVS partition exhaustion) */
+    esp_err_t spiffs_err = save_schedule_intents_to_spiffs(json_str);
+    if (spiffs_err == ESP_OK) {
+        ESP_LOGI(TAG, "Schedule intents successfully persisted to SPIFFS flash (size=%u)", (unsigned)len);
+    } else {
+        ESP_LOGW(TAG, "SPIFFS schedule intents save failed (err=%d)", spiffs_err);
     }
 
-    err = nvs_set_blob(handle, NVS_KEY_SCHEDULE_INTENTS, json_str, len);
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
+    /* 2. Secondary/mirror persistence: NVS (erase old key first to avoid fragmentation/double-allocation) */
+    nvs_handle_t handle;
+    esp_err_t nvs_err = nvs_open(NVS_NAMESPACE_AGROTECH, NVS_READWRITE, &handle);
+    if (nvs_err == ESP_OK) {
+        (void)nvs_erase_key(handle, NVS_KEY_SCHEDULE_INTENTS);
+        (void)nvs_commit(handle);
+        nvs_err = nvs_set_blob(handle, NVS_KEY_SCHEDULE_INTENTS, json_str, len);
+        if (nvs_err == ESP_OK) {
+            nvs_err = nvs_commit(handle);
+        }
+        nvs_close(handle);
     }
-    nvs_close(handle);
+
     free(json_str);
-    return err;
+
+    /* If either storage layer succeeded, the intent is safely persisted in hardware flash! */
+    if (spiffs_err == ESP_OK || nvs_err == ESP_OK) {
+        return ESP_OK;
+    }
+
+    ESP_LOGE(TAG, "Both SPIFFS and NVS persistence failed (spiffs=%d, nvs=%d)", spiffs_err, nvs_err);
+    return ESP_FAIL;
 }
 
 static esp_err_t api_schedule_intents_get_handler(httpd_req_t *req)

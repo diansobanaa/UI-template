@@ -1,4 +1,30 @@
-# AI HANDOVER — SP-SIM-56-001 (latest)
+# AI HANDOVER — SP-FIX-SCHEDULE-NVS-001 (latest)
+
+## Status — SP-FIX-SCHEDULE-NVS-001
+**Resilient Dual SPIFFS+NVS Persistence for Schedule Intents**
+**Safe Point**: `SP-FIX-SCHEDULE-NVS-001`
+**Date**: 2026-10-02
+**Git Commit**: pending
+**Verdict**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
+
+### Summary of What Was Done
+1. **Identifikasi Akar Masalah `Failed to commit schedule intent to NVS`**:
+   - Terjadi saat membuat/mengedit jadwal fertigasi (`POST /api/v1/schedule-intents`).
+   - Handler `api_schedule_handlers.c` sebelumnya mencoba menyimpan seluruh payload JSON daftar intent jadwal ke dalam partisi NVS yang hanya berukuran 24 KB (`0x6000`) sebagai single blob (`nvs_set_blob`).
+   - NVS ESP-IDF memiliki batas per-halaman (4096 byte) dan entry chunk ~1984 byte. Jika partisi NVS terfragmentasi atau terdapat blob sebelumnya, `nvs_set_blob` menolak alokasi dengan error `ESP_ERR_NVS_NOT_ENOUGH_SPACE` (0x1105), sehingga menghasilkan HTTP 500 PERSISTENCE_FAILED.
+2. **Penerapan Dual Persistence (SPIFFS Primary + NVS Mirror)**:
+   - Mengalihkan penyimpanan primer ke partisi **SPIFFS flash 9 Megabyte** (`0x900000`) pada file `/spiffs/sched_intents.json` menggunakan operasi POSIX fd (`open/write/close`), konsisten dengan arsitektur penyimpanan `components.json` dan file konfigurasi lainnya di `storage_mgr.c`.
+   - NVS tetap dipertahankan sebagai cermin sekunder (dengan pembersihan key lama terlebih dahulu via `nvs_erase_key` untuk mencegah tabrakan alokasi).
+   - Fungsi pembacaan `load_schedule_intents_from_nvs` kini memprioritaskan membaca file SPIFFS, dan secara otomatis memigrasi data dari NVS jika file belum ada.
+3. **Verifikasi**:
+   - Kompilasi firmware ESP32: Sukses (`agrotech_esp32.bin`, 50% free).
+   - Validasi TypeScript: 0 error (`npx tsc --noEmit`).
+   - Test suite konsistensi antrean: 15/15 PASS.
+   - Master simulation suite: 56/56 PASS.
+
+---
+
+# AI HANDOVER — SP-SIM-56-001 (previous)
 
 ## Status — SP-SIM-56-001
 **Automated Fertigation Queue & Mixing 56-Scenario Simulation & Acceptance Suite**

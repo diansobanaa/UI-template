@@ -1,3 +1,23 @@
+## SP-FIX-SCHEDULE-NVS-001 — Resilient Dual SPIFFS+NVS Persistence for Schedule Intents
+- **Date**: 2026-10-02
+- **Git Commit**: pending
+- **Status**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
+- **Objective**:
+  1. Fix `Failed to commit schedule intent to NVS` (HTTP 500 PERSISTENCE_FAILED) when creating/updating/deleting schedules.
+  2. Root cause: Schedule intent JSON payload in `api_schedule_handlers.c` was stored as a single monolithic blob (`nvs_set_blob`) into the tiny 24KB NVS partition without prior key erasure or SPIFFS fallback. With multiple schedules or fragmented NVS pages, `nvs_set_blob` failed with `ESP_ERR_NVS_NOT_ENOUGH_SPACE` (0x1105).
+  3. Solution:
+     - Implement dual SPIFFS + NVS persistence (`/spiffs/sched_intents.json`).
+     - SPIFFS partition has 9MB (0x900000) of space, matching the file persistence model used for `components.json` and configs.
+     - Call `nvs_erase_key` before writing the NVS mirror blob to prevent multi-entry allocation collisions.
+     - Gracefully fallback and load from SPIFFS primary with NVS backward-compatibility migration.
+  4. Verification:
+     - ESP32 firmware build: PASS (`agrotech_esp32.bin` built successfully with 50% app partition free).
+     - Frontend typecheck: PASS (`npx tsc --noEmit` EXIT CODE 0).
+     - Consistency regression suite: PASS (15/15).
+     - Master simulation suite: PASS (56/56).
+
+---
+
 ## SP-SIM-56-001 — Automated Fertigation Queue & Mixing 56-Scenario Simulation & Acceptance Suite
 - **Date**: 2026-10-02
 - **Git Commit**: `d6a48e3`

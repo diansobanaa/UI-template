@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-02T07:00:56.751Z",
+  "timestamp": "2026-10-02T09:51:48.094Z",
   "totalScenarios": 56,
   "passed": 56,
   "failed": 0,
@@ -11,7 +11,7 @@
       "title": "Empty Queue",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 8,
+      "durationMs": 7,
       "evidence": "All assertions satisfied."
     },
     {
@@ -19,7 +19,7 @@
       "title": "Single Scheduled Job",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 5,
+      "durationMs": 3,
       "evidence": "All assertions satisfied."
     },
     {
@@ -35,7 +35,7 @@
       "title": "New Job Arrives During Active Execution",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -43,7 +43,7 @@
       "title": "Simultaneous Schedule Triggers",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 42,
+      "durationMs": 49,
       "evidence": "All assertions satisfied."
     },
     {
@@ -51,7 +51,7 @@
       "title": "Queue Capacity Reached",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 2,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -59,7 +59,7 @@
       "title": "Duplicate Scheduler Trigger",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 13,
       "evidence": "All assertions satisfied."
     },
     {
@@ -91,7 +91,7 @@
       "title": "Normal Mixing Process",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 2,
       "evidence": "All assertions satisfied."
     },
     {
@@ -107,7 +107,7 @@
       "title": "Sensor Not Installed",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 5,
       "evidence": "All assertions satisfied."
     },
     {
@@ -115,7 +115,7 @@
       "title": "Sensor Disconnected During Operation",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 2,
+      "durationMs": 3,
       "evidence": "All assertions satisfied."
     },
     {
@@ -155,7 +155,7 @@
       "title": "Zero Mixing Target",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -171,7 +171,7 @@
       "title": "Mixing Failure",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 3,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -211,7 +211,7 @@
       "title": "Pump Runs Without Flow",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -219,7 +219,7 @@
       "title": "Insufficient Flow Rate",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -235,7 +235,7 @@
       "title": "Pump Fails to Stop",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -243,7 +243,7 @@
       "title": "Invalid Pump Calibration",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -283,7 +283,7 @@
       "title": "No Sensor Installed From Startup",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -291,7 +291,7 @@
       "title": "Sensor Lost During Filling",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -299,7 +299,7 @@
       "title": "No Sensor and No Valid Calibration",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 2,
       "evidence": "All assertions satisfied."
     },
     {
@@ -315,7 +315,7 @@
       "title": "Estimated Filling Exceeds Safety Limit",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -339,7 +339,7 @@
       "title": "ESP32 Reboot During Dosing",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -355,7 +355,7 @@
       "title": "Recovery After Sensor or Pump Fault",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -363,7 +363,7 @@
       "title": "Two Greenhouses Operating Normally",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -395,7 +395,7 @@
       "title": "One Tank Completes While Another Is Queued",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 5,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -419,7 +419,7 @@
       "title": "Waiting for Schedule",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 2,
       "evidence": "All assertions satisfied."
     },
     {
@@ -435,7 +435,7 @@
       "title": "Active Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 2,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -451,7 +451,7 @@
       "title": "Failed Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     }
   ]

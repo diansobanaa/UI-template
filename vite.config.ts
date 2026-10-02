@@ -59,6 +59,9 @@ export default defineConfig(({ mode }) => {
       cssCodeSplit: false,
     },
     server: {
+      host: true,
+      port: 5173,
+      allowedHosts: true,
       proxy: enablePython
         ? {
             "/api": {
