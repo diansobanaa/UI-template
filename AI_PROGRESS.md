@@ -1,6 +1,6 @@
 ## SP-ALARM-BUZZER-001 — Centralized Physical Buzzer & Safety Alarm Manager (GPIO 18) Implementation & Verification
 - **Date**: 2026-10-02
-- **Git Commit**: `PENDING_COMMIT`
+- **Git Commit**: `d0d439d`
 - **Status**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,589,840 B) — BUZZER HARDWARE & REST API PASS (43/43 ASSERTIONS) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
 - **Objective**:
   1. Fix physical buzzer on ESP32 GPIO 18 (driven by MOSFET gate driver stage, Active-HIGH) which previously remained completely silent during real-world operational safety faults.

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-02T14:50:34.631Z",
+  "timestamp": "2026-10-02T15:33:38.389Z",
   "totalScenarios": 56,
   "passed": 56,
   "failed": 0,
@@ -43,7 +43,7 @@
       "title": "Simultaneous Schedule Triggers",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 48,
+      "durationMs": 16,
       "evidence": "All assertions satisfied."
     },
     {
@@ -51,7 +51,7 @@
       "title": "Queue Capacity Reached",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 3,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -75,7 +75,7 @@
       "title": "Cancel Pending Job",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -115,7 +115,7 @@
       "title": "Sensor Disconnected During Operation",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 7,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -139,7 +139,7 @@
       "title": "Unstable Sensor Readings",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -155,7 +155,7 @@
       "title": "Zero Mixing Target",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -187,7 +187,7 @@
       "title": "Water Pump Fails to Start",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 2,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -195,7 +195,7 @@
       "title": "Dosing Pump Fails to Start",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -203,7 +203,7 @@
       "title": "Mixing Pump Fails to Start",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -267,7 +267,7 @@
       "title": "Limited Water Supply",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -275,7 +275,7 @@
       "title": "Invalid Pump Feedback",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -299,7 +299,7 @@
       "title": "No Sensor and No Valid Calibration",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -307,7 +307,7 @@
       "title": "Estimated Volume Reaches Target",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -315,7 +315,7 @@
       "title": "Estimated Filling Exceeds Safety Limit",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -347,7 +347,7 @@
       "title": "Backend Offline",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -363,7 +363,7 @@
       "title": "Two Greenhouses Operating Normally",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -371,7 +371,7 @@
       "title": "One Greenhouse Fails",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -379,7 +379,7 @@
       "title": "First Mixing Tank Is Busy",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -395,7 +395,7 @@
       "title": "One Tank Completes While Another Is Queued",
       "group": "E: Multi-GH Isolation",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -411,7 +411,7 @@
       "title": "Empty Queue With and Without Future Schedules",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -419,7 +419,7 @@
       "title": "Waiting for Schedule",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -435,7 +435,7 @@
       "title": "Active Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -451,7 +451,7 @@
       "title": "Failed Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     }
   ]
