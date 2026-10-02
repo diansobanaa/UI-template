@@ -222,8 +222,8 @@ test("6. Honest Volume Labeling (Measured vs Target vs Capacity)", () => {
   );
   assert.match(
     dashboardFile,
-    /Sensor tidak terpasang|Sensor level fisik tidak terpasang/,
-    "Must explicitly handle when sensor is unmetered instead of claiming 0% empty"
+    /Volumetrik Fail-Safe|Sensor tidak terpasang|Sensor level fisik tidak terpasang/,
+    "Must explicitly handle unmetered batch tank as fail-safe volumetric mode"
   );
 });
 
@@ -274,6 +274,20 @@ test("8. Button Clarification & Duplicate Prevention", () => {
     dashboardFile,
     /sudah terdaftar dalam antrean dosing|isAlreadyInQueue/,
     "Must guard against duplicate enqueue submissions"
+  );
+
+  // Premature manual enqueue button is suppressed when waiting for automated schedule (Fail-Safe)
+  assert.match(
+    dashboardFile,
+    /canPreMixNow = false/,
+    "When waiting for schedule, premature manual enqueue button is suppressed"
+  );
+
+  // Fail-safe scheduled indicator badge must be present
+  assert.match(
+    tanksFile,
+    /Otomasi Terjadwal \(Fail-Safe\)/,
+    "Tanks view must show fail-safe automation badge when waiting for schedule"
   );
 });
 

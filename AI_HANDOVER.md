@@ -1,4 +1,31 @@
-# AI HANDOVER — SP-LOGIC-REACTIVE-001 (latest)
+# AI HANDOVER — SP-FAILSAFE-VOLUMETRIC-001 (latest)
+
+## Status — SP-FAILSAFE-VOLUMETRIC-001
+**Fail-Safe Volumetric Batching & Scheduled Wait Enqueue Suppression**
+**Safe Point**: `SP-FAILSAFE-VOLUMETRIC-001`
+**Date**: 2026-10-02
+**Git Commit**: `81396af`
+**Verdict**: `COMPLETE — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (15/15) — SPECIFICATION UPDATED`
+
+### Summary of What Was Done
+1. **Penerapan Skenario Fail-Safe Volumetrik**:
+   - Menegaskan arsitektur perangkat keras fisik: tangki pencampur batch tidak memiliki sensor kontinu analog (0–100%) dan tidak memerlukannya. Air diukur secara volumetrik per-batch menggunakan pulsa **Flow Meter ZJ-B1 (GPIO 15)**, sedangkan proteksi dry-run pompa dijamin oleh **Pelampung Level Bawah / Float Switch (GPIO 38)**.
+   - Menghapus label membingungkan `(Sensor tidak terpasang)` yang memberi kesan kerusakan/kekurangan alat, dan menggantinya dengan label arsitektur yang jujur dan presisi: `(Volumetrik Fail-Safe)`.
+   - Saat siaga/menunggu: menampilkan `0 / 300 L (0%) · Target: 80 L (Volumetrik Fail-Safe)`.
+   - Saat mengisi air: menampilkan `Volume Terisi (Flow Meter ZJ-B1): [X] / [Target] L (Pengisian Volumetrik)`.
+   - Saat larutan siap: menampilkan `Volume Larutan Siap: [Target] L (Siap Disiram · Pelampung Aman)`.
+2. **Supresi Tombol "Masuk Antrean Dosing" Saat Menunggu Jadwal**:
+   - Ketika greenhouse dalam status `Waiting for schedule` (misal menunggu jadwal 12:00), tombol manual `Masuk Antrean Dosing` dinonaktifkan/dihilangkan (`canPreMixNow = false`).
+   - Digantikan dengan indikator status jelas: **Otomasi Terjadwal (Fail-Safe)** di Complex Overview, Kartu Tangki Pencampur, dan Detail Greenhouse.
+   - **Rasional Logika**: Kontroler otomatis (FreeRTOS scheduler / Eager Pre-Mix) telah memegang jadwal dan akan secara mandiri memasukkan batch ke antrean FIFO sentral sebelum waktu siram tiba. Membuka tombol manual saat menunggu jadwal berisiko memicu peracikan prematur oleh operator (nutrisi terdegradasi/drift pH jika didiamkan berjam-jam) atau tabrakan peracikan ganda tanpa telemetri level kontinu.
+3. **Penyempurnaan Reaktivitas & Pengujian**:
+   - Seluruh 15 uji otomatis di `scripts/test_fertigation_queue_consistency.mjs` lolos (15/15 PASS).
+   - TypeScript lolos tanpa error (`npx tsc --noEmit` EXIT CODE 0).
+   - Dokumentasi kanonikal diperbarui di `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Bagian 56.
+
+---
+
+# AI HANDOVER — SP-LOGIC-REACTIVE-001 (previous)
 
 ## Status — SP-LOGIC-REACTIVE-001
 **Operational Time-Awareness, Zero-Refresh Reactivity & Hardware Domain Separation**

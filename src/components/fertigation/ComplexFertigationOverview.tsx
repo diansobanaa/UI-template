@@ -348,6 +348,8 @@ export function ComplexFertigationOverview({
                             ? "Dalam Antrean Dosing"
                             : item.status === "MIXING" || item.status === "DISTRIBUTING"
                             ? "Alur Otomatis Aktif"
+                            : item.status === "WAITING_SCHEDULE"
+                            ? "Otomasi Terjadwal (Fail-Safe)"
                             : "Siaga"}
                         </span>
                       )}

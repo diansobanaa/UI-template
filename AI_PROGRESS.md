@@ -1,3 +1,40 @@
+## SP-FAILSAFE-VOLUMETRIC-001 — Fail-Safe Volumetric Batching & Scheduled Wait Enqueue Suppression
+- **Date**: 2026-10-02
+- **Git Commit**: `81396af`
+- **Status**: `COMPLETE — FRONTEND PASS (0 TS ERRORS) — TEST SUITE PASS (15/15) — SPECIFICATION UPDATED`
+- **Objective**:
+  1. Implement Fail-Safe Volumetric Scenario for Mixing Tanks:
+     - Clarify that mixing tanks are volumetric batch tanks without continuous analog sensors (water measured via ZJ-B1 flow meter pulses on GPIO 15, pump protected via low-level float switch on GPIO 38).
+     - Remove misleading label `(Sensor tidak terpasang)` and replace with explicit `(Volumetrik Fail-Safe)`.
+  2. Suppress Premature `Masuk Antrean Dosing` Button During Automated Schedule Wait:
+     - When status is `Waiting for schedule` (e.g. waiting for 12:00 run), `canPreMixNow = false`.
+     - In place of the manual enqueue button, render explicit `Otomasi Terjadwal (Fail-Safe)` indicator across Complex Overview, Mixing Tank cards, and Greenhouse Detail view.
+     - Protects against operator error, premature manual mixing hours ahead of schedule, nutrient degradation, and uncoordinated batching without continuous level telemetry.
+  3. Update automated test suite and canonical specification (`docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` §56).
+
+### Completed Work & Verification
+- `src/components/fertigation/FertigationQueueDashboard.tsx`:
+  - Set `canPreMixNow = false` when `upcomingSched` is active (`Waiting for schedule`).
+  - Updated volume display fallback from `(Sensor tidak terpasang)` to `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L (Volumetrik Fail-Safe)`.
+  - Added descriptive action disabled reason: `Otomatis dijadwalkan pukul ${upcomingSched.time} (Fail-Safe)`.
+  - Set default fallback of `canPreMix` in `ghSummaries` to `false` (fail-safe principle).
+- `src/components/fertigation/GreenhouseMixingTanks.tsx`:
+  - Added `Otomasi Terjadwal (Fail-Safe)` status badge when `isWaitingSchedule` is true.
+  - Button `Masuk Antrean Dosing` is cleanly suppressed when waiting for an automated schedule.
+- `src/components/fertigation/GreenhouseFertigationDetail.tsx`:
+  - Added `Otomasi Terjadwal (Fail-Safe)` status badge when `status === "WAITING_SCHEDULE"`.
+- `src/components/fertigation/ComplexFertigationOverview.tsx`:
+  - Rendered `Otomasi Terjadwal (Fail-Safe)` in card footer when `status === "WAITING_SCHEDULE"`.
+- `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+  - Added Section 56 documenting fail-safe volumetric architecture and button suppression logic.
+- `scripts/test_fertigation_queue_consistency.mjs`:
+  - Updated Test 6 and Test 8 assertions for fail-safe volumetric mode and button suppression (15/15 PASSED).
+- Verification:
+  - `npx tsc --noEmit`: EXIT CODE 0 (0 errors).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: EXIT CODE 0 (15/15 passed).
+
+---
+
 ## SP-LOGIC-REACTIVE-001 — Operational Time-Awareness, Zero-Refresh Reactivity & Physical Isolation
 - **Date**: 2026-10-02
 - **Git Commit**: `5e0a51a`

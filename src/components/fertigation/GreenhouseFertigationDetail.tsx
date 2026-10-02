@@ -147,6 +147,13 @@ export function GreenhouseFertigationDetail({
             </button>
           )}
 
+          {status === "WAITING_SCHEDULE" && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-300">
+              <Clock className="h-3.5 w-3.5 text-amber-400/80" />
+              Otomasi Terjadwal (Fail-Safe)
+            </span>
+          )}
+
           {activeJob && onAbort && (
             <button
               type="button"

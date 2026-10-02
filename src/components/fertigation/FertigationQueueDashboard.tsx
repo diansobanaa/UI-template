@@ -469,7 +469,9 @@ export function FertigationQueueDashboard({
         statusDesc = `Standby menunggu jadwal berikutnya (Pukul ${upcomingSched.time})`;
         timingLabel = "Jadwal Mulai";
         timingValue = `Pukul ${upcomingSched.time}`;
-        canPreMixNow = true;
+        canPreMixNow = false;
+        isActionDisabled = true;
+        actionDisabledReason = `Otomatis dijadwalkan pukul ${upcomingSched.time} (Fail-Safe)`;
       } else if (ghOccCompleted.length > 0) {
         status = "Completed";
         statusTone = "emerald";
@@ -477,13 +479,17 @@ export function FertigationQueueDashboard({
         timingLabel = "Status Siklus";
         timingValue = "Selesai Hari Ini";
         canPreMixNow = false;
+        isActionDisabled = true;
+        actionDisabledReason = "Semua siklus fertigasi hari ini telah selesai";
       } else {
         status = "Standby";
         statusTone = "slate";
         statusDesc = scheds.length > 0 ? "Jadwal hari ini sudah terlewat" : "Siaga — belum ada jadwal";
         timingLabel = "Status";
         timingValue = "Siaga";
-        canPreMixNow = scheds.length > 0;
+        canPreMixNow = false;
+        isActionDisabled = true;
+        actionDisabledReason = "Tidak ada jadwal aktif untuk di-premix";
       }
 
       // Volume calculation & sensor availability check (Section 7 Spec)
@@ -504,16 +510,16 @@ export function FertigationQueueDashboard({
       } else if (status === "Ready for fertigation") {
         levelPct = Math.min(100, (targetWaterL / capacityL) * 100);
         volumeDisplayLabel = "Volume Larutan Siap";
-        volumeDisplayValue = `${targetWaterL} L (Siap Disiram)`;
+        volumeDisplayValue = `${targetWaterL} L (Siap Disiram · Pelampung Aman)`;
       } else if (isTargetActive) {
         const actualWaterL = Math.round((liveStatus?.actualWaterMl || 0) / 1000);
         levelPct = Math.min(100, (actualWaterL / capacityL) * 100);
-        volumeDisplayLabel = "Volume Terisi Saat Ini";
-        volumeDisplayValue = `${actualWaterL} / ${targetWaterL} L (Proses)`;
+        volumeDisplayLabel = "Volume Terisi (Flow Meter ZJ-B1)";
+        volumeDisplayValue = `${actualWaterL} / ${targetWaterL} L (Pengisian Volumetrik)`;
       } else {
         levelPct = 0;
-        volumeDisplayLabel = "Volume Tangki Batch";
-        volumeDisplayValue = `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L (Sensor tidak terpasang)`;
+        volumeDisplayLabel = "Volume Tangki Batch (Fail-Safe)";
+        volumeDisplayValue = `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L (Volumetrik Fail-Safe)`;
       }
 
       return {
@@ -636,7 +642,7 @@ export function FertigationQueueDashboard({
         totalCyclesToday,
         tankLevelPct: tank?.levelPct || 0,
         volumeDisplay: tank?.volumeDisplayValue,
-        canPreMix: tank?.canPreMixNow ?? true,
+        canPreMix: tank?.canPreMixNow ?? false,
         canDeliver: tank?.canDeliverNow ?? false,
       };
     });

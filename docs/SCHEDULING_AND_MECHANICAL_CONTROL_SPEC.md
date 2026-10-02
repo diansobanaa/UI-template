@@ -3740,7 +3740,7 @@ PYTHON SAVE + ANALYSIS
 3. **Strict Physical Domain Isolation for Tank Volumes**
    - The 300L greenhouse mixing tank is strictly separated from the 1000L raw water reservoir (`gh.telemetry.tankL`).
    - The mixing tank does not inherit or divide against the 1000L toren level, eliminating the physically impossible `1000 / 300 L (333%)` overflow artifact.
-   - When idle/waiting, the mixing tank accurately displays `0 / 300 L (0%) · Target: [X] L (Sensor tidak terpasang)`.
+   - When idle/waiting, the mixing tank accurately displays `0 / 300 L (0%) · Target: [X] L (Volumetrik Fail-Safe)`.
 
 4. **Zero-Refresh Schedule Mutation Reactivity**
    - Subscribed `FertigationQueueDashboard` to `useDbVersion()`.
@@ -3749,4 +3749,18 @@ PYTHON SAVE + ANALYSIS
 
 5. **Universal Human-Readable Greenhouse Identification**
    - `formatGreenhouseName()` resolves technical database UUIDs into human-readable greenhouse tags (`GH-01`, `GH-02`) across cards, banners, timeline lanes, and schedule tables.
+
+56. Fail-Safe Volumetric Operation and Schedule Wait Button Suppression (SP-FAILSAFE-VOLUMETRIC-001)
+
+1. **Fail-Safe Volumetric Tank Architecture**
+   - The physical greenhouse mixing tank does not incorporate a continuous analog (0–100%) depth sensor.
+   - Water volume admitted into the batch tank is metered dynamically by the **ZJ-B1 Flow Meter (GPIO 15)** pulse counter during the filling phase.
+   - Pump dry-run cavitation protection is enforced mechanically by the **Lower Float Switch (GPIO 38)**.
+   - The user-facing label `(Sensor tidak terpasang)` is replaced by `(Volumetrik Fail-Safe)`. This reflects the intentional engineering design (metered volumetric batch tank with float interlocks) rather than a hardware defect.
+
+2. **Automated Schedule Wait & Manual Button Suppression**
+   - When a greenhouse has an active upcoming schedule (`Waiting for schedule`), the system operates autonomously under controller orchestration.
+   - The manual `Masuk Antrean Dosing` action button is suppressed during automated schedule wait (`canPreMixNow = false`).
+   - Rationale: Eager Pre-Mix automatically admits the batch to the central FIFO queue ahead of the target distribution time. Exposing a manual enqueue button risks operator confusion, premature preparation hours before distribution (causing nutrient degradation or pH drift), and uncoordinated batching in the absence of continuous level telemetry.
+   - The UI displays an explicit `Otomasi Terjadwal (Fail-Safe)` badge in place of the button across Complex Overview, Mixing Tank cards, and Greenhouse Detail view.
 
