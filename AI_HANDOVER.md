@@ -4,7 +4,7 @@
 **HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery**
 **Safe Point**: `SP-HTTPD-MEM-001`
 **Date**: 2026-10-02
-**Verdict**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
+**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (1,576,880 B @ 460800 baud) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
 
 ### Summary of What Was Done
 1. **Analisis Akar Masalah Log Serial**:

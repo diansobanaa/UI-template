@@ -1,6 +1,6 @@
 ## SP-HTTPD-MEM-001 — HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery
 - **Date**: 2026-10-02
-- **Status**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (1,576,880 B @ 460800 baud) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
 - **Objective**:
   1. Fix `httpd_txrx: httpd_sock_err: error in send : 11` (EAGAIN/aborted send) and WebSocket teardown `httpd_ws_get_frame_type: Failed to read header byte (socket FD invalid), closing socket now` when creating schedules or polling.
      - Root Cause: `CONFIG_LWIP_MAX_SOCKETS` was limited to 8 and `max_open_sockets` to 7. Since `esp_http_server` reserves 3 sockets internally, only 4 client sockets were available. Modern browsers open up to 6 concurrent HTTP/1.1 connections for polling + 1 persistent WebSocket telemetry stream. When a schedule mutation occurred, the 8th connection triggered LRU purge (`lru_purge_enable = true`), forcefully tearing down active in-flight polling sockets and disconnecting the WebSocket stream.
