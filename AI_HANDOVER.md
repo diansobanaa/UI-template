@@ -1,4 +1,21 @@
-# AI HANDOVER — SP-WELL-PUMP-003 (latest)
+# AI HANDOVER — SP-UI-BUZZER-OVERLAY-001 (latest)
+
+## Status — SP-UI-BUZZER-OVERLAY-001
+**Hide Floating Buzzer Standby Badge When Inactive**
+**Safe Point**: `SP-UI-BUZZER-OVERLAY-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & VERIFIED — FRONTEND PASS (0 TS ERRORS)`
+
+### Summary of What Was Done
+1. **Penyembunyian Float Standby Buzzer Fisik (User Request)**:
+   - Menghilangkan badge mengambang (floating pill) `Buzzer Fisik (GPIO 18): Standby` di pojok kanan bawah layar saat tidak ada alarm aktif, tidak ada buzzer berbunyi, dan tidak sedang dalam mode pengujian.
+   - `src/components/AlarmManagerOverlay.tsx` mengembalikan `null` jika `!hasActiveAlarms && !summary?.testActive && !testingBuzzer && !buzzerAudible`.
+   - Tetap menampilkan overlay dan peringatan secara penuh jika alarm darurat terpicu atau saat pengujian buzzer aktif.
+
+---
+
+# AI HANDOVER — SP-WELL-PUMP-003 (previous)
 
 ## Status — SP-WELL-PUMP-003
 **Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump**

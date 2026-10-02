@@ -1,3 +1,17 @@
+## SP-UI-BUZZER-OVERLAY-001 — Hide Floating Buzzer Standby Badge When Inactive
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & VERIFIED — FRONTEND PASS (0 TS ERRORS)`
+- **Objective**:
+  1. Remove the floating "Buzzer Fisik (GPIO 18): Standby" pill badge from the bottom-right of the screen when there are no active alarms, no buzzer sound, and no active buzzer test.
+  2. Preserve full alert overlay display when an actual critical alarm or safety fault triggers or when buzzer test is active.
+- **Root Cause & Resolution**:
+  - `AlarmManagerOverlay.tsx` was unconditionally rendering a fixed bottom-right standby pill badge whenever `hasActiveAlarms` was false.
+  - Updated `AlarmManagerOverlay.tsx` to return `null` when there are no active alarms and buzzer is not audible or testing.
+- **Verification Results**:
+  - TypeScript Compiler: `npx tsc --noEmit` exited 0 (clean).
+  - Web UI builds cleanly without type errors.
+
 ## SP-WELL-PUMP-003 — Elimination of Artificial Mode Selection, Restored Autonomous Well Pump Scheduling, and Isolation from Submersible Pump
 - **Date**: 2026-10-03
 - **Git Commit**: `6cd9467`

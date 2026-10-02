@@ -162,23 +162,9 @@ export function AlarmManagerOverlay() {
     );
   }
 
-  // If no active alarms and buzzer not testing, render compact persistent standby widget with test button
-  if (!hasActiveAlarms && !summary?.testActive) {
-    return (
-      <div className="fixed bottom-5 right-5 z-[9990] flex items-center gap-2.5 bg-slate-900/95 hover:bg-slate-900 backdrop-blur border border-slate-700/80 px-3.5 py-2 rounded-full shadow-xl text-slate-200 transition">
-        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
-        <span className="text-xs font-medium text-slate-300">Buzzer Fisik (GPIO 18): Standby</span>
-        <button
-          onClick={handleTestBuzzer}
-          disabled={testingBuzzer || isActionLoading}
-          className="ml-1.5 flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-cyan-600 hover:text-white text-cyan-300 rounded-full border border-cyan-500/40 font-semibold shadow transition"
-          title="Uji bunyi buzzer fisik 800ms"
-        >
-          <Radio className="w-3.5 h-3.5" />
-          <span>{testingBuzzer ? "Menguji..." : "Test Buzzer"}</span>
-        </button>
-      </div>
-    );
+  // If no active alarms and buzzer not active/testing, do not render floating standby widget
+  if (!hasActiveAlarms && !summary?.testActive && !testingBuzzer && !buzzerAudible) {
+    return null;
   }
 
   const criticalAlarms = activeAlarms.filter((a) => a.priority === "CRITICAL");
