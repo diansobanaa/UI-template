@@ -1,6 +1,6 @@
 ## SP-PERIPHERAL-AUTO-ENQUEUE-001 — Automatic Schedule Revalidation & Eager Dosing Queue Population on Peripheral Registration
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `ede12de`
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
 - **Objective**:
   1. Fix the issue where fertigation schedules remained unqueued and Central Dosing Unit remained idle when peripherals were registered.
