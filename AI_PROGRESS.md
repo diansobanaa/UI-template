@@ -1,6 +1,6 @@
 ## SP-FIX-SCHEDULE-NVS-001 — Resilient Dual SPIFFS+NVS Persistence for Schedule Intents
 - **Date**: 2026-10-02
-- **Git Commit**: pending
+- **Git Commit**: `34d1c6b`
 - **Status**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
 - **Objective**:
   1. Fix `Failed to commit schedule intent to NVS` (HTTP 500 PERSISTENCE_FAILED) when creating/updating/deleting schedules.

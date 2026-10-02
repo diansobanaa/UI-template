@@ -4,7 +4,7 @@
 **Resilient Dual SPIFFS+NVS Persistence for Schedule Intents**
 **Safe Point**: `SP-FIX-SCHEDULE-NVS-001`
 **Date**: 2026-10-02
-**Git Commit**: pending
+**Git Commit**: `34d1c6b`
 **Verdict**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
 
 ### Summary of What Was Done
