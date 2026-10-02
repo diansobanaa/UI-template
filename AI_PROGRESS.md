@@ -1,6 +1,6 @@
 ## SP-SCHEDULE-DEDUP-DISPATCH-001 — Immediate FIFO Queue Batch Execution from Standby & Schedule Page Redundancy Elimination via Category Tabs
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `0aac860`
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — ZERO TYPE ERRORS`
 - **Objective**:
   1. Fix physical & UI contradiction where Central Dosing Unit showed Standby (Siaga) while queue item #1 was left waiting unexecuted.
