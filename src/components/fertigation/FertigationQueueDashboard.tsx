@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -91,7 +91,10 @@ export function FertigationQueueDashboard({
   }, [dbVersion]);
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
+  const inFlightRef = useRef(false);
   const fetchStatus = async (isManual = false) => {
+    if (inFlightRef.current && !isManual) return;
+    inFlightRef.current = true;
     if (isManual) setRefreshing(true);
     try {
       const [statusRes, queueRes] = await Promise.allSettled([
@@ -112,6 +115,7 @@ export function FertigationQueueDashboard({
     } catch {
       setOffline(true);
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
       if (isManual) setRefreshing(false);
     }

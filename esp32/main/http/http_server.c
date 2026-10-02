@@ -320,11 +320,14 @@ esp_err_t http_server_start(void) {
   config.stack_size = TASK_HTTP_SERVER_STACK;
   config.uri_match_fn = http_uri_match_wildcard_custom;
   config.core_id = 0;
-  config.max_open_sockets = 7;
+  /* 3 sockets are reserved internally by esp_http_server. Set to 12 so that 9 client
+   * sockets are available: 1 for persistent WebSocket stream, up to 6 for browser HTTP
+   * connection pool, and 2 for asynchronous bursts (prevents LRU purge disconnects). */
+  config.max_open_sockets = 12;
   config.backlog_conn = 8;
   config.lru_purge_enable = true;
-  config.recv_wait_timeout = 5;
-  config.send_wait_timeout = 5;
+  config.recv_wait_timeout = 10;
+  config.send_wait_timeout = 10;
 
   ESP_LOGI(TAG, "Starting HTTP Server on port %d...", config.server_port);
   esp_err_t ret = httpd_start(&s_server, &config);

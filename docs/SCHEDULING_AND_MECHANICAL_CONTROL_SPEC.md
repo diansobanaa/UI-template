@@ -3780,4 +3780,25 @@ PYTHON SAVE + ANALYSIS
    - **Group E (Multi-Greenhouse Isolation, G01–G06)**: Independent dual-GH normal runs, isolated failure containment (GH-01 failure does not affect GH-02), independent tank mixing while second GH doses through central unit, 3-GH FIFO sequence dispatching, immediate resource handover upon mixing transition, and complete cross-greenhouse data isolation.
    - **Group F (UI and Status Consistency, U01–U06)**: Empty queue with/without future schedules, schedule wait manual button suppression with `Otomasi Terjadwal (Fail-Safe)`, queue position progression (`Urutan #1 di Central`), real 5-step hardware pipeline visualization, volumetric fail-safe labeling, and honest failing-stage diagnostics.
 
+58. HTTP Socket Capacity, WebSocket Resilience, and Storage Persistence Task Headroom (SP-HTTPD-MEM-001)
+
+1. **HTTP Sockets & LRU Purge Collision Resolution**
+   - **Root Cause**: `CONFIG_LWIP_MAX_SOCKETS` was set to 8 and `max_open_sockets` to 7. In ESP-IDF `esp_http_server`, 3 sockets are reserved internally for server operation, leaving only 4 client sockets available.
+   - Modern browsers open up to 6 concurrent HTTP/1.1 connections for polling (`/api/v1/fertigation/queue`, `/api/v1/status`), plus 1 persistent WebSocket connection for telemetry streaming (`/api/v1/telemetry/stream`). When a schedule creation or mutation request was submitted, the 8th connection exceeded capacity.
+   - With `lru_purge_enable = true`, `httpd` forcefully evicted the least recently visited socket, causing active handlers to fail with `httpd_sock_err: error in send : 11` (aborted send) and tearing down the WebSocket connection (`Failed to read header byte (socket FD invalid)`).
+   - **Resolution**:
+     - Increased `CONFIG_LWIP_MAX_SOCKETS` to 16 in `sdkconfig.defaults`.
+     - In `http_server.c`, increased `config.max_open_sockets` to 12 (providing 9 available client sockets: 1 WebSocket + 6 browser pool + 2 burst headroom).
+     - Increased `send_wait_timeout` and `recv_wait_timeout` from 5 to 10 seconds.
+     - Added `inFlightRef` single-flight guard to `fetchStatus` in `FertigationQueueDashboard.tsx` to prevent request piling.
+
+2. **Storage Persistence Task (`tele_persist_task`) Stack Sizing**
+   - `tele_persist_task` is responsible for writing event logs to SPIFFS flash (`event_mgr_flush_to_storage()`).
+   - Operating on a 4096-byte stack in internal SRAM, SPIFFS POSIX file I/O pushed stack consumption to 4004 bytes, leaving a razor-thin **92 bytes** high-water mark before stack overflow.
+   - Stack size increased to 6144 bytes in `telemetry_mgr.c`, restoring safe >2KB headroom without risk of stack canary corruption.
+
+3. **Internal SRAM Recovery & Low Heap Alarm Resolution**
+   - Reverted debug `CONFIG_HEAP_POISONING_COMPREHENSIVE=y` to `CONFIG_HEAP_POISONING_DISABLED=y` in `sdkconfig.defaults`.
+   - Memory analysis confirmed root causes of earlier task corruptions have been eliminated. Disabling heap poisoning restores ~20KB+ of internal SRAM and eliminates heap fragmentation overhead, resolving the `[DIAG] Internal heap LOW (<30KB)` diagnostic warning.
+
 

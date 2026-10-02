@@ -52,9 +52,9 @@ CONFIG_MDNS_MAX_SERVICES=10
 CONFIG_MDNS_TASK_STACK_SIZE=3072
 
 # LWIP & Networking
-# HEAP-FIX: Reduce sockets from 16 to 8 — we don't need 16 concurrent sockets.
-# Each socket uses ~1.5KB internal RAM for buffers.
-CONFIG_LWIP_MAX_SOCKETS=8
+# Increase max sockets to 16 to accommodate HTTP/1.1 browser connection pool (up to 6 connections),
+# persistent WebSocket telemetry stream, and API mutation requests without LRU purge collisions.
+CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_LWIP_SO_REUSE=y
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
 
@@ -70,10 +70,7 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # HEAP-FIX: Reduce event task stack from 6144 to 4096.
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 CONFIG_ESP_IPC_USES_CALLERS_PRIORITY=n
-# DIAG-05 (2026-09-28, TEMPORARY): comprehensive heap poisoning + FreeRTOS
-# stack canary to NAME the Core-1 scheduler corrupter (LoadProhibited in
-# prvSelectHighestPriorityTaskSMP ~6.7s after boot). Revert to
-# CONFIG_HEAP_POISONING_DISABLED=y and drop the canary line once the culprit
-# task is identified and fixed. Costs CPU + heap overhead; debug only.
-CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+# DIAG-05: Heap poisoning disabled now that stack corrupters (cmd_worker, tele_persist_task)
+# have been identified and resolved. Saves ~20KB internal RAM and avoids heap fragmentation.
+CONFIG_HEAP_POISONING_DISABLED=y
 

@@ -713,7 +713,9 @@ esp_err_t telemetry_mgr_init(void)
     (void)telemetry_store_init();
 
     xTaskCreatePinnedToCore(telemetry_sampler_task, "telemetry_task", TASK_TELEMETRY_STACK, NULL, TASK_TELEMETRY_PRIO, NULL, 1);
-    xTaskCreatePinnedToCore(telemetry_persistence_task, "tele_persist_task", 4096, NULL, TASK_TELEMETRY_PRIO - 1, &s_tele_persist_task_handle, 1);
+    /* Stack increased to 6144B: SPIFFS/VFS POSIX I/O inside event_mgr_flush_to_storage()
+     * reached 4004B (hwm=92B). 6144B provides safe >2KB headroom without risk of overflow. */
+    xTaskCreatePinnedToCore(telemetry_persistence_task, "tele_persist_task", 6144, NULL, TASK_TELEMETRY_PRIO - 1, &s_tele_persist_task_handle, 1);
     ESP_LOGI(TAG, "Telemetry manager V2 initialized (RAM ring: %d, unified persistence worker).", TELEMETRY_RING_CAPACITY);
     return ESP_OK;
 }

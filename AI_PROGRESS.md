@@ -1,3 +1,28 @@
+## SP-HTTPD-MEM-001 — HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Objective**:
+  1. Fix `httpd_txrx: httpd_sock_err: error in send : 11` (EAGAIN/aborted send) and WebSocket teardown `httpd_ws_get_frame_type: Failed to read header byte (socket FD invalid), closing socket now` when creating schedules or polling.
+     - Root Cause: `CONFIG_LWIP_MAX_SOCKETS` was limited to 8 and `max_open_sockets` to 7. Since `esp_http_server` reserves 3 sockets internally, only 4 client sockets were available. Modern browsers open up to 6 concurrent HTTP/1.1 connections for polling + 1 persistent WebSocket telemetry stream. When a schedule mutation occurred, the 8th connection triggered LRU purge (`lru_purge_enable = true`), forcefully tearing down active in-flight polling sockets and disconnecting the WebSocket stream.
+     - Solution:
+       - Increased `CONFIG_LWIP_MAX_SOCKETS` from 8 to 16 in `sdkconfig.defaults`.
+       - Increased `config.max_open_sockets` from 7 to 12 in `http_server.c` (providing 9 available client sockets: 1 WebSocket + 6 HTTP pool + 2 burst headroom).
+       - Increased `send_wait_timeout` and `recv_wait_timeout` from 5 to 10 seconds.
+       - Added `inFlightRef` single-flight guard to `fetchStatus` in `FertigationQueueDashboard.tsx` to prevent poll piling.
+  2. Fix razor-thin stack margin in `tele_persist_task` (`stack_hwm=92 B`):
+     - SPIFFS POSIX file I/O inside `event_mgr_flush_to_storage()` consumed 4004 bytes of its 4096-byte stack.
+     - Solution: Increased stack size from 4096 to 6144 bytes in `telemetry_mgr.c`, restoring safe >2KB headroom.
+  3. Fix internal heap low warning (`[DIAG] Internal heap LOW: 24323 bytes free (<30KB threshold)` and fragmentation):
+     - Reverted temporary debug `CONFIG_HEAP_POISONING_COMPREHENSIVE=y` to `CONFIG_HEAP_POISONING_DISABLED=y` in `sdkconfig.defaults`.
+     - Restores ~20KB+ of internal SRAM and eliminates heap poisoning fragmentation overhead.
+  4. Verification:
+     - ESP32 firmware build: PASS (`agrotech_esp32.bin` 0x180fb0 bytes, 50% app partition free).
+     - Frontend typecheck: PASS (`npx tsc --noEmit` EXIT CODE 0).
+     - Automated consistency test suite: PASS (15/15).
+     - Automated simulation suite: PASS (56/56).
+
+---
+
 ## SP-FIX-SCHEDULE-NVS-001 — Resilient Dual SPIFFS+NVS Persistence for Schedule Intents
 - **Date**: 2026-10-02
 - **Git Commit**: `34d1c6b`

@@ -1,4 +1,39 @@
-# AI HANDOVER — SP-FIX-SCHEDULE-NVS-001 (latest)
+# AI HANDOVER — SP-HTTPD-MEM-001 (latest)
+
+## Status — SP-HTTPD-MEM-001
+**HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery**
+**Safe Point**: `SP-HTTPD-MEM-001`
+**Date**: 2026-10-02
+**Verdict**: `COMPLETE — ESP32 BUILD PASS (0 ERRORS) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah Log Serial**:
+   - Jadwal fertigasi berhasil disimpan ke NVS/SPIFFS (`I (...) API_SCHED: Persisted new schedule intent 'fert-1790942068188'`).
+   - Namun muncul rentetan `httpd_txrx: httpd_sock_err: error in send : 11`, `httpd_uri: uri handler execution failed`, dan `httpd_ws: Failed to read header byte (socket FD invalid), closing socket now`.
+   - **Penyebab**: Konfigurasi `CONFIG_LWIP_MAX_SOCKETS=8` dan `max_open_sockets=7`. Di ESP-IDF, server HTTP mereservasi 3 soket internal untuk mekanisme server (`ESP_HTTPD_DEF_CTRL_PORT` dll.), sehingga **hanya tersisa 4 soket untuk koneksi klien browser**.
+   - Browser modern membuka pool hingga 6 koneksi concurrent HTTP/1.1 untuk polling (`/status`, `/fertigation/queue`, dll.), ditambah 1 koneksi WebSocket stream telemetri (`/api/v1/telemetry/stream`). Saat pengguna membuat jadwal baru, koneksi ke-8 memicu LRU purge (`lru_purge_enable = true`).
+   - Mekanisme LRU purge mengusir soket aktif yang sedang mengirim data (`send : 11` / aborted) dan menutup koneksi WebSocket (`socket FD invalid`).
+2. **Perbaikan Soket & Jaringan**:
+   - Menaikkan `CONFIG_LWIP_MAX_SOCKETS` dari 8 menjadi 16 di `sdkconfig.defaults`.
+   - Menaikkan `config.max_open_sockets` dari 7 menjadi 12 di `http_server.c` (tersedia 9 slot klien: 1 WebSocket + 6 browser pool + 2 burst).
+   - Menaikkan `send_wait_timeout` dan `recv_wait_timeout` dari 5 detik ke 10 detik.
+   - Menambahkan guard `inFlightRef` pada `fetchStatus` di `FertigationQueueDashboard.tsx` agar polling berkala tidak menumpuk saat flash menulis data.
+3. **Penyelamatan Stack `tele_persist_task` (hwm=92 B)**:
+   - Task `tele_persist_task` yang bertugas menulis event log ke SPIFFS (`event_mgr_flush_to_storage()`) beroperasi pada stack 4096B di SRAM internal.
+   - Operasi POSIX VFS SPIFFS menghabiskan 4004B, menyisakan margin kritis **92 byte** sebelum stack overflow.
+   - Menaikkan stack `tele_persist_task` dari 4096B menjadi 6144B di `telemetry_mgr.c`, memberikan margin aman >2KB.
+4. **Pemulihan Heap Internal (Alarm `<30KB threshold`)**:
+   - Menonaktifkan debug poisoning sementara `CONFIG_HEAP_POISONING_COMPREHENSIVE=y` menjadi `CONFIG_HEAP_POISONING_DISABLED=y` di `sdkconfig.defaults`.
+   - Mengembalikan ~20KB+ RAM internal dan menghilangkan overhead fragmentasi heap, menyelesaikan peringatan `[DIAG] Internal heap LOW (<30KB)`.
+5. **Verifikasi**:
+   - Kompilasi firmware ESP32: PASS (`agrotech_esp32.bin` 0x180fb0 bytes, 50% free).
+   - Frontend typecheck: PASS (`npx tsc --noEmit` 0 errors).
+   - Regression suite: PASS (15/15).
+   - Simulation suite: PASS (56/56).
+
+---
+
+# AI HANDOVER — SP-FIX-SCHEDULE-NVS-001 (previous)
 
 ## Status — SP-FIX-SCHEDULE-NVS-001
 **Resilient Dual SPIFFS+NVS Persistence for Schedule Intents**
