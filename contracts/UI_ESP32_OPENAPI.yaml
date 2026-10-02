@@ -18,8 +18,93 @@ tags:
   - name: LocalSetup
   - name: Export
   - name: Storage
+  - name: Alarms
 
 paths:
+  /api/v1/alarms:
+    get:
+      tags: [Alarms]
+      operationId: getAlarms
+      summary: Get active and recent physical & safety alarms, buzzer audible state, and active cadence pattern
+      responses:
+        "200":
+          description: Physical and safety alarms status summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmsResponse"
+
+  /api/v1/alarms/acknowledge:
+    post:
+      tags: [Alarms]
+      operationId: acknowledgeAlarm
+      summary: Acknowledge active alarm (operator recognition; retains fault stops and E-Stop latch)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alarmId:
+                  type: string
+                  description: Unique alarm ID (e.g. alm-1) or alarm code (e.g. EMERGENCY_STOP_ACTIVE). If omitted, acknowledges all active alarms.
+      responses:
+        "200":
+          description: Alarm acknowledged successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmsResponse"
+
+  /api/v1/alarms/silence:
+    post:
+      tags: [Alarms]
+      operationId: silenceAlarm
+      summary: Silence or unsilence physical buzzer (retains active safety fault states)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                silence:
+                  type: boolean
+                  default: true
+      responses:
+        "200":
+          description: Buzzer silence state toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmsResponse"
+
+  /api/v1/alarms/test:
+    post:
+      tags: [Alarms]
+      operationId: testBuzzer
+      summary: Trigger bounded manual buzzer test on GPIO 18 (rejected if critical alarm active)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                durationMs:
+                  type: integer
+                  default: 800
+      responses:
+        "200":
+          description: Buzzer test started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmsResponse"
+        "409":
+          description: Cannot test buzzer while critical safety alarm is active
+
   /api/v1/health:
     get:
       tags: [Device]
@@ -3314,4 +3399,56 @@ components:
                 deleted: { type: boolean }
                 filesRemoved: { type: integer }
                 state: { type: string }
+
+    AlarmsResponse:
+      allOf:
+        - $ref: "#/components/schemas/EnvelopeBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [summary, activeAlarms, recentAlarms]
+              properties:
+                summary:
+                  $ref: "#/components/schemas/AlarmSummary"
+                activeAlarms:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AlarmItem"
+                recentAlarms:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AlarmItem"
+
+    AlarmSummary:
+      type: object
+      required: [buzzerAudible, isSilenced, activePattern, highestPriority, testActive, activeCount, criticalCount, safetyFaultCount]
+      properties:
+        buzzerAudible: { type: boolean }
+        isSilenced: { type: boolean }
+        activePattern: { type: string, enum: [OFF, TEST, INTERMITTENT, CRITICAL] }
+        highestPriority: { type: string, enum: [NONE, TEST, SAFETY_FAULT, CRITICAL] }
+        testActive: { type: boolean }
+        activeCount: { type: integer }
+        criticalCount: { type: integer }
+        safetyFaultCount: { type: integer }
+
+    AlarmItem:
+      type: object
+      required: [id, code, message, priority, active, acknowledged, silenced, createdAt]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        priority: { type: string, enum: [NONE, TEST, SAFETY_FAULT, CRITICAL] }
+        componentId: { type: string }
+        ghId: { type: string }
+        active: { type: boolean }
+        acknowledged: { type: boolean }
+        silenced: { type: boolean }
+        createdAt: { type: integer }
+        acknowledgedAt: { type: integer, nullable: true }
+        silencedAt: { type: integer, nullable: true }
+        resolvedAt: { type: integer, nullable: true }
+
 

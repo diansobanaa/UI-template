@@ -1,4 +1,45 @@
-# AI HANDOVER — SP-FAN-ACTUATION-001 (latest)
+# AI HANDOVER — SP-ALARM-BUZZER-001 (latest)
+
+## Status — SP-ALARM-BUZZER-001
+**Centralized Physical Buzzer & Safety Alarm Manager (GPIO 18) Implementation & Verification**
+**Safe Point**: `SP-ALARM-BUZZER-001`
+**Date**: 2026-10-02
+**Git Commit**: `PENDING_COMMIT`
+**Verdict**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,589,840 B) — BUZZER HARDWARE & REST API PASS (43/43 ASSERTIONS) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis (Silent Buzzer on Operational Faults)**:
+   - Previously, only global Emergency Stop (`global_estop = true`) turned on the buzzer, but ordinary equipment safety faults (`TANK_LOW`, `FLOW_TIMEOUT`, `ACTUATOR_MAX_RUNTIME`, `SAFETY_SENSOR_STALE`) set `global_estop = false`, causing them to silently cut off actuators without alerting human operators.
+   - Multiple modules independently toggled GPIO 18, and `actuator_hal_emergency_stop()` shut down all actuators indiscriminately, risking shutting down the buzzer when it was most needed.
+2. **Centralized Alarm Manager Architecture (`alarm_mgr.h`/`alarm_mgr.c`)**:
+   - Single authoritative logical owner of physical buzzer (GPIO 18, MOSFET gate stage, Active-HIGH).
+   - Thread-safe registry up to 16 active alarms with automatic debouncing and deduplication.
+   - FreeRTOS non-blocking pattern task (`alarm_task`) ticking at 50ms (zero blocking delays).
+   - Deterministic priority arbitration:
+     - `ALARM_PRIO_CRITICAL` (Urgent 200ms ON / 150ms OFF cadence): Emergency Stop, Tamper Loop, Water Temp > 45.0 °C, Latched boot recovery.
+     - `ALARM_PRIO_SAFETY_FAULT` (Intermittent warning 200ms ON / 150ms OFF / 200ms ON / 2000ms OFF): `TANK_LOW`, `FLOW_TIMEOUT`, `ACTUATOR_MAX_RUNTIME`, `SAFETY_SENSOR_STALE`.
+     - `ALARM_PRIO_TEST` (Bounded 800ms pulse): Manual test from UI. Rejected with HTTP 409 Conflict if critical or safety fault is active.
+3. **Safety Monitor & HAL Integration**:
+   - `actuator_hal.c`: Added `actuator_hal_buzzer_set_raw(bool on)` to allow the pattern engine to drive GPIO 18 even during E-Stop.
+   - `safety_monitor.c`: Raises `ALARM_PRIO_SAFETY_FAULT` with component and greenhouse metadata when operational faults occur, without triggering unnecessary global E-Stop. Auto-resolves alarms when sensors recover.
+4. **Authoritative REST API Endpoints**:
+   - `GET /api/v1/alarms`: Returns summary, audible state, active alarms, and recent history.
+   - `POST /api/v1/alarms/acknowledge`: Marks alarm recognized by operator without clearing fault stops.
+   - `POST /api/v1/alarms/silence`: Mutes audible sound while keeping all active safety stops intact. A new higher-priority critical alarm reactivates sound immediately.
+   - `POST /api/v1/alarms/test`: Bounded 800ms test pulse.
+5. **Web UI Alarm System**:
+   - Distinguishes physical controller alarm from browser Web Audio offline alert.
+   - `ConnectionMonitor.tsx`: Replaced broken truncated base64 audio with Web Audio API oscillator tone; labeled clearly as Browser Offline Alert.
+   - `AlarmManagerOverlay.tsx`: Interactive real-time overlay displaying human-readable cards with clear explanations, action directives, [ Acknowledge ], [ Silence Buzzer ], and [ Test Buzzer ].
+6. **Live Hardware & Software Verification**:
+   - `scripts/test_alarm_system_e2e.mjs`: 43/43 PASSED live on ESP32 COM3 (`http://192.168.0.151`).
+   - `npx tsc --noEmit`: 0 TypeScript errors.
+   - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASSED.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASSED.
+
+---
+
+# AI HANDOVER — SP-FAN-ACTUATION-001 (previous)
 
 ## Status — SP-FAN-ACTUATION-001
 **Autonomous Fan Schedule Execution & Dual-Actuator Physical Actuation Resolution**

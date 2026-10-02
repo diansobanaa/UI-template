@@ -1116,3 +1116,41 @@ export interface ScheduleIntentMutationResponse {
   id: string;
   revision: number;
 }
+
+/* -------------------- Physical & System Alarms (GPIO 18) -------------------- */
+
+export type AlarmPriority = "CRITICAL" | "SAFETY_FAULT" | "TEST" | "NONE";
+
+export interface AlarmItem {
+  id: string;
+  code: string;
+  message: string;
+  priority: AlarmPriority;
+  componentId?: string;
+  ghId?: string;
+  active: boolean;
+  acknowledged: boolean;
+  silenced: boolean;
+  createdAt: number;
+  acknowledgedAt?: number | null;
+  silencedAt?: number | null;
+  resolvedAt?: number | null;
+}
+
+export interface AlarmSummary {
+  buzzerAudible: boolean;
+  isSilenced: boolean;
+  activePattern: "OFF" | "CRITICAL" | "SAFETY_FAULT" | "TEST";
+  highestPriority: AlarmPriority;
+  testActive: boolean;
+  activeCount: number;
+  criticalCount: number;
+  safetyFaultCount: number;
+}
+
+export interface AlarmsResponse {
+  summary: AlarmSummary;
+  activeAlarms: AlarmItem[];
+  recentAlarms: AlarmItem[];
+}
+

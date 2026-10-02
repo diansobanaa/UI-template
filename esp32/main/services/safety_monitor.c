@@ -6,6 +6,7 @@
 #include "hal/sensor_hal.h"
 #include "hal/actuator_hal.h"
 #include "hal/hardware_registry.h"
+#include "services/alarm_mgr.h"
 #include "storage/storage_mgr.h"
 #include "config/system_config.h"
 #include "esp_task_wdt.h"
@@ -191,6 +192,14 @@ static void safety_set_fault(const char *code, const char *message, bool global_
         actuator_hal_emergency_stop();
     }
     (void)command_mgr_notify_safety_trip(fault_code, message ? message : "Safety fault");
+
+    // Centralized Alarm Integration: raise appropriate priority audible/visual alarm
+    if (global_estop) {
+        (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, fault_code, message ? message : "Critical safety trip", NULL, NULL);
+    } else {
+        (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, fault_code, message ? message : "Safety operational fault", NULL, NULL);
+    }
+
     if (new_fault) {
         const char *msg = message ? message : "Safety fault";
         (void)event_mgr_log(maintenance_required ? LOG_LEVEL_CRITICAL : LOG_LEVEL_ERROR,
@@ -257,8 +266,11 @@ static void safety_monitor_task(void *arg)
                             (void)actuator_hal_force_off_component(info.component_id);
                             safety_set_fault("TANK_LOW", "Lower-level protection stopped an active water pump.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "TANK_LOW", "Lower-level protection stopped the component.");
+                            (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "TANK_LOW", "Lower-level float switch dry; affected water pump stopped.", info.component_id, info.assignment.gh_id);
                         }
                     }
+                } else {
+                    (void)alarm_mgr_resolve("TANK_LOW", NULL);
                 }
 
                 const bool sensors_fresh = sensor_snapshot_fresh(&sensors);
@@ -274,8 +286,11 @@ static void safety_monitor_task(void *arg)
                             (void)actuator_hal_force_off_component(info.component_id);
                             safety_set_fault("SAFETY_SENSOR_STALE", "Safety sensor sample is stale while a protected pump is running.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "SAFETY_SENSOR_STALE", "Safety sensor became stale.");
+                            (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "SAFETY_SENSOR_STALE", "Safety sensor sample is stale while a protected pump is running.", info.component_id, info.assignment.gh_id);
                         }
                     }
+                } else {
+                    (void)alarm_mgr_resolve("SAFETY_SENSOR_STALE", NULL);
                 }
 
                 const size_t count = hardware_registry_get_count();
@@ -294,6 +309,7 @@ static void safety_monitor_task(void *arg)
                         (void)actuator_hal_force_off_component(info.component_id);
                         safety_set_fault("ACTUATOR_MAX_RUNTIME", "Configured actuator maximum runtime exceeded; component forced OFF.", false, false);
                         (void)command_mgr_notify_component_safety_fault(info.component_id, "ACTUATOR_MAX_RUNTIME", "Maximum runtime exceeded.");
+                        (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "ACTUATOR_MAX_RUNTIME", "Configured actuator maximum runtime exceeded; component forced OFF.", info.component_id, info.assignment.gh_id);
                         continue;
                     }
 
@@ -320,6 +336,7 @@ static void safety_monitor_task(void *arg)
                             (void)actuator_hal_force_off_component(info.component_id);
                             safety_set_fault("FLOW_TIMEOUT", "Expected flow was not detected before the configured timeout.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "FLOW_TIMEOUT", "No expected flow detected.");
+                            (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "FLOW_TIMEOUT", "Expected flow was not detected before timeout; component forced OFF.", info.component_id, info.assignment.gh_id);
                             watch->start_us = 0;
                         }
                     } else if (!on) {
@@ -412,6 +429,7 @@ esp_err_t safety_monitor_trigger_emergency_stop(const char *reason_code, const c
     actuator_hal_emergency_stop();
     (void)command_mgr_notify_safety_trip(code, message);
     (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SAFETY", code, message, NULL);
+    (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, code, message, NULL, NULL);
     return ESP_OK;
 }
 
@@ -556,6 +574,11 @@ esp_err_t safety_monitor_request_recovery(char *out_reason_code, size_t reason_c
 
     actuator_hal_resume();
     (void)actuator_hal_clear_safety_locks();
+    (void)alarm_mgr_resolve("EMERGENCY_STOP_ACTIVE", NULL);
+    (void)alarm_mgr_resolve("EMERGENCY_STOP_LATCHED", NULL);
+    (void)alarm_mgr_resolve("TAMPER_LOOP_OPEN", NULL);
+    (void)alarm_mgr_resolve("WATER_TEMP_HIGH", NULL);
+    (void)alarm_mgr_resolve("TANK_LOW", NULL);
     (void)event_mgr_log(LOG_LEVEL_WARNING, "SAFETY", "EMERGENCY_STOP_RELEASED", "Safety latch cleared after validated operator recovery.", NULL);
 
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {

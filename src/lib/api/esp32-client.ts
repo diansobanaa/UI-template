@@ -35,6 +35,9 @@ import type {
   ScheduleIntentItem,
   ScheduleIntentsResponse,
   ScheduleIntentMutationResponse,
+  AlarmsResponse,
+  AlarmSummary,
+  AlarmItem,
 } from "./contracts";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
 import { getActiveBootstrapIp } from "../bootstrap-address";
@@ -648,8 +651,29 @@ export class Esp32Client {
   }> {
     return this.getEnveloped("/api/v1/storage/format/result");
   }
+
+  /* ----------------------- Physical & Safety Alarms (GPIO 18) ----------------------- */
+
+  async getAlarms(): Promise<AlarmsResponse> {
+    return this.getEnveloped<AlarmsResponse>("/api/v1/alarms");
+  }
+
+  async acknowledgeAlarm(alarmId?: string): Promise<{ acknowledged: boolean }> {
+    return this.postEnveloped<{ acknowledged: boolean }>("/api/v1/alarms/acknowledge", {
+      ...(alarmId ? { alarmId } : {}),
+    });
+  }
+
+  async silenceAlarm(silence = true): Promise<{ silenced: boolean }> {
+    return this.postEnveloped<{ silenced: boolean }>("/api/v1/alarms/silence", { silence });
+  }
+
+  async testBuzzer(durationMs = 800): Promise<{ testActive: boolean; durationMs: number }> {
+    return this.postEnveloped<{ testActive: boolean; durationMs: number }>("/api/v1/alarms/test", { durationMs });
+  }
 }
 
 export const esp32Client = new Esp32Client(defaultConfig);
+
 
 

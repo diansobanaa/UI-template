@@ -1,3 +1,74 @@
+## SP-ALARM-BUZZER-001 — Centralized Physical Buzzer & Safety Alarm Manager (GPIO 18) Implementation & Verification
+- **Date**: 2026-10-02
+- **Git Commit**: `PENDING_COMMIT`
+- **Status**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,589,840 B) — BUZZER HARDWARE & REST API PASS (43/43 ASSERTIONS) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Objective**:
+  1. Fix physical buzzer on ESP32 GPIO 18 (driven by MOSFET gate driver stage, Active-HIGH) which previously remained completely silent during real-world operational safety faults.
+  2. Implement Centralized Alarm Manager (`alarm_mgr.h`/`alarm_mgr.c`) authoritative over physical buzzer state to prevent independent modules from clobbering GPIO 18.
+  3. Integrate Emergency Stop and operational safety faults (`TANK_LOW`, `FLOW_TIMEOUT`, `ACTUATOR_MAX_RUNTIME`, `SAFETY_SENSOR_STALE`):
+     - Critical alarms (`ALARM_PRIO_CRITICAL`): E-Stop, Tamper Loop, Water Temp > 45°C, Latched boot recovery → urgent cadence (200ms ON / 150ms OFF).
+     - Operational safety faults (`ALARM_PRIO_SAFETY_FAULT`): local equipment shutdown preserved without global E-Stop → intermittent warning pattern (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF).
+     - Manual buzzer test (`ALARM_PRIO_TEST`): bounded 800ms test pulse, rejected with HTTP 409 Conflict if critical/safety alarms are active.
+  4. Non-blocking FreeRTOS pattern engine (50ms tick in `alarm_task`, zero blocking delays).
+  5. Distinction between Acknowledge (operator recognition, preserves shutdown & E-Stop), Silence (mutes sound only, retains active state, reactivated by new higher-priority critical alarm), and Resolution (cleared when fault condition clears or explicit E-Stop resume).
+  6. Web UI integration:
+     - Distinguish physical controller alarm from browser Web Audio offline alert in `ConnectionMonitor.tsx` (synthesized Web Audio oscillator tone, replacing broken base64).
+     - Add `AlarmManagerOverlay.tsx` displaying human-readable active alarm cards, [ Acknowledge ], [ Silence Buzzer ], [ Test Buzzer ], and technical diagnostics.
+- **Completed Work**:
+  - `esp32/main/hal/actuator_hal.h` & `esp32/main/hal/actuator_hal.c`:
+    - Added `actuator_hal_buzzer_set_raw(bool on)` to allow buzzer pattern engine to drive GPIO 18 even during E-Stop shutdown.
+    - Updated `actuator_hal_emergency_stop()` and `actuator_hal_resume()` to notify `alarm_mgr`.
+  - `esp32/main/services/alarm_mgr.h` & `esp32/main/services/alarm_mgr.c`:
+    - Thread-safe registry up to 16 active alarms with debouncing, deduplication, FreeRTOS 50ms pattern task (`alarm_task`), priority preemption, silencing, and JSON status formatting.
+  - `esp32/main/services/safety_monitor.c`:
+    - Updated `safety_set_fault()` to raise `ALARM_PRIO_CRITICAL` if `global_estop == true`, else `ALARM_PRIO_SAFETY_FAULT`.
+    - Integrated component and greenhouse metadata, auto-resolving alarms on sensor recovery.
+  - `esp32/main/http/api_alarm_handlers.h` & `esp32/main/http/api_alarm_handlers.c`:
+    - Handlers for `GET /api/v1/alarms`, `POST /api/v1/alarms/acknowledge`, `POST /api/v1/alarms/silence`, `POST /api/v1/alarms/test`, supporting both flat and enveloped payloads.
+  - `esp32/main/http/http_server.c`: Registered `/api/v1/alarms*` routes.
+  - `esp32/main/http/api_device_handlers.c`: Added `"alarms"` summary object into `GET /api/v1/status` response.
+  - `esp32/main/main.c`: Initialized `alarm_mgr_init()` before `safety_monitor_init()`.
+  - `src/lib/api/contracts.ts`: Added `AlarmPriority`, `AlarmItem`, `AlarmSummary`, `AlarmsResponse`.
+  - `src/lib/api/esp32-client.ts`: Added `getAlarms()`, `acknowledgeAlarm()`, `silenceAlarm()`, `testBuzzer()`.
+  - `src/components/ConnectionMonitor.tsx`: Replaced broken truncated base64 audio with Web Audio API synthesizer; labeled clearly as Browser Alert.
+  - `src/components/AlarmManagerOverlay.tsx`: Interactive real-time overlay with human-readable alarm notifications, silence, acknowledge, and test controls.
+  - `src/app/layout.tsx`: Mounted `<AlarmManagerOverlay />`.
+  - `contracts/UI_ESP32_OPENAPI.yaml`: Added `Alarms` tag, paths, and schemas.
+  - `UI_ESP32_COMMUNICATION_SPEC.md`: Documented Section 13B (Alarms API).
+  - `docs/COMPONENT_PIN_MAP.md`: Updated Section 2.13 buzzer operational behavior.
+- **Verification Results**:
+  - Live ESP32 E2E Hardware Suite (`scripts/test_alarm_system_e2e.mjs`): 43 PASSED, 0 FAILED on COM3 (http://192.168.0.151).
+  - Frontend TypeScript Check (`npx tsc --noEmit`): 0 errors.
+  - Master Simulation Suite (`scripts/simulate_56_scenarios.mjs`): 56 PASSED, 0 FAILED.
+  - Regression & Consistency Suite (`scripts/test_fertigation_queue_consistency.mjs`): 15 PASSED, 0 FAILED.
+- **Changed Files**:
+  - `esp32/main/CMakeLists.txt`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/actuator_hal.h`
+  - `esp32/main/services/alarm_mgr.c` (NEW)
+  - `esp32/main/services/alarm_mgr.h` (NEW)
+  - `esp32/main/services/safety_monitor.c`
+  - `esp32/main/http/api_alarm_handlers.c` (NEW)
+  - `esp32/main/http/api_alarm_handlers.h` (NEW)
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `esp32/main/main.c`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/components/ConnectionMonitor.tsx`
+  - `src/components/AlarmManagerOverlay.tsx` (NEW)
+  - `src/app/layout.tsx`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `UI_ESP32_COMMUNICATION_SPEC.md`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `scripts/test_alarm_system_e2e.mjs` (NEW)
+- **Known Issues**:
+  - None.
+- **Next Action**:
+  - Perform Git commit at this stable safe point.
+
+---
+
 ## SP-FAN-ACTUATION-001 — Autonomous Fan Schedule Execution & Dual-Actuator Physical Verification
 - **Date**: 2026-10-02
 - **Git Commit**: `143f6a6`

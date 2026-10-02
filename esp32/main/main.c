@@ -25,6 +25,7 @@
 #include "network/network_mgr.h"
 #include "services/calibration_mgr.h"
 #include "services/command_mgr.h"
+#include "services/alarm_mgr.h"
 #include "services/crop_cycle_mgr.h"
 #include "services/event_mgr.h"
 #include "services/fertigation_mgr.h"
@@ -354,6 +355,7 @@ void app_main(void) {
   ESP_ERROR_CHECK(manual_actuator_mgr_init());
   ESP_ERROR_CHECK(transfer_mgr_init());
   ESP_ERROR_CHECK(calibration_mgr_init());
+  ESP_ERROR_CHECK(alarm_mgr_init());
   ESP_ERROR_CHECK(safety_monitor_init());
   ESP_ERROR_CHECK(scheduler_init());
   ESP_ERROR_CHECK(panel_button_mgr_init());

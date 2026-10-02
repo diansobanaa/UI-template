@@ -108,6 +108,12 @@ esp_err_t actuator_hal_release(actuator_id_t id, actuator_owner_t owner);
 void actuator_hal_resume(void);
 
 /**
+ * @brief Directly control the physical alarm buzzer state without being blocked by E-Stop.
+ * Authoritative physical control used by alarm_mgr.
+ */
+esp_err_t actuator_hal_buzzer_set_raw(bool on);
+
+/**
  * @brief Check if emergency stop is currently latched.
  */
 bool actuator_hal_is_emergency_stopped(void);

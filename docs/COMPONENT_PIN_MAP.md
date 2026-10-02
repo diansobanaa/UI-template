@@ -222,5 +222,8 @@ This document specifies the exact mapping from the physical pins of each discret
 *Electrical Safety Consideration:*
 - Operating current is ~30 mA at ~2.7 kHz tone (~85 dB @ 10 cm).
 - Must NEVER be driven directly from ESP32 GPIO (max recommended pin source: 20-40 mA causes pin degradation / voltage sag).
-- Driven safely via external N-channel MOSFET Module Gate on GPIO 18 (Active-HIGH, 3.3V logic).
-- Defaults to OFF during boot and after E-Stop.
+- Defaults to OFF (safe LOW) during boot.
+- Activated into CRITICAL pattern (urgent 200ms ON / 150ms OFF) upon Emergency Stop, Tamper Trip, Water Temp > 45°C, or latched boot recovery.
+- Activated into INTERMITTENT warning pattern (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF) upon operational safety faults (TANK_LOW, FLOW_TIMEOUT, ACTUATOR_MAX_RUNTIME, SAFETY_SENSOR_STALE).
+- Controlled authoritatively by Centralized Alarm Manager (`alarm_mgr`), supporting Silence, Acknowledge, and bounded Test (800ms) without compromising safety shutdowns.
+

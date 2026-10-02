@@ -52,30 +52,83 @@ export function ConnectionMonitor() {
   const [isOffline, setIsOffline] = useState(false);
   const consecutiveHealthFailures = useRef<Map<string, number>>(new Map());
   const healthRequestInFlight = useRef(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioAlertRef = useRef<any>(null);
 
   const operationalComplexes = getOperationalSnapshot().complexes;
   const targets = getControllerTargets(operationalComplexes);
   const hasBoundController = targets.length > 0;
 
+  // Initialize Web Audio synthesizer
+  useEffect(() => {
+    class BrowserWebAudioAlert {
+      private ctx: AudioContext | null = null;
+      private timer: ReturnType<typeof setInterval> | null = null;
+      private isPlaying = false;
+
+      start() {
+        if (this.isPlaying) return;
+        try {
+          const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          if (!AudioContextClass) return;
+          if (!this.ctx) this.ctx = new AudioContextClass();
+          if (this.ctx.state === "suspended") {
+            this.ctx.resume().catch(() => {});
+          }
+          this.isPlaying = true;
+
+          const playPulse = () => {
+            if (!this.isPlaying || !this.ctx) return;
+            try {
+              const osc = this.ctx.createOscillator();
+              const gain = this.ctx.createGain();
+              osc.type = "sine";
+              osc.frequency.setValueAtTime(880, this.ctx.currentTime); // 880Hz alert tone
+              gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+              osc.connect(gain);
+              gain.connect(this.ctx.destination);
+              osc.start();
+              osc.stop(this.ctx.currentTime + 0.3);
+            } catch {}
+          };
+
+          playPulse();
+          this.timer = setInterval(playPulse, 1200);
+        } catch (e) {
+          console.warn("Browser Web Audio API unavailable:", e);
+        }
+      }
+
+      stop() {
+        this.isPlaying = false;
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+      }
+    }
+
+    audioAlertRef.current = new BrowserWebAudioAlert();
+    return () => {
+      if (audioAlertRef.current) {
+        audioAlertRef.current.stop();
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!hasBoundController) {
       if (isOffline) setIsOffline(false);
       consecutiveHealthFailures.current.clear();
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
+      if (audioAlertRef.current) {
+        audioAlertRef.current.stop();
       }
       return;
     }
 
-    // Simple beep sound encoded as base64
-    const beepAudio = "data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU..."; 
-    audioRef.current = new Audio(beepAudio);
-    
     // Request notification permission
     if ("Notification" in window) {
-      Notification.requestPermission();
+      Notification.requestPermission().catch(() => {});
     }
 
     const pollInterval = 5000;
@@ -180,9 +233,8 @@ export function ConnectionMonitor() {
           const anyStillFailing = Array.from(consecutiveHealthFailures.current.values()).some((f) => f >= 3);
           if (!anyStillFailing && isOffline) {
             setIsOffline(false);
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
+            if (audioAlertRef.current) {
+              audioAlertRef.current.stop();
             }
           }
         }
@@ -196,9 +248,8 @@ export function ConnectionMonitor() {
 
   const triggerAlarm = () => {
     if (!hasBoundController) return;
-    if (audioRef.current) {
-      audioRef.current.loop = true;
-      audioRef.current.play().catch(e => console.error("Audio play failed", e));
+    if (audioAlertRef.current) {
+      audioAlertRef.current.start();
     }
     
     if ("Notification" in window && Notification.permission === "granted") {
@@ -210,9 +261,8 @@ export function ConnectionMonitor() {
   };
 
   const dismissAlarm = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    if (audioAlertRef.current) {
+      audioAlertRef.current.stop();
     }
     setIsOffline(false);
   };
@@ -220,17 +270,20 @@ export function ConnectionMonitor() {
   if (!isOffline || !hasBoundController) return null;
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-red-600 text-white p-4 rounded-lg shadow-2xl flex items-center gap-4 animate-bounce">
-      <AlertTriangle className="w-8 h-8 text-yellow-300" />
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-red-600 text-white p-4 rounded-lg shadow-2xl flex items-center gap-4 animate-bounce max-w-lg">
+      <AlertTriangle className="w-8 h-8 text-yellow-300 shrink-0" />
       <div>
-        <h3 className="font-bold text-lg">KONEKSI TERPUTUS!</h3>
-        <p className="text-sm">ESP32 tidak merespon. Periksa Listrik / WiFi Pompa.</p>
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold text-base">KONEKSI KONTROLER TERPUTUS</h3>
+          <span className="text-[10px] bg-red-800 text-red-200 px-1.5 py-0.5 rounded font-mono">Browser Alert</span>
+        </div>
+        <p className="text-xs text-red-100 mt-0.5">ESP32 tidak merespon setelah toleransi 15 detik. Buzzer fisik ESP32 (GPIO 18) tetap beroperasi mandiri.</p>
       </div>
       <button 
         onClick={dismissAlarm}
-        className="ml-4 px-4 py-2 bg-white text-red-600 font-bold rounded hover:bg-gray-100"
+        className="ml-auto px-3 py-1.5 bg-white text-red-600 text-xs font-bold rounded hover:bg-gray-100 shrink-0 shadow"
       >
-        TUTUP ALARM
+        TUTUP
       </button>
     </div>
   );

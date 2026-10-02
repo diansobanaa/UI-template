@@ -2,6 +2,7 @@
 #include "config/system_config.h"
 #include "esp_log.h"
 #include "http/api_device_handlers.h"
+#include "http/api_alarm_handlers.h"
 #include "http/api_telemetry_handlers.h"
 #include "http/setup_handlers.h"
 #include <stdlib.h>
@@ -599,6 +600,7 @@ esp_err_t http_server_start(void) {
       .user_ctx = NULL};
   httpd_register_uri_handler(s_server, &uri_cc_harvest);
 
+  register_api_alarm_handlers(s_server);
   register_setup_handlers(s_server);
   register_api_calibration_handlers(s_server);
   register_api_schedule_handlers(s_server);

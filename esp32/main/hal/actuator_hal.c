@@ -7,6 +7,7 @@
 #include "freertos/semphr.h"
 #include "storage/storage_mgr.h"
 #include "hal/hardware_registry.h"
+#include "services/alarm_mgr.h"
 #include "esp_timer.h"
 #include <string.h>
 
@@ -685,6 +686,9 @@ void actuator_hal_emergency_stop(void)
 
     ESP_LOGE(TAG, "EMERGENCY STOP EXECUTED: All actuators set to OFF state.");
     xSemaphoreGive(s_lock);
+
+    // Notify centralized alarm manager of critical E-Stop condition
+    (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, "EMERGENCY_STOP_ACTIVE", "Emergency stop executed: all actuators forced OFF.", NULL, NULL);
 }
 
 void actuator_hal_resume(void)
@@ -721,9 +725,28 @@ void actuator_hal_resume(void)
 
     ESP_LOGI(TAG, "Emergency Stop latched cleared. Actuators can now be commanded.");
     xSemaphoreGive(s_lock);
+
+    // Notify centralized alarm manager that E-Stop conditions are resolved
+    (void)alarm_mgr_resolve("EMERGENCY_STOP_ACTIVE", NULL);
+    (void)alarm_mgr_resolve("EMERGENCY_STOP_LATCHED", NULL);
 }
 
 bool actuator_hal_is_emergency_stopped(void)
 {
     return s_emergency_stop_latched;
+}
+
+esp_err_t actuator_hal_buzzer_set_raw(bool on)
+{
+    if (ACTUATOR_BUZZER >= ACTUATOR_MAX_COUNT) return ESP_ERR_NOT_SUPPORTED;
+    if (!s_lock) return ESP_ERR_INVALID_STATE;
+
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_actuators[ACTUATOR_BUZZER].gpio >= 0) {
+        s_actuators[ACTUATOR_BUZZER].state = on;
+        uint8_t lvl = on ? s_actuators[ACTUATOR_BUZZER].active_level : !s_actuators[ACTUATOR_BUZZER].active_level;
+        gpio_set_level((gpio_num_t)s_actuators[ACTUATOR_BUZZER].gpio, lvl);
+    }
+    xSemaphoreGive(s_lock);
+    return ESP_OK;
 }

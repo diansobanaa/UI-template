@@ -7,6 +7,7 @@
 #include "services/topology_pool.h"
 #include "services/scheduler.h"
 #include "services/fertigation_mgr.h"
+#include "services/alarm_mgr.h"
 #include "config/system_config.h"
 #include "network/network_mgr.h"
 #include "esp_system.h"
@@ -163,6 +164,11 @@ esp_err_t handler_get_status(httpd_req_t *req)
 
     cJSON *safety = cJSON_AddObjectToObject(root, "safety");
     cJSON_AddBoolToObject(safety, "emergencyStopped", actuator_hal_is_emergency_stopped());
+
+    cJSON *alarms_summary = alarm_mgr_get_summary_json();
+    if (alarms_summary) {
+        cJSON_AddItemToObject(root, "alarms", alarms_summary);
+    }
 
     cJSON_AddNullToObject(root, "cropCycle");
     cJSON_AddObjectToObject(root, "queue");

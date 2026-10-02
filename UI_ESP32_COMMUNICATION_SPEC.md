@@ -451,11 +451,59 @@ safety
 cropCycle
 queue
 sync
+alarms
 ```
 
 The UI uses this endpoint to refresh its authoritative operational context.
 
 ---
+
+# 13B. Physical & Safety Alarms (GPIO 18 Buzzer)
+
+Centralized Alarm Manager managing the physical active buzzer on GPIO 18 (MOSFET gate stage) with deterministic priority preemption, non-blocking FreeRTOS cadence patterns, acknowledgment, and silencing.
+
+### 1. Priority Hierarchy
+
+| Priority | Level | Triggers | Cadence Pattern | Audible Behavior |
+|:---|:---|:---|:---|:---|
+| **CRITICAL** | Highest | Manual E-Stop, Tamper Loop Open, Water Temp > 45.0 °C, Latched E-Stop | Urgent repeating (200ms ON / 150ms OFF) | Sounds buzzer, pre-empts lower priority and existing silences. |
+| **SAFETY_FAULT** | High | TANK_LOW, FLOW_TIMEOUT, ACTUATOR_MAX_RUNTIME, SAFETY_SENSOR_STALE | Intermittent warning (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF) | Sounds buzzer while applying local equipment shutdown (does NOT trigger global E-Stop). |
+| **TEST** | Lowest | Manual Buzzer Test (`/api/v1/alarms/test`) | Bounded pulse (800ms ON once) | Auditory validation. Fails with 409 Conflict if Critical/Safety fault is active. |
+| **NONE** | Inactive | Normal operation / All alarms resolved | OFF | Silent. |
+
+### 2. Endpoints
+
+```http
+GET /api/v1/alarms
+```
+Returns authoritative alarm summary, buzzer state, active alarms list, and recent resolved alarms list.
+
+```http
+POST /api/v1/alarms/acknowledge
+Content-Type: application/json
+
+{ "alarmId": "alm-1" }
+```
+Acknowledges an alarm (operator recognition). **Does NOT clear active safety faults or release Emergency Stop.**
+
+```http
+POST /api/v1/alarms/silence
+Content-Type: application/json
+
+{ "silence": true }
+```
+Silences the physical buzzer sound for currently active alarms while preserving all active fault protections. If a new higher-priority critical alarm arrives, audible alert reactivates immediately.
+
+```http
+POST /api/v1/alarms/test
+Content-Type: application/json
+
+{ "durationMs": 800 }
+```
+Triggers a bounded 800ms test pulse on GPIO 18. Automatically terminates without affecting any safety interlocks.
+
+---
+
 
 # 14. Inventory
 
