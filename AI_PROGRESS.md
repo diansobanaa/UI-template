@@ -1,6 +1,6 @@
 ## SP-SIM-56-001 — Automated Fertigation Queue & Mixing 56-Scenario Simulation & Acceptance Suite
 - **Date**: 2026-10-02
-- **Git Commit**: pending
+- **Git Commit**: `d6a48e3`
 - **Status**: `COMPLETE — SIMULATION SUITE PASS (56/56 SCENARIOS) — REGRESSION SUITE PASS (15/15) — FRONTEND PASS (0 TS ERRORS)`
 - **Objective**:
   1. Build a deterministic, headless automated simulation environment for Fertigation Queue & Mixing:
