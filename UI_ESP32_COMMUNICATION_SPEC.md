@@ -651,6 +651,7 @@ Emergency stop state is device-owned.
 
 ```http
 GET  /api/v1/well-pump
+POST /api/v1/well-pump
 POST /api/v1/well-pump/mode
 POST /api/v1/commands (with type WELL_PUMP_START, WELL_PUMP_STOP, or ACTUATOR_SET)
 ```
@@ -677,7 +678,17 @@ Response:
 }
 ```
 
-### 2. POST /api/v1/well-pump/mode
+### 2. POST /api/v1/well-pump
+Direct action and mode setter:
+```json
+{
+  "on": true,
+  "durationSeconds": 900
+}
+```
+Accepts flat or enveloped (`payload: { ... }`) payloads. If `on: true`, automatically switches to `MANUAL` mode and energizes relay with 15-minute runtime ceiling. If `on: false`, de-energizes relay immediately.
+
+### 3. POST /api/v1/well-pump/mode
 Switches operating mode (`AUTO` or `MANUAL`) with zero confirmation dialogs:
 ```json
 {

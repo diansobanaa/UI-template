@@ -1,3 +1,32 @@
+## SP-WELL-PUMP-002 — Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,480 B) — REST ENDPOINTS PASS (GET/POST /api/v1/well-pump, /api/v1/well-pump/mode, /api/v1/commands) — FRONTEND PASS (0 TS ERRORS) — PHYSICAL TOGGLE PASS — 15-MIN MONOTONIC CLAMP VERIFIED`
+- **Objective**:
+  1. Fix DRAM heap exhaustion on ESP32 boot (`E HTTP_SERVER: Failed to start HTTP server (0xb008)`) so that HTTP server starts reliably with adequate contiguous internal DRAM.
+  2. Fix envelope unwrapping in `handler_post_well_pump_mode` (`POST /api/v1/well-pump/mode`) to handle `{ requestId, client, payload: { mode: "..." } }` from React UI.
+  3. Add `POST /api/v1/well-pump` endpoint for direct, ultra-fast well pump control (`{ on: true/false, durationSeconds: 900 }`).
+  4. Ensure manual ON commands smoothly auto-transition from `AUTO` to `MANUAL` mode in firmware (`well_pump_mgr.c` and `command_mgr.c`), mirroring physical button behavior.
+  5. Fix Web UI (`WellPumpControlCard.tsx`) so that the Action Button (`[ TURN ON (MANUAL 15M) ]` / `[ TURN OFF ]`) is unconditionally visible and actionable regardless of current operating mode.
+  6. Verify complete end-to-end operation on live ESP32 hardware via serial monitor and HTTP REST.
+- **Root Cause & Resolutions**:
+  - *Internal DRAM Heap Fragmentation:* `TASK_HTTP_SERVER_STACK` (10,240 bytes) could not be allocated during late boot because internal DRAM largest contiguous block had dropped to 9,216 bytes due to previous task allocations.
+    - *Resolution:* Moved `well_pump_mon` task stack to external PSRAM via `psram_task_create_pinned()` and started HTTP server earlier in boot sequence right after storage init where largest DRAM block exceeds 30KB.
+  - *Missing Payload Envelope Unwrapping in Mode Handler:* React UI `postEnveloped` sends `{ requestId, client, payload: { mode: "MANUAL" } }`. Handler previously inspected top-level object directly, causing `422 Mode parameter ('AUTO' or 'MANUAL') is required.`
+    - *Resolution:* Added `cJSON *payload = cJSON_GetObjectItem(body, "payload"); cJSON *target = payload ? payload : body;` in `handler_post_well_pump_mode` and added `handler_post_well_pump`.
+  - *Mode Rejection on Manual Start:* Manual start while in `AUTO` was rejected with `MODE_RESTRICTION`.
+    - *Resolution:* Updated `well_pump_manual_start()` and `command_mgr.c` to automatically transition mode to `MANUAL` on manual ON, providing smooth 1-click operation without error popups.
+  - *UI Action Button Guard:* In `WellPumpControlCard.tsx`, the action button was wrapped in `{currentMode === "MANUAL" && ...}`, rendering it invisible when pump was in `AUTO` mode.
+    - *Resolution:* Removed the mode guard so that `[ TURN ON (MANUAL 15M) ]` is always visible when pump is stopped, and `[ TURN OFF ]` is always visible when running.
+- **Verification Results**:
+  - Firmware Build & Flash: 100% SUCCESS (`agrotech_esp32.bin` 1,596,480 B flashed to COM3 at 460800 baud).
+  - HTTP Server Boot: Confirmed running and stable.
+  - Physical Button 2 (GPIO 39): Succeeded (confirmed by user and physical test).
+  - Mode Switching via API (`POST /api/v1/well-pump/mode`): Tested with ReactUI envelope, returned HTTP 200 `success: true`, mode updated to `MANUAL` then `AUTO`.
+  - Manual ON Command (`WELL_PUMP_START`): Tested from `AUTO` mode, successfully transitioned to `MANUAL`, energized relay 1 (`on: true`), started 15-minute countdown (`remainingSec: 900`, `elapsedSec: 26`).
+  - Manual OFF Command (`POST /api/v1/well-pump` with `on: false`): De-energized relay immediately, stopped countdown, recorded `OPERATOR_OFF`.
+  - Zero Confirmation Dialogs: Seamless transitions between AUTO and MANUAL modes without blocking dialogs.
+
 ## SP-WELL-PUMP-001 — Well Pump Manual & Scheduled Control, 15-Minute Runtime Limit, and Operating Mode Arbitration
 - **Date**: 2026-10-03
 - **Git Commit**: `3fb3bf8`

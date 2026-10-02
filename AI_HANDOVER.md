@@ -1,6 +1,31 @@
-# AI HANDOVER — SP-WELL-PUMP-001 (latest)
+# AI HANDOVER — SP-WELL-PUMP-002 (latest)
 
-## Status — SP-WELL-PUMP-001
+## Status — SP-WELL-PUMP-002
+**Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons**
+**Safe Point**: `SP-WELL-PUMP-002`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,480 B) — REST ENDPOINTS PASS (GET/POST /api/v1/well-pump, /api/v1/well-pump/mode, /api/v1/commands) — FRONTEND PASS (0 TS ERRORS) — PHYSICAL TOGGLE PASS — 15-MIN MONOTONIC CLAMP VERIFIED`
+
+### Summary of What Was Done
+1. **DRAM Heap Exhaustion Fix**:
+   - Discovered that late-boot HTTP server initialization failed because largest contiguous DRAM block was only 9,216 bytes (whereas HTTP server task needed 10,240 bytes).
+   - Moved `well_pump_mon` stack to external PSRAM via `psram_task_create_pinned()` and moved `http_server_start()` earlier in the boot sequence (right after storage init where contiguous DRAM is >30KB).
+2. **Payload Envelope Unwrapping in HTTP Handlers**:
+   - `handler_post_well_pump_mode` now unwraps `{ payload: { mode: "..." } }` sent by the React UI `postEnveloped` helper.
+   - Added direct `POST /api/v1/well-pump` endpoint supporting `{ on: true/false, durationSeconds: 900 }` and `{ mode: "AUTO"/"MANUAL" }`.
+3. **Seamless AUTO to MANUAL Auto-Transition on Manual ON**:
+   - Manual start commands (`WELL_PUMP_START` or `POST /api/v1/well-pump` with `on: true`) now automatically switch operating mode to `MANUAL` instead of returning `MODE_RESTRICTION`, giving instant 1-click execution.
+4. **Web UI Action Button Enhancements (`WellPumpControlCard.tsx`)**:
+   - Action Button (`[ TURN ON (MANUAL 15M) ]` / `[ TURN OFF ]`) is now unconditionally visible and actionable.
+   - When in `AUTO`, clicking `TURN ON` switches mode to `MANUAL` and starts the pump with 15-minute countdown immediately.
+5. **Live Verification**:
+   - Physical Box Button 2: Confirmed working.
+   - Web UI / REST API: Confirmed working via both enveloped mode switch, command dispatch, and direct status queries.
+
+---
+
+# AI HANDOVER — SP-WELL-PUMP-001 (previous)
 **Well Pump Manual & Scheduled Control, 15-Minute Runtime Limit, and Operating Mode Arbitration**
 **Safe Point**: `SP-WELL-PUMP-001`
 **Date**: 2026-10-03

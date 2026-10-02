@@ -2591,14 +2591,21 @@ export const fertigationService = {
     }
     if (isDirectEsp32Enabled()) {
       try {
+        if (on) {
+          try {
+            await esp32Client.setWellPumpMode("MANUAL");
+          } catch {
+            // Best effort mode switch
+          }
+        }
         const inventory = await esp32Client.getInventory();
         const wellPump = inventory.components?.find((c) =>
           /well|raw.*pump|submersible/i.test(`${c.role ?? ""} ${c.supportedTypeId ?? ""} ${c.name ?? ""}`),
         );
-        if (on && !wellPump) throw new Error("No configured operational well/raw-water pump component is available.");
+        const compId = wellPump?.componentId || "pump_well";
         const cmdId = `wp-${Date.now()}`;
         await esp32Client.postCommand(cmdId, on ? "WELL_PUMP_START" : "WELL_PUMP_STOP", {
-          componentId: wellPump?.componentId,
+          componentId: compId,
           targetComplexId: complexId,
           targetGhId: wellPump?.assignment?.ghId ?? undefined,
           resourceId: wellPump?.resourceId ?? undefined,

@@ -394,10 +394,8 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
     well_pump_mode_t cur_mode = well_pump_get_mode();
     bool is_scheduler = (strcasecmp(cmd->source, "SCHEDULER") == 0);
     if (!is_scheduler) {
-      if (cur_mode == WELL_PUMP_MODE_AUTO) {
-        copy_str(code, code_len, "MODE_RESTRICTION");
-        copy_str(message, message_len, "Well pump is in AUTO mode. Switch to MANUAL mode to control manually.");
-        return ESP_ERR_INVALID_STATE;
+      if (cmd->param_on && cur_mode == WELL_PUMP_MODE_AUTO) {
+        well_pump_set_mode(WELL_PUMP_MODE_MANUAL);
       }
     } else {
       if (cur_mode == WELL_PUMP_MODE_MANUAL) {

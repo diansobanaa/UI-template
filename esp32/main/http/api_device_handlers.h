@@ -22,6 +22,7 @@ esp_err_t handler_post_topology_pool_mutate(httpd_req_t *req);
 esp_err_t handler_get_clock(httpd_req_t *req);
 esp_err_t handler_post_clock_sync(httpd_req_t *req);
 esp_err_t handler_get_well_pump(httpd_req_t *req);
+esp_err_t handler_post_well_pump(httpd_req_t *req);
 esp_err_t handler_post_well_pump_mode(httpd_req_t *req);
 
 /* Configuration Handlers */

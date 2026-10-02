@@ -796,9 +796,12 @@ esp_err_t handler_post_well_pump_mode(httpd_req_t *req)
         return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload.", NULL);
     }
 
-    const char *mode_str = get_json_str(body, "mode");
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    cJSON *target = (payload && cJSON_IsObject(payload)) ? payload : body;
+
+    const char *mode_str = get_json_str(target, "mode");
     if (!mode_str) {
-        cJSON *params = cJSON_GetObjectItem(body, "parameters");
+        cJSON *params = cJSON_GetObjectItem(target, "parameters");
         if (params && cJSON_IsObject(params)) mode_str = get_json_str(params, "mode");
     }
 
@@ -817,3 +820,47 @@ esp_err_t handler_post_well_pump_mode(httpd_req_t *req)
 
     return handler_get_well_pump(req);
 }
+
+esp_err_t handler_post_well_pump(httpd_req_t *req)
+{
+    cJSON *body = NULL;
+    esp_err_t err = http_parse_json_body(req, &body);
+    if (err != ESP_OK || !body) {
+        return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON payload.", NULL);
+    }
+
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    cJSON *target = (payload && cJSON_IsObject(payload)) ? payload : body;
+
+    const char *mode_str = get_json_str(target, "mode");
+    if (!mode_str) {
+        cJSON *params = cJSON_GetObjectItem(target, "parameters");
+        if (params && cJSON_IsObject(params)) mode_str = get_json_str(params, "mode");
+    }
+    if (mode_str && mode_str[0]) {
+        well_pump_mode_t target_mode = (strcasecmp(mode_str, "MANUAL") == 0) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
+        well_pump_set_mode(target_mode);
+    }
+
+    cJSON *on_item = cJSON_GetObjectItem(target, "on");
+    const char *action_str = get_json_str(target, "action");
+    if (on_item && cJSON_IsBool(on_item)) {
+        if (cJSON_IsTrue(on_item)) {
+            cJSON *dur_item = cJSON_GetObjectItem(target, "durationSeconds");
+            uint32_t dur = (dur_item && cJSON_IsNumber(dur_item)) ? (uint32_t)dur_item->valuedouble : 900;
+            well_pump_manual_start(dur);
+        } else {
+            well_pump_manual_stop("OPERATOR_OFF");
+        }
+    } else if (action_str) {
+        if (strcasecmp(action_str, "START") == 0 || strcasecmp(action_str, "ON") == 0) {
+            well_pump_manual_start(900);
+        } else if (strcasecmp(action_str, "STOP") == 0 || strcasecmp(action_str, "OFF") == 0) {
+            well_pump_manual_stop("OPERATOR_OFF");
+        }
+    }
+
+    cJSON_Delete(body);
+    return handler_get_well_pump(req);
+}
+

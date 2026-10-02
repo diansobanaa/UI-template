@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "utils/psram_task.h"
 #include <string.h>
 
 static const char *TAG = "WELL_PUMP_MGR";
@@ -146,7 +147,7 @@ esp_err_t well_pump_mgr_init(void)
 
     load_persisted_mode();
 
-    xTaskCreate(well_pump_monitor_task, "well_pump_mon", 3072, NULL, 5, NULL);
+    psram_task_create_pinned(well_pump_monitor_task, "well_pump_mon", 2048, NULL, 5, NULL, 1);
     s_initialized = true;
     ESP_LOGI(TAG, "Well Pump Manager initialized (Mode: %s, Safe OFF).",
              s_mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
@@ -226,11 +227,11 @@ esp_err_t well_pump_manual_start(uint32_t duration_sec)
 {
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
 
-    /* Validate mode */
+    /* If system is in AUTO mode, automatically transition to MANUAL mode */
     if (s_mode != WELL_PUMP_MODE_MANUAL) {
-        xSemaphoreGive(s_mutex);
-        ESP_LOGW(TAG, "Manual ON rejected: system is in AUTO mode.");
-        return ESP_ERR_INVALID_STATE;
+        s_mode = WELL_PUMP_MODE_MANUAL;
+        persist_mode(s_mode);
+        ESP_LOGI(TAG, "Manual ON requested: Automatically transitioned mode from AUTO to MANUAL.");
     }
 
     /* Validate safety protections */

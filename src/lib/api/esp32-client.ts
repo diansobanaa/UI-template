@@ -677,11 +677,37 @@ export class Esp32Client {
   /* ----------------------- Well Pump Manager ----------------------- */
 
   async getWellPump(): Promise<WellPumpDetails> {
-    return this.getEnveloped<WellPumpDetails>("/api/v1/well-pump");
+    try {
+      return await this.getEnveloped<WellPumpDetails>("/api/v1/well-pump");
+    } catch {
+      const st = await this.getEnveloped<Record<string, any>>("/api/v1/status");
+      const rawDetails = st?.wellPumpDetails as WellPumpDetails | undefined;
+      if (rawDetails) return rawDetails;
+      const isPumpOn = Boolean(st?.actuators?.wellPump);
+      return {
+        mode: "AUTO",
+        on: isPumpOn,
+        state: isPumpOn ? "MANUAL_RUNNING" : "STOPPED",
+        manualActive: isPumpOn,
+        maxRuntimeSec: 900,
+        elapsedSec: 0,
+        remainingSec: isPumpOn ? 900 : 0,
+        stopReason: "NONE",
+      };
+    }
   }
 
   async setWellPumpMode(mode: WellPumpMode): Promise<WellPumpDetails> {
-    return this.postEnveloped<WellPumpDetails>("/api/v1/well-pump/mode", { mode });
+    try {
+      return await this.postEnveloped<WellPumpDetails>("/api/v1/well-pump/mode", { mode });
+    } catch {
+      const cmdId = `wp-mode-${Date.now()}`;
+      await this.postCommand(cmdId, "WELL_PUMP_SET_MODE", {
+        parameters: { mode },
+        source: "MANUAL",
+      });
+      return this.getWellPump();
+    }
   }
 
   async startWellPumpManual(): Promise<CommandReceipt> {

@@ -368,19 +368,11 @@ void app_main(void) {
   ESP_ERROR_CHECK(storage_mgr_set_safe_boot_active(false));
   ESP_LOGI(TAG, "Safe boot active flag cleared in storage.");
 
-  ESP_ERROR_CHECK(crop_cycle_mgr_init());
-  ESP_ERROR_CHECK(telemetry_mgr_init());
-  ESP_ERROR_CHECK(offline_sync_mgr_init());
-  ESP_ERROR_CHECK(topology_pool_init());
-
   ESP_LOGI(TAG, "[HEAP] before HTTP server: internal=%u, largest=%u",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
-  /* HEAP-FIX: Start HTTP server BEFORE TFT — HTTP server needs ~5KB internal
-   * RAM for task stack. TFT task (5KB) consumes internal RAM that HTTP needs.
-   * HTTP server is more critical for remote access than local TFT display.
-   * TFT init moved to AFTER HTTP server. */
+  /* HEAP-FIX: Start HTTP server immediately while internal DRAM has 25KB+ contiguous block. */
   esp_err_t http_err = http_server_start();
   if (http_err != ESP_OK) {
     ESP_LOGW(TAG,
@@ -389,6 +381,11 @@ void app_main(void) {
   } else {
     ESP_LOGI(TAG, "HTTP server started.");
   }
+
+  ESP_ERROR_CHECK(crop_cycle_mgr_init());
+  ESP_ERROR_CHECK(telemetry_mgr_init());
+  ESP_ERROR_CHECK(offline_sync_mgr_init());
+  ESP_ERROR_CHECK(topology_pool_init());
 
   /* TFT init AFTER HTTP server — TFT is lowest priority for internal RAM. */
   if (tft_hal_init() == ESP_OK && tft_hal_is_available()) {

@@ -107,6 +107,9 @@ export function WellPumpControlCard({
     setToggling(true);
     setError(null);
     try {
+      if (turnOn && currentMode === "AUTO") {
+        await handleModeSwitch("MANUAL");
+      }
       await fertigationService.setWellPump(complexId, turnOn);
       await fetchStatus();
     } catch (err: unknown) {
@@ -222,32 +225,30 @@ export function WellPumpControlCard({
             </div>
           </div>
 
-          {/* Action button in MANUAL mode */}
-          {currentMode === "MANUAL" && (
-            <div>
-              {isPumpOn ? (
-                <button
-                  type="button"
-                  disabled={toggling || isEmergencyStopped}
-                  onClick={() => handleTogglePump(false)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-rose-500 disabled:opacity-50 transition-colors"
-                >
-                  <Power className="h-4 w-4" />
-                  {toggling ? "STOPPING..." : "TURN OFF"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={toggling || isEmergencyStopped}
-                  onClick={() => handleTogglePump(true)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-emerald-500 disabled:opacity-50 transition-colors"
-                >
-                  <Power className="h-4 w-4" />
-                  {toggling ? "STARTING..." : "TURN ON"}
-                </button>
-              )}
-            </div>
-          )}
+          {/* Action button — always visible and actionable */}
+          <div>
+            {isPumpOn ? (
+              <button
+                type="button"
+                disabled={toggling || isEmergencyStopped}
+                onClick={() => handleTogglePump(false)}
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-rose-500 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                <Power className="h-4 w-4" />
+                {toggling ? "STOPPING..." : "TURN OFF"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={toggling || isEmergencyStopped}
+                onClick={() => handleTogglePump(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-emerald-500 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                <Power className="h-4 w-4" />
+                {toggling ? "STARTING..." : currentMode === "AUTO" ? "TURN ON (MANUAL 15M)" : "TURN ON"}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Dynamic Context: Countdown in MANUAL or Schedule in AUTO */}

@@ -439,6 +439,12 @@ esp_err_t http_server_start(void) {
                             .user_ctx = NULL};
   httpd_register_uri_handler(s_server, &uri_wp_get);
 
+  httpd_uri_t uri_wp_post = {.uri = "/api/v1/well-pump",
+                             .method = HTTP_POST,
+                             .handler = handler_post_well_pump,
+                             .user_ctx = NULL};
+  httpd_register_uri_handler(s_server, &uri_wp_post);
+
   httpd_uri_t uri_wp_mode = {.uri = "/api/v1/well-pump/mode",
                              .method = HTTP_POST,
                              .handler = handler_post_well_pump_mode,
