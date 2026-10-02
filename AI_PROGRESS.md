@@ -1,6 +1,6 @@
 ## SP-DUAL-GUARD-AUTO-001 — Autonomous 2-Hour ESP32 Periodic Guard & 15-Second Web UI Grace Period
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `c5b4a7e`
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
 - **Objective**:
   1. Acommodate scenario where ESP32 is powered off at 00:00 midnight and boots mid-day (e.g. 02:30), ensuring autonomous queue fetching and eager mixing.
