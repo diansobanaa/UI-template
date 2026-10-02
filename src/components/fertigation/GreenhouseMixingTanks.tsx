@@ -272,28 +272,13 @@ export function GreenhouseMixingTanks({
                       </button>
                     )}
 
-                    {tank.canPreMixNow && onPreMix && (
-                      <button
-                        type="button"
-                        onClick={() => onPreMix(tank.ghId)}
-                        disabled={isActionLoading || tank.isActionDisabled}
-                        title={
-                          tank.actionDisabledReason ||
-                          "Tambahkan ke antrean peracikan dosing central agar larutan siap sebelum jadwal"
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-600/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        Masuk Antrean Dosing
-                      </button>
-                    )}
-
                     {isWaitingSchedule && (
                       <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 px-2.5 py-1 text-[11px] font-medium text-slate-300">
                         <Clock className="h-3 w-3 text-amber-400/80" />
                         Otomasi Terjadwal (Fail-Safe)
                       </span>
                     )}
+
 
                     {(isMixing || isDelivering || isQueued) && (
                       <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">

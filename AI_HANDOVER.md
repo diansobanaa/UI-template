@@ -1,4 +1,38 @@
-# AI HANDOVER — SP-REMOVE-PREMIX-BUTTONS-001 (latest)
+# AI HANDOVER — SP-QUEUE-UNIFY-EAGER-002 (latest)
+
+## Status — SP-QUEUE-UNIFY-EAGER-002
+**Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons**
+**Safe Point**: `SP-QUEUE-UNIFY-EAGER-002`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — CANONICAL MODEL UPDATED`
+
+### Summary of What Was Done
+1. **Pemisahan Protokol 1 GH vs Multi-GH dalam 1 Komplek**:
+   - Dituliskan secara eksplisit dalam `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` (Sub-section 3.3).
+   - **1 GH (Single-GH)**: Pipa langsung tanpa routing valve, eager batch preparation, penyaluran tunggal jam 06:00, chaining pasca-fertigasi langsung memicu peracikan batch jadwal berikutnya hari ini.
+   - **Multi-GH**: Shared Central Dosing Unit dengan Routing Valves, peracikan SERIAL (FIFO bergantian satu per satu), penyaluran PARALEL serentak jam 06:00 via slot delivery independen, failure isolation.
+   - **Deteksi Periodik 2 Jam**: Komparasi integer hari $O(1)$ (`todayIn360 == last_fetched` / `s_daily_trigger_completed_yday == tm_now.tm_yday`) tanpa alokasi heap atau overhead.
+2. **Penyatuan Tampilan UI Dosing Queue & Pembersihan Jadwal di Baris Antrean**:
+   - Menyatukan status Central Dosing Unit dan antrean FIFO ke dalam satu wadah kohesif di `DosingQueueSection.tsx`.
+   - Menghapus string `Jadwal: 06:00` dari baris antrean peracikan (diganti label `Batch Tangki Mixing`).
+   - Menghapus label "15s Grace" dari tombol `Sinkronkan Antrean`.
+   - Mengubah banner Standby agar tidak menyebut jam 06:00 sebagai operasi peracikan berikutnya, melainkan `Jadwal Fertigasi Tanaman Berikutnya: GH-01 pukul 06:00`.
+3. **Penyempurnaan Status Operasi Jadwal**:
+   - Di `FertigationScheduleManager.tsx`, status jadwal dievaluasi secara dinamis menjadi 3 status riil:
+     - `ready to fertigate` (tangki mixing sudah siap larutan atau sedang menyiram)
+     - `on queue dosing` (sedang diracik di central atau menunggu giliran di antrean FIFO)
+     - `menunggu jam jadwal` (belum masuk jendela peracikan)
+4. **Pembersihan Seluruh Tombol Manual Pre-mix**:
+   - Menghapus seluruh tombol manual pre-mix (`Masuk Antrean Dosing` / `Masuk Antrean`) dari `GreenhouseMixingTanks.tsx`, `ComplexFertigationOverview.tsx`, dan `GreenhouseFertigationDetail.tsx`.
+5. **Verifikasi**:
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+   - `npx tsc --noEmit`: 0 errors.
+
+---
+
+# AI HANDOVER — SP-REMOVE-PREMIX-BUTTONS-001 (previous)
 
 ## Status — SP-REMOVE-PREMIX-BUTTONS-001
 **Remove Redundant Pre-Mix Action Buttons for Pure Autonomous Scheduling**

@@ -1,3 +1,21 @@
+## SP-QUEUE-UNIFY-EAGER-002 — Unified Dosing Queue UI, Eager Dosing Execution, Decoupled 1-GH vs Multi-GH Protocols & Removal of Manual Pre-Mix Buttons
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — CANONICAL MODEL UPDATED`
+- **Objective**:
+  1. Document and implement protocol distinction between 1 GH in complex (Single-GH) and several GHs in complex (Multi-GH).
+  2. Unify Central Dosing Unit state and FIFO queue presentation into a single cohesive card in `DosingQueueSection.tsx`.
+  3. Remove schedule time (`Jadwal: 06:00`) from dosing queue items and eliminate "15s Grace" text from sync button.
+  4. Dynamically compute operational status in `FertigationScheduleManager.tsx` (`on queue dosing`, `ready to fertigate`, `menunggu jam jadwal`).
+  5. Remove all manual pre-mix buttons across `GreenhouseMixingTanks.tsx`, `ComplexFertigationOverview.tsx`, and `GreenhouseFertigationDetail.tsx`.
+- **Root Cause & Resolution**:
+  - *Distinction:* Dosing queue is an immediate eager physical mixing pipeline with no schedule time. Fertigation schedule is the plant delivery trigger (06:00). In Single-GH, dosing feeds the sole tank without routing valve. In Multi-GH, dosing is serialized FIFO across GHs via routing valves, while distribution at 06:00 runs in parallel. Post-fertigation, completion triggers immediate eager enqueuing for the next occurrence today.
+  - *Resolution:* Added Section 3.3 to `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`. Unified UI cards, updated schedule status computation, and purged manual pre-mix buttons.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: All 7 invariants PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+
 ## SP-REMOVE-PREMIX-BUTTONS-001 — Remove Redundant Pre-Mix Action Buttons for Pure Autonomous Scheduling
 - **Date**: 2026-10-03
 - **Git Commit**: `253e646`

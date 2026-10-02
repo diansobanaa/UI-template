@@ -330,17 +330,6 @@ export function ComplexFertigationOverview({
                         </button>
                       )}
 
-                      {item.canPreMix && onPreMixGh && (
-                        <button
-                          type="button"
-                          onClick={() => onPreMixGh(gh.id)}
-                          disabled={isActionLoading}
-                          className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-600/90 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-cyan-500 active:scale-95 disabled:opacity-50"
-                        >
-                          <Play className="h-3 w-3" />
-                          Masuk Antrean
-                        </button>
-                      )}
 
                       {!item.canDeliver && !item.canPreMix && (
                         <span className="text-[10px] text-slate-400 font-medium">

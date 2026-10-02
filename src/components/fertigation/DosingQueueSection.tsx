@@ -70,6 +70,7 @@ interface DosingQueueSectionProps {
   isActionLoading?: boolean;
   isSyncingQueue?: boolean;
   syncCountdownSec?: number;
+  isMultiGh?: boolean;
   className?: string;
 }
 
@@ -82,15 +83,16 @@ export function DosingQueueSection({
   onSyncQueue,
   isActionLoading = false,
   isSyncingQueue = false,
-  syncCountdownSec = 15,
+  syncCountdownSec = 0,
+  isMultiGh = false,
   className = "",
 }: DosingQueueSectionProps) {
   const currentRunningStep = activeJob?.steps.find((s) => s.status === "RUNNING");
 
   return (
-    <div className={`space-y-4 ${className}`}>
-      {/* ---------------- Section Header ---------------- */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+    <div className={`overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg space-y-4 ${className}`}>
+      {/* ---------------- Unified Section Header ---------------- */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3.5">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 text-violet-300">
             <ListOrdered className="h-4 w-4" />
@@ -98,19 +100,23 @@ export function DosingQueueSection({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold tracking-tight text-slate-100">
-                Unit Dosing & Antrean FIFO (Central Dosing & FIFO Queue)
+                {isMultiGh
+                  ? "Antrean Dosing Central (Multi-GH • Serial FIFO • Distribusi Paralel)"
+                  : "Antrean Dosing Central (Single-GH)"}
               </h3>
               <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
-                {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Dalam Antrean
+                {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Menunggu Giliran
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Unit Dosing & Pencampuran Sentral melayani tangki batch greenhouse secara bergantian (FIFO teratur).
+              {isMultiGh
+                ? "Unit Dosing Sentral meracik tangki batch setiap greenhouse bergantian (FIFO) agar seluruh tangki siap sebelum jam penyiraman (Distribusi Paralel)."
+                : "Unit Dosing Sentral menyiapkan larutan nutrisi di tangki batch sebelum jadwal penyiraman fertigasi dimulai."}
             </p>
           </div>
         </div>
 
-        {/* Central Unit Operating State Pill */}
+        {/* Operating Status & Sync Action */}
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
@@ -134,18 +140,40 @@ export function DosingQueueSection({
               ? `Kendala: ${errorInfo.ghCode}`
               : activeJob
               ? `Sedang Meracik: ${activeJob.ghCode}`
-              : "Central Dosing Unit: Standby"}
+              : "Central Dosing: Standby"}
           </span>
+
+          {onSyncQueue && (
+            <button
+              type="button"
+              onClick={onSyncQueue}
+              disabled={isSyncingQueue || isActionLoading}
+              title="Sinkronkan antrean dengan controller ESP32"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/25 active:scale-95 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin text-cyan-400" : "text-cyan-400"}`} />
+              {isSyncingQueue ? "Menyinkronkan..." : "Sinkronkan Antrean"}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ---------------- 1. Central Dosing Unit Panel (Section 5 Spec) ---------------- */}
-      {errorInfo ? (
-        /* Error State Identifying Failed Process and Target GH */
-        <div className="rounded-2xl border border-rose-500/40 bg-rose-950/25 p-5 shadow-[0_4px_25px_rgba(244,63,94,0.15)]">
+      {/* ---------------- Syncing Notification State ---------------- */}
+      {isSyncingQueue && (
+        <div className="flex items-center gap-3 rounded-xl border border-cyan-500/30 bg-cyan-950/30 p-3 text-xs text-slate-300 backdrop-blur">
+          <RefreshCw className="h-4 w-4 animate-spin text-cyan-400 shrink-0" />
+          <span>
+            <strong className="text-cyan-300">Sinkronisasi:</strong> Memverifikasi antrean peracikan dengan ESP32...
+          </span>
+        </div>
+      )}
+
+      {/* ---------------- Error State ---------------- */}
+      {errorInfo && (
+        <div className="rounded-xl border border-rose-500/40 bg-rose-950/25 p-4 shadow-[0_4px_25px_rgba(244,63,94,0.15)]">
           <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
-              <AlertTriangle className="h-5 w-5" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
+              <AlertTriangle className="h-4 w-4" />
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -161,17 +189,19 @@ export function DosingQueueSection({
             </div>
           </div>
         </div>
-      ) : activeJob ? (
-        /* Running Dosing Operation Display */
-        <div className="overflow-hidden rounded-2xl border border-cyan-500/30 bg-gradient-to-b from-[#0a212e] via-[#091b26] to-[#08151f] p-5 shadow-[0_12px_35px_rgba(6,182,212,0.12)]">
+      )}
+
+      {/* ---------------- Active Dosing Job (if running) ---------------- */}
+      {activeJob && (
+        <div className="overflow-hidden rounded-xl border border-cyan-500/30 bg-gradient-to-b from-[#0a212e] via-[#091b26] to-[#08151f] p-4 shadow-[0_12px_35px_rgba(6,182,212,0.12)]">
           {/* Active Job Header */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/20 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
             <div>
               <div className="flex items-center gap-2">
                 <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 text-xs font-bold text-cyan-300 border border-cyan-500/30">
                   DOSING AKTIF
                 </span>
-                <h4 className="text-base font-bold text-slate-100">
+                <h4 className="text-sm font-bold text-slate-100">
                   Melayani: {activeJob.ghCode} ({activeJob.ghName})
                 </h4>
               </div>
@@ -188,7 +218,7 @@ export function DosingQueueSection({
                 type="button"
                 onClick={onAbortActive}
                 disabled={isActionLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/30 active:scale-95 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/20 px-2.5 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/30 active:scale-95 disabled:opacity-50"
               >
                 <StopCircle className="h-3.5 w-3.5" />
                 Hentikan Batch
@@ -197,18 +227,18 @@ export function DosingQueueSection({
           </div>
 
           {/* Operational Progress Breakdown (5 Steps) */}
-          <div className="mt-5">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          <div className="mt-3.5">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 Tahapan Peracikan Nyata (Hardware Pipeline)
               </span>
-              <span className="text-[11px] text-cyan-400 font-medium flex items-center gap-1">
+              <span className="text-[10px] text-cyan-400 font-medium flex items-center gap-1">
                 <Activity className="h-3 w-3 animate-spin" />
                 {currentRunningStep ? `Tahap ${currentRunningStep.stepNumber}: ${currentRunningStep.name}` : "Proses otomatis berjalan via ESP32"}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-5">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
               {activeJob.steps.map((st) => {
                 const isCompleted = st.status === "COMPLETED";
                 const isRunning = st.status === "RUNNING";
@@ -217,7 +247,7 @@ export function DosingQueueSection({
                 return (
                   <div
                     key={st.stepNumber}
-                    className={`relative flex flex-col justify-between rounded-xl border p-3 transition-all ${
+                    className={`relative flex flex-col justify-between rounded-lg border p-2.5 transition-all ${
                       isRunning
                         ? "border-cyan-400/50 bg-cyan-950/40 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-400/30"
                         : isCompleted
@@ -228,31 +258,27 @@ export function DosingQueueSection({
                     }`}
                   >
                     <div>
-                      {/* Step Header */}
-                      <div className="flex items-center justify-between gap-1 text-[11px]">
+                      <div className="flex items-center justify-between gap-1 text-[10px]">
                         <span className="font-bold text-slate-400">Tahap {st.stepNumber}</span>
-                        {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                        {isRunning && <Activity className="h-4 w-4 text-cyan-400 animate-spin" />}
-                        {isFailed && <AlertTriangle className="h-4 w-4 text-rose-400" />}
+                        {isCompleted && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                        {isRunning && <Activity className="h-3.5 w-3.5 text-cyan-400 animate-spin" />}
+                        {isFailed && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
                         {!isCompleted && !isRunning && !isFailed && (
-                          <span className="h-2 w-2 rounded-full bg-slate-600" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
                         )}
                       </div>
 
-                      {/* Step Name */}
-                      <div className="mt-1.5 text-xs font-bold text-slate-100">
+                      <div className="mt-1 text-xs font-bold text-slate-100">
                         {st.name}
                       </div>
 
-                      {/* Description */}
                       <div className="mt-0.5 text-[10px] text-slate-400">
                         {st.description}
                       </div>
                     </div>
 
-                    {/* Step Status Badge & Progress */}
-                    <div className="mt-3 border-t border-slate-800/60 pt-2">
-                      <div className="flex items-center justify-between text-[10px]">
+                    <div className="mt-2 border-t border-slate-800/60 pt-1.5">
+                      <div className="flex items-center justify-between text-[9px]">
                         <span
                           className={`font-semibold ${
                             isRunning
@@ -270,7 +296,7 @@ export function DosingQueueSection({
                       </div>
 
                       {isRunning && st.progressPct !== undefined && (
-                        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-cyan-950">
+                        <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-cyan-950">
                           <div
                             className="h-full bg-cyan-400 transition-all duration-300"
                             style={{ width: `${Math.min(100, Math.max(5, st.progressPct))}%` }}
@@ -284,169 +310,94 @@ export function DosingQueueSection({
             </div>
           </div>
         </div>
-      ) : (
-        /* Standby State (Section 5 Spec) */
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0e1a2a]/60 p-6 text-center">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-700 bg-slate-800/70 text-slate-400 mb-3 shadow-inner">
-            <Droplets className="h-5 w-5 text-emerald-400" />
-          </div>
-          <h4 className="text-sm font-bold text-slate-200">
-            Central Dosing Unit: Standby (Siaga)
-          </h4>
-          <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-            Tidak ada operasi dosing yang sedang berjalan saat ini.
-          </p>
+      )}
 
-          {/* Next Operation Info Pill (Section 5 Spec) */}
-          <div className="mt-3.5 inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/80 px-4 py-1.5 text-xs">
-            <Clock className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-slate-400">Operasi berikutnya:</span>
-            {nextScheduledOp ? (
-              <span className="font-semibold text-amber-300">
+      {/* ---------------- Standby Status Summary (Single clean banner when not actively dosing) ---------------- */}
+      {!activeJob && !errorInfo && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/80 bg-slate-950/40 px-4 py-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            <span className="font-semibold text-slate-200">Central Dosing Unit: Standby (Siaga)</span>
+            <span className="text-slate-400">
+              {queuedJobs.length > 0
+                ? "• Antrean peracikan siap dieksekusi berurutan FIFO"
+                : "• Tangki mixing siap / tidak ada peracikan aktif"}
+            </span>
+          </div>
+
+          {nextScheduledOp ? (
+            <div className="flex items-center gap-2 text-slate-300">
+              <Clock className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-slate-400">Jadwal Fertigasi Tanaman Berikutnya:</span>
+              <span className="font-bold text-amber-300">
                 {nextScheduledOp.ghCode} ({nextScheduledOp.ghName}) pukul {nextScheduledOp.time}
               </span>
-            ) : queuedJobs.length > 0 ? (
-              <span className="font-semibold text-cyan-300">
-                {queuedJobs[0].ghCode} (Antrean #{queuedJobs[0].queuePosition})
-              </span>
-            ) : (
-              <span className="font-semibold text-slate-400">
-                Tidak ada jadwal peracikan tersisa hari ini
-              </span>
-            )}
-          </div>
+              <span className="text-slate-400">({nextScheduledOp.jobTitle})</span>
+            </div>
+          ) : (
+            <span className="text-slate-500">
+              Tidak ada jadwal fertigasi tersisa hari ini
+            </span>
+          )}
         </div>
       )}
 
-      {/* ---------------- 2. FIFO Execution Queue Presentation (Section 6 Spec) ---------------- */}
-      <div>
-        <div className="mb-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Antrean Dosing Central (FIFO Execution Order)
-            </h4>
-            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300 border border-slate-700">
-              {queuedJobs.length} Menunggu Giliran
-            </span>
-            {onSyncQueue && (
-              <button
-                type="button"
-                onClick={onSyncQueue}
-                disabled={isSyncingQueue || isActionLoading}
-                title="Sinkronkan antrean dengan jeda grace period 15 detik"
-                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-cyan-300 transition hover:bg-cyan-500/25 active:scale-95 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin text-cyan-400" : "text-cyan-400"}`} />
-                {isSyncingQueue ? `Sinkronisasi (${syncCountdownSec}s)` : "Sinkronkan Antrean (15s Grace)"}
-              </button>
-            )}
-          </div>
-          <span className="text-[11px] text-slate-500">
-            Dieksekusi bergantian secara otomatis sesuai ketersediaan unit dan jadwal
-          </span>
-        </div>
+      {/* ---------------- Unified FIFO Queue List ---------------- */}
+      <div className="space-y-2 pt-1">
+        {queuedJobs.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Urutan Antrean Peracikan Central (FIFO Execution Order)
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Dieksekusi langsung berurutan (FIFO) agar tangki mixing siap sebelum jam penyiraman tanaman
+              </span>
+            </div>
 
-        {isSyncingQueue ? (
-          /* Grace period loading display with engaging visual indicator (waiting up to 15s for ESP32 queue confirmation) */
-          <div className="relative overflow-hidden rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-slate-900/95 via-cyan-950/30 to-[#0e1a2a]/95 p-5 shadow-[0_0_25px_rgba(6,182,212,0.12)] backdrop-blur">
-            {/* Ambient background glow accents */}
-            <div className="pointer-events-none absolute -left-8 -top-8 h-28 w-28 rounded-full bg-cyan-500/10 blur-2xl" />
-            <div className="pointer-events-none absolute -right-8 -bottom-8 h-28 w-28 rounded-full bg-emerald-500/10 blur-2xl" />
+            <div className="space-y-2">
+              {queuedJobs.map((q, idx) => (
+                <div
+                  key={q.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-[#0e1a2a]/70 p-3 hover:border-slate-700 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-xs font-bold text-amber-300 border border-amber-500/30">
+                      #{idx + 1}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-200">{q.ghCode}</span>
+                        <span className="text-xs text-slate-400">({q.ghName}) • {q.jobTitle}</span>
+                        <span className="rounded bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 text-[10px] text-cyan-300 font-semibold">
+                          Batch Tangki Mixing
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-400">
+                        Resep: <span className="text-slate-300">{q.recipeName}</span> • Target Air:{" "}
+                        <span className="text-slate-300 font-semibold">{q.targetWaterL} L</span> • Nutrisi A ({q.dosingAml} ml) + B ({q.dosingBml} ml)
+                      </div>
+                    </div>
+                  </div>
 
-            <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                {/* Radar / Pulsing Ring Visual */}
-                <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-500/40 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
-                  <div className="absolute inset-0 rounded-xl bg-cyan-400/20 animate-ping opacity-60" />
-                  <RefreshCw className="h-6 w-6 animate-spin text-cyan-400" />
-                </div>
-                <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm tracking-wide text-cyan-200">
-                      Sinkronisasi Antrean Peracikan Central
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                      Grace Period {syncCountdownSec}s
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium">
+                      Menunggu Giliran Unit Central (Otomatis)
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-300">
-                    Memverifikasi antrean peracikan dengan ESP32... ({syncCountdownSec}s tersisa). Menunggu konfirmasi transmisi antrean dari ESP32 controller. Jika data antrean sudah tersedia, tampilan akan diperbarui otomatis tanpa fetch ulang.
-                  </p>
                 </div>
-              </div>
-
-              {/* Countdown Gauge */}
-              <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/30 bg-slate-900/80 px-3.5 py-2 shadow-inner">
-                <Clock className="h-4 w-4 text-cyan-400 animate-pulse" />
-                <div className="text-right">
-                  <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Jeda Sinkronisasi</div>
-                  <div className="text-sm font-extrabold text-cyan-300 font-mono">
-                    00:{syncCountdownSec < 10 ? `0${syncCountdownSec}` : syncCountdownSec}
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
-
-            {/* Smooth animated progress track */}
-            <div className="relative mt-3.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-emerald-400 to-cyan-300 transition-all duration-1000 ease-linear shadow-[0_0_8px_rgba(6,182,212,0.5)]"
-                style={{ width: `${Math.min(100, Math.max(0, (syncCountdownSec / 15) * 100))}%` }}
-              />
-            </div>
-          </div>
-        ) : queuedJobs.length === 0 ? (
-          /* Neutral and Accurate Empty Queue State (Section 6 Spec) */
-          <div className="rounded-xl border border-dashed border-slate-800 bg-[#0e1a2a]/40 p-4 text-center text-xs text-slate-400 space-y-1">
-            <p className="font-medium text-slate-300">
-              Tidak ada operasi peracikan dalam antrean saat ini.
-            </p>
-            {nextScheduledOp ? (
-              <p className="text-slate-400">
-                Jadwal fertigasi berikutnya adalah pukul <span className="font-semibold text-amber-300">{nextScheduledOp.time}</span> untuk{" "}
-                <span className="font-semibold text-slate-200">{nextScheduledOp.ghCode}</span> ({nextScheduledOp.jobTitle}).
-              </p>
-            ) : (
-              <p className="text-slate-500">
-                Semua jadwal yang terdaftar untuk hari ini telah selesai atau belum ada jadwal berikutnya.
-              </p>
-            )}
-          </div>
+          </>
         ) : (
-          /* FIFO Execution List */
-          <div className="space-y-2">
-            {queuedJobs.map((q, idx) => (
-              <div
-                key={q.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-[#0e1a2a]/70 p-3.5 hover:border-slate-700 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-xs font-bold text-amber-300 border border-amber-500/30">
-                    #{idx + 1}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-200">{q.ghCode}</span>
-                      <span className="text-xs text-slate-400">({q.ghName}) • {q.jobTitle}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-amber-300 font-medium">
-                        Jadwal: {q.scheduledTimeStr}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-400">
-                      Resep: <span className="text-slate-300">{q.recipeName}</span> • Target Air:{" "}
-                      <span className="text-slate-300 font-semibold">{q.targetWaterL} L</span> • Nutrisi A ({q.dosingAml} ml) + B ({q.dosingBml} ml)
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium">
-                    Menunggu Giliran Unit Central (Otomatis)
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="rounded-xl border border-dashed border-slate-800/80 bg-slate-950/20 px-4 py-3 text-center text-xs text-slate-400">
+            {activeJob ? (
+              <span>Tidak ada batch tambahan dalam antrean menunggu giliran.</span>
+            ) : (
+              <span>
+                Antrean peracikan sentral saat ini kosong. Jadwal fertigasi akan otomatis masuk ke antrean peracikan saat waktu operasional tercapai.
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -140,68 +140,27 @@ export function FertigationQueueDashboard({
         setLiveStatus(stVal);
         setOffline(false);
       }
-      if (queueRes.status === "fulfilled" && queueRes.value) {
-        qBatches = Array.isArray(queueRes.value?.queuedBatches)
-          ? queueRes.value.queuedBatches
-          : [];
-        setLiveQueue(qBatches);
+
+      // Authoritative queuedBatches extraction helper (direct or enveloped)
+      const extractBatches = (resVal: any): any[] => {
+        if (!resVal) return [];
+        if (Array.isArray(resVal.queuedBatches)) return resVal.queuedBatches;
+        if (Array.isArray(resVal.data?.queuedBatches)) return resVal.data.queuedBatches;
+        if (Array.isArray(resVal.payload?.queuedBatches)) return resVal.payload.queuedBatches;
+        return [];
+      };
+
+      const qFromQueue = extractBatches(queueRes.status === "fulfilled" ? queueRes.value : null);
+      const qFromStatus = extractBatches(statusRes.status === "fulfilled" ? statusRes.value : null);
+      qBatches = qFromQueue.length > 0 ? qFromQueue : qFromStatus;
+      setLiveQueue(qBatches);
+
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
       }
-
-      // Check if ESP32 already has populated queue data (active job or queued batches)
-      const esp32HasPopulatedQueue =
-        (Array.isArray(qBatches) && qBatches.length > 0) ||
-        (stVal && stVal.state && stVal.state !== "IDLE" && stVal.state !== "FERT_STATE_IDLE");
-
-      if (esp32HasPopulatedQueue) {
-        // If ESP32 already fetched / has data: CANCEL any pending timer and DO NOT fetch again!
-        // Return and keep the existing fetched data without re-fetching.
-        if (countdownIntervalRef.current) {
-          clearInterval(countdownIntervalRef.current);
-          countdownIntervalRef.current = null;
-        }
-        setIsAwaitingQueueSync(false);
-        setSyncCountdown(15);
-      } else {
-        // Trigger condition in Web UI == 0 (queue is 0, no active job, but schedules exist)
-        // Wait 15 seconds grace period before executing background fetch!
-        const localScheds = ghs.flatMap((g) => scheduleService.fertigationForGh(g.id));
-        const hasActiveLocal = localScheds.some((s) => s.enabled);
-        const hasSchedulesToday = hasActiveLocal || (Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0);
-
-        if (hasSchedulesToday && !hasTriggeredRemoteRef.current && !countdownIntervalRef.current) {
-          setIsAwaitingQueueSync(true);
-          setSyncCountdown(15);
-          let remaining = 15;
-          countdownIntervalRef.current = setInterval(async () => {
-            remaining -= 1;
-            setSyncCountdown(remaining);
-            if (remaining <= 0) {
-              if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-              }
-              hasTriggeredRemoteRef.current = true;
-              setIsAwaitingQueueSync(false);
-              if (effectiveComplexId) {
-                try {
-                  await scheduleService.deploySchedules(effectiveComplexId);
-                  await esp32Client.triggerDailySchedules();
-                  const [sRes2, qRes2] = await Promise.allSettled([
-                    esp32Client.getFertigationStatus(),
-                    esp32Client.getFertigationQueue(),
-                  ]);
-                  if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
-                  if (qRes2.status === "fulfilled" && qRes2.value) {
-                    setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
-                  }
-                } catch (triggerErr) {
-                  console.warn("[FertigationQueueDashboard] 15s grace period background trigger notice:", triggerErr);
-                }
-              }
-            }
-          }, 1000);
-        }
-      }
+      setIsAwaitingQueueSync(false);
+      setSyncCountdown(0);
     } catch {
       setOffline(true);
     } finally {
@@ -211,43 +170,61 @@ export function FertigationQueueDashboard({
     }
   };
 
-  const handleTriggerQueueSync = () => {
+  const handleTriggerQueueSync = async () => {
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
-    hasTriggeredRemoteRef.current = false;
+    hasTriggeredRemoteRef.current = true;
     setIsAwaitingQueueSync(true);
-    setSyncCountdown(15);
-    let remaining = 15;
-    countdownIntervalRef.current = setInterval(async () => {
-      remaining -= 1;
-      setSyncCountdown(remaining);
-      if (remaining <= 0) {
-        if (countdownIntervalRef.current) {
-          clearInterval(countdownIntervalRef.current);
-          countdownIntervalRef.current = null;
+    setSyncCountdown(0);
+
+    try {
+      if (effectiveComplexId) {
+        try {
+          await scheduleService.deploySchedules(effectiveComplexId);
+          await esp32Client.triggerDailySchedules();
+        } catch (triggerErr) {
+          console.warn("[FertigationQueueDashboard] trigger sync notice:", triggerErr);
         }
-        hasTriggeredRemoteRef.current = true;
-        setIsAwaitingQueueSync(false);
-        if (effectiveComplexId) {
-          try {
-            await scheduleService.deploySchedules(effectiveComplexId);
-            await esp32Client.triggerDailySchedules();
-            const [sRes2, qRes2] = await Promise.allSettled([
-              esp32Client.getFertigationStatus(),
-              esp32Client.getFertigationQueue(),
-            ]);
-            if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
-            if (qRes2.status === "fulfilled" && qRes2.value) {
-              setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
+      }
+      await fetchStatus(true);
+
+      // Spec §52 & Operational Model: FETCH LANGSUNG EKSEKUSI DOSING
+      // If Central Dosing Unit is IDLE and a greenhouse mixing tank is not ready, start dosing immediately!
+      const currentFw = (liveStatus?.runtimeState || liveStatus?.state || "IDLE").toUpperCase().replace(/^FERT_STATE_/, "");
+      if (currentFw === "IDLE") {
+        const pendingGh = ghs.find((g) => {
+          const ghScheds = scheduleService.fertigationForGh(g.id).filter((s) => s.enabled);
+          if (ghScheds.length === 0) return false;
+          const occs: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+          const isReady = occs.some((o) => (o.ghId || o.gh_id) === g.id && (o.state === "READY_TO_SEND" || o.state === 3 || o.status === "READY_TO_SEND"));
+          const dels: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
+          const isDeliv = dels.some((d) => (d.ghId || d.gh_id) === g.id);
+          return !isReady && !isDeliv;
+        });
+
+        if (pendingGh) {
+          const sched = allSchedules.find((s) => s.ghId === pendingGh.id && s.enabled);
+          const recipe = pendingGh.recipes?.[0];
+          const targetWater = sched?.targetWaterL || recipe?.waterL || 50;
+          if (recipe) {
+            try {
+              await fertigationService.startManual(pendingGh.id, recipe.id, targetWater);
+              await fetchStatus(false);
+            } catch (startErr) {
+              console.warn("[handleTriggerQueueSync] Auto eager-dosing start notice:", startErr);
             }
-          } catch (triggerErr) {
-            console.warn("[FertigationQueueDashboard] 15s grace period background trigger notice:", triggerErr);
           }
         }
       }
-    }, 1000);
+
+      toast("Antrean peracikan berhasil disinkronkan & eksekusi dosing aktif", "success");
+    } catch {
+      toast("Gagal menyinkronkan antrean peracikan", "error");
+    } finally {
+      setIsAwaitingQueueSync(false);
+    }
   };
 
   useEffect(() => {
@@ -457,25 +434,29 @@ export function FertigationQueueDashboard({
   // -------------------------------------------------------------------------
   const queuedJobs: DosingQueueJob[] = useMemo(() => {
     const list: DosingQueueJob[] = [];
+    const seenGhOrSched = new Set<string>();
 
-    // Filter queued batches from authoritative liveQueue
+    // 1. Primary source: Filter queued batches from authoritative liveQueue (queuedBatches from ESP32)
     if (Array.isArray(liveQueue) && liveQueue.length > 0) {
       liveQueue
         .filter((q) => q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1)
         .forEach((q, idx) => {
           const targetGhId = q.ghId || q.gh_id;
+          const schedId = q.scheduleId || q.schedule_id;
           const gh = greenhouseService.get(targetGhId);
           const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
           const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
           const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
-          const sched = allSchedules.find((s) => s.id === (q.scheduleId || q.schedule_id));
+          const sched = allSchedules.find((s) => s.id === schedId);
           const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
           const targetWaterL = sched?.targetWaterL || 50;
 
+          seenGhOrSched.add(`${targetGhId}_${schedId}`);
+
           list.push({
             id: q.queueId || q.queue_id || `q-${idx}`,
-            scheduleId: q.scheduleId || q.schedule_id,
+            scheduleId: schedId,
             ghId: targetGhId,
             ghCode,
             ghName,
@@ -495,8 +476,49 @@ export function FertigationQueueDashboard({
         });
     }
 
+    // 2. Secondary source: Ingest today occurrences currently in PREPARING or WAITING_BATCH state
+    const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    occurrences
+      .filter((o) => o.state === "PREPARING" || o.state === "WAITING_BATCH" || o.status === "PREPARING" || o.status === "WAITING_BATCH")
+      .forEach((o, idx) => {
+        const targetGhId = o.gh_id || o.ghId;
+        const schedId = o.schedule_id || o.scheduleId;
+        const key = `${targetGhId}_${schedId}`;
+        if (seenGhOrSched.has(key)) return;
+        seenGhOrSched.add(key);
+
+        const gh = greenhouseService.get(targetGhId);
+        const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+        const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+        const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
+
+        const sched = allSchedules.find((s) => s.id === schedId);
+        const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
+        const targetWaterL = sched?.targetWaterL || 50;
+
+        list.push({
+          id: o.occurrenceId || o.occurrence_id || `occ-${idx}`,
+          scheduleId: schedId,
+          ghId: targetGhId,
+          ghCode,
+          ghName,
+          jobTitle: sched?.name || "Persiapan Peracikan Dosing",
+          recipeName: recipe?.name || "Nutrisi Standar",
+          targetWaterL,
+          targetWaterMl: targetWaterL * 1000,
+          dosingAml: sched?.dosingAml ?? 150,
+          dosingBml: sched?.dosingBml ?? 150,
+          mixingDurationSec: 180,
+          scheduledTimeStr: sched?.time || "Siap Diracik",
+          queuePosition: list.length + 1,
+          status: "PENDING_FIFO",
+          statusLabel: "Antrean Siap Racik",
+          steps: [],
+        });
+      });
+
     return list;
-  }, [liveQueue, allSchedules, ghs]);
+  }, [liveQueue, liveStatus, allSchedules, ghs]);
 
   // -------------------------------------------------------------------------
   // Construct Independent Greenhouse Mixing Tanks (Section 7 Spec)
@@ -983,6 +1005,7 @@ export function FertigationQueueDashboard({
           isActionLoading={actionInProgress !== null}
           isSyncingQueue={isAwaitingQueueSync}
           syncCountdownSec={syncCountdown}
+          isMultiGh={ghs.length > 1}
         />
 
         {/* 3. Independent Greenhouse Mixing Tanks (Section 7) */}
@@ -999,6 +1022,10 @@ export function FertigationQueueDashboard({
           greenhouses={ghs}
           onOpenCreate={onOpenCreate}
           isActionLoading={actionInProgress !== null}
+          activeJob={activeJob}
+          queuedJobs={queuedJobs}
+          liveStatus={liveStatus}
+          liveQueue={liveQueue}
         />
       </div>
     </section>

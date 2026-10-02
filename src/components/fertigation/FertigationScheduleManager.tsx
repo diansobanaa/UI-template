@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { FertigationSchedule, Greenhouse, Recipe } from "@/lib/types";
+import type { DosingQueueJob } from "./DosingQueueSection";
 
 interface FertigationScheduleManagerProps {
   schedules: FertigationSchedule[];
@@ -21,6 +22,10 @@ interface FertigationScheduleManagerProps {
   onOpenCreate?: () => void;
   onToggleSchedule?: (id: string, enabled: boolean) => void;
   isActionLoading?: boolean;
+  activeJob?: DosingQueueJob | null;
+  queuedJobs?: DosingQueueJob[];
+  liveStatus?: any;
+  liveQueue?: any[];
   className?: string;
 }
 
@@ -30,6 +35,10 @@ export function FertigationScheduleManager({
   onOpenCreate,
   onToggleSchedule,
   isActionLoading = false,
+  activeJob = null,
+  queuedJobs = [],
+  liveStatus = null,
+  liveQueue = [],
   className = "",
 }: FertigationScheduleManagerProps) {
   const [selectedGhFilter, setSelectedGhFilter] = useState<string>("ALL");
@@ -37,6 +46,88 @@ export function FertigationScheduleManager({
   const filteredSchedules = selectedGhFilter === "ALL"
     ? schedules
     : schedules.filter((s) => s.ghId === selectedGhFilter);
+
+  // Helper: dynamically determine operational status for each schedule
+  const getScheduleOperationalStatus = (
+    s: FertigationSchedule
+  ): { label: "on queue dosing" | "ready to fertigate" | "menunggu jam jadwal"; badgeClass: string; dotClass: string } => {
+    if (!s.enabled) {
+      return {
+        label: "menunggu jam jadwal",
+        badgeClass: "border-slate-800 bg-slate-800/40 text-slate-400",
+        dotClass: "bg-slate-500",
+      };
+    }
+
+    // 1. Ready to fertigate: Batch tank has finished dosing (MIX_READY, READY_TO_SEND, or DISTRIBUTING)
+    const activeDeliveries: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
+    const isDelivering = activeDeliveries.some(
+      (d) => (d.ghId || d.gh_id || "").toLowerCase() === s.ghId.toLowerCase() &&
+             (d.status === "READY_TO_SEND" || d.status === "DISTRIBUTING")
+    );
+
+    const todayOccurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    const occForSched = todayOccurrences.find(
+      (o) => (o.scheduleId === s.id || o.schedule_id === s.id) ||
+             ((o.ghId || o.gh_id || "").toLowerCase() === s.ghId.toLowerCase() &&
+              (o.state === "READY_TO_SEND" || o.state === 3 || o.status === "READY_TO_SEND" || o.state === "DISTRIBUTING" || o.status === "DISTRIBUTING"))
+    );
+
+    const isReadyToSend = isDelivering || (occForSched && (
+      occForSched.state === "READY_TO_SEND" ||
+      occForSched.state === 3 ||
+      occForSched.status === "READY_TO_SEND" ||
+      occForSched.state === "DISTRIBUTING" ||
+      occForSched.status === "DISTRIBUTING"
+    ));
+
+    if (isReadyToSend) {
+      return {
+        label: "ready to fertigate",
+        badgeClass: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300 font-semibold",
+        dotClass: "bg-emerald-400",
+      };
+    }
+
+    // 2. On queue dosing: Actively mixing in Central Dosing or waiting in FIFO dosing queue
+    const isActiveDosing =
+      (activeJob?.scheduleId === s.id) ||
+      (activeJob?.ghId && activeJob.ghId.toLowerCase() === s.ghId.toLowerCase());
+
+    const isInQueuedJobs =
+      Array.isArray(queuedJobs) &&
+      queuedJobs.some(
+        (q) => q.scheduleId === s.id ||
+               (q.ghId && q.ghId.toLowerCase() === s.ghId.toLowerCase())
+      );
+
+    const isInLiveQueue =
+      Array.isArray(liveQueue) &&
+      liveQueue.some(
+        (q) => ((q.scheduleId || q.schedule_id) === s.id ||
+                ((q.ghId || q.gh_id || "").toLowerCase() === s.ghId.toLowerCase())) &&
+               (q.status === "PENDING" || q.status === "DISPATCHED" || q.status === "ACTIVE" || q.state === 0 || q.state === 1)
+      );
+
+    const isOccInDosingPrep =
+      occForSched &&
+      (occForSched.state === "PREPARING" || occForSched.state === "WAITING_BATCH" || occForSched.status === "PREPARING" || occForSched.status === "WAITING_BATCH");
+
+    if (isActiveDosing || isInQueuedJobs || isInLiveQueue || isOccInDosingPrep) {
+      return {
+        label: "on queue dosing",
+        badgeClass: "border-cyan-500/30 bg-cyan-500/15 text-cyan-300 font-semibold",
+        dotClass: "bg-cyan-400 animate-pulse",
+      };
+    }
+
+    // 3. Menunggu jam jadwal: Default for upcoming scheduled runs
+    return {
+      label: "menunggu jam jadwal",
+      badgeClass: "border-slate-700/80 bg-slate-800/60 text-slate-300",
+      dotClass: "bg-amber-400",
+    };
+  };
 
   // Helper: map trigger and time to clean human Indonesian string
   const formatHumanTiming = (s: FertigationSchedule) => {
@@ -84,11 +175,10 @@ export function FertigationScheduleManager({
               <button
                 type="button"
                 onClick={() => setSelectedGhFilter("ALL")}
-                className={`rounded-md px-2.5 py-1 font-semibold transition ${
-                  selectedGhFilter === "ALL"
+                className={`rounded-md px-2.5 py-1 font-semibold transition ${selectedGhFilter === "ALL"
                     ? "bg-slate-800 text-slate-100 shadow-sm"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 Semua GH
               </button>
@@ -97,11 +187,10 @@ export function FertigationScheduleManager({
                   key={g.id}
                   type="button"
                   onClick={() => setSelectedGhFilter(g.id)}
-                  className={`rounded-md px-2.5 py-1 font-semibold transition ${
-                    selectedGhFilter === g.id
+                  className={`rounded-md px-2.5 py-1 font-semibold transition ${selectedGhFilter === g.id
                       ? "bg-emerald-600/80 text-white shadow-sm"
                       : "text-slate-400 hover:text-slate-200"
-                  }`}
+                    }`}
                 >
                   {g.code || g.id}
                 </button>
@@ -144,6 +233,7 @@ export function FertigationScheduleManager({
           {filteredSchedules.map((s) => {
             const gh = greenhouses.find((g) => g.id === s.ghId);
             const recipe = gh?.recipes?.find((r) => r.id === s.recipeId);
+            const opStatus = getScheduleOperationalStatus(s);
 
             return (
               <div
@@ -166,11 +256,10 @@ export function FertigationScheduleManager({
                     </div>
 
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                        s.enabled
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${s.enabled
                           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                           : "border-slate-700 bg-slate-800 text-slate-400"
-                      }`}
+                        }`}
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-slate-500"}`} />
                       {s.enabled ? "Aktif" : "Nonaktif"}
@@ -193,7 +282,10 @@ export function FertigationScheduleManager({
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Status Operasi:</span>
-                      <span className="font-semibold text-emerald-400">Menunggu Jam Jadwal</span>
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${opStatus.badgeClass}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${opStatus.dotClass}`} />
+                        {opStatus.label}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -210,11 +302,6 @@ export function FertigationScheduleManager({
                       {s.enabled ? "Nonaktifkan" : "Aktifkan"}
                     </button>
                   ) : <span />}
-
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Otomatis by Sistem
-                  </span>
                 </div>
               </div>
             );

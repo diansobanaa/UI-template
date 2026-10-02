@@ -199,6 +199,23 @@ UI contract tidak perlu berubah hanya karena GH kedua ditambahkan.
 
 ---
 
+## 3.3 Perbandingan Protokol Fisik & Operasional: 1 GH vs Multi-GH dalam 1 Komplek
+
+Meskipun kontrak API dan model parent job seragam, implementasi firmware dan sequencing mekanis memiliki perbedaan protokol yang nyata:
+
+| Aspek Operasional | 1 GH dalam 1 Komplek (Single-GH) | Beberapa GH dalam 1 Komplek (Multi-GH) |
+|---|---|---|
+| **Infrastruktur Pipa Dosing** | Pipa langsung dari unit dosing ke tangki mixing GH-01 tunggal. | Shared Central Dosing manifold dengan **Routing Valves** ke masing-masing tangki GH. |
+| **Routing Valve** | **Tidak dibutuhkan / Opsional.** Jika valve tidak ada di hardware, software wajib *skip valve action* (sesuai §22.1). | **Wajib.** Katup pemilih tangki tujuan wajib diakuisisi dan dibuka saat peracikan batch GH tertentu, lalu ditutup saat selesai. |
+| **Protokol Peracikan (Dosing)** | **Eager Dosing Langsung.** Begitu antrean terbentuk, unit langsung meracik (Air Baku $\to$ Dosis A/B $\to$ Homogenisasi). | **Strict Serial FIFO.** Unit sentral hanya meracik 1 batch pada satu waktu. Batch GH-01 diracik duluan $\to$ selesai $\to$ batch GH-02 diracik $\to$ kedua tangki siap sebelum jam penyaluran. |
+| **Protokol Penyaluran (Fertigasi Jam 06:00)** | **Single Pump Delivery.** Pompa distribusi GH-01 menyalurkan larutan ke tanaman sampai target volume / float sensor bawah terpicu. | **Parallel Concurrent Distribution.** Seluruh GH yang terjadwal jam 06:00 menyalakan pompa distribusi masing-masing **secara bersamaan (paralel)** tanpa saling mengunci. |
+| **Kegagalan Penyaluran** | Jika terjadi fault pada GH-01, seluruh complex berhenti. | **Failure Isolation.** Jika GH-01 mengalami flow fault, hanya pompa GH-01 yang mati; penyaluran GH-02 tetap berjalan normal. |
+| **Pasca-Fertigasi (Setelah Jam 06:00)** | Pompa OFF $\to$ occurrence `COMPLETED` $\to$ slot di-acknowledge $\to$ jika ada jadwal berikutnya hari ini (misal 12:00), **langsung di-enqueue untuk pre-mix segera**. | Pompa GH yang selesai langsung OFF $\to$ occurrence GH tersebut `COMPLETED` $\to$ jadwal berikutnya untuk GH tersebut di-chaining ke antrean dosing central. GH lain tetap menyiram mandiri. |
+| **Deteksi Periodik 2 Jam** | Evaluasi $O(1)$ komparasi integer hari (`todayIn360 == last_fetched` / `s_daily_trigger_completed_yday == tm_now.tm_yday`). | Sama, komparasi $O(1)$ ultra-ringan (~4ns) tanpa alokasi heap atau I2C blocking. |
+
+---
+
+
 # 4. User Protocol vs System Protocol
 
 ## 4.1 User protocol
