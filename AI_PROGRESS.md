@@ -1,3 +1,23 @@
+## SP-GRACE-PERIOD-FIX-001 — Fix Runtime Grace Period Visibility & Manual Sync Trigger in Web UI
+- **Date**: 2026-10-03
+- **Git Commit**: `pending`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES)`
+- **Objective**:
+  1. Fix root cause where the 15-second grace period loading card was never visible in Web UI due to `stVal?.todaySchedule.length > 0` short-circuiting `esp32HasData`.
+  2. Implement `handleTriggerQueueSync` with a dedicated "Sinkronkan Antrean (15s Grace)" button in the FIFO queue header of `DosingQueueSection.tsx` so users can trigger and verify the 15-second grace period at any time.
+  3. Restore required test assertion text (`Memverifikasi antrean peracikan dengan ESP32...`) in `DosingQueueSection.tsx` to fix broken test in `scripts/test_peripheral_auto_enqueue.mjs`.
+  4. Ensure full compilation and single-file build with Vite.
+- **Root Cause & Resolution**:
+  - *Root Cause:* In `FertigationQueueDashboard.tsx`, `esp32HasData` checked `(Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0)`. Because ESP32 always returns 24 daily schedule slots, `esp32HasData` was constantly evaluated as true, resetting `isAwaitingQueueSync` to false immediately on poll. The glassmorphism grace period card was thus dead code at runtime, never rendering on screen.
+  - *Resolution:*
+    1. Changed condition in `fetchStatus` to check `esp32HasPopulatedQueue` (evaluating actual batches in `qBatches` or active non-idle firmware state). If the physical queue is empty while active schedules exist, the 15-second grace period activates.
+    2. Added `handleTriggerQueueSync` and exposed `onSyncQueue` in `DosingQueueSection` with an interactive button "Sinkronkan Antrean (15s Grace)", providing immediate user verification of the pulsing radar ping, countdown gauge (`00:15` -> `00:00`), dynamic badge, and cyan-emerald progress bar.
+    3. Restored `Memverifikasi antrean peracikan dengan ESP32...` string in `DosingQueueSection.tsx` resolving `test_peripheral_auto_enqueue.mjs` failure.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: All 7 invariants PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS.
+  - `npm run build`: Singlefile bundle 1,233.89 kB clean in 9.64s (0 TypeScript errors).
+
 ## SP-FLASH-UI-SYNC-001 — Live Hardware Firmware Flashed (COM3) & Engaging 15s Grace Period UI
 - **Date**: 2026-10-03
 - **Git Commit**: `168c823`

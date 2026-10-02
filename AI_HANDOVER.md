@@ -1,4 +1,31 @@
-# AI HANDOVER — SP-FLASH-UI-SYNC-001 (latest)
+# AI HANDOVER — SP-GRACE-PERIOD-FIX-001 (latest)
+
+## Status — SP-GRACE-PERIOD-FIX-001
+**Fix Runtime Grace Period Visibility & Manual Sync Trigger in Web UI**
+**Safe Point**: `SP-GRACE-PERIOD-FIX-001`
+**Date**: 2026-10-03
+**Git Commit**: `pending`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES)`
+
+### Summary of What Was Done
+1. **Perbaikan Masalah Tampilan Loading Grace Period 15 Detik**:
+   - Di file `src/components/fertigation/FertigationQueueDashboard.tsx`:
+     - Memperbaiki bug di mana `esp32HasData` mengevaluasi `(Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0)`.
+     - Karena ESP32 selalu mengembalikan array 24 jadwal harian, kondisi tersebut selalu bernilai `true`, sehingga timer `isAwaitingQueueSync` seketika dibatalkan setiap 3 detik. Akibatnya, card loading grace period tidak pernah muncul di layar pengguna saat antrean 0.
+     - Mengubah pengecekan menjadi `esp32HasPopulatedQueue` yang hanya memeriksa apakah ada batch antrean fisik riil (`qBatches.length > 0`) atau mesin dosing sedang aktif.
+     - Jika antrean fisik 0 namun ada jadwal aktif hari ini, grace period 15 detik akan aktif berjalan.
+   - Menambahkan handler interaktif `handleTriggerQueueSync` dan tombol **"Sinkronkan Antrean (15s Grace)"** di header antrean FIFO `DosingQueueSection.tsx`:
+     - Pengguna kini dapat mengklik tombol ini kapan saja secara manual untuk langsung melihat dan memverifikasi card loading futuristik glassmorphism dengan pulsing radar ping, countdown gauge (`00:15` -> `00:00`), dynamic badge `Grace Period 15s`, dan progress bar cyan-emerald.
+   - Memulihkan string teks yang dipersyaratkan test `scripts/test_peripheral_auto_enqueue.mjs` (`Memverifikasi antrean peracikan dengan ESP32...`) sehingga seluruh test suite kembali PASS 100%.
+
+2. **Verifikasi**:
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS.
+   - `npm run build`: Singlefile bundle 1,233.89 kB selesai dalam 9.64s (0 TypeScript errors).
+
+---
+
+# AI HANDOVER — SP-FLASH-UI-SYNC-001 (previous)
 
 ## Status — SP-FLASH-UI-SYNC-001
 **Live Hardware Firmware Flashed (COM3) & Engaging 15s Grace Period UI**

@@ -147,13 +147,12 @@ export function FertigationQueueDashboard({
         setLiveQueue(qBatches);
       }
 
-      // Check if ESP32 already has populated data (occurrences or active/queued batches)
-      const esp32HasData =
+      // Check if ESP32 already has populated queue data (active job or queued batches)
+      const esp32HasPopulatedQueue =
         (Array.isArray(qBatches) && qBatches.length > 0) ||
-        (Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0) ||
         (stVal && stVal.state && stVal.state !== "IDLE" && stVal.state !== "FERT_STATE_IDLE");
 
-      if (esp32HasData) {
+      if (esp32HasPopulatedQueue) {
         // If ESP32 already fetched / has data: CANCEL any pending timer and DO NOT fetch again!
         // Return and keep the existing fetched data without re-fetching.
         if (countdownIntervalRef.current) {
@@ -163,12 +162,13 @@ export function FertigationQueueDashboard({
         setIsAwaitingQueueSync(false);
         setSyncCountdown(15);
       } else {
-        // Trigger condition in Web UI == 0 (queue is 0, no active job, but local schedules exist)
+        // Trigger condition in Web UI == 0 (queue is 0, no active job, but schedules exist)
         // Wait 15 seconds grace period before executing background fetch!
         const localScheds = ghs.flatMap((g) => scheduleService.fertigationForGh(g.id));
         const hasActiveLocal = localScheds.some((s) => s.enabled);
+        const hasSchedulesToday = hasActiveLocal || (Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0);
 
-        if (hasActiveLocal && !hasTriggeredRemoteRef.current && !countdownIntervalRef.current) {
+        if (hasSchedulesToday && !hasTriggeredRemoteRef.current && !countdownIntervalRef.current) {
           setIsAwaitingQueueSync(true);
           setSyncCountdown(15);
           let remaining = 15;
@@ -209,6 +209,45 @@ export function FertigationQueueDashboard({
       setLoading(false);
       if (isManual) setRefreshing(false);
     }
+  };
+
+  const handleTriggerQueueSync = () => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    hasTriggeredRemoteRef.current = false;
+    setIsAwaitingQueueSync(true);
+    setSyncCountdown(15);
+    let remaining = 15;
+    countdownIntervalRef.current = setInterval(async () => {
+      remaining -= 1;
+      setSyncCountdown(remaining);
+      if (remaining <= 0) {
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+        hasTriggeredRemoteRef.current = true;
+        setIsAwaitingQueueSync(false);
+        if (effectiveComplexId) {
+          try {
+            await scheduleService.deploySchedules(effectiveComplexId);
+            await esp32Client.triggerDailySchedules();
+            const [sRes2, qRes2] = await Promise.allSettled([
+              esp32Client.getFertigationStatus(),
+              esp32Client.getFertigationQueue(),
+            ]);
+            if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
+            if (qRes2.status === "fulfilled" && qRes2.value) {
+              setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
+            }
+          } catch (triggerErr) {
+            console.warn("[FertigationQueueDashboard] 15s grace period background trigger notice:", triggerErr);
+          }
+        }
+      }
+    }, 1000);
   };
 
   useEffect(() => {
@@ -941,6 +980,7 @@ export function FertigationQueueDashboard({
           errorInfo={errorInfo}
           onAbortActive={handleAbort}
           onPreMixJob={(job) => handlePreMixGh(job.ghId)}
+          onSyncQueue={handleTriggerQueueSync}
           isActionLoading={actionInProgress !== null}
           isSyncingQueue={isAwaitingQueueSync}
           syncCountdownSec={syncCountdown}

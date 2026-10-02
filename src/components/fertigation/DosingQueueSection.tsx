@@ -67,6 +67,7 @@ interface DosingQueueSectionProps {
   errorInfo?: DosingErrorInfo | null;
   onAbortActive?: () => void;
   onPreMixJob?: (job: DosingQueueJob) => void;
+  onSyncQueue?: () => void;
   isActionLoading?: boolean;
   isSyncingQueue?: boolean;
   syncCountdownSec?: number;
@@ -80,6 +81,7 @@ export function DosingQueueSection({
   errorInfo,
   onAbortActive,
   onPreMixJob,
+  onSyncQueue,
   isActionLoading = false,
   isSyncingQueue = false,
   syncCountdownSec = 15,
@@ -328,6 +330,18 @@ export function DosingQueueSection({
             <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300 border border-slate-700">
               {queuedJobs.length} Menunggu Giliran
             </span>
+            {onSyncQueue && (
+              <button
+                type="button"
+                onClick={onSyncQueue}
+                disabled={isSyncingQueue || isActionLoading}
+                title="Sinkronkan antrean dengan jeda grace period 15 detik"
+                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-cyan-300 transition hover:bg-cyan-500/25 active:scale-95 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin text-cyan-400" : "text-cyan-400"}`} />
+                {isSyncingQueue ? `Sinkronisasi (${syncCountdownSec}s)` : "Sinkronkan Antrean (15s Grace)"}
+              </button>
+            )}
           </div>
           <span className="text-[11px] text-slate-500">
             Dieksekusi bergantian secara otomatis sesuai ketersediaan unit dan jadwal
@@ -359,7 +373,7 @@ export function DosingQueueSection({
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-slate-300">
-                    Menunggu transmisi status antrean dari ESP32 controller. Jika data antrean sudah tersedia, tampilan akan diperbarui otomatis tanpa fetch ulang.
+                    Memverifikasi antrean peracikan dengan ESP32... ({syncCountdownSec}s tersisa). Menunggu konfirmasi transmisi antrean dari ESP32 controller. Jika data antrean sudah tersedia, tampilan akan diperbarui otomatis tanpa fetch ulang.
                   </p>
                 </div>
               </div>
