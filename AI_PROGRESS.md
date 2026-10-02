@@ -1,6 +1,6 @@
 ## SP-UI-BUZZER-OVERLAY-001 — Hide Floating Buzzer Standby Badge When Inactive
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `1404643`
 - **Status**: `COMPLETE & VERIFIED — FRONTEND PASS (0 TS ERRORS)`
 - **Objective**:
   1. Remove the floating "Buzzer Fisik (GPIO 18): Standby" pill badge from the bottom-right of the screen when there are no active alarms, no buzzer sound, and no active buzzer test.
