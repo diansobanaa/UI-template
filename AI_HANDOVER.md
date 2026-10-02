@@ -4,7 +4,7 @@
 **Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons**
 **Safe Point**: `SP-WELL-PUMP-002`
 **Date**: 2026-10-03
-**Git Commit**: `PENDING`
+**Git Commit**: `22505b6`
 - **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,480 B) — REST ENDPOINTS PASS (GET/POST /api/v1/well-pump, /api/v1/well-pump/mode, /api/v1/commands) — FRONTEND PASS (0 TS ERRORS) — PHYSICAL TOGGLE PASS — 15-MIN MONOTONIC CLAMP VERIFIED`
 
 ### Summary of What Was Done

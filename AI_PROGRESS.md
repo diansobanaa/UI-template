@@ -1,6 +1,6 @@
 ## SP-WELL-PUMP-002 — Well Pump Live Hardware Verification, Heap DRAM Optimization, Envelope Payload Handling & Direct UI Action Buttons
 - **Date**: 2026-10-03
-- **Git Commit**: `PENDING`
+- **Git Commit**: `22505b6`
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32 COM3 / 192.168.0.151) — FIRMWARE FLASH PASS (1,596,480 B) — REST ENDPOINTS PASS (GET/POST /api/v1/well-pump, /api/v1/well-pump/mode, /api/v1/commands) — FRONTEND PASS (0 TS ERRORS) — PHYSICAL TOGGLE PASS — 15-MIN MONOTONIC CLAMP VERIFIED`
 - **Objective**:
   1. Fix DRAM heap exhaustion on ESP32 boot (`E HTTP_SERVER: Failed to start HTTP server (0xb008)`) so that HTTP server starts reliably with adequate contiguous internal DRAM.

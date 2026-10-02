@@ -1278,7 +1278,7 @@ function GreenhouseContent() {
     },
     {
       name: "Alarm Buzzer",
-      status: findEqStatus(/buzzer|alarm/i),
+      status: findEqStatus(/buzzer|alarm/i, gh.online ? "OK" : "OFFLINE"),
       detail: "Safety siren DC",
     },
     {
