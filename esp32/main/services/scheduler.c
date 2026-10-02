@@ -2310,6 +2310,24 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     daily_trigger_needed = true;
   }
 
+  /* Condition 3: Missing occurrences recovery (e.g. schedules were loaded/synced after boot or power loss) */
+  if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
+    daily_trigger_needed = true;
+  }
+
+  /* Condition 4: Autonomous 2-Hour Periodic Guard (Every 7200 seconds / 2 hours) */
+  static time_t s_last_periodic_check_sec = 0;
+  if (now - s_last_periodic_check_sec >= 7200) {
+    s_last_periodic_check_sec = now;
+    if (s_runtime_count > 0) {
+      if (s_today_occurrence_count == 0) {
+        daily_trigger_needed = true;
+      } else {
+        try_enqueue_pending_preparations(now);
+      }
+    }
+  }
+
   if (daily_trigger_needed) {
     s_today_yday = tm_now.tm_yday;
     s_daily_trigger_completed_yday = tm_now.tm_yday;

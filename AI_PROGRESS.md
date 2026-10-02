@@ -1,3 +1,23 @@
+## SP-DUAL-GUARD-AUTO-001 — Autonomous 2-Hour ESP32 Periodic Guard & 15-Second Web UI Grace Period
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
+- **Objective**:
+  1. Acommodate scenario where ESP32 is powered off at 00:00 midnight and boots mid-day (e.g. 02:30), ensuring autonomous queue fetching and eager mixing.
+  2. Implement autonomous 2-hour periodic guard (7200s) and missing occurrences recovery (`s_today_occurrence_count == 0 && s_runtime_count > 0`) in ESP32 `scheduler_evaluate_at()` using O(1) integer arithmetic (zero heap, zero I2C traffic).
+  3. Ensure clock synchronization via `POST /api/v1/clock-sync` immediately triggers `scheduler_trigger_daily_now()`.
+  4. In Web UI, implement a 15-second grace period with a container loading state when the queue is 0 but active schedules exist, waiting for ESP32 telemetry before sending any background URL.
+  5. If ESP32 data arrives within 15 seconds, cancel the timer and preserve existing data without redundant fetch requests.
+  6. Update canonical specification in `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` (§52.6).
+- **Root Cause & Resolution**:
+  - *Firmware:* Added Condition 3 (missing occurrences recovery) and Condition 4 (2-hour periodic guard timer) to `scheduler_evaluate_at()` in `esp32/main/services/scheduler.c`. In `api_device_handlers.c`, invoked `scheduler_trigger_daily_now()` upon valid clock sync.
+  - *Web UI:* In `FertigationQueueDashboard.tsx` and `DosingQueueSection.tsx`, added 15-second countdown timer and container loading display (`isSyncingQueue`), automatically aborted if ESP32 telemetry reports data.
+- **Verification Results**:
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers + schema tests PASS.
+  - `npm run build`: Singlefile bundle 1,227.43 kB clean in 11.01s (0 TypeScript errors).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: All 7 dual-guard invariants PASS.
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 tests PASS.
+
 ## SP-PERIPHERAL-AUTO-ENQUEUE-001 — Automatic Schedule Revalidation & Eager Dosing Queue Population on Peripheral Registration
 - **Date**: 2026-10-03
 - **Git Commit**: `ede12de`

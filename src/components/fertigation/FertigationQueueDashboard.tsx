@@ -92,11 +92,32 @@ export function FertigationQueueDashboard({
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
   const inFlightRef = useRef(false);
-  const hasAutoSyncedRef = useRef(false);
+  const [isAwaitingQueueSync, setIsAwaitingQueueSync] = useState(false);
+  const [syncCountdown, setSyncCountdown] = useState(15);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const hasTriggeredRemoteRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   const fetchStatus = async (isManual = false) => {
     if (inFlightRef.current && !isManual) return;
     inFlightRef.current = true;
-    if (isManual) setRefreshing(true);
+    if (isManual) {
+      setRefreshing(true);
+      hasTriggeredRemoteRef.current = false;
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      setIsAwaitingQueueSync(false);
+    }
     try {
       if (isManual && effectiveComplexId) {
         try {
@@ -126,31 +147,59 @@ export function FertigationQueueDashboard({
         setLiveQueue(qBatches);
       }
 
-      // Auto-catchup: If local schedules are enabled, but ESP32 dosing queue and today schedule are completely empty,
-      // trigger an automatic catchup deployment so newly registered peripherals immediately populate the queue.
-      if (
-        effectiveComplexId &&
-        !hasAutoSyncedRef.current &&
-        qBatches.length === 0 &&
-        (!stVal?.todaySchedule || stVal.todaySchedule.length === 0) &&
-        (!stVal?.state || stVal.state === "IDLE" || stVal.state === "FERT_STATE_IDLE")
-      ) {
+      // Check if ESP32 already has populated data (occurrences or active/queued batches)
+      const esp32HasData =
+        (Array.isArray(qBatches) && qBatches.length > 0) ||
+        (Array.isArray(stVal?.todaySchedule) && stVal.todaySchedule.length > 0) ||
+        (stVal && stVal.state && stVal.state !== "IDLE" && stVal.state !== "FERT_STATE_IDLE");
+
+      if (esp32HasData) {
+        // If ESP32 already fetched / has data: CANCEL any pending timer and DO NOT fetch again!
+        // Return and keep the existing fetched data without re-fetching.
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+        setIsAwaitingQueueSync(false);
+        setSyncCountdown(15);
+      } else {
+        // Trigger condition in Web UI == 0 (queue is 0, no active job, but local schedules exist)
+        // Wait 15 seconds grace period before executing background fetch!
         const localScheds = ghs.flatMap((g) => scheduleService.fertigationForGh(g.id));
-        if (localScheds.some((s) => s.enabled)) {
-          hasAutoSyncedRef.current = true;
-          try {
-            await scheduleService.deploySchedules(effectiveComplexId);
-            const [sRes2, qRes2] = await Promise.allSettled([
-              esp32Client.getFertigationStatus(),
-              esp32Client.getFertigationQueue(),
-            ]);
-            if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
-            if (qRes2.status === "fulfilled" && qRes2.value) {
-              setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
+        const hasActiveLocal = localScheds.some((s) => s.enabled);
+
+        if (hasActiveLocal && !hasTriggeredRemoteRef.current && !countdownIntervalRef.current) {
+          setIsAwaitingQueueSync(true);
+          setSyncCountdown(15);
+          let remaining = 15;
+          countdownIntervalRef.current = setInterval(async () => {
+            remaining -= 1;
+            setSyncCountdown(remaining);
+            if (remaining <= 0) {
+              if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+              }
+              hasTriggeredRemoteRef.current = true;
+              setIsAwaitingQueueSync(false);
+              if (effectiveComplexId) {
+                try {
+                  await scheduleService.deploySchedules(effectiveComplexId);
+                  await esp32Client.triggerDailySchedules();
+                  const [sRes2, qRes2] = await Promise.allSettled([
+                    esp32Client.getFertigationStatus(),
+                    esp32Client.getFertigationQueue(),
+                  ]);
+                  if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
+                  if (qRes2.status === "fulfilled" && qRes2.value) {
+                    setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
+                  }
+                } catch (triggerErr) {
+                  console.warn("[FertigationQueueDashboard] 15s grace period background trigger notice:", triggerErr);
+                }
+              }
             }
-          } catch (autoErr) {
-            console.warn("[FertigationQueueDashboard] Auto-sync schedules error:", autoErr);
-          }
+          }, 1000);
         }
       }
     } catch {
@@ -893,6 +942,8 @@ export function FertigationQueueDashboard({
           onAbortActive={handleAbort}
           onPreMixJob={(job) => handlePreMixGh(job.ghId)}
           isActionLoading={actionInProgress !== null}
+          isSyncingQueue={isAwaitingQueueSync}
+          syncCountdownSec={syncCountdown}
         />
 
         {/* 3. Independent Greenhouse Mixing Tanks (Section 7) */}

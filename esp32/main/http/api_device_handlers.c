@@ -623,6 +623,7 @@ esp_err_t handler_post_clock_sync(httpd_req_t *req)
     // Update ESP32 system POSIX time immediately
     struct timeval tv = { .tv_sec = epoch_target, .tv_usec = 0 };
     settimeofday(&tv, NULL);
+    (void)scheduler_trigger_daily_now();
 
     // Record last sync ISO timestamp
     strncpy(s_last_synchronized_at, ts->valuestring, sizeof(s_last_synchronized_at) - 1);

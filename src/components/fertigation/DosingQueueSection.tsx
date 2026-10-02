@@ -13,6 +13,7 @@ import {
   PauseCircle,
   Play,
   RotateCcw,
+  RefreshCw,
   Sparkles,
   StopCircle,
 } from "lucide-react";
@@ -67,6 +68,8 @@ interface DosingQueueSectionProps {
   onAbortActive?: () => void;
   onPreMixJob?: (job: DosingQueueJob) => void;
   isActionLoading?: boolean;
+  isSyncingQueue?: boolean;
+  syncCountdownSec?: number;
   className?: string;
 }
 
@@ -78,6 +81,8 @@ export function DosingQueueSection({
   onAbortActive,
   onPreMixJob,
   isActionLoading = false,
+  isSyncingQueue = false,
+  syncCountdownSec = 15,
   className = "",
 }: DosingQueueSectionProps) {
   const currentRunningStep = activeJob?.steps.find((s) => s.status === "RUNNING");
@@ -329,7 +334,20 @@ export function DosingQueueSection({
           </span>
         </div>
 
-        {queuedJobs.length === 0 ? (
+        {isSyncingQueue ? (
+          /* Grace period loading display (waiting up to 15s for ESP32 queue confirmation) */
+          <div className="rounded-xl border border-dashed border-cyan-800/60 bg-[#0e1a2a]/60 p-5 text-center text-xs text-slate-300 space-y-2 animate-pulse">
+            <div className="flex items-center justify-center gap-2 text-cyan-400">
+              <RefreshCw className="h-4 w-4 animate-spin text-cyan-400" />
+              <span className="font-semibold text-cyan-300">
+                Memverifikasi antrean peracikan dengan ESP32...
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Menunggu status antrean terverifikasi dari controller sebelum pemicuan otomatis ({syncCountdownSec} detik tersisa).
+            </p>
+          </div>
+        ) : queuedJobs.length === 0 ? (
           /* Neutral and Accurate Empty Queue State (Section 6 Spec) */
           <div className="rounded-xl border border-dashed border-slate-800 bg-[#0e1a2a]/40 p-4 text-center text-xs text-slate-400 space-y-1">
             <p className="font-medium text-slate-300">

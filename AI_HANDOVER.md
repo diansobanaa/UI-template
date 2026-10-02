@@ -1,4 +1,42 @@
-# AI HANDOVER — SP-PERIPHERAL-AUTO-ENQUEUE-001 (latest)
+# AI HANDOVER — SP-DUAL-GUARD-AUTO-001 (latest)
+
+## Status — SP-DUAL-GUARD-AUTO-001
+**Autonomous 2-Hour ESP32 Periodic Guard & 15-Second Web UI Grace Period**
+**Safe Point**: `SP-DUAL-GUARD-AUTO-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
+
+### Summary of What Was Done
+1. **Analisis Skenario ESP32 Mati Jam 00:00 & Boot Siang/Dini Hari**:
+   - Jika ESP32 mati sebelum pergantian hari (00:00:00) dan baru menyala kembali pada jam 02:30, scheduler harus secara mandiri memulihkan jadwal hari ini tanpa intervensi Web UI.
+   - Jadwal yang telah terlewat (misal jam 01:00) ditandai `MISSED / FAILED` (fail-safe invariant agar tanaman tidak disiram di luar jam biologis).
+   - Jadwal mendatang (misal jam 06:00) langsung berstatus `PENDING` dan seketika dimasukkan ke Antrean Dosing Central (`s_dosing_queue`) via *eager pre-mix*.
+   - Ditambahkan pengecekan periodik mandiri setiap 2 jam (7200 detik) di FreeRTOS tanpa membebani sistem (hanya 1 perbandingan integer, ~4,1 nanodetik).
+
+2. **Pencegahan Beban di Web UI (15-Second Grace Period)**:
+   - Pengguna menginstruksikan bahwa jika Web UI mendeteksi antrean 0 padahal ada jadwal aktif, Web UI **tidak boleh langsung menembak URL fetch**.
+   - Diterapkan jeda toleransi (grace period) selama 15 detik untuk memberi kesempatan data telemetri ESP32 tiba secara alami.
+   - Selama 15 detik ini, container menampilkan animasi status verifikasi: *"Memverifikasi antrean peracikan dengan ESP32... (X detik tersisa)"*.
+   - Jika dalam kurun 15 detik data telemetri ESP32 tiba dan menunjukkan antrean/occurrence sudah terisi, timer langsung dibatalkan dan data yang ada langsung ditampilkan tanpa memicu request berulang (*"jangan fetch ulang, kembalikan hasil fetch yang lama saja"*).
+   - Jika setelah 15 detik antrean masih 0, Web UI mengirimkan trigger background secara senyap (`deploySchedules` + `triggerDailySchedules`) untuk menyelaraskan controller.
+
+3. **Perubahan Kode**:
+   - `esp32/main/services/scheduler.c`: Ditambahkan Condition 3 (missing occurrences recovery) dan Condition 4 (autonomous 2-hour periodic guard timer 7200s).
+   - `esp32/main/http/api_device_handlers.c`: Ditambahkan pemanggilan `scheduler_trigger_daily_now()` seketika saat `handler_post_clock_sync` menyinkronkan jam.
+   - `src/components/fertigation/DosingQueueSection.tsx`: Ditambahkan prop `isSyncingQueue` dan tampilan loading di dalam container saat menunggu konfirmasi 15 detik.
+   - `src/components/fertigation/FertigationQueueDashboard.tsx`: Ditambahkan 15-second grace period timer, deteksi data ESP32 yang sudah ada untuk pembatalan fetch, dan passing props sinkronisasi.
+   - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Ditambahkan sub-bagian 52.6 (*SP-DUAL-GUARD-AUTO-001*).
+
+4. **Verifikasi**:
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers lolos 100%.
+   - `npm run build`: Singlefile bundle 1,227.43 kB sukses di-build bersih tanpa error TypeScript.
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: Ke-7 invarian Dual-Guard lolos 100%.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 pengujian lolos 100%.
+
+---
+
+# AI HANDOVER — SP-PERIPHERAL-AUTO-ENQUEUE-001 (previous)
 
 ## Status — SP-PERIPHERAL-AUTO-ENQUEUE-001
 **Automatic Schedule Revalidation & Eager Dosing Queue Population on Peripheral Registration**

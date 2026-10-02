@@ -3634,6 +3634,17 @@ PYTHON SAVE + ANALYSIS
      6. `FertigationQueueDashboard` automatically runs catchup revalidation when local schedules are enabled but the ESP32 dosing queue is empty.
      - Invariant: Peripheral registration immediately and autonomously populates the central dosing queue and begins eager mixing without requiring manual button clicks or page reloads.
 
+6. **Dual-Guard Autonomous 2-Hour Guard & 15-Second Web UI Grace Period (SP-DUAL-GUARD-AUTO-001)**
+   - **Autonomous Firmware Guard (No Web UI Dependency):**
+     1. FreeRTOS scheduler (`scheduler.c`) maintains an autonomous 2-hour periodic check (`now - s_last_periodic_check_sec >= 7200`) executed using O(1) integer arithmetic without heap allocations or I2C bus traffic.
+     2. Condition 3 checks missing occurrences (`s_today_occurrence_count == 0 && s_runtime_count > 0`): if ESP32 was powered off at 00:00:00 midnight and boots at any point later in the day (e.g. 02:30), the controller automatically materializes today's operational schedule and eagerly injects upcoming batches into `s_dosing_queue`.
+     3. Clock synchronization (`POST /api/v1/clock-sync`) immediately invokes `scheduler_trigger_daily_now()`.
+   - **Web UI Grace Period & Background Safety Net:**
+     1. When Web UI detects empty dosing queue (`queuedJobs.length === 0`) while active schedules exist for today:
+     2. The container displays an active synchronization loading state (*"Memverifikasi antrean peracikan dengan ESP32..."*) for a **15-second grace period**.
+     3. If during this 15-second window authoritative queue data arrives from ESP32 telemetry (showing occurrences or queued batches), the countdown cancels immediately and existing data is displayed without redundant network requests (`jangan fetch ulang`).
+     4. If after 15 seconds the controller queue remains unmaterialized, Web UI executes a background trigger (`deploySchedules` + `triggerDailySchedules`) to ensure full synchronization.
+
 53. Human-Centered Fertigation & Mixing Architecture Rebuild (SP-FERT-REBUILD-001)
 
 1. **Elimination of Broken Containers & Fake Loops**
