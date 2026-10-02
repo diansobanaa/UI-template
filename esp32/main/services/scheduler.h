@@ -112,6 +112,13 @@ bool scheduler_is_daily_triggered_today(void);
 /** Force trigger today's daily schedule materialization and queueing (if not yet triggered or on operator request). */
 esp_err_t scheduler_trigger_daily_now(void);
 
+/**
+ * Synchronize and activate runtime schedules directly from stored schedule intents
+ * (/spiffs/sched_intents.json). Ensures physical execution even when browser compiler
+ * has not pushed a separate compiled bundle.
+ */
+esp_err_t scheduler_sync_intents(void);
+
 #ifdef __cplusplus
 }
 #endif

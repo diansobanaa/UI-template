@@ -22,6 +22,9 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 static const char *TAG = "SCHEDULER";
 
@@ -32,6 +35,7 @@ static const char *TAG = "SCHEDULER";
 #define NVS_NAMESPACE "agrotech"
 #define NVS_KEY_COMPILED "compiled_sched"
 #define NVS_KEY_MARKERS "sched_marks"
+#define SPIFFS_SCHEDULE_INTENTS_FILE "/spiffs/sched_intents.json"
 #define SCHEDULER_TICK_MS 1000U
 #define CLOCK_VALID_YEAR 120
 
@@ -132,6 +136,7 @@ static TaskHandle_t s_marker_persist_task_handle = NULL;
 #define MAX_DOSING_QUEUE 8
 
 static EXT_RAM_BSS_ATTR today_occurrence_t s_today_occurrences[MAX_TODAY_OCCURRENCES];
+static EXT_RAM_BSS_ATTR today_occurrence_t s_preserved_occurrences[MAX_TODAY_OCCURRENCES];
 static size_t s_today_occurrence_count = 0;
 static int s_today_yday = -1;
 static int s_daily_trigger_completed_yday = -1;
@@ -838,11 +843,296 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
   return err;
 }
 
+static esp_err_t sync_intents_locked(void) {
+  int fd = open(SPIFFS_SCHEDULE_INTENTS_FILE, O_RDONLY);
+  if (fd < 0) {
+    return ESP_ERR_NOT_FOUND;
+  }
+  struct stat st;
+  if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 16384) {
+    close(fd);
+    return ESP_ERR_INVALID_SIZE;
+  }
+  char *buf = malloc(st.st_size + 1);
+  if (!buf) {
+    close(fd);
+    return ESP_ERR_NO_MEM;
+  }
+  ssize_t n = read(fd, buf, st.st_size);
+  close(fd);
+  if (n <= 0) {
+    free(buf);
+    return ESP_FAIL;
+  }
+  buf[n] = '\0';
+
+  cJSON *root = cJSON_Parse(buf);
+  free(buf);
+  if (!root) return ESP_ERR_INVALID_ARG;
+
+  cJSON *items = cJSON_GetObjectItem(root, "items");
+  if (!items || !cJSON_IsArray(items)) {
+    cJSON_Delete(root);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  const system_storage_state_t *storage = storage_mgr_get_state();
+  const uint32_t cfg_ver = storage ? storage->config_version : 0;
+  const char *default_complex_id = (storage && storage->complex_id[0]) ? storage->complex_id : "complex-01";
+
+  runtime_schedule_t *fresh = calloc(MAX_COMPILED_SCHEDULES, sizeof(runtime_schedule_t));
+  if (!fresh) {
+    cJSON_Delete(root);
+    return ESP_ERR_NO_MEM;
+  }
+  size_t fresh_count = 0;
+
+  int total_items = cJSON_GetArraySize(items);
+  for (int i = 0; i < total_items && fresh_count < MAX_COMPILED_SCHEDULES; i++) {
+    cJSON *it = cJSON_GetArrayItem(items, i);
+    if (!it || !cJSON_IsObject(it)) continue;
+
+    cJSON *en_item = cJSON_GetObjectItem(it, "enabled");
+    bool enabled = en_item ? cJSON_IsTrue(en_item) : true;
+    if (!enabled) continue;
+
+    const char *sched_id = json_string(it, "id");
+    if (!sched_id || !sched_id[0]) sched_id = json_string(it, "scheduleId");
+    if (!sched_id || !sched_id[0]) continue;
+
+    runtime_schedule_t *rs = &fresh[fresh_count];
+    memset(rs, 0, sizeof(*rs));
+    rs->valid = true;
+    rs->configuration_version = cfg_ver;
+    copy_string(rs->schedule_id, sizeof(rs->schedule_id), sched_id);
+    snprintf(rs->compiled_id, sizeof(rs->compiled_id), "int-%s", sched_id);
+    copy_string(rs->owner_id, sizeof(rs->owner_id), sched_id);
+
+    const char *cid = json_string(it, "complexId");
+    copy_string(rs->complex_id, sizeof(rs->complex_id), (cid && cid[0]) ? cid : default_complex_id);
+
+    const char *gh = json_string(it, "ghId");
+    if (gh && gh[0]) copy_string(rs->gh_id, sizeof(rs->gh_id), gh);
+
+    const char *act = json_string(it, "action");
+    const char *kind = json_string(it, "kind");
+    const char *type = json_string(it, "type");
+    const char *task = json_string(it, "task");
+    const char *comp_id = json_string(it, "componentId");
+    if (!comp_id || !comp_id[0]) comp_id = json_string(it, "pump");
+    if (comp_id && (strcmp(comp_id, "wp-main") == 0 || strcasecmp(comp_id, "well_pump") == 0)) {
+      comp_id = "pump_well";
+    }
+
+    if (act && act[0]) {
+      copy_string(rs->action, sizeof(rs->action), act);
+    } else if ((kind && strcasestr(kind, "well")) || (type && strcasestr(type, "well")) ||
+               (task && strcasestr(task, "well")) || (comp_id && strcasestr(comp_id, "well"))) {
+      copy_string(rs->action, sizeof(rs->action), "WATER_PUMP");
+    } else if ((kind && strcasestr(kind, "fan")) || (type && strcasestr(type, "fan")) ||
+               (task && strcasestr(task, "fan"))) {
+      copy_string(rs->action, sizeof(rs->action), "FAN_TOGGLE");
+    } else if ((kind && strcasestr(kind, "fert")) || (type && strcasestr(type, "fert"))) {
+      copy_string(rs->action, sizeof(rs->action), "FERTIGATION");
+    } else {
+      copy_string(rs->action, sizeof(rs->action), "WATER_PUMP");
+    }
+
+    if (comp_id && comp_id[0]) {
+      copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), comp_id);
+      rs->component_count = 1;
+    } else if (strcmp(rs->action, "WATER_PUMP") == 0) {
+      copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "pump_well");
+      rs->component_count = 1;
+    } else if (strcmp(rs->action, "FAN_TOGGLE") == 0) {
+      copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_cooling");
+      rs->component_count = 1;
+    }
+
+    if (rs->component_count > 0 && rs->resource_count < MAX_RUNTIME_RESOURCES) {
+      char comp_temp[32] = {0};
+      copy_string(comp_temp, sizeof(comp_temp), rs->component_ids[0]);
+      snprintf(rs->resources[0].resource_id, sizeof(rs->resources[0].resource_id), "res-%.30s", comp_temp);
+      rs->resources[0].shared = false;
+      rs->resource_count = 1;
+    }
+
+    int32_t dur_sec = (int32_t)json_i64(it, "durationSec", 0);
+    if (dur_sec <= 0) {
+      cJSON *params = cJSON_GetObjectItem(it, "parameters");
+      if (params && cJSON_IsObject(params)) {
+        dur_sec = (int32_t)json_i64(params, "durationSec", 0);
+      }
+    }
+    if (dur_sec <= 0) {
+      double dur_min = 0;
+      cJSON *dm = cJSON_GetObjectItem(it, "durationMin");
+      if (dm && cJSON_IsNumber(dm)) dur_min = dm->valuedouble;
+      if (dur_min > 0) dur_sec = (int32_t)(dur_min * 60.0 + 0.5);
+    }
+    if (dur_sec <= 0) dur_sec = 60;
+    rs->duration_sec = dur_sec;
+
+    const char *trig = json_string(it, "trigger");
+    const char *time_str = json_string(it, "time");
+    if (!time_str || !time_str[0]) {
+      cJSON *trig_obj = cJSON_GetObjectItem(it, "trigger");
+      if (trig_obj && cJSON_IsObject(trig_obj)) {
+        time_str = json_string(trig_obj, "time");
+      }
+    }
+
+    /* Parse days of week: support days array, daysOfWeek number/array */
+    uint8_t dow_mask = 0;
+    cJSON *days_arr = cJSON_GetObjectItem(it, "days");
+    if (!days_arr) days_arr = cJSON_GetObjectItem(it, "daysOfWeek");
+    if (days_arr && cJSON_IsArray(days_arr) && cJSON_GetArraySize(days_arr) > 0) {
+      int num_days = cJSON_GetArraySize(days_arr);
+      for (int d = 0; d < num_days; d++) {
+        cJSON *de = cJSON_GetArrayItem(days_arr, d);
+        if (de && cJSON_IsString(de) && de->valuestring) {
+          const char *ds = de->valuestring;
+          if (strncasecmp(ds, "sun", 3) == 0 || strncasecmp(ds, "min", 3) == 0) dow_mask |= (1 << 0);
+          else if (strncasecmp(ds, "mon", 3) == 0 || strncasecmp(ds, "sen", 3) == 0) dow_mask |= (1 << 1);
+          else if (strncasecmp(ds, "tue", 3) == 0 || strncasecmp(ds, "sel", 3) == 0) dow_mask |= (1 << 2);
+          else if (strncasecmp(ds, "wed", 3) == 0 || strncasecmp(ds, "rab", 3) == 0) dow_mask |= (1 << 3);
+          else if (strncasecmp(ds, "thu", 3) == 0 || strncasecmp(ds, "kam", 3) == 0) dow_mask |= (1 << 4);
+          else if (strncasecmp(ds, "fri", 3) == 0 || strncasecmp(ds, "jum", 3) == 0) dow_mask |= (1 << 5);
+          else if (strncasecmp(ds, "sat", 3) == 0 || strncasecmp(ds, "sab", 3) == 0) dow_mask |= (1 << 6);
+        } else if (de && cJSON_IsNumber(de)) {
+          int dn = de->valueint;
+          if (dn >= 0 && dn <= 6) dow_mask |= (1 << dn);
+        }
+      }
+    } else if (days_arr && cJSON_IsNumber(days_arr)) {
+      dow_mask = (uint8_t)days_arr->valueint;
+    }
+    rs->days_of_week = dow_mask ? dow_mask : 127;
+
+    if (trig && strcasecmp(trig, "interval") == 0) {
+      rs->type = SCHED_TYPE_INTERVAL;
+      rs->interval_min = json_u32(it, "intervalMin", 60);
+      if (rs->interval_min == 0) rs->interval_min = 60;
+      if (time_str && strchr(time_str, ':')) {
+        unsigned int h = 0, m = 0;
+        sscanf(time_str, "%u:%u", &h, &m);
+        rs->hour = (uint8_t)(h % 24);
+        rs->minute = (uint8_t)(m % 60);
+      }
+    } else if (trig && strcasecmp(trig, "once") == 0) {
+      rs->type = SCHED_TYPE_ONCE;
+      rs->once_timestamp = normalize_epoch_seconds(json_i64(it, "timestamp", 0));
+    } else {
+      rs->type = SCHED_TYPE_DAILY;
+      if (time_str && strchr(time_str, ':')) {
+        unsigned int h = 0, m = 0;
+        sscanf(time_str, "%u:%u", &h, &m);
+        rs->hour = (uint8_t)(h % 24);
+        rs->minute = (uint8_t)(m % 60);
+      }
+    }
+
+    const char *mp = json_string(it, "missedPolicy");
+    if (!mp || !mp[0]) mp = json_string(it, "missedRunPolicy");
+    copy_string(rs->missed_policy, sizeof(rs->missed_policy), (mp && strcasecmp(mp, "execute") == 0) ? "EXECUTE" : "SKIP");
+    rs->recovery_window_sec = json_u32(it, "recoveryWindowSec", 7200);
+    if (rs->recovery_window_sec == 0) rs->recovery_window_sec = 7200;
+
+    rs->priority = json_u32(it, "priority", 100);
+
+    fresh_count++;
+  }
+
+  cJSON_Delete(root);
+
+  reset_runtime_from_new_set(fresh, fresh_count);
+  ESP_LOGI(TAG, "Synchronized %u schedule intent(s) from SPIFFS into active runtime scheduler", (unsigned)fresh_count);
+
+  time_t now = time(NULL);
+  if (local_clock_valid(now)) {
+    materialize_today_schedule(now);
+    try_enqueue_pending_preparations(now);
+  }
+
+  free(fresh);
+  return ESP_OK;
+}
+
+esp_err_t scheduler_sync_intents(void) {
+  if (!s_mutex) return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+  esp_err_t err = sync_intents_locked();
+  xSemaphoreGive(s_mutex);
+  return err;
+}
+
 esp_err_t scheduler_get_compiled_json(char *out_buf, size_t max_len,
                                       size_t *out_len) {
   if (!out_buf || max_len == 0)
     return ESP_ERR_INVALID_ARG;
-  return load_compiled_runtime_json(out_buf, max_len, out_len);
+  esp_err_t err = load_compiled_runtime_json(out_buf, max_len, out_len);
+  if (err == ESP_OK && out_len && *out_len > 0) {
+    return ESP_OK;
+  }
+  if (s_runtime_count > 0 && s_mutex) {
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+      cJSON *root = cJSON_CreateObject();
+      const system_storage_state_t *storage = storage_mgr_get_state();
+      cJSON_AddNumberToObject(root, "configurationVersion", storage ? storage->config_version : 0);
+      cJSON *arr = cJSON_AddArrayToObject(root, "compiled");
+      for (size_t i = 0; i < s_runtime_count; i++) {
+        runtime_schedule_t *rs = &s_runtime[i];
+        if (!rs->valid) continue;
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "scheduleId", rs->schedule_id);
+        cJSON_AddStringToObject(item, "compiledId", rs->compiled_id);
+        cJSON_AddStringToObject(item, "complexId", rs->complex_id);
+        if (rs->gh_id[0]) cJSON_AddStringToObject(item, "ghId", rs->gh_id);
+        cJSON_AddStringToObject(item, "action", rs->action);
+        cJSON_AddNumberToObject(item, "priority", rs->priority);
+        cJSON_AddStringToObject(item, "status", "ACTIVE");
+
+        cJSON *trig = cJSON_AddObjectToObject(item, "trigger");
+        if (rs->type == SCHED_TYPE_INTERVAL) {
+          cJSON_AddStringToObject(trig, "type", "INTERVAL");
+          cJSON_AddNumberToObject(trig, "intervalMin", rs->interval_min);
+        } else if (rs->type == SCHED_TYPE_ONCE) {
+          cJSON_AddStringToObject(trig, "type", "ONCE");
+          cJSON_AddNumberToObject(trig, "timestamp", (double)rs->once_timestamp);
+        } else {
+          cJSON_AddStringToObject(trig, "type", "DAILY");
+          cJSON_AddNumberToObject(trig, "hour", rs->hour);
+          cJSON_AddNumberToObject(trig, "minute", rs->minute);
+          cJSON_AddNumberToObject(trig, "daysOfWeek", rs->days_of_week);
+        }
+
+        cJSON *params = cJSON_AddObjectToObject(item, "parameters");
+        cJSON_AddNumberToObject(params, "durationSec", rs->duration_sec);
+
+        if (rs->component_count > 0) {
+          cJSON *comps = cJSON_AddArrayToObject(item, "componentIds");
+          for (size_t c = 0; c < rs->component_count; c++) {
+            cJSON_AddItemToArray(comps, cJSON_CreateString(rs->component_ids[c]));
+          }
+        }
+        cJSON_AddItemToArray(arr, item);
+      }
+      xSemaphoreGive(s_mutex);
+      char *printed = cJSON_PrintUnformatted(root);
+      cJSON_Delete(root);
+      if (printed) {
+        size_t slen = strlen(printed);
+        if (slen < max_len) {
+          memcpy(out_buf, printed, slen + 1);
+          if (out_len) *out_len = slen;
+          free(printed);
+          return ESP_OK;
+        }
+        free(printed);
+      }
+    }
+  }
+  return err;
 }
 
 esp_err_t scheduler_clear_compiled(void) {
@@ -874,12 +1164,14 @@ esp_err_t scheduler_clear_compiled(void) {
     s_today_occurrence_count = 0;
     memset(s_dosing_queue, 0, sizeof(s_dosing_queue));
     s_dosing_queue_count = 0;
+    // Resynchronize from authoritative schedule intents so the autonomous controller continues running
+    (void)sync_intents_locked();
   }
   xSemaphoreGive(s_mutex);
   return err;
 }
 
-static bool same_resource(const resource_claim_t *a,
+static bool __attribute__((unused)) same_resource(const resource_claim_t *a,
                           const resource_claim_t *b) {
   return a && b && a->resource_id[0] &&
          strcmp(a->resource_id, b->resource_id) == 0;
@@ -1108,9 +1400,12 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
   copy_string(cmd->target_complex_id, sizeof(cmd->target_complex_id),
               sched->complex_id);
   copy_string(cmd->target_gh_id, sizeof(cmd->target_gh_id), sched->gh_id);
-  if (sched->resource_count > 0)
-    copy_string(cmd->resource_id, sizeof(cmd->resource_id),
-                sched->resources[0].resource_id);
+  hw_component_info_t hinfo;
+  if (sched->component_count > 0 &&
+      hardware_registry_find_by_id(sched->component_ids[0], &hinfo) == ESP_OK &&
+      hinfo.resource_id[0]) {
+    copy_string(cmd->resource_id, sizeof(cmd->resource_id), hinfo.resource_id);
+  }
   cmd->param_on = true;
   if (sched->component_count > 0)
     copy_string(cmd->component_id, sizeof(cmd->component_id),
@@ -1127,7 +1422,9 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
                 sched->fertigation_payload_json);
     cmd->type = CMD_TYPE_FERTIGATION_BATCH;
   } else if (strcmp(sched->action, "WATER_PUMP") == 0) {
-    cmd->type = CMD_TYPE_COMPONENT_TIMED;
+    cmd->type = (sched->component_count > 0 && strcmp(sched->component_ids[0], "pump_well") == 0)
+                    ? CMD_TYPE_WELL_PUMP
+                    : CMD_TYPE_COMPONENT_TIMED;
   } else if (strcmp(sched->action, "FAN_TOGGLE") == 0) {
     cmd->type = CMD_TYPE_COMPONENT_TIMED;
   } else {
@@ -1150,6 +1447,7 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
     sched->pending = true;
     (void)marker_update(sched, MARKER_PENDING, sched->last_occurrence_timestamp,
                         sched->last_execution_timestamp, NULL);
+    ESP_LOGE(TAG, "Schedule '%s' command_mgr_submit failed: %d", sched->schedule_id, err);
     free(cmd);
     return err;
   }
@@ -1201,29 +1499,31 @@ static runtime_schedule_t *find_schedule_by_id(const char *id) {
 static void refresh_running_state(void) {
   bool changed = false;
   (void)changed;
+  command_item_t *receipt = calloc(1, sizeof(command_item_t));
+  if (!receipt)
+    return;
   for (size_t i = 0; i < s_runtime_count; ++i) {
     runtime_schedule_t *sched = &s_runtime[i];
     if (!sched->running || !sched->current_command_id[0])
       continue;
-    command_item_t receipt;
-    if (command_mgr_get(sched->current_command_id, &receipt) != ESP_OK)
+    if (command_mgr_get(sched->current_command_id, receipt) != ESP_OK)
       continue;
-    if (receipt.status == CMD_STATUS_COMPLETED ||
-        receipt.status == CMD_STATUS_FAILED ||
-        receipt.status == CMD_STATUS_REJECTED ||
-        receipt.status == CMD_STATUS_CANCELLED) {
+    if (receipt->status == CMD_STATUS_COMPLETED ||
+        receipt->status == CMD_STATUS_FAILED ||
+        receipt->status == CMD_STATUS_REJECTED ||
+        receipt->status == CMD_STATUS_CANCELLED) {
       release_resource_locks(sched);
       sched->running = false;
       marker_update(sched,
-                    receipt.status == CMD_STATUS_COMPLETED ? MARKER_COMPLETE
+                    receipt->status == CMD_STATUS_COMPLETED ? MARKER_COMPLETE
                                                            : MARKER_SKIPPED,
                     sched->last_occurrence_timestamp,
                     sched->last_execution_timestamp, sched->current_command_id);
       changed = true;
       ESP_LOGI(TAG, "Schedule '%s' completed command=%s status=%d",
-               sched->schedule_id, sched->current_command_id, receipt.status);
+               sched->schedule_id, sched->current_command_id, receipt->status);
 
-      if (receipt.status != CMD_STATUS_COMPLETED && sched->fallback_enabled &&
+      if (receipt->status != CMD_STATUS_COMPLETED && sched->fallback_enabled &&
           sched->fallback_schedule_id[0]) {
         runtime_schedule_t *fb =
             find_schedule_by_id(sched->fallback_schedule_id);
@@ -1250,6 +1550,7 @@ static void refresh_running_state(void) {
       }
     }
   }
+  free(receipt);
 }
 
 static bool missed_policy_execute(const runtime_schedule_t *sched) {
@@ -1426,7 +1727,7 @@ static void materialize_today_schedule(time_t now) {
   if (!localtime_r(&now, &tm_now))
     return;
 
-  today_occurrence_t preserved[MAX_TODAY_OCCURRENCES];
+  today_occurrence_t *preserved = s_preserved_occurrences;
   size_t preserved_count = 0;
   for (size_t i = 0; i < s_today_occurrence_count; i++) {
     today_occurrence_t *occ = &s_today_occurrences[i];
@@ -2214,6 +2515,12 @@ esp_err_t scheduler_init(void) {
       }
     }
     free(compiled);
+  }
+
+  /* Autonomous fallback: If no valid compiled runtime set in NVS, sync directly from stored schedule intents */
+  if (s_runtime_count == 0) {
+    ESP_LOGI(TAG, "No compiled runtime schedules in NVS; synchronizing from stored schedule intents");
+    sync_intents_locked();
   }
 
   const system_storage_state_t *state = storage_mgr_get_state();

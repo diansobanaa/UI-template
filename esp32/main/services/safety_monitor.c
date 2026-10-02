@@ -21,7 +21,7 @@
 #include <stdlib.h>
 
 static const char *TAG = "SAFETY_MONITOR";
-#define SAFETY_SENSOR_STALE_MS          3000ULL
+#define SAFETY_SENSOR_STALE_MS          15000ULL
 #define SAFETY_DEFAULT_FLOW_TIMEOUT_SEC 30U
 #define SAFETY_DEFAULT_PUMP_MAX_SEC     900U
 #define SAFETY_DEFAULT_FAN_MAX_SEC      1800U

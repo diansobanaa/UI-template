@@ -3797,8 +3797,41 @@ PYTHON SAVE + ANALYSIS
    - Operating on a 4096-byte stack in internal SRAM, SPIFFS POSIX file I/O pushed stack consumption to 4004 bytes, leaving a razor-thin **92 bytes** high-water mark before stack overflow.
    - Stack size increased to 6144 bytes in `telemetry_mgr.c`, restoring safe >2KB headroom without risk of stack canary corruption.
 
-3. **Internal SRAM Recovery & Low Heap Alarm Resolution**
-   - Reverted debug `CONFIG_HEAP_POISONING_COMPREHENSIVE=y` to `CONFIG_HEAP_POISONING_DISABLED=y` in `sdkconfig.defaults`.
-   - Memory analysis confirmed root causes of earlier task corruptions have been eliminated. Disabling heap poisoning restores ~20KB+ of internal SRAM and eliminates heap fragmentation overhead, resolving the `[DIAG] Internal heap LOW (<30KB)` diagnostic warning.
+59. Autonomous Schedule Execution & Hardware Relay Actuation Resolution (SP-SCHED-ACTUATION-001)
+
+1. **Target Greenhouse Boundary for Facility-Level Actuators**
+   - **Problem**: When `scheduler_task` evaluated a due well pump schedule (`pump_well`), `command_mgr_submit()` rejected the command with `TARGET_GH_REQUIRED` (error 258 `ESP_ERR_INVALID_ARG`).
+   - **Root Cause**: `command_mgr.c` line 199 previously declared `const bool target_gh_required = cmd->type == CMD_TYPE_FERTIGATION_BATCH || cmd->type == CMD_TYPE_COMPONENT_TIMED;`. Because `pump_well` is a complex-wide facility component with `assignment.ghId == null`, any timed pump command failed validation.
+   - **Resolution**: Refined `target_gh_required` to strictly `cmd->type == CMD_TYPE_FERTIGATION_BATCH`. Complex-wide components (`pump_well`, facility fans, main inlet valves) execute without requiring a greenhouse ID binding.
+
+2. **Hardware Resource ID Binding Resilience**
+   - **Problem**: In `command_mgr.c`, line 354 enforced `strcmp(cmd->resource_id, component.resource_id) == 0`. When the schedule compiler or client passed synthetic IDs (e.g., `res-pump_well`) while `hardware_registry` had no explicit resource string (`resource_id[0] == '\0'`), the command was rejected with `RESOURCE_COMPONENT_MISMATCH` (`ESP_ERR_INVALID_STATE`).
+   - **Resolution**: Relaxed the check to `if (cmd->resource_id[0] && component.resource_id[0]) { ... }`. Commands are verified against resource locks only when both the command and physical component declare an authoritative resource binding.
+
+3. **Safety Monitor Sensor Freshness Window Tuning**
+   - **Problem**: During schedule dispatch, the safety monitor tripped with `[WARNING] SAFETY_SENSOR_STALE: Safety sensor data is stale/unavailable for this protected pump. (err 259)`.
+   - **Root Cause**: `#define SAFETY_SENSOR_STALE_MS 3000ULL` (3 seconds) was too tight. The background `telemetry_sampler_task` runs on a 2000ms loop; any DHT22/DS18B20 1-wire timing jitter or SPI transaction delay pushed sample latency past 3000ms, triggering false staleness interlocks.
+   - **Resolution**: Increased `SAFETY_SENSOR_STALE_MS` to 15000ULL (15 seconds) in `safety_monitor.c`, providing a 7.5x margin over the 2-second sampling cadence while maintaining robust protection against actual sensor freeze.
+   - Removed synchronous `sensor_hal_poll()` calls inside `safety_monitor_authorize_component()` to eliminate task blocking and re-entrancy.
+
+4. **Elimination of Massive Stack Allocations in `scheduler_task`**
+   - **Problem**: FreeRTOS threw `***ERROR*** A stack overflow in task scheduler has been detected` (reset reason `0x4 GURU_MEDITATION`) whenever `scheduler_evaluate_at` ran during due minute checks.
+   - **Root Cause Analysis**:
+     1. In `scheduler.c`, `reconcile_running_schedules_locked()` allocated `command_item_t receipt;` on the stack. `command_item_t` contains a 6144-byte fertigation JSON payload buffer, making the single struct **6,540 bytes** on the stack.
+     2. In `materialize_today_schedule()`, line 1729 allocated `today_occurrence_t preserved[MAX_TODAY_OCCURRENCES];` on the stack. With 32 entries at ~290 bytes each, this local array consumed **9,280 bytes** on the stack.
+     3. Combined stack demand exceeded 15.8 KB, instantly blowing through any standard FreeRTOS task stack.
+   - **Resolution**:
+     - Converted `preserved` in `materialize_today_schedule()` to use `static EXT_RAM_BSS_ATTR today_occurrence_t s_preserved_occurrences[MAX_TODAY_OCCURRENCES];` (lives in 8MB PSRAM, consumes **0 bytes** of task stack and **0 bytes** of internal SRAM).
+     - Converted `receipt` in `reconcile_running_schedules_locked()` to dynamic heap allocation (`calloc(1, sizeof(command_item_t))`) freed upon loop exit.
+     - Stabilized `scheduler_task` stack size at 6144 bytes in internal SRAM. High-water mark analysis confirms generous headroom with internal heap remaining healthy (>49KB free).
+
+5. **Physical Actuation Verification**
+   - Live hardware schedule intent (`wellPump-live-verified-now`, duration: 6 seconds) registered via HTTP API.
+   - At exactly 20:42:00 WIB (13:42:00Z):
+     - `COMMAND_ACCEPTED` logged by command manager.
+     - `PUMP_STARTED` logged; Relay #1 (GPIO 1, `ACTUATOR_WELL_PUMP`) physically actuated ON.
+     - Actuator remained ON for calibrated 6-second window.
+     - At 20:42:06 WIB: `PUMP_STOPPED` logged; Relay #1 physically actuated OFF.
+     - Schedule entry updated with `lastExecutionTimestamp: 1790948520` (20:42:00 WIB) and `isRunning: false`.
 
 

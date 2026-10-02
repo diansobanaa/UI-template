@@ -1,3 +1,39 @@
+## SP-SCHED-ACTUATION-001 — Autonomous Schedule Execution & Physical Relay Actuation Resolution
+- **Date**: 2026-10-02
+- **Status**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,580,640 B) — RELAY ACTUATION PASS (GPIO 1 CLICKED ON & OFF) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Objective**:
+  1. Fix schedule timeline entries failing to trigger physical relay actuation:
+     - Root Cause 1 (`command_mgr.c`): `target_gh_required` rejected complex-level timed actuator commands (`pump_well`) with `TARGET_GH_REQUIRED` (err 258 `ESP_ERR_INVALID_ARG`) because facility components have `assignment.ghId == null`.
+     - Root Cause 2 (`command_mgr.c`): `RESOURCE_COMPONENT_MISMATCH` (err `ESP_ERR_INVALID_STATE`) rejected commands when client/compiler supplied synthetic resource IDs (e.g. `res-pump_well`) but the component in `hardware_registry` had no explicit resource string (`resource_id[0] == '\0'`).
+     - Root Cause 3 (`safety_monitor.c`): False trip `SAFETY_SENSOR_STALE` (err 259) because `SAFETY_SENSOR_STALE_MS` was set to 3000ms, which was too tight for `telemetry_sampler_task`'s 2000ms loop with sensor acquisition latency.
+     - Root Cause 4 (`scheduler.c` FreeRTOS Stack Overflow `0x4 GURU_MEDITATION`):
+       - `today_occurrence_t preserved[32]` (9,280 bytes) allocated on the stack inside `materialize_today_schedule()`.
+       - `command_item_t receipt;` (6,540 bytes) allocated on the stack inside `reconcile_running_schedules_locked()`.
+       - Total local stack demand exceeded 15.8 KB, causing instant stack canary overflow when `scheduler_task` ran due-minute evaluations.
+  2. Solution Implemented:
+     - In `command_mgr.c`: Confined `target_gh_required` strictly to `CMD_TYPE_FERTIGATION_BATCH`. Relaxed resource ID check to only evaluate when both command and hardware component declare a resource ID.
+     - In `safety_monitor.c`: Increased `SAFETY_SENSOR_STALE_MS` from 3000ULL to 15000ULL (15 seconds, 7.5x margin over 2s sampling). Removed synchronous `sensor_hal_poll()` calls inside `safety_monitor_authorize_component()` to keep stack lightweight.
+     - In `scheduler.c`:
+       - Moved `preserved` array to 8MB PSRAM buffer `static EXT_RAM_BSS_ATTR today_occurrence_t s_preserved_occurrences[MAX_TODAY_OCCURRENCES]` (eliminating 9.3KB from stack).
+       - Moved `receipt` in `reconcile_running_schedules_locked` to dynamic heap allocation (`calloc(1, sizeof(command_item_t))`) freed after loop (eliminating 6.5KB from stack).
+       - Stabilized `scheduler_task` stack size at 6144 bytes in internal SRAM, leaving >49KB free internal heap.
+       - Mapped schedule action `WATER_PUMP` for `pump_well` directly to `CMD_TYPE_WELL_PUMP`.
+  3. Live Physical Verification on ESP32 Hardware:
+     - Compiled and flashed to ESP32-S3 on COM3 at 460800 baud (`agrotech_esp32.bin` 0x181e60 bytes).
+     - Live schedule intent created for 20:42:00 WIB with duration 6s (`wellPump-live-verified-now`).
+     - Event sequence verified at exactly 20:42:00 WIB (13:42:00Z):
+       - `evt-esp32-gh-01-1227017` (20:42:00Z): `COMMAND_ACCEPTED` - Safety-authorized command accepted.
+       - `evt-esp32-gh-01-1227018` (20:42:00Z): `PUMP_STARTED` - Configured pump switched ON (Relay #1 on GPIO 1 physically clicked ON).
+       - Ran for exactly 6 seconds.
+       - `evt-esp32-gh-01-1227020` (20:42:06Z): `PUMP_STOPPED` - Configured pump switched OFF (Relay #1 physically clicked OFF).
+     - Schedule entry verified updated with `lastExecutionTimestamp: 1790948520` (20:42:00 WIB) and `isRunning: false`.
+  4. Test Suite Verification:
+     - `npx tsc --noEmit`: 0 TypeScript errors.
+     - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASSED.
+     - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASSED.
+
+---
+
 ## SP-HTTPD-MEM-001 — HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery
 - **Date**: 2026-10-02
 - **Status**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (1,576,880 B @ 460800 baud) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`

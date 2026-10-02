@@ -22,19 +22,41 @@ export function normalizeScheduleIntent(input) {
     ownerId: id(input?.ownerId || input?.scheduleId || input?.id),
     complexId: id(input?.complexId),
     ghId: id(input?.ghId) || null,
-    action: id(input?.action || (input?.kind === "fertigation" ? "FERTIGATION" : input?.kind === "wellPump" ? "WATER_PUMP" : input?.kind === "fan" ? "FAN_TOGGLE" : "")).toUpperCase(),
+    componentId: id(input?.componentId || input?.parameters?.componentId || input?.pump),
+    action: id(
+      input?.action ||
+      (input?.kind === "fertigation" || input?.type === "fertigation" ? "FERTIGATION" :
+       input?.kind === "wellPump" || input?.type === "well_pump" || (typeof input?.task === "string" && input.task.toLowerCase().includes("well")) ? "WATER_PUMP" :
+       input?.kind === "fan" || input?.type === "fan" ? "FAN_TOGGLE" : "")
+    ).toUpperCase(),
     enabled: input?.enabled !== false,
     priority: finite(input?.priority) ? Math.trunc(input.priority) : 100,
     trigger: {
-      type: id(trigger.type || (input?.trigger === "specific-time" ? "DAILY" : input?.trigger === "interval" ? "INTERVAL" : input?.type) || "DAILY").toUpperCase(),
+      type: id(
+        trigger.type ||
+        (input?.trigger === "specific-time" || input?.trigger === "time" || input?.trigger === "days" ? "DAILY" :
+         input?.trigger === "interval" ? "INTERVAL" :
+         input?.trigger === "once" ? "ONCE" :
+         (input?.intervalMin || input?.intervalHours ? "INTERVAL" :
+          (typeof input?.time === "string" && input.time.includes(":") ? "DAILY" :
+           (input?.type && ["DAILY", "INTERVAL", "ONCE"].includes(String(input.type).toUpperCase()) ? input.type : "DAILY"))))
+      ).toUpperCase(),
       hour: trigger.hour ?? input?.hour ?? (typeof input?.time === "string" && input.time.includes(":") ? Number(input.time.split(":")[0]) : null),
       minute: trigger.minute ?? input?.minute ?? (typeof input?.time === "string" && input.time.includes(":") ? Number(input.time.split(":")[1]) : null),
-      daysOfWeek: trigger.daysOfWeek ?? input?.daysOfWeek ?? (input?.repeat === "Every Day" || (!input?.repeat && (input?.trigger === "specific-time" || trigger?.type === "DAILY")) ? 127 : null),
+      daysOfWeek: trigger.daysOfWeek ?? input?.daysOfWeek ?? (
+        input?.repeat === "Every Day" || (!input?.repeat && (input?.trigger === "specific-time" || input?.trigger === "time" || trigger?.type === "DAILY")) || (typeof input?.time === "string" && !input?.trigger && !trigger.type) ? 127 : null
+      ),
       intervalMin: trigger.intervalMin ?? input?.intervalMin ?? (input?.intervalHours ? Number(input.intervalHours) * 60 : null),
       timestamp: trigger.timestamp ?? input?.timestamp ?? null,
     },
     parameters: {
       ...(input?.parameters || {}),
+      durationSec: Number(
+        input?.parameters?.durationSec ||
+        input?.durationSec ||
+        (input?.durationMin ? Math.round(Number(input.durationMin) * 60) : 0) ||
+        0
+      ) || (input?.parameters?.durationSec ?? undefined),
       rawWaterStartThresholdPercent: Number(
         input?.parameters?.rawWaterStartThresholdPercent ||
         input?.rawWaterStartThresholdPercent ||

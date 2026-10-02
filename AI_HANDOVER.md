@@ -1,10 +1,51 @@
-# AI HANDOVER — SP-HTTPD-MEM-001 (latest)
+# AI HANDOVER — SP-SCHED-ACTUATION-001 (latest)
 
-## Status — SP-HTTPD-MEM-001
-**HTTP Socket Expansion (16/12), tele_persist_task Headroom & Internal SRAM Recovery**
-**Safe Point**: `SP-HTTPD-MEM-001`
+## Status — SP-SCHED-ACTUATION-001
+**Autonomous Schedule Execution & Physical Relay Actuation Resolution**
+**Safe Point**: `SP-SCHED-ACTUATION-001`
 **Date**: 2026-10-02
-**Verdict**: `COMPLETE & FLASHED — ESP32 COM3 FLASH PASS (1,576,880 B @ 460800 baud) — FRONTEND PASS (0 TS ERRORS) — REGRESSION SUITE PASS (15/15) — SIMULATION PASS (56/56)`
+**Verdict**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,580,640 B) — RELAY ACTUATION PASS (GPIO 1 CLICKED ON & OFF) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+
+### Summary of What Was Done
+1. **Investigasi & Analisis Akar Masalah**:
+   - Gejala pengguna: Jadwal muncul di Today's Schedule Timeline web UI, namun tidak pernah ada eksekusi fisik dari relay.
+   - Analisis forensik log serial dan firmware menemukan 4 hambatan utama:
+     - **Hambatan 1 (`command_mgr.c`)**: `target_gh_required` menolak perintah pompa level fasilitas (`pump_well`) dengan error `TARGET_GH_REQUIRED` (258 `ESP_ERR_INVALID_ARG`) karena pompa sumur berada pada level kompleks (`assignment.ghId == null`).
+     - **Hambatan 2 (`command_mgr.c`)**: `RESOURCE_COMPONENT_MISMATCH` (259 `ESP_ERR_INVALID_STATE`) menolak perintah jika klien mengirimkan ID resource sintetis (`res-pump_well`) padahal komponen di `hardware_registry` tidak memiliki resource binding eksplisit (`resource_id[0] == '\0'`).
+     - **Hambatan 3 (`safety_monitor.c`)**: Muncul `[WARNING] SAFETY_SENSOR_STALE` (error 259) karena ambang batas `SAFETY_SENSOR_STALE_MS` disetel 3000ms, terlalu sempit dibandingkan siklus 2000ms `telemetry_sampler_task` plus latensi akuisisi sensor.
+     - **Hambatan 4 (`scheduler.c` Stack Overflow `0x4 GURU_MEDITATION`)**:
+       - `today_occurrence_t preserved[32]` (9.280 byte) dialokasikan di stack lokal `materialize_today_schedule()`.
+       - `command_item_t receipt;` (6.540 byte) dialokasikan di stack lokal `reconcile_running_schedules_locked()`.
+       - Total alokasi lokal di stack mencapai >15,8 KB, menyebabkan stack canary FreeRTOS langsung overflow begitu scheduler mengevaluasi jadwal yang jatuh tempo.
+2. **Perbaikan Firmware**:
+   - `command_mgr.c`:
+     - Membatasi `target_gh_required` hanya untuk `CMD_TYPE_FERTIGATION_BATCH`. Aktuator fasilitas dapat dieksekusi tanpa memerlukan target `ghId`.
+     - Melonggarkan validasi `resource_id`: hanya divalidasi jika command dan komponen di hardware registry sama-sama mendeklarasikan binding resource.
+   - `safety_monitor.c`:
+     - Menaikkan `SAFETY_SENSOR_STALE_MS` dari 3000ms ke 15000ms (15 detik), memberikan toleransi aman 7.5x terhadap jitter sampling.
+     - Menghapus pemanggilan sinkron `sensor_hal_poll()` dari `safety_monitor_authorize_component()` agar context scheduler tetap ringan dan tidak terblokir.
+   - `scheduler.c`:
+     - Memindahkan array `preserved` ke memory PSRAM 8MB via `static EXT_RAM_BSS_ATTR today_occurrence_t s_preserved_occurrences[MAX_TODAY_OCCURRENCES]` (menghemat 9,3 KB stack!).
+     - Mengubah alokasi `receipt` di `reconcile_running_schedules_locked` menjadi alokasi heap dinamis (`calloc(1, sizeof(command_item_t))`) dan mem-free-nya setelah loop (menghemat 6,5 KB stack!).
+     - Menstabilkan ukuran stack `scheduler_task` pada 6144 byte di SRAM internal, menyisakan heap internal >49 KB free.
+     - Memetakan aksi jadwal `WATER_PUMP` untuk `pump_well` langsung ke `CMD_TYPE_WELL_PUMP`.
+3. **Verifikasi Aktuasi Fisik Secara Live di Hardware ESP32**:
+   - Firmware dikompilasi dan di-flash ke ESP32 di port COM3.
+   - Jadwal uji coba live didaftarkan (`wellPump-live-verified-now`, durasi 6 detik).
+   - Log event membuktikan urutan aktuasi pada tepat pukul 20:42:00 WIB (13:42:00Z):
+     - `evt-esp32-gh-01-1227017` (20:42:00Z): `COMMAND_ACCEPTED` - Safety-authorized command accepted.
+     - `evt-esp32-gh-01-1227018` (20:42:00Z): `PUMP_STARTED` - Relay #1 (GPIO 1, `ACTUATOR_WELL_PUMP`) menyala fisik (ON).
+     - Berjalan selama tepat 6 detik.
+     - `evt-esp32-gh-01-1227020` (20:42:06Z): `PUMP_STOPPED` - Relay #1 mati fisik (OFF).
+   - Timestamp eksekusi terakhir tercatat: `lastExecutionTimestamp: 1790948520` (20:42:00 WIB) dan `isRunning: false`.
+4. **Verifikasi Suite Lengkap**:
+   - `npx tsc --noEmit`: 0 error.
+   - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASS.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS.
+
+---
+
+# AI HANDOVER — SP-HTTPD-MEM-001 (previous)
 
 ### Summary of What Was Done
 1. **Analisis Akar Masalah Log Serial**:

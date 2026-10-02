@@ -196,8 +196,7 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
                                   cmd->type == CMD_TYPE_WELL_PUMP ||
                                   cmd->type == CMD_TYPE_DIST_PUMP ||
                                   cmd->type == CMD_TYPE_DOSING_RUN;
-  const bool target_gh_required = cmd->type == CMD_TYPE_FERTIGATION_BATCH ||
-                                  cmd->type == CMD_TYPE_COMPONENT_TIMED;
+  const bool target_gh_required = cmd->type == CMD_TYPE_FERTIGATION_BATCH;
 
   if (target_gh_required && !cmd->target_gh_id[0]) {
     copy_str(code, code_len, "TARGET_GH_REQUIRED");
@@ -351,9 +350,8 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
              "Target component is not commissioned/enabled.");
     return ESP_ERR_INVALID_STATE;
   }
-  if (cmd->resource_id[0]) {
-    if (!component.resource_id[0] ||
-        strcmp(cmd->resource_id, component.resource_id) != 0) {
+  if (cmd->resource_id[0] && component.resource_id[0]) {
+    if (strcmp(cmd->resource_id, component.resource_id) != 0) {
       copy_str(code, code_len, "RESOURCE_COMPONENT_MISMATCH");
       copy_str(
           message, message_len,
