@@ -107,6 +107,18 @@ static void cache_insert_locked(const command_item_t *cmd) {
 static bool active_config_has_gh(const char *gh_id) {
   if (!gh_id || !gh_id[0])
     return true;
+
+  /* Check hardware registry assignments: if any registered component belongs to this GH, it is valid */
+  const size_t comp_count = hardware_registry_get_count();
+  for (size_t i = 0; i < comp_count; i++) {
+    hw_component_info_t cinfo;
+    if (hardware_registry_get_by_index(i, &cinfo) == ESP_OK &&
+        cinfo.assignment.gh_id[0] &&
+        strcmp(cinfo.assignment.gh_id, gh_id) == 0) {
+      return true;
+    }
+  }
+
   char *buf = calloc(1, COMMAND_CONFIG_MAX);
   if (!buf)
     return false;

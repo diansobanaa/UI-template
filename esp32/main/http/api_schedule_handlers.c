@@ -410,10 +410,14 @@ static esp_err_t api_schedule_intents_delete_handler(httpd_req_t *req)
 
 static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
 {
-    schedule_entry_t entries[16];
+    schedule_entry_t *entries = calloc(MAX_SCHEDULE_INTENTS, sizeof(schedule_entry_t));
+    if (!entries) {
+        return http_send_error(req, 500, "NO_MEMORY", "Unable to allocate schedule buffer", NULL);
+    }
     size_t count = 0;
-    esp_err_t err = scheduler_get_all(entries, 16, &count);
+    esp_err_t err = scheduler_get_all(entries, MAX_SCHEDULE_INTENTS, &count);
     if (err != ESP_OK) {
+        free(entries);
         return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to retrieve schedules", NULL);
     }
 
@@ -435,6 +439,7 @@ static esp_err_t api_schedule_get_all_handler(httpd_req_t *req)
         cJSON_AddItemToArray(items, item);
     }
     cJSON_AddNumberToObject(root, "total", (double)count);
+    free(entries);
 
     return http_send_enveloped_response(req, 200, NULL, root);
 }

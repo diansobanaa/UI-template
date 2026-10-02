@@ -28,7 +28,7 @@
 
 static const char *TAG = "SCHEDULER";
 
-#define MAX_COMPILED_SCHEDULES 16
+#define MAX_COMPILED_SCHEDULES 32
 #define MAX_RUNTIME_COMPONENTS 16
 #define MAX_RUNTIME_RESOURCES 16
 #define MAX_COMPILED_JSON 12288
@@ -920,8 +920,15 @@ static esp_err_t sync_intents_locked(void) {
     const char *task = json_string(it, "task");
     const char *comp_id = json_string(it, "componentId");
     if (!comp_id || !comp_id[0]) comp_id = json_string(it, "pump");
+    if (!comp_id || !comp_id[0]) comp_id = json_string(it, "fan");
     if (comp_id && (strcmp(comp_id, "wp-main") == 0 || strcasecmp(comp_id, "well_pump") == 0)) {
       comp_id = "pump_well";
+    } else if (comp_id && (strcasecmp(comp_id, "fan-cooling") == 0 || strcasecmp(comp_id, "cooling_fan") == 0 ||
+                           strcasecmp(comp_id, "cooling-fan") == 0 || strcasecmp(comp_id, "cabinet_fan") == 0)) {
+      comp_id = "fan_cooling";
+    } else if (comp_id && (strcasecmp(comp_id, "fan-blower") == 0 || strcasecmp(comp_id, "blower_fan") == 0 ||
+                           strcasecmp(comp_id, "blower-fan") == 0 || strcasecmp(comp_id, "blower") == 0)) {
+      comp_id = "fan_blower";
     }
 
     if (act && act[0]) {
@@ -930,7 +937,7 @@ static esp_err_t sync_intents_locked(void) {
                (task && strcasestr(task, "well")) || (comp_id && strcasestr(comp_id, "well"))) {
       copy_string(rs->action, sizeof(rs->action), "WATER_PUMP");
     } else if ((kind && strcasestr(kind, "fan")) || (type && strcasestr(type, "fan")) ||
-               (task && strcasestr(task, "fan"))) {
+               (task && strcasestr(task, "fan")) || (comp_id && strcasestr(comp_id, "fan"))) {
       copy_string(rs->action, sizeof(rs->action), "FAN_TOGGLE");
     } else if ((kind && strcasestr(kind, "fert")) || (type && strcasestr(type, "fert"))) {
       copy_string(rs->action, sizeof(rs->action), "FERTIGATION");
@@ -945,7 +952,11 @@ static esp_err_t sync_intents_locked(void) {
       copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "pump_well");
       rs->component_count = 1;
     } else if (strcmp(rs->action, "FAN_TOGGLE") == 0) {
-      copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_cooling");
+      if (rs->gh_id[0]) {
+        copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_blower");
+      } else {
+        copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_cooling");
+      }
       rs->component_count = 1;
     }
 
@@ -1029,6 +1040,10 @@ static esp_err_t sync_intents_locked(void) {
         sscanf(time_str, "%u:%u", &h, &m);
         rs->hour = (uint8_t)(h % 24);
         rs->minute = (uint8_t)(m % 60);
+      } else {
+        cJSON *trig_obj = cJSON_GetObjectItem(it, "trigger");
+        rs->hour = (uint8_t)json_u32(it, "hour", trig_obj ? json_u32(trig_obj, "hour", 0) : 0);
+        rs->minute = (uint8_t)json_u32(it, "minute", trig_obj ? json_u32(trig_obj, "minute", 0) : 0);
       }
     }
 

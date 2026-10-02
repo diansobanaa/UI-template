@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-02T13:43:43.859Z",
+  "timestamp": "2026-10-02T14:50:34.631Z",
   "totalScenarios": 56,
   "passed": 56,
   "failed": 0,
@@ -27,7 +27,7 @@
       "title": "Multiple FIFO Jobs",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -35,7 +35,7 @@
       "title": "New Job Arrives During Active Execution",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -43,7 +43,7 @@
       "title": "Simultaneous Schedule Triggers",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 15,
+      "durationMs": 48,
       "evidence": "All assertions satisfied."
     },
     {
@@ -51,7 +51,7 @@
       "title": "Queue Capacity Reached",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 3,
       "evidence": "All assertions satisfied."
     },
     {
@@ -59,7 +59,7 @@
       "title": "Duplicate Scheduler Trigger",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -75,7 +75,7 @@
       "title": "Cancel Pending Job",
       "group": "A: FIFO Queue",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -91,7 +91,7 @@
       "title": "Normal Mixing Process",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 3,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -115,7 +115,7 @@
       "title": "Sensor Disconnected During Operation",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 7,
       "evidence": "All assertions satisfied."
     },
     {
@@ -179,7 +179,7 @@
       "title": "Normal Completion",
       "group": "B: Mixing Tank",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -187,7 +187,7 @@
       "title": "Water Pump Fails to Start",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 2,
       "evidence": "All assertions satisfied."
     },
     {
@@ -203,7 +203,7 @@
       "title": "Mixing Pump Fails to Start",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -267,7 +267,7 @@
       "title": "Limited Water Supply",
       "group": "C: Pump & Volumetric",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -283,7 +283,7 @@
       "title": "No Sensor Installed From Startup",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -299,7 +299,7 @@
       "title": "No Sensor and No Valid Calibration",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -315,7 +315,7 @@
       "title": "Estimated Filling Exceeds Safety Limit",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -347,7 +347,7 @@
       "title": "Backend Offline",
       "group": "D: Fail-Safe & Recovery",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -411,7 +411,7 @@
       "title": "Empty Queue With and Without Future Schedules",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -419,7 +419,7 @@
       "title": "Waiting for Schedule",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -427,7 +427,7 @@
       "title": "Waiting in FIFO Queue",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     },
     {
@@ -435,7 +435,7 @@
       "title": "Active Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 0,
+      "durationMs": 1,
       "evidence": "All assertions satisfied."
     },
     {
@@ -451,7 +451,7 @@
       "title": "Failed Process",
       "group": "F: UI Consistency",
       "status": "PASS",
-      "durationMs": 1,
+      "durationMs": 0,
       "evidence": "All assertions satisfied."
     }
   ]

@@ -273,9 +273,14 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
              comp_info.component_id, comp_info.role, on ? "ON" : "OFF", s_actuators[id].gpio);
 
     xSemaphoreGive(s_lock);
-    if (was_on != on && id == ACTUATOR_BUZZER) {
-        (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
-                            on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", comp_info.component_id);
+    if (was_on != on) {
+        if (id == ACTUATOR_BUZZER) {
+            (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
+                                on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", comp_info.component_id);
+        } else if (id == ACTUATOR_COOLING_FAN || id == ACTUATOR_BLOWER_FAN) {
+            (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "FAN_STARTED" : "FAN_STOPPED",
+                                on ? "Fan switched ON." : "Fan switched OFF.", comp_info.component_id);
+        }
     }
     return ESP_OK;
 }
@@ -362,6 +367,14 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
     gpio_set_level(gpio, on ? active_level : !active_level);
     runtime_set_locked(component_id, on, owner);
 
+    for (size_t i = 0; i < ACTUATOR_MAX_COUNT; i++) {
+        if (s_actuators[i].gpio == gpio) {
+            s_actuators[i].state = on;
+            s_actuators[i].owner = owner;
+            break;
+        }
+    }
+
     xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "Configured component '%s' (%s) -> %s (GPIO %d)",
              info.component_id, info.role, on ? "ON" : "OFF", gpio);
@@ -372,6 +385,10 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         } else if (strcmp(info.role, "BUZZER") == 0 || strcmp(info.role, "ALARM_BUZZER") == 0 || strstr(info.supported_type_id, "buzzer")) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
                                 on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", info.component_id);
+        } else if (strcasestr(info.role, "FAN") || strcasestr(info.role, "BLOWER") ||
+                   strcasestr(info.supported_type_id, "FAN") || strcasestr(info.supported_type_id, "BLOWER")) {
+            (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "FAN_STARTED" : "FAN_STOPPED",
+                                on ? "Configured fan switched ON." : "Configured fan switched OFF.", info.component_id);
         }
         extern void telemetry_mgr_trigger_transition(const char *reason);
         telemetry_mgr_trigger_transition("ACTUATOR_STATE_CHANGE");
@@ -560,6 +577,10 @@ esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t
     if (was_on && (strcasestr(info.role, "PUMP") || strcasestr(info.supported_type_id, "PUMP"))) {
         (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "PUMP_STOPPED",
                             "Configured pump stopped.", info.component_id);
+    } else if (was_on && (strcasestr(info.role, "FAN") || strcasestr(info.role, "BLOWER") ||
+                          strcasestr(info.supported_type_id, "FAN") || strcasestr(info.supported_type_id, "BLOWER"))) {
+        (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "FAN_STOPPED",
+                            "Configured fan stopped.", info.component_id);
     }
     return ESP_OK;
 }
@@ -605,6 +626,10 @@ esp_err_t actuator_hal_force_off_component(const char *component_id)
     if (was_on && (strcasestr(info.role, "PUMP") || strcasestr(info.supported_type_id, "PUMP"))) {
         (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "PUMP_STOPPED",
                             "Configured pump force-stopped by safety authority.", info.component_id);
+    } else if (was_on && (strcasestr(info.role, "FAN") || strcasestr(info.role, "BLOWER") ||
+                          strcasestr(info.supported_type_id, "FAN") || strcasestr(info.supported_type_id, "BLOWER"))) {
+        (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "FAN_STOPPED",
+                            "Configured fan force-stopped by safety authority.", info.component_id);
     }
     return ESP_OK;
 }

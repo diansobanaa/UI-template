@@ -84,6 +84,17 @@ static void parse_common_fields(cJSON *payload, command_item_t *cmd)
     if (max_runtime && cJSON_IsNumber(max_runtime) && max_runtime->valuedouble >= 0.0) cmd->max_runtime_sec = (uint32_t)max_runtime->valuedouble;
     cJSON *duration = cJSON_GetObjectItem(payload, "durationSeconds");
     if (duration && cJSON_IsNumber(duration)) cmd->param_duration_sec = duration->valueint;
+    if (cmd->component_id[0]) {
+        if (strcasecmp(cmd->component_id, "wp-main") == 0 || strcasecmp(cmd->component_id, "well_pump") == 0) {
+            strncpy(cmd->component_id, "pump_well", sizeof(cmd->component_id) - 1);
+        } else if (strcasecmp(cmd->component_id, "fan-cooling") == 0 || strcasecmp(cmd->component_id, "cooling_fan") == 0 ||
+                   strcasecmp(cmd->component_id, "cooling-fan") == 0 || strcasecmp(cmd->component_id, "cabinet_fan") == 0) {
+            strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
+        } else if (strcasecmp(cmd->component_id, "fan-blower") == 0 || strcasecmp(cmd->component_id, "blower_fan") == 0 ||
+                   strcasecmp(cmd->component_id, "blower-fan") == 0 || strcasecmp(cmd->component_id, "blower") == 0) {
+            strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
+        }
+    }
 }
 
 static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char *code, size_t code_len, char *message, size_t message_len)
@@ -166,6 +177,23 @@ static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char
     } else if (strcmp(type, "COMPONENT_TIMED") == 0) {
         cmd->type = CMD_TYPE_COMPONENT_TIMED;
         cmd->param_on = true;
+    } else if (strcmp(type, "COMPONENT_STOP") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        cmd->param_on = false;
+    } else if (strcmp(type, "FAN_START") == 0 || strcmp(type, "FAN_ON") == 0 || strcmp(type, "FAN_TOGGLE") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        cmd->param_on = true;
+        if (!cmd->component_id[0]) {
+            if (cmd->target_gh_id[0]) strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
+            else strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
+        }
+    } else if (strcmp(type, "FAN_STOP") == 0 || strcmp(type, "FAN_OFF") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        cmd->param_on = false;
+        if (!cmd->component_id[0]) {
+            if (cmd->target_gh_id[0]) strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
+            else strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
+        }
     } else {
         snprintf(code, code_len, "UNSUPPORTED_COMMAND_TYPE");
         snprintf(message, message_len, "Unsupported command type '%s'.", type);

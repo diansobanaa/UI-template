@@ -1,3 +1,46 @@
+## SP-FAN-ACTUATION-001 — Autonomous Fan Schedule Execution & Dual-Actuator Physical Verification
+- **Date**: 2026-10-02
+- **Git Commit**: `143f6a6`
+- **Status**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,581,744 B) — DUAL FAN ACTUATION PASS (GPIO 7 MOSFET & GPIO 10 RELAY CLICKED ON & OFF) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+- **Objective**:
+  1. Fix ventilation fan schedule entries failing to trigger physical actuation or getting stuck in `isRunning = true`:
+     - Root Cause 1 (`safety_monitor.c`): `SAFETY_DEFAULT_FAN_MAX_SEC` was set to only 1800s (30 minutes). When a fan schedule was configured with a 3600s (1-hour) duration, the safety monitor rejected it with `MAX_RUNTIME_EXCEEDED` (code 257), preventing physical actuation while leaving `sched->pending = true`, `lastExecutionTimestamp = 0`, and `isRunning = true`.
+     - Root Cause 2 (`command_mgr.c`): `active_config_has_gh()` validated greenhouse targets strictly against `storage_mgr_load_config()`. In this installation, the active config JSON had an empty `"greenhouses": []` array, whereas `hardware_registry` holds the authoritative assignment of `fan_blower` to `gh-muii7dtg`. This resulted in `UNKNOWN_TARGET_GH` (404) rejections.
+     - Root Cause 3 (`scheduler.c` & `api_schedule_handlers.c`): `MAX_COMPILED_SCHEDULES` and stack `entries[16]` were capped at 16 schedules. The 17th schedule intent was silently dropped during runtime compilation and omitted from the API response.
+     - Root Cause 4 (`actuator_hal.c`): Missing event logging (`FAN_STARTED`, `FAN_STOPPED`) and lack of state synchronization in `actuator_hal_set_by_component_id()` to `s_actuators[]`, preventing telemetry snapshots and dashboard tiles from updating instantly.
+     - Root Cause 5 (`api_command_handlers.c`): Direct fan command types (`FAN_START`, `FAN_STOP`, `FAN_TOGGLE`, `FAN_ON`, `FAN_OFF`) and alias normalization were missing.
+  2. Solution Implemented:
+     - `safety_monitor.c`: Increased `SAFETY_DEFAULT_FAN_MAX_SEC` to 14400U (4 hours), accommodating standard greenhouse ventilation cycles.
+     - `command_mgr.c`: Enhanced `active_config_has_gh()` to fall back to `hardware_registry_get_by_index()` to confirm valid hardware component assignments even if the config JSON array is empty.
+     - `scheduler.c`: Increased `MAX_COMPILED_SCHEDULES` to 32. Added fan alias normalization (`fan_cooling`, `fan_blower`, `fan-cooling`, `blower-fan`, `cooling_fan`, `blower`) and automatic fallback to numeric `hour`/`minute` when `time` string is omitted.
+     - `api_schedule_handlers.c`: Dynamically heap-allocated up to 32 schedule entries (`calloc(MAX_SCHEDULE_INTENTS, sizeof(schedule_entry_t))`) instead of fixed stack 16-entry array.
+     - `actuator_hal.c`: Added structured event emissions (`FAN_STARTED`, `FAN_STOPPED`) and synchronized `s_actuators[]` states whenever `actuator_hal_set_by_component_id()` is invoked.
+     - `api_command_handlers.c`: Added explicit fan command parsing (`FAN_START`, `FAN_STOP`, `FAN_TOGGLE`, `FAN_ON`, `FAN_OFF`) and alias normalization.
+  3. Live Physical Hardware Verification on ESP32 (COM3):
+     - **Cabinet Cooling Fan (`fan_cooling`, GPIO 7, MOSFET Channel 3, Active-HIGH)**:
+       - Autonomous schedule `fan-live-auto-1` triggered automatically at 21:36:17 WIB (14:36:17Z):
+         - `evt-esp32-gh-01-1228292`: `COMMAND_ACCEPTED` for `fan_cooling`.
+         - `evt-esp32-gh-01-1228293`: `FAN_STARTED` (`Configured fan switched ON.`, GPIO 7 ON).
+         - `evt-esp32-gh-01-1228295`: `FAN_STOPPED` (`Configured fan switched OFF.`, GPIO 7 OFF after 10s).
+         - Updated `lastExecutionTimestamp: 1790951777`, `isRunning: false`.
+     - **Greenhouse Blower Fan (`fan_blower`, GPIO 10, 4-Channel Relay IN3, Active-LOW)**:
+       - Direct command `test-blower-direct-2` (5s):
+         - `evt-esp32-gh-01-1228806`: `FAN_STARTED fan_blower Configured fan switched ON.` (Relay IN3 clicked ON).
+         - `evt-esp32-gh-01-1228807`: `FAN_STOPPED fan_blower Configured fan switched OFF.` (Relay IN3 clicked OFF).
+       - Autonomous schedule `blower-sched-verify-1` triggered automatically at 21:49:00 WIB (14:49:00Z):
+         - `evt-esp32-gh-01-1228810`: `COMMAND_ACCEPTED` for `fan_blower`.
+         - `evt-esp32-gh-01-1228811`: `FAN_STARTED` (`Configured fan switched ON.`, Relay IN3 clicked ON).
+         - `evt-esp32-gh-01-1228813`: `FAN_STOPPED` (`Configured fan switched OFF.`, Relay IN3 clicked OFF after 10s).
+         - Updated `lastExecutionTimestamp: 1790952540`, `isRunning: false`.
+  4. Test Suite Verification:
+     - `npx tsc --noEmit`: 0 TypeScript errors.
+     - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASSED.
+     - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASSED.
+  5. Canonical Documentation:
+     - Updated `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` with Section 60.
+
+---
+
 ## SP-SCHED-ACTUATION-001 — Autonomous Schedule Execution & Physical Relay Actuation Resolution
 - **Date**: 2026-10-02
 - **Git Commit**: `aa2f293`

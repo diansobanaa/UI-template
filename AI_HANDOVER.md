@@ -1,4 +1,52 @@
-# AI HANDOVER — SP-SCHED-ACTUATION-001 (latest)
+# AI HANDOVER — SP-FAN-ACTUATION-001 (latest)
+
+## Status — SP-FAN-ACTUATION-001
+**Autonomous Fan Schedule Execution & Dual-Actuator Physical Actuation Resolution**
+**Safe Point**: `SP-FAN-ACTUATION-001`
+**Date**: 2026-10-02
+**Git Commit**: `143f6a6`
+**Verdict**: `COMPLETE & VERIFIED LIVE ON HARDWARE — ESP32 COM3 FLASH PASS (1,581,744 B) — DUAL FAN ACTUATION PASS (GPIO 7 MOSFET & GPIO 10 RELAY CLICKED ON & OFF) — FRONTEND PASS (0 TS ERRORS) — SIMULATION PASS (56/56) — REGRESSION PASS (15/15)`
+
+### Summary of What Was Done
+1. **Investigasi & Analisis Akar Masalah**:
+   - Gejala pengguna: Jadwal fan di web UI tidak memicu aktuasi fisik atau statusnya stuck di `isRunning = true`.
+   - Analisis mendalam menemukan 5 hambatan utama:
+     - **Hambatan 1 (`safety_monitor.c`)**: `SAFETY_DEFAULT_FAN_MAX_SEC` disetel hanya 1800s (30 menit). Ketika jadwal fan dibuat dengan durasi 3600s (1 jam) seperti pada jadwal `fan-1790950595872`, safety monitor menolaknya dengan error `MAX_RUNTIME_EXCEEDED` (kode 257). Akibatnya aktuator tidak pernah menyala, namun intent tetap `sched->pending = true` dan `isRunning: true` di state runtime.
+     - **Hambatan 2 (`command_mgr.c`)**: `active_config_has_gh()` memverifikasi target greenhouse hanya dengan membaca konfigurasi aktif dari SPIFFS (`storage_mgr_load_config()`). Pada instalasi ini, file konfigurasi memiliki array `"greenhouses": []` (kosong), padahal greenhouse blower fan ditugaskan ke `gh-muii7dtg` di `hardware_registry`. Akibatnya, perintah blower ditolak dengan status HTTP 404 (`UNKNOWN_TARGET_GH`).
+     - **Hambatan 3 (`scheduler.c` & `api_schedule_handlers.c`)**: Batas kompilasi jadwal `MAX_COMPILED_SCHEDULES` dan array stack API `entries[16]` dipatok tepat 16 item. Jadwal ke-17 diabaikan diam-diam dan tidak pernah dieksekusi atau dikembalikan di API.
+     - **Hambatan 4 (`actuator_hal.c`)**: Logging event `FAN_STARTED` dan `FAN_STOPPED` belum diimplementasikan, dan fungsi `actuator_hal_set_by_component_id()` belum menyinkronkan state ke tabel internal `s_actuators[]`. Akibatnya, snapshot telemetri (`fan_on`) dan tile UI tidak langsung ter-refresh.
+     - **Hambatan 5 (`api_command_handlers.c`)**: Parser perintah belum mendukung tipe aksi langsung seperti `FAN_START`, `FAN_STOP`, `FAN_TOGGLE`, `FAN_ON`, `FAN_OFF`, serta normalisasi alias ID komponen fan.
+2. **Perbaikan Firmware**:
+   - `safety_monitor.c`: Menaikkan `SAFETY_DEFAULT_FAN_MAX_SEC` menjadi 14400U (4 jam), mengakomodasi siklus ventilasi greenhouse standar.
+   - `command_mgr.c`: Menambahkan fallback pemeriksaan ke `hardware_registry_get_by_index()` di dalam `active_config_has_gh()` sehingga assignment komponen greenhouse diakui valid meskipun array JSON konfigurasi kosong.
+   - `scheduler.c`: Menaikkan `MAX_COMPILED_SCHEDULES` dari 16 ke 32. Menambahkan normalisasi alias komponen fan (`fan_cooling`, `fan_blower`, `fan-cooling`, dll.) dan fallback otomatis ke numeric `hour`/`minute` jika string `time` kosong.
+   - `api_schedule_handlers.c`: Mengalokasikan array jadwal hingga 32 item secara dinamis di heap (`calloc`) menggantikan alokasi tetap 16 item di stack.
+   - `actuator_hal.c`: Menambahkan emisi event `FAN_STARTED` dan `FAN_STOPPED` serta sinkronisasi state `s_actuators[]` di `actuator_hal_set_by_component_id()`.
+   - `api_command_handlers.c`: Menambahkan pemetaan langsung perintah fan (`FAN_START`, `FAN_STOP`, `FAN_TOGGLE`, `FAN_ON`, `FAN_OFF`) ke engine komando.
+3. **Verifikasi Aktuasi Fisik Secara Live di Hardware ESP32 (COM3)**:
+   - **Cabinet Cooling Fan (`fan_cooling`, GPIO 7, MOSFET Channel 3, Active-HIGH)**:
+     - Jadwal otomatis `fan-live-auto-1` dieksekusi secara otonom tepat pada 21:36:17 WIB (14:36:17Z):
+       - `evt-esp32-gh-01-1228292`: `COMMAND_ACCEPTED` untuk `fan_cooling`.
+       - `evt-esp32-gh-01-1228293`: `FAN_STARTED` (GPIO 7 menyala ON).
+       - `evt-esp32-gh-01-1228295`: `FAN_STOPPED` (GPIO 7 mati OFF setelah 10 detik).
+       - Timestamp eksekusi terupdate: `lastExecutionTimestamp: 1790951777`, `isRunning: false`.
+   - **Greenhouse Blower Contactor (`fan_blower`, GPIO 10, Relay 4-Channel IN3, Active-LOW)**:
+     - Perintah manual langsung `test-blower-direct-2` (5 detik):
+       - `evt-esp32-gh-01-1228806`: `FAN_STARTED fan_blower` (Relay IN3 berbunyi klik ON).
+       - `evt-esp32-gh-01-1228807`: `FAN_STOPPED fan_blower` (Relay IN3 berbunyi klik OFF).
+     - Jadwal otomatis `blower-sched-verify-1` dieksekusi secara otonom tepat pada 21:49:00 WIB (14:49:00Z):
+       - `evt-esp32-gh-01-1228810`: `COMMAND_ACCEPTED` untuk `fan_blower`.
+       - `evt-esp32-gh-01-1228811`: `FAN_STARTED` (Relay IN3 menyala fisik ON).
+       - `evt-esp32-gh-01-1228813`: `FAN_STOPPED` (Relay IN3 mati fisik OFF setelah 10 detik).
+       - Timestamp eksekusi terupdate: `lastExecutionTimestamp: 1790952540`, `isRunning: false`.
+4. **Verifikasi Suite Lengkap**:
+   - `npx tsc --noEmit`: 0 TypeScript error.
+   - `node scripts/simulate_56_scenarios.mjs`: 56/56 PASS.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS.
+
+---
+
+# AI HANDOVER — SP-SCHED-ACTUATION-001 (previous)
 
 ## Status — SP-SCHED-ACTUATION-001
 **Autonomous Schedule Execution & Physical Relay Actuation Resolution**

@@ -3834,4 +3834,50 @@ PYTHON SAVE + ANALYSIS
      - At 20:42:06 WIB: `PUMP_STOPPED` logged; Relay #1 physically actuated OFF.
      - Schedule entry updated with `lastExecutionTimestamp: 1790948520` (20:42:00 WIB) and `isRunning: false`.
 
+60. Autonomous Fan Schedule Execution & Physical Actuation Resolution (SP-FAN-ACTUATION-001)
+
+1. **Safety Monitor Maximum Runtime for Ventilation Fans**
+   - **Problem**: Fan schedules requesting durations over 30 minutes (such as 3600 seconds / 60 minutes) failed authorization with `MAX_RUNTIME_EXCEEDED` (`ESP_ERR_INVALID_STATE`). As a result, the occurrence remained in `MARKER_PENDING` indefinitely, `lastExecutionTimestamp` remained `0`, and the schedule reported `isRunning: true`.
+   - **Root Cause**: `safety_monitor.c` defined `#define SAFETY_DEFAULT_FAN_MAX_SEC 1800U` (30 minutes).
+   - **Resolution**: Increased `SAFETY_DEFAULT_FAN_MAX_SEC` to `14400U` (4 hours) in `safety_monitor.c`. This permits standard agricultural greenhouse ventilation intervals (1 to 4 hours) while maintaining an authoritative guardrail against unmonitored continuous operation.
+
+2. **Event Logging & Actuator State Parity for Fans**
+   - **Problem**: Actuating fan components did not emit `FAN_STARTED` and `FAN_STOPPED` event records, unlike pumps and buzzers. In addition, changing component state via `actuator_hal_set_by_component_id()` did not update `s_actuators[i].state`, causing telemetry snapshots and TFT display tiles to lag.
+   - **Resolution**:
+     - Added `FAN_STARTED` and `FAN_STOPPED` event logging across `actuator_hal_set_state()`, `actuator_hal_set_by_component_id()`, `actuator_hal_stop_component()`, and `actuator_hal_force_off_component()`.
+     - Added state synchronization in `actuator_hal_set_by_component_id()`: matching GPIOs in `s_actuators[]` update `state` and `owner` immediately, ensuring telemetry snapshots (`fan_on`) and TFT screen display tiles accurately reflect physical fan state.
+
+3. **Greenhouse Target Validation Resilience in `command_mgr.c`**
+   - **Problem**: When a fan schedule targeted greenhouse `gh-muii7dtg` (the greenhouse blower fan `fan_blower` on GPIO 10 / Relay IN3), `command_mgr_validate()` rejected the command with `UNKNOWN_TARGET_GH` (error 404 `ESP_ERR_NOT_FOUND`).
+   - **Root Cause**: `active_config_has_gh()` only inspected the `"greenhouses"` array in `storage_mgr_load_config()`. In setups where greenhouse peripherals are assigned via dynamic hardware registry, the configuration JSON's `"greenhouses"` array could be empty, causing valid greenhouse targets to fail validation.
+   - **Resolution**: Enhanced `active_config_has_gh()` in `command_mgr.c` to iterate `hardware_registry` component assignments: if any registered, commissioned, or enabled component has `assignment.gh_id == gh_id`, the greenhouse target is validated as authoritative.
+
+4. **Schedule Intent Parsing and Hardware Binding**
+   - **Resolution**: Enhanced `sync_intents_locked()` in `scheduler.c`:
+     - Normalizes fan aliases (`fan_cooling`, `fan_blower`, `fan-cooling`, `blower-fan`, `cooling_fan`, `blower`).
+     - Intelligent target binding: `FAN_TOGGLE` schedules with a greenhouse ID automatically bind to `fan_blower` (greenhouse blower contactor on GPIO 10); facility/cabinet schedules without greenhouse ID bind to `fan_cooling` (cabinet exhaust fan on GPIO 7).
+     - Flexible recurrence parsing: supports both ISO/UI `"time": "HH:MM"` string format and OpenAPI `"hour": HH, "minute": MM` integer properties.
+
+5. **Schedule Capacity & API Buffer Scaling**
+   - **Problem**: Schedules beyond 16 were truncated from `/api/v1/schedules` GET responses because `entries[16]` was statically sized, and `MAX_COMPILED_SCHEDULES` in `scheduler.c` stopped intent ingestion at 16 entries.
+   - **Resolution**: Raised `MAX_COMPILED_SCHEDULES` to `32` in `scheduler.c`. In `api_schedule_handlers.c`, replaced the 16-element stack array in `api_schedule_get_all_handler()` with heap allocation of `MAX_SCHEDULE_INTENTS` (32 entries), allowing full retrieval of all deployed schedules.
+
+6. **Physical Actuation & Execution Verification**
+   - **Facility Cabinet Cooling Fan (`fan_cooling`, GPIO 7 / MOSFET Channel 3)**:
+     - Schedule intent (`fan-live-auto-1`, duration: 10 seconds) triggered at 21:36:17 WIB (14:36:17Z):
+       - `COMMAND_ACCEPTED` logged by command manager.
+       - `FAN_STARTED` logged; MOSFET Channel 3 (GPIO 7, Active-HIGH) actuated ON.
+       - At 21:36:27 WIB (14:36:27Z): `FAN_STOPPED` logged; MOSFET Channel 3 actuated OFF.
+       - Schedule entry updated with `lastExecutionTimestamp: 1790951777` (21:36:17 WIB) and `isRunning: false`.
+   - **Greenhouse Blower Contactor (`fan_blower`, GPIO 10 / 4-Channel Relay IN3)**:
+     - Direct command (`test-blower-direct-2`, duration: 5 seconds):
+       - At 21:47:08 WIB: `FAN_STARTED` logged; Relay IN3 (GPIO 10, Active-LOW) actuated ON.
+       - At 21:47:13 WIB: `FAN_STOPPED` logged; Relay IN3 actuated OFF.
+     - Autonomous schedule intent (`blower-sched-verify-1`, duration: 10 seconds):
+       - At 21:49:00 WIB (14:49:00Z): `COMMAND_ACCEPTED` logged by command manager.
+       - `FAN_STARTED` logged; Relay IN3 (GPIO 10, Active-LOW) physically clicked ON.
+       - At 21:49:10 WIB (14:49:10Z): `FAN_STOPPED` logged; Relay IN3 physically clicked OFF.
+       - Schedule entry updated with `lastExecutionTimestamp: 1790952540` (21:49:00 WIB) and `isRunning: false`.
+
+
 
