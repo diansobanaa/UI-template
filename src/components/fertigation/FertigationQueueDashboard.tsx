@@ -92,25 +92,66 @@ export function FertigationQueueDashboard({
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
   const inFlightRef = useRef(false);
+  const hasAutoSyncedRef = useRef(false);
   const fetchStatus = async (isManual = false) => {
     if (inFlightRef.current && !isManual) return;
     inFlightRef.current = true;
     if (isManual) setRefreshing(true);
     try {
+      if (isManual && effectiveComplexId) {
+        try {
+          await scheduleService.deploySchedules(effectiveComplexId);
+        } catch {
+          // best-effort
+        }
+      }
+
       const [statusRes, queueRes] = await Promise.allSettled([
         esp32Client.getFertigationStatus(),
         esp32Client.getFertigationQueue(),
       ]);
 
+      let stVal: any = null;
+      let qBatches: any[] = [];
+
       if (statusRes.status === "fulfilled" && statusRes.value) {
-        setLiveStatus(statusRes.value);
+        stVal = statusRes.value;
+        setLiveStatus(stVal);
         setOffline(false);
       }
       if (queueRes.status === "fulfilled" && queueRes.value) {
-        const qBatches = Array.isArray(queueRes.value?.queuedBatches)
+        qBatches = Array.isArray(queueRes.value?.queuedBatches)
           ? queueRes.value.queuedBatches
           : [];
         setLiveQueue(qBatches);
+      }
+
+      // Auto-catchup: If local schedules are enabled, but ESP32 dosing queue and today schedule are completely empty,
+      // trigger an automatic catchup deployment so newly registered peripherals immediately populate the queue.
+      if (
+        effectiveComplexId &&
+        !hasAutoSyncedRef.current &&
+        qBatches.length === 0 &&
+        (!stVal?.todaySchedule || stVal.todaySchedule.length === 0) &&
+        (!stVal?.state || stVal.state === "IDLE" || stVal.state === "FERT_STATE_IDLE")
+      ) {
+        const localScheds = ghs.flatMap((g) => scheduleService.fertigationForGh(g.id));
+        if (localScheds.some((s) => s.enabled)) {
+          hasAutoSyncedRef.current = true;
+          try {
+            await scheduleService.deploySchedules(effectiveComplexId);
+            const [sRes2, qRes2] = await Promise.allSettled([
+              esp32Client.getFertigationStatus(),
+              esp32Client.getFertigationQueue(),
+            ]);
+            if (sRes2.status === "fulfilled" && sRes2.value) setLiveStatus(sRes2.value);
+            if (qRes2.status === "fulfilled" && qRes2.value) {
+              setLiveQueue(Array.isArray(qRes2.value?.queuedBatches) ? qRes2.value.queuedBatches : []);
+            }
+          } catch (autoErr) {
+            console.warn("[FertigationQueueDashboard] Auto-sync schedules error:", autoErr);
+          }
+        }
       }
     } catch {
       setOffline(true);

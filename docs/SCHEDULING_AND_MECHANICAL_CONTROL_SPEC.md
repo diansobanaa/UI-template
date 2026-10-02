@@ -3624,6 +3624,16 @@ PYTHON SAVE + ANALYSIS
    - `POST /api/v1/schedules/trigger-today`: Explicit endpoint to force daily materialization and queue evaluation on operator demand or initial setup.
    - `dailyTriggerExecuted` boolean flag exposed in `GET /api/v1/fertigation/status` and `GET /api/v1/fertigation/queue` providing transparent operational health status.
 
+5. **Peripheral Registration & Component Mutation Auto-Enqueue Pipeline (SP-PERIPHERAL-AUTO-ENQUEUE-001)**
+   - When hardware peripherals are registered or updated via `hardwareService.registerComponent()`, `updateComponent()`, or `saveConfiguration()`:
+     1. The system updates the authoritative operational snapshot equipment across complexes and greenhouses.
+     2. `deployCompiledScheduleSet(complexId)` is automatically invoked, re-evaluating candidate schedules against the newly satisfied hardware requirements (`BLOCKED` -> `ACTIVE`).
+     3. The newly compiled schedule set is deployed to ESP32 (`/api/v1/schedules/compiled`).
+     4. `esp32Client.triggerDailySchedules()` is triggered immediately, prompting `scheduler_trigger_daily_now()` / `materialize_today_schedule()` and `try_enqueue_pending_preparations()`.
+     5. Firmware activation (`api_config_handlers.c`) atomically executes `scheduler_sync_intents()` upon configuration commit.
+     6. `FertigationQueueDashboard` automatically runs catchup revalidation when local schedules are enabled but the ESP32 dosing queue is empty.
+     - Invariant: Peripheral registration immediately and autonomously populates the central dosing queue and begins eager mixing without requiring manual button clicks or page reloads.
+
 53. Human-Centered Fertigation & Mixing Architecture Rebuild (SP-FERT-REBUILD-001)
 
 1. **Elimination of Broken Containers & Fake Loops**

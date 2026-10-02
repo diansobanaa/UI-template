@@ -1,4 +1,42 @@
-# AI HANDOVER — SP-CONFIG-STAGE-001 (latest)
+# AI HANDOVER — SP-PERIPHERAL-AUTO-ENQUEUE-001 (latest)
+
+## Status — SP-PERIPHERAL-AUTO-ENQUEUE-001
+**Automatic Schedule Revalidation & Eager Dosing Queue Population on Peripheral Registration**
+**Safe Point**: `SP-PERIPHERAL-AUTO-ENQUEUE-001`
+**Date**: 2026-10-03
+**Git Commit**: `PENDING`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
+
+### Summary of What Was Done
+1. **Analisis Akar Masalah (Root Cause Investigation)**:
+   - Pengguna melaporkan bahwa setelah peripheral didaftarkan lengkap, antrean dosing di Central Unit tetap kosong (*"Tidak ada operasi peracikan dalam antrean saat ini"*), dan jadwal fertigasi pukul 06:00 ("tyrty") tidak segera di-fetch atau di-mix pada jam 00:00 atau pasca registrasi hardware.
+   - Sesuai spesifikasi kanonik Bab 52 (*SP-EAGER-PREMIX-001*), sistem menerapkan prinsip *eager pre-mix*: begitu jadwal harian di-materialize, antrean dosing sentral langsung diisi untuk meracik larutan nutrisi lebih awal sehingga siap sebelum waktu penyiraman.
+   - Ditemukan bahwa saat peripheral didaftarkan melalui form individual (`ComponentEditorModal.tsx` -> `hardwareService.registerComponent` / `updateComponent`), fungsi `updateConfigurationComponents()` langsung menyimpan ke ESP32 tanpa memanggil `deployCompiledScheduleSet(complexId)`. Jadwal "tyrty" tetap berstatus `BLOCKED` di cache lokal dan tidak pernah dikompilasi ke format biner ESP32.
+   - Selain itu, `deployCompiledScheduleSet()` belum memicu endpoint `POST /api/v1/schedules/trigger-today`, dan aktivasi konfigurasi di ESP32 (`api_config_handlers.c`) belum memicu `scheduler_sync_intents()`.
+
+2. **Perbaikan & Implementasi Pipeline Auto-Enqueue**:
+   - `src/lib/services.ts`:
+     - Pada `updateConfigurationComponents()`, menambahkan pembaruan snapshot operasional equipment (complex dan greenhouse) dan pemanggilan asynchronous `deployCompiledScheduleSet(complexId)` sehingga setiap pendaftaran/pembaruan peripheral langsung memicu kompilasi ulang jadwal dari `BLOCKED` ke `ACTIVE`.
+     - Pada `deployCompiledScheduleSet()`, menambahkan pemanggilan `esp32Client.triggerDailySchedules()` seketika setelah `deployCompiledSchedules()` berhasil, memaksa ESP32 untuk mem-materialize jadwal hari ini ke `todaySchedule` dan memasukkannya ke antrean dosing.
+     - Menambahkan method `deploySchedules(complexId)` pada objek `scheduleService`.
+   - `esp32/main/http/api_config_handlers.c`:
+     - Menyertakan `#include "services/scheduler.h"`.
+     - Pada `deploy_configuration_json()`, memanggil `scheduler_sync_intents()` saat kandidat konfigurasi berhasil diaktifkan secara atomik, memastikan scheduler runtime di ESP32 segera dievaluasi terhadap registry hardware baru.
+   - `src/components/fertigation/FertigationQueueDashboard.tsx`:
+     - Menambahkan logika catchup otomatis saat komponen dashboard mount: jika jadwal lokal ada yang berstatus aktif/terdaftar namun antrean dan `todaySchedule` di ESP32 masih kosong, dashboard secara mandiri memicu sinkronisasi jadwal sehingga antrean dosing langsung terisi.
+     - Tombol refresh manual juga memicu revalidasi jadwal ke controller.
+   - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`:
+     - Menambahkan sub-bagian 52.5 (*SP-PERIPHERAL-AUTO-ENQUEUE-001: Peripheral Registration & Component Mutation Auto-Enqueue Pipeline*).
+
+3. **Verifikasi & Acceptance**:
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers lolos 100%.
+   - `npm run build`: Singlefile bundle 1,225.99 kB berhasil di-build bersih tanpa error TypeScript (`0 errors`).
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: Keempat invarian auto-enqueue lolos 100%.
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 pengujian konsistensi UX antrean lolos 100%.
+
+---
+
+# AI HANDOVER — SP-CONFIG-STAGE-001 (previous)
 
 ## Status — SP-CONFIG-STAGE-001
 **Elimination of NVS Page Exhaustion (0x1105) & Failed to Stage Configuration Fix**

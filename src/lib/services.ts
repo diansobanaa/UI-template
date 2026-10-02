@@ -1078,6 +1078,12 @@ async function deployCompiledScheduleSet(complexId: string, overrides: {
         configurationHash: configuration.configurationHash ?? null,
         compiled,
       });
+      // Spec §52: Immediately trigger today's schedule materialization & eager dosing queue on ESP32
+      try {
+        await esp32Client.triggerDailySchedules();
+      } catch (triggerErr) {
+        console.warn("[deployCompiledScheduleSet] Trigger daily schedules notice:", triggerErr);
+      }
       return compiled;
     } catch (err: any) {
       // Reconcile against device current compiled set before warning
@@ -1857,6 +1863,10 @@ export const scheduleService = {
     } catch (err) {
       console.warn("[scheduleService] Fan delete redeployment warning:", err);
     }
+  },
+
+  async deploySchedules(complexId: string): Promise<CompiledSchedule[]> {
+    return deployCompiledScheduleSet(complexId);
   },
 };
 
@@ -2922,6 +2932,48 @@ export const hardwareService = {
       throw new ServiceError('VALIDATION_FAILED', message);
     }
     const applied = await _esp32.saveConfiguration(nextConfig);
+
+    // Immediately update operational snapshot equipment and revalidate schedules:
+    const complexId = nextConfig.complexId || complexService.list()[0]?.id;
+    if (complexId) {
+      const snapshot = getOperationalSnapshot();
+      const targetGhs = snapshot.greenhouses.filter((g) => g.complexId === complexId);
+      const complexEq = (applied.components || nextComponents).filter(
+        (c) => !c.assignment?.ghId || c.assignment?.ghId === ""
+      );
+      const complexEqList: EquipmentItem[] = complexEq.map((c) => ({
+        name: c.name,
+        status: (c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "OK" : "OFFLINE",
+        type: c.supportedTypeId || c.role || undefined,
+        category: c.role || c.supportedTypeId || undefined,
+      }));
+      const targetComplex = snapshot.complexes.find((c) => c.id === complexId);
+      if (targetComplex) {
+        replaceComplex({ ...targetComplex, equipment: complexEqList });
+      }
+
+      targetGhs.forEach((gh) => {
+        const ghComponents = (applied.components || nextComponents).filter(
+          (c) => c.assignment?.ghId === gh.id
+        );
+        const eqList: EquipmentItem[] = ghComponents.map((c) => ({
+          name: c.name,
+          status: (c.lifecycleState === "COMMISSIONED" || c.lifecycleState === "ENABLED") ? "OK" : "OFFLINE",
+          type: c.supportedTypeId || c.role || undefined,
+          category: c.role || c.supportedTypeId || undefined,
+        }));
+        replaceGreenhouse({
+          ...gh,
+          equipment: eqList,
+        });
+      });
+
+      // Automatically revalidate and redeploy schedules against newly registered peripherals
+      deployCompiledScheduleSet(complexId).catch((schedErr) => {
+        console.warn("[hardwareService.updateConfigurationComponents] Schedule revalidation warning:", schedErr);
+      });
+    }
+
     return applied.components ?? [];
   },
 

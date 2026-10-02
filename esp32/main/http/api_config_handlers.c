@@ -3,6 +3,7 @@
 #include "storage/storage_mgr.h"
 #include "hal/hardware_registry.h"
 #include "hal/sensor_hal.h"
+#include "services/scheduler.h"
 #include "cJSON.h"
 #include "services/event_mgr.h"
 #include <string.h>
@@ -341,6 +342,7 @@ static esp_err_t deploy_configuration_json(httpd_req_t *req, cJSON *body, cJSON 
     err = storage_mgr_activate_candidate();
     if (err == ESP_OK) {
         (void)sensor_hal_reconfigure_from_registry();
+        (void)scheduler_sync_intents();
     }
     if (err != ESP_OK) {
         /* Restore the previous runtime registry from the old active snapshot. */

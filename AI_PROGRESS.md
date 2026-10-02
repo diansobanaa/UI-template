@@ -1,3 +1,27 @@
+## SP-PERIPHERAL-AUTO-ENQUEUE-001 — Automatic Schedule Revalidation & Eager Dosing Queue Population on Peripheral Registration
+- **Date**: 2026-10-03
+- **Git Commit**: `PENDING`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — FRONTEND BUILD PASS (1,765 MODULES) — CANONICAL SPEC UPDATED`
+- **Objective**:
+  1. Fix the issue where fertigation schedules remained unqueued and Central Dosing Unit remained idle when peripherals were registered.
+  2. Implement automatic schedule revalidation and compiled deployment upon component mutation (`registerComponent`, `updateComponent`, `decommissionComponent`) in `hardwareService.updateConfigurationComponents()`.
+  3. Ensure `deployCompiledScheduleSet()` immediately triggers daily schedule materialization and queueing on ESP32 (`esp32Client.triggerDailySchedules()`).
+  4. Ensure ESP32 configuration deployment handler (`deploy_configuration_json`) atomically invokes `scheduler_sync_intents()` upon configuration commit.
+  5. Add auto-catchup schedule deployment in `FertigationQueueDashboard.tsx` when local schedules exist but the dosing queue and today schedule are empty.
+  6. Update canonical specification in `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` (§52.5).
+- **Root Cause & Resolution**:
+  - *Root Cause:* While `hardwareService.saveConfiguration()` was triggering `deployCompiledScheduleSet()`, individual component additions and mutations via `hardwareService.updateConfigurationComponents()` were directly saving to ESP32 without revalidating schedules. Furthermore, `deployCompiledScheduleSet()` did not trigger ESP32's `triggerDailySchedules()`, and ESP32's `deploy_configuration_json()` was not calling `scheduler_sync_intents()`.
+  - *Resolution:*
+    1. In `src/lib/services.ts`, `updateConfigurationComponents()` now updates operational snapshot equipment and invokes `deployCompiledScheduleSet(complexId)` asynchronously.
+    2. In `src/lib/services.ts`, `deployCompiledScheduleSet()` calls `esp32Client.triggerDailySchedules()` immediately after deploying compiled schedules to ESP32.
+    3. In `esp32/main/http/api_config_handlers.c`, `deploy_configuration_json()` calls `scheduler_sync_intents()` upon candidate configuration activation.
+    4. In `src/components/fertigation/FertigationQueueDashboard.tsx`, added automated catchup schedule synchronization when local schedules are enabled but ESP32 queue is empty.
+- **Verification Results**:
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers + schema tests PASS.
+  - `npm run build`: Singlefile build 1,225.99 kB clean in 22.95s (0 TypeScript errors).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: All 4 auto-enqueue invariants PASS.
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 tests PASS.
+
 ## SP-CONFIG-STAGE-001 — Elimination of NVS Page Exhaustion (0x1105) & Failed to Stage Configuration Fix
 - **Date**: 2026-10-03
 - **Git Commit**: `67529ce`
