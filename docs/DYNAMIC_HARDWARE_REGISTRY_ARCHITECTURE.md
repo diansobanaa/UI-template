@@ -319,7 +319,7 @@ To eliminate arbitrary, error-prone GPIO pin selection and simplify hardware com
    - All state, active inventory, and configurations reload dynamically when switching complexes (`?complex=<id>`).
 2. **Shared Facility vs. Per-Greenhouse (GH) Logic:**
    - **Shared Facility Resources (`ghId: null`):**
-     - Actuators and sensors serving the entire complex or central mixing station are scoped to the complex level: Deep Well Pump (GPIO 1), Raw Submersible (GPIO 4), Dosing Pump A (GPIO 5), Dosing Pump B (GPIO 6), Cabinet Cooling Fan (GPIO 7), Mixing Tank Pump (GPIO 40), Alarm Beacon (GPIO 18), Raw Flow Meter ZJ-B1 (GPIO 15), Mixing Temp DS18B20 (GPIO 17), and Lower Float Switch (GPIO 38).
+     - Actuators and sensors serving the entire complex or central mixing station are scoped to the complex level: Deep Well Pump (GPIO 1), Raw Submersible (GPIO 4), Dosing Pump A (GPIO 5), Dosing Pump B (GPIO 6), Cabinet Cooling Fan (GPIO 7), Mixing Tank Pump (GPIO 40), Alarm Buzzer via MOSFET (GPIO 18), Raw Flow Meter ZJ-B1 (GPIO 15), Mixing Temp DS18B20 (GPIO 17), and Lower Float Switch (GPIO 38).
      - Marked with `🏢 Shared Facility (Semua GH)`.
    - **Greenhouse-Specific Equipment (`ghId: "gh-01"`, etc.):**
      - Hardware physically located inside or dedicated to a specific greenhouse: Greenhouse Blower Fans (GPIO 10) and Distribution Booster Pumps (GPIO 2).

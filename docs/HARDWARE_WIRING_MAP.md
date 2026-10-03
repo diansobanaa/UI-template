@@ -285,14 +285,14 @@ AC Protective Earth (PE) ──────────────────�
 
 ---
 
-### 4.2. Loads via 4-Channel Optocoupled Relay Board & Output Drivers
+### 4.2. Loads via 4-Channel Optocoupled Relay Board
 * **Channel 1 (GPIO 4):** 12V DC Raw Water Submersible Pump (Relay IN1)
-* **Channel 2 (GPIO 18):** Active Alarm Buzzer (5V DC, ~30mA) via N-channel MOSFET Module Gate Driver (safely isolates ESP32 GPIO from ~30mA load)
+* **Channel 2:** SPARE / UNCONNECTED (Relay IN2 is not wired to ESP32; Buzzer is driven by dedicated MOSFET Module #4)
 * **Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans via 4-Ch Relay IN3 triggering external Omron Relay / Contactor
 * **Channel 4 (GPIO 40):** 220V AC Pond Pump for Mixing Tank (Relay IN4)
 
 ```text
-ESP32 GPIO 4 / 18 / 40 (Active-LOW: 0V = ON)
+ESP32 GPIO 4 / 10 / 40 (Active-LOW: 0V = ON)
       │ (Sinks optocoupler cathode)
       ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -300,7 +300,7 @@ ESP32 GPIO 4 / 18 / 40 (Active-LOW: 0V = ON)
 │                                                             │
 │   +5V Rail ───────► VCC  ──[ Jumper ]──► JD-VCC (Coil 5V)   │
 │   ESP32 GND ──────► GND (Common ground with ESP32)          │
-│   ESP32 GPIO ─────► INx (Optocoupler input)                 │
+│   ESP32 GPIO ─────► INx (Optocoupler input: IN1, IN3, IN4)  │
 └──────────────────────────────┬──────────────────────────────┘
                                │ Mechanical Contact Closure
                                ▼
@@ -313,21 +313,22 @@ Return Conductor ─────────────────────
 
 ---
 
-### 4.3. 12V DC Loads via 3x High-Power MOSFET Modules
+### 4.3. DC Loads via 4x N-Channel MOSFET Driver Modules
 * **MOSFET #1 (GPIO 5):** 12V DC Peristaltic Dosing Pump A (Nutrient)
 * **MOSFET #2 (GPIO 6):** 12V DC Peristaltic Dosing Pump B (pH/Buffer)
 * **MOSFET #3 (GPIO 7):** 12V DC Cabinet Cooling Fan
+* **MOSFET #4 (GPIO 18):** 5V DC Active Alarm Buzzer (~30mA load safely driven via MOSFET gate stage)
 * *Note: Physical trigger terminals verified by operator: TRIG-PWM (Signal) and GND (Ground return).*
 
 ```text
-ESP32 GPIO 5 / 6 / 7          ESP32 Signal GND
+ESP32 GPIO 5 / 6 / 7 / 18     ESP32 Signal GND
       │                              │
       ▼                              ▼
 ┌────────────────────────────────────────────────────────┐
 │ High-Power MOSFET Module (15A / 400W)                  │
 │                                                        │
 │ Logic Trigger Input:  [ TRIG-PWM ]       [ GND ]       │
-│ Power Input:          [ VIN+ (12V) ]     [ VIN- (GND) ]│
+│ Power Input:          [ VIN+ (12V/5V) ]  [ VIN- (GND) ]│
 │ Power Output:         [ OUT+ (12V) ]     [ OUT- (Sw) ] │
 └──────────────────────────────┬─────────────────────────┘
                                │ High-Speed Solid-State Switched DC

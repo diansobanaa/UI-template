@@ -87,3 +87,4 @@ export default defineConfig(({ mode }) => {
     },
   };
 });
+// Reload config for ESP32 target: http://192.168.0.101

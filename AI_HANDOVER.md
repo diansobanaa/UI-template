@@ -1,10 +1,27 @@
-# AI HANDOVER — SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001 (latest)
+# AI HANDOVER — SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001 (latest)
 
-## Status — SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001
-**Resolve 12V Raw Water Pump Relay Not Actuating on Calibration Start**
-**Safe Point**: `SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001`
+## Status — SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001
+**Reconcile 5V Active Buzzer to N-Channel MOSFET #4 (GPIO 18) and Free Relay IN2**
+**Safe Point**: `SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001`
 **Date**: 2026-10-03
-- **Verdict**: `COMPLETE & FULLY VERIFIED — HARDWARE LIVE FLASH & REST API PASS (100%)`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — CANONICAL DOCUMENTATION RECONCILED (100%)`
+
+### Summary of What Was Done
+1. **Buzzer Driver Reconciliation**:
+   - Reconciled all canonical documentation to reflect that the 5V Active Alarm Buzzer (`buzzer_alarm`) is driven via an N-Channel MOSFET Driver Module (`MOSFET #4` on GPIO 18, Active-HIGH: 3.3V=ON, 0V=OFF), NOT through the 4-Channel Relay Board.
+   - Reconciled Channel 2 (`IN2`) of the 4-Channel Optocoupled Relay Board as strictly `SPARE / UNCONNECTED (NOT USED)`.
+2. **Canonical Documents Updated**:
+   - `docs/COMPONENT_PIN_MAP.md`: Marked 4-Ch Relay `IN2` as spare/unconnected; expanded Section 2.6 to 4x N-channel MOSFET modules including MOSFET #4 on GPIO 18 switching 5V DC Active Buzzer.
+   - `docs/HARDWARE_WIRING_MAP.md`: In Section 4.2, marked Channel 2 as spare and updated relay trigger lines to GPIO 4, 10, 40 (Active-LOW); in Section 4.3, expanded to 4x MOSFET modules including MOSFET #4 on GPIO 18.
+   - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`: Updated mermaid visual diagram and pin allocation table: Relay IN2 is spare (`NC`), MOSFET 4 (GPIO 18, Active-HIGH) drives 5V Active Buzzer.
+   - `docs/ESP32_ASSEMBLY_GUIDE.md`: Updated hardware inventory, pin table, and load channels to reflect 4x MOSFET modules and Buzzer on GPIO 18.
+   - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`: Updated Section 4.4 to refer to `Alarm Buzzer via MOSFET (GPIO 18)`.
+3. **Frontend Target IP Alignment**:
+   - Corrected `.env.local` to point to `http://192.168.0.101` (actual ESP32 IP); reloaded Vite configuration and rebuilt production bundle.
+
+---
+
+# AI HANDOVER — SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001 (previous)
 
 ### Summary of What Was Done
 1. **Safety Interlock Resolution (Float Lower False Trip)**:

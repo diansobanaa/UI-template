@@ -91,20 +91,21 @@ This document specifies the exact mapping from the physical pins of each discret
 | Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
 | **4-Ch Relay** | **GND** | Module Ground | **ESP32 GND & 5V PSU GND** | Common Ground | Ground Return | 0V Reference | **VERIFIED** |
-| **4-Ch Relay** | **IN1** | Channel 1 Opto Trigger | **ESP32 GPIO 4** (Left-4) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED** |
-| **4-Ch Relay** | **IN2** | Channel 2 Opto Trigger | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **REPURPOSED (MOSFET STAGE)** |
+| **4-Ch Relay** | **IN1** | Channel 1 Opto Trigger | **ESP32 GPIO 4** (Left-4) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED (Raw Water Pump 12V)** |
+| **4-Ch Relay** | **IN2** | Channel 2 Opto Trigger | *NC / NOT CONNECTED* | *NC* | None | *NC* | **SPARE / UNCONNECTED (Buzzer uses MOSFET #4)** |
 | **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger (Blower) | **ESP32 GPIO 10** (Left-16) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE (OMRON TRIGGER)** |
-| **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | **ESP32 GPIO 40** (Right-8) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE** |
+| **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | **ESP32 GPIO 40** (Right-8) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE (Mixing Pump 220V)** |
 | **4-Ch Relay** | **VCC** | Optocoupler Anode Supply| **+5V DC Rail** | DC Power | Power Input | 5.0V DC Nominal | **VERIFIED** |
 | **4-Ch Relay** | **JD-VCC** | Relay Coil Power | *Bridged to VCC via Jumper* | DC Power | Power Input | 5.0V DC (via Jumper)| **VERIFIED** |
 
-*Caution: Jumper closed configuration requires common ground with ESP32. Cutoff margin at 3.3V logic high must be verified with multimeter.*
+*Caution: Jumper closed configuration requires common ground with ESP32. Cutoff margin at 3.3V logic high must be verified with multimeter. Pin IN2 is not connected (spare).*
 
 ---
 
-### 2.6. DC Switching Drivers: 3x High-Power MOSFET Modules
-- **Physical Module:** 3 Units of High-Power MOSFET Driver Modules (15A / 400W).
+### 2.6. DC Switching Drivers: 4x High-Power MOSFET Modules
+- **Physical Module:** 4 Units of High-Power N-Channel MOSFET Driver Modules (15A / 400W).
 - **Physical Pin Status:** **VERIFIED** (Physical trigger markings provided by operator: `TRIG-PWM` / `TRIG/PWM` and `GND`).
+- **Control Logic:** Active-HIGH (`1` = 3.3V = ON, `0` = 0V = OFF). Safe boot default = LOW (0V).
 
 | Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
@@ -120,6 +121,10 @@ This document specifies the exact mapping from the physical pins of each discret
 | **MOSFET #3** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #3** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #3** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Cooling Fan | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
+| **MOSFET #4** | **TRIG-PWM** | Gate Trigger Input | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE** |
+| **MOSFET #4** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
+| **MOSFET #4** | **VIN+ / VIN-**| DC Power Input Terminals | 5V DC Rail (LM2596 OUT+) | DC Power Rail | Power Supply | 5V DC & GND_LV | **VERIFIED** |
+| **MOSFET #4** | **OUT+ / OUT-**| DC Load Terminals | Active Alarm Buzzer (5V DC) | DC Load Switch | Power Output | Switched 5V DC (~30mA) | **VERIFIED SAFE** |
 
 ---
 

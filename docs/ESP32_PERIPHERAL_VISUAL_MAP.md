@@ -59,34 +59,36 @@ flowchart TD
     subgraph ACT_DC ["Aktuator DC 12V Relays and MOSFETs"]
         RLY_BOARD["4-Channel Relay Board Optocoupler 5V"]:::dc
         PUMP_RAW["Pompa Air Baku Celup<br/>Submersible 12V DC"]:::dc
-        ALARM_BEACON["Lampu Alarm Sistem / Beacon Merah<br/>12V DC"]:::dc
 
         MOS1["MOSFET Module 1 LR7843<br/>Optocoupler Isolated"]:::dc
         MOS2["MOSFET Module 2 LR7843<br/>Optocoupler Isolated"]:::dc
         MOS3["MOSFET Module 3 LR7843<br/>Optocoupler Isolated"]:::dc
+        MOS4["MOSFET Module 4 LR7843<br/>Buzzer Driver Stage"]:::dc
         PUMP_DOS_A["Dosing Pump A Nutrisi<br/>Peristaltik 12V DC"]:::dc
         PUMP_DOS_B["Dosing Pump B Buffer<br/>Peristaltik 12V DC"]:::dc
         FAN_EXH["Kipas Panel Box<br/>Exhaust Fan 12V DC"]:::dc
+        BUZZER_DEV["Buzzer Alarm Aktif 5V DC<br/>Acoustic Sounder"]:::dc
 
         ESP -->|GPIO 4 Left-4 IN1 Active-LOW| RLY_BOARD
         RLY_BOARD --> PUMP_RAW
-        ESP -->|GPIO 18 Left-11 IN2 Active-LOW| RLY_BOARD
-        RLY_BOARD --> ALARM_BEACON
         ESP -->|GPIO 10 Left-16 IN3 Active-LOW| RLY_BOARD
         RLY_BOARD -.->|Trigger Koil A1-A2| CONTACTOR_BLOWER["Kontaktor Magnetik AC<br/>Blower Trigger"]:::ac
         CONTACTOR_BLOWER --> BLOWER_FANS["2x Kipas Blower Greenhouse<br/>220V AC Paralel"]:::ac
 
-        ESP -->|GPIO 5 Left-5 PWM Gate| MOS1
+        ESP -->|GPIO 5 Left-5 PWM Gate Active-HIGH| MOS1
         MOS1 --> PUMP_DOS_A
-        ESP -->|GPIO 6 Left-6 PWM Gate| MOS2
+        ESP -->|GPIO 6 Left-6 PWM Gate Active-HIGH| MOS2
         MOS2 --> PUMP_DOS_B
-        ESP -->|GPIO 7 Left-7 PWM Gate| MOS3
+        ESP -->|GPIO 7 Left-7 PWM Gate Active-HIGH| MOS3
         MOS3 --> FAN_EXH
+        ESP -->|GPIO 18 Left-11 Gate Active-HIGH| MOS4
+        MOS4 --> BUZZER_DEV
 
         PSU -.->|12V Load Supply| RLY_BOARD
         PSU -.->|12V Load Supply| MOS1
         PSU -.->|12V Load Supply| MOS2
         PSU -.->|12V Load Supply| MOS3
+        LM2596 -.->|5V Load Supply| MOS4
     end
 
     subgraph BUS_COMM ["Bus Komunikasi dan Sensor I2C and 1-Wire"]
@@ -167,11 +169,13 @@ flowchart TD
 | **Beban AC 220V** | Omron Relay 1 | **GPIO 1** | Right-4 | Digital Output | Active-LOW (Pompa Sumur Dalam) |
 | **Beban AC 220V** | Omron Relay 2 | **GPIO 2** | Right-5 | Digital Output | Active-LOW (Pompa Booster Distribusi) |
 | **Beban DC 12V** | 4-Ch Relay IN1 | **GPIO 4** | Left-4 | Digital Output | Active-LOW (Pompa Air Baku Celup) |
-| **Beban DC 12V** | 4-Ch Relay IN2 | **GPIO 18** | Left-11 | Digital Output | Active-LOW (Lampu Alarm Sistem) |
+| **Relay Bebas** | 4-Ch Relay IN2 | *NC* | - | *NC* | Bebas / Tidak Terhubung (Buzzer memakai MOSFET 4) |
 | **Beban AC 220V** | 4-Ch Relay IN3 | **GPIO 10** | Left-16 | Digital Output | Active-LOW (Trigger Kontaktor Magnetik 2x Kipas Blower Greenhouse - Booked/Standby) |
-| **Beban DC 12V** | MOSFET Modul 1 | **GPIO 5** | Left-5 | PWM / Digital Out | Active-LOW Gate (Dosing Pump A Nutrisi) |
-| **Beban DC 12V** | MOSFET Modul 2 | **GPIO 6** | Left-6 | PWM / Digital Out | Active-LOW Gate (Dosing Pump B pH) |
-| **Beban DC 12V** | MOSFET Modul 3 | **GPIO 7** | Left-7 | PWM / Digital Out | Active-LOW Gate (Kipas Exhaust Box) |
+| **Beban AC 220V** | 4-Ch Relay IN4 | **GPIO 40** | Right-8 | Digital Output | Active-LOW (Pompa Sirkulasi / Aduk Tangki Nutrisi) |
+| **Beban DC 12V** | MOSFET Modul 1 | **GPIO 5** | Left-5 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump A Nutrisi) |
+| **Beban DC 12V** | MOSFET Modul 2 | **GPIO 6** | Left-6 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump B pH) |
+| **Beban DC 12V** | MOSFET Modul 3 | **GPIO 7** | Left-7 | PWM / Digital Out | Active-HIGH Gate (Kipas Exhaust Box) |
+| **Beban DC 5V** | MOSFET Modul 4 | **GPIO 18** | Left-11 | Digital Output | Active-HIGH Gate (Buzzer Alarm Aktif 5V) |
 | **Bus Komunikasi** | DS3231 RTC (SDA) | **GPIO 8** | Left-12 | I2C Data (SDA) | Bi-directional, wajib pull-up 4.7kΩ |
 | **Bus Komunikasi** | DS3231 RTC (SCL) | **GPIO 9** | Left-15 | I2C Clock (SCL) | Clock Out, wajib pull-up 4.7kΩ |
 | **Bus Komunikasi** | DS18B20 Temp | **GPIO 17** | Left-10 | 1-Wire Bus | Bi-directional, wajib pull-up 4.7kΩ ke 3.3V |

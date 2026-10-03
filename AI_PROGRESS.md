@@ -1,3 +1,29 @@
+## SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001 — Reconcile 5V Active Buzzer to N-Channel MOSFET #4 (GPIO 18) and Free Relay IN2
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — CANONICAL DOCUMENTATION RECONCILED (100%)`
+- **Objective**:
+  - Reconcile all canonical documentation to reflect that the 5V Active Alarm Buzzer (`buzzer_alarm`) is driven via an N-Channel MOSFET Driver Module (`MOSFET #4` on GPIO 18, Active-HIGH: 3.3V=ON, 0V=OFF), NOT through the 4-Channel Relay Board.
+  - Reconcile Channel 2 (`IN2`) of the 4-Channel Optocoupled Relay Board as strictly `SPARE / UNCONNECTED (NOT USED)`.
+  - Fix outdated legacy mentions in `COMPONENT_PIN_MAP.md`, `HARDWARE_WIRING_MAP.md`, `ESP32_PERIPHERAL_VISUAL_MAP.md`, `ESP32_ASSEMBLY_GUIDE.md`, and `DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`.
+- **Completed Work**:
+  - `docs/COMPONENT_PIN_MAP.md`:
+    - In Section 2.5 (4-Channel Relay Board): Marked `IN2` as `*NC / NOT CONNECTED*` (Spare / Unconnected).
+    - In Section 2.6: Expanded to 4x N-Channel MOSFET Modules and documented MOSFET #4 (GPIO 18 Left-11, Active-HIGH) driving the 5V DC Active Buzzer.
+  - `docs/HARDWARE_WIRING_MAP.md`:
+    - In Section 4.2: Clarified Channel 2 is spare; updated relay block diagram to `INx (IN1, IN3, IN4)` on GPIO 4, 10, 40 (Active-LOW: 0V=ON).
+    - In Section 4.3: Expanded DC loads to 4x N-Channel MOSFET modules including MOSFET #4 (GPIO 18) for the 5V Active Alarm Buzzer.
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`:
+    - Updated mermaid diagram to route GPIO 18 Active-HIGH to `MOS4` driving `BUZZER_DEV` (5V load from LM2596), removing obsolete `ALARM_BEACON` on relay board.
+    - Updated pin allocation table: Relay IN2 is spare (`NC`), MOSFET 4 (GPIO 18) drives 5V Active Buzzer.
+  - `docs/ESP32_ASSEMBLY_GUIDE.md`:
+    - Updated hardware inventory to 4x MOSFET modules; updated pin table and load channels to reflect MOSFET #4 on GPIO 18.
+  - `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`:
+    - Updated line 322 to refer to `Alarm Buzzer via MOSFET (GPIO 18)`.
+  - `.env.local` & `vite.config.ts`: Corrected `VITE_ESP32_API_BASE=http://192.168.0.101` and rebuilt singlefile bundle.
+- **Verification Results**:
+  - `npm test`: PASS (28 canonical endpoints + 26 ESP32 handlers).
+  - All GPIO definitions in `pin_config.h` (`PIN_OUT_BUZZER 18`, `BUZZER_ACTIVE_LEVEL 1`) verified 100% consistent with updated canonical documents.
+
 ## SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001 — Resolve 12V Raw Water Pump Relay Not Actuating on Calibration Start
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — HARDWARE LIVE FLASH & REST API PASS (100%)`
