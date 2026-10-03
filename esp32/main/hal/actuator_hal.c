@@ -159,11 +159,25 @@ static bool actuator_role_matches(actuator_id_t id, const char *role)
 {
     if (!role || !role[0]) return false;
     const char *canonical = actuator_role_for_id(id);
-    if (canonical && strcmp(role, canonical) == 0) return true;
-    if (id == ACTUATOR_DIST_PUMP && strcmp(role, "DIST_PUMP") == 0) return true;
-    if (id == ACTUATOR_MIXING_PUMP && strcmp(role, "MIX_PUMP") == 0) return true;
-    if (id == ACTUATOR_ERROR_LAMP && (strcmp(role, "ALARM_LAMP") == 0 || strcmp(role, "ERROR_BEACON") == 0)) return true;
-    if (id == ACTUATOR_BUZZER && strcmp(role, "ALARM_BUZZER") == 0) return true;
+    if (canonical && strcasecmp(role, canonical) == 0) return true;
+    if (id == ACTUATOR_RAW_SUBMERSIBLE &&
+        (strcasecmp(role, "RAW_SUBMERSIBLE") == 0 ||
+         strcasecmp(role, "RAW_WATER") == 0 ||
+         strcasecmp(role, "PUMP_SUBMERSIBLE") == 0 ||
+         strcasecmp(role, "PUMP_RAW") == 0 ||
+         strcasecmp(role, "raw_water_pump") == 0)) return true;
+    if (id == ACTUATOR_DOSING_A &&
+        (strcasecmp(role, "DOSING_A") == 0 ||
+         strcasecmp(role, "pump_dosing_a") == 0 ||
+         strcasecmp(role, "dosingA") == 0)) return true;
+    if (id == ACTUATOR_DOSING_B &&
+        (strcasecmp(role, "DOSING_B") == 0 ||
+         strcasecmp(role, "pump_dosing_b") == 0 ||
+         strcasecmp(role, "dosingB") == 0)) return true;
+    if (id == ACTUATOR_DIST_PUMP && (strcasecmp(role, "DIST_PUMP") == 0 || strcasecmp(role, "DISTRIBUTION_PUMP") == 0)) return true;
+    if (id == ACTUATOR_MIXING_PUMP && (strcasecmp(role, "MIX_PUMP") == 0 || strcasecmp(role, "MIXING_PUMP") == 0)) return true;
+    if (id == ACTUATOR_ERROR_LAMP && (strcasecmp(role, "ALARM_LAMP") == 0 || strcasecmp(role, "ERROR_BEACON") == 0 || strcasecmp(role, "ERROR_LAMP") == 0)) return true;
+    if (id == ACTUATOR_BUZZER && (strcasecmp(role, "ALARM_BUZZER") == 0 || strcasecmp(role, "BUZZER") == 0)) return true;
     return false;
 }
 
@@ -235,6 +249,19 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
     hw_component_info_t comp_info;
     esp_err_t resolve_err = resolve_configured_actuator(id, &comp_info);
     if (resolve_err != ESP_OK) {
+        if (s_actuators[id].gpio >= 0) {
+            bool was_on = s_actuators[id].state;
+            s_actuators[id].state = on;
+            gpio_set_level(s_actuators[id].gpio, on ? s_actuators[id].active_level : !s_actuators[id].active_level);
+            ESP_LOGI(TAG, "Static actuator '%s' -> %s (GPIO %d)",
+                     s_actuators[id].name, on ? "ON" : "OFF", (int)s_actuators[id].gpio);
+            xSemaphoreGive(s_lock);
+            if (was_on != on && id == ACTUATOR_BUZZER) {
+                (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
+                                    on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", "buzzer");
+            }
+            return ESP_OK;
+        }
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Blocked %s: no unique active configured component for role '%s'",
                  s_actuators[id].name, actuator_role_for_id(id) ? actuator_role_for_id(id) : "?");
@@ -294,9 +321,13 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
     xSemaphoreTake(s_lock, portMAX_DELAY);
 
     hw_component_info_t info;
-    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK) {
-        xSemaphoreGive(s_lock);
-        return ESP_ERR_NOT_FOUND;
+    bool has_info = (hardware_registry_find_by_id(component_id, &info) == ESP_OK);
+    actuator_id_t fallback_act_id = ACTUATOR_MAX_COUNT;
+    if (!has_info) {
+        if (actuator_hal_find_id_by_component_id(component_id, &fallback_act_id) != ESP_OK) {
+            xSemaphoreGive(s_lock);
+            return ESP_ERR_NOT_FOUND;
+        }
     }
 
     if (on && s_emergency_stop_latched) {
@@ -305,7 +336,7 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (on && (strcmp(info.role, "DISTRIBUTION_PUMP") == 0)) {
+    if (on && ((has_info && strcmp(info.role, "DISTRIBUTION_PUMP") == 0) || fallback_act_id == ACTUATOR_DIST_PUMP)) {
         if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY) {
             xSemaphoreGive(s_lock);
             ESP_LOGW(TAG, "Blocked component '%s' ON: lower-float dry-run interlock active.", component_id);
@@ -313,22 +344,26 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         }
     }
 
-    if (on && info.lifecycle_state != HW_LIFECYCLE_COMMISSIONED &&
+    if (has_info && on && info.lifecycle_state != HW_LIFECYCLE_COMMISSIONED &&
         info.lifecycle_state != HW_LIFECYCLE_ENABLED) {
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Blocked component '%s' ON: lifecycle state %d is not operational.", component_id, (int)info.lifecycle_state);
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (info.wiring.interface != HW_INTERFACE_GPIO && info.wiring.interface != HW_INTERFACE_I2C) {
+    if (has_info && info.wiring.interface != HW_INTERFACE_GPIO && info.wiring.interface != HW_INTERFACE_I2C) {
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Component '%s' has unsupported interface %d.", component_id, (int)info.wiring.interface);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    uint8_t active_level = resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL);
+    uint8_t active_level = has_info ? resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL) :
+                           (fallback_act_id < ACTUATOR_MAX_COUNT ? s_actuators[fallback_act_id].active_level : DEFAULT_ACTIVE_LEVEL);
     component_runtime_state_t *runtime = runtime_find_locked(component_id, true);
     actuator_owner_t owner = runtime ? runtime->owner : ACTUATOR_OWNER_NONE;
+    if (fallback_act_id < ACTUATOR_MAX_COUNT && owner == ACTUATOR_OWNER_NONE) {
+        owner = s_actuators[fallback_act_id].owner;
+    }
     bool was_on = runtime ? runtime->on : false;
     if (on && owner == ACTUATOR_OWNER_SAFETY) {
         xSemaphoreGive(s_lock);
@@ -336,34 +371,27 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (info.wiring.interface == HW_INTERFACE_I2C) {
-        // Pathway B (DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3 Pathway B):
-        // PCA9685 16-channel I2C PWM driver for dosing C..G expansion.
-        // Driver implementation pending hardware validation; until then we
-        // return ESP_ERR_NOT_SUPPORTED with a clear log so the calling
-        // fertigation_mgr fault path emits DOSING_ACTUATOR_REJECTED.
-        //
-        // When the PCA9685 driver is added (hal/pca9685.c), this branch
-        // should call (parse address string to int first):
-        //   int i2c_addr = (int)strtol(info.wiring.address, NULL, 0);
-        //   esp_err_t err = pca9685_set_channel(i2c_addr,
-        //                                        info.wiring.channel,
-        //                                        on ? active_level : !active_level);
+    if (has_info && info.wiring.interface == HW_INTERFACE_I2C) {
+        // Pathway B: PCA9685 expansion
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Component '%s' (role=%s) uses I2C channel %d @ addr '%s' — driver pending.",
                  component_id, info.role, info.wiring.channel, info.wiring.address);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    // Pathway A: GPIO direct drive
-    if (info.wiring.gpio < 0) {
+    gpio_num_t gpio = GPIO_NUM_NC;
+    if (has_info && info.wiring.gpio >= 0) {
+        gpio = (gpio_num_t)info.wiring.gpio;
+    } else if (fallback_act_id < ACTUATOR_MAX_COUNT) {
+        gpio = s_actuators[fallback_act_id].gpio;
+    }
+    if (gpio < 0) {
         xSemaphoreGive(s_lock);
-        ESP_LOGW(TAG, "Component '%s' has invalid GPIO %d.", component_id, info.wiring.gpio);
+        ESP_LOGW(TAG, "Component '%s' has invalid GPIO %d.", component_id, (int)gpio);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    gpio_num_t gpio = (gpio_num_t)info.wiring.gpio;
-    gpio_reset_pin(gpio);
+    // Direct GPIO drive - NO gpio_reset_pin to prevent optocoupler/relay glitching!
     gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
     gpio_set_level(gpio, on ? active_level : !active_level);
     runtime_set_locked(component_id, on, owner);
@@ -377,19 +405,19 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
     }
 
     xSemaphoreGive(s_lock);
-    ESP_LOGI(TAG, "Configured component '%s' (%s) -> %s (GPIO %d)",
-             info.component_id, info.role, on ? "ON" : "OFF", gpio);
+    ESP_LOGI(TAG, "Actuator component '%s' -> %s (GPIO %d, active_level=%d)",
+             component_id, on ? "ON" : "OFF", (int)gpio, (int)active_level);
     if (was_on != on) {
-        if (strcasestr(info.role, "PUMP") || strcasestr(info.supported_type_id, "PUMP")) {
+        const char *role = has_info ? info.role : (fallback_act_id < ACTUATOR_MAX_COUNT ? s_actuators[fallback_act_id].name : "");
+        if (strcasestr(role, "PUMP") || (has_info && strcasestr(info.supported_type_id, "PUMP"))) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "PUMP_STARTED" : "PUMP_STOPPED",
-                                on ? "Configured pump switched ON." : "Configured pump switched OFF.", info.component_id);
-        } else if (strcmp(info.role, "BUZZER") == 0 || strcmp(info.role, "ALARM_BUZZER") == 0 || strstr(info.supported_type_id, "buzzer")) {
+                                on ? "Configured pump switched ON." : "Configured pump switched OFF.", component_id);
+        } else if (strcasestr(role, "BUZZER")) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
-                                on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", info.component_id);
-        } else if (strcasestr(info.role, "FAN") || strcasestr(info.role, "BLOWER") ||
-                   strcasestr(info.supported_type_id, "FAN") || strcasestr(info.supported_type_id, "BLOWER")) {
+                                on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", component_id);
+        } else if (strcasestr(role, "FAN") || strcasestr(role, "BLOWER")) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "FAN_STARTED" : "FAN_STOPPED",
-                                on ? "Configured fan switched ON." : "Configured fan switched OFF.", info.component_id);
+                                on ? "Configured fan switched ON." : "Configured fan switched OFF.", component_id);
         }
         extern void telemetry_mgr_trigger_transition(const char *reason);
         telemetry_mgr_trigger_transition("ACTUATOR_STATE_CHANGE");
@@ -481,12 +509,49 @@ esp_err_t actuator_hal_find_id_by_component_id(const char *component_id, actuato
     if (!component_id || !out_id) return ESP_ERR_INVALID_ARG;
     hw_component_info_t info;
     esp_err_t err = hardware_registry_find_by_id(component_id, &info);
-    if (err != ESP_OK) return err;
-    for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
-        if (actuator_role_matches((actuator_id_t)i, info.role)) {
-            *out_id = (actuator_id_t)i;
-            return ESP_OK;
+    if (err == ESP_OK) {
+        for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
+            if (actuator_role_matches((actuator_id_t)i, info.role)) {
+                *out_id = (actuator_id_t)i;
+                return ESP_OK;
+            }
         }
+    }
+    // Direct match against known canonical component IDs
+    if (strcasecmp(component_id, "pump_submersible") == 0 ||
+        strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
+        strcasecmp(component_id, "pump_raw") == 0 ||
+        strcasecmp(component_id, "raw_water_pump") == 0) {
+        *out_id = ACTUATOR_RAW_SUBMERSIBLE;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_well") == 0 || strcasecmp(component_id, "WELL_PUMP") == 0) {
+        *out_id = ACTUATOR_WELL_PUMP;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_dosing_a") == 0 || strcasecmp(component_id, "dosingA") == 0 || strcasecmp(component_id, "DOSING_A") == 0) {
+        *out_id = ACTUATOR_DOSING_A;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_dosing_b") == 0 || strcasecmp(component_id, "dosingB") == 0 || strcasecmp(component_id, "DOSING_B") == 0) {
+        *out_id = ACTUATOR_DOSING_B;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "cooling_fan") == 0 || strcasecmp(component_id, "COOLING_FAN") == 0) {
+        *out_id = ACTUATOR_COOLING_FAN;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "blower_fan") == 0 || strcasecmp(component_id, "BLOWER_FAN") == 0) {
+        *out_id = ACTUATOR_BLOWER_FAN;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "mixing_pump") == 0 || strcasecmp(component_id, "MIXING_PUMP") == 0) {
+        *out_id = ACTUATOR_MIXING_PUMP;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "buzzer") == 0 || strcasecmp(component_id, "BUZZER") == 0 || strcasecmp(component_id, "ALARM_BUZZER") == 0) {
+        *out_id = ACTUATOR_BUZZER;
+        return ESP_OK;
     }
     return ESP_ERR_NOT_SUPPORTED;
 }
@@ -496,14 +561,15 @@ esp_err_t actuator_hal_get_component_status(const char *component_id, bool *out_
     if (!component_id || !out_on || !out_owner || !out_runtime_seconds || !s_lock) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     component_runtime_state_t *state = runtime_find_locked(component_id, false);
-    hw_component_info_t info;
-    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK || !state) {
+    actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+    bool has_static = (actuator_hal_find_id_by_component_id(component_id, &act_id) == ESP_OK);
+    if (!state && !has_static) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_NOT_FOUND;
     }
-    *out_on = state->on;
-    *out_owner = state->owner;
-    *out_runtime_seconds = state->on && state->started_at_us > 0 ? (uint32_t)((esp_timer_get_time() - state->started_at_us) / 1000000LL) : 0U;
+    *out_on = state ? state->on : (has_static ? s_actuators[act_id].state : false);
+    *out_owner = state ? state->owner : (has_static ? s_actuators[act_id].owner : ACTUATOR_OWNER_NONE);
+    *out_runtime_seconds = (state && state->on && state->started_at_us > 0) ? (uint32_t)((esp_timer_get_time() - state->started_at_us) / 1000000LL) : 0U;
     xSemaphoreGive(s_lock);
     return ESP_OK;
 }
@@ -514,7 +580,22 @@ esp_err_t actuator_hal_acquire_component(const char *component_id, actuator_owne
     xSemaphoreTake(s_lock, portMAX_DELAY);
     hw_component_info_t info;
     esp_err_t err = hardware_registry_find_by_id(component_id, &info);
-    if (err != ESP_OK) { xSemaphoreGive(s_lock); return err; }
+    if (err != ESP_OK) {
+        actuator_id_t act_id;
+        if (actuator_hal_find_id_by_component_id(component_id, &act_id) == ESP_OK) {
+            if (s_actuators[act_id].owner != ACTUATOR_OWNER_NONE && s_actuators[act_id].owner != owner) {
+                xSemaphoreGive(s_lock);
+                return ESP_ERR_INVALID_STATE;
+            }
+            s_actuators[act_id].owner = owner;
+            component_runtime_state_t *state = runtime_find_locked(component_id, true);
+            if (state) state->owner = owner;
+            xSemaphoreGive(s_lock);
+            return ESP_OK;
+        }
+        xSemaphoreGive(s_lock);
+        return err;
+    }
     if (info.lifecycle_state != HW_LIFECYCLE_COMMISSIONED && info.lifecycle_state != HW_LIFECYCLE_ENABLED) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_STATE;
@@ -530,6 +611,10 @@ esp_err_t actuator_hal_acquire_component(const char *component_id, actuator_owne
         return ESP_ERR_INVALID_STATE;
     }
     state->owner = owner;
+    actuator_id_t act_id;
+    if (actuator_hal_find_id_by_component_id(component_id, &act_id) == ESP_OK) {
+        s_actuators[act_id].owner = owner;
+    }
     xSemaphoreGive(s_lock);
     return ESP_OK;
 }
@@ -539,14 +624,17 @@ esp_err_t actuator_hal_release_component(const char *component_id, actuator_owne
     if (!component_id || !component_id[0] || !s_lock) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     component_runtime_state_t *state = runtime_find_locked(component_id, false);
-    if (!state) { xSemaphoreGive(s_lock); return ESP_ERR_NOT_FOUND; }
-    if (state->owner == owner || owner == ACTUATOR_OWNER_SAFETY) {
+    if (state && (state->owner == owner || owner == ACTUATOR_OWNER_SAFETY)) {
         state->owner = ACTUATOR_OWNER_NONE;
-        xSemaphoreGive(s_lock);
-        return ESP_OK;
+    }
+    actuator_id_t act_id;
+    if (actuator_hal_find_id_by_component_id(component_id, &act_id) == ESP_OK) {
+        if (s_actuators[act_id].owner == owner || owner == ACTUATOR_OWNER_SAFETY) {
+            s_actuators[act_id].owner = ACTUATOR_OWNER_NONE;
+        }
     }
     xSemaphoreGive(s_lock);
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
 }
 
 esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t owner)

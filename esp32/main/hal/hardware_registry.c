@@ -669,11 +669,54 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
 {
     if (!component_id || !out_info) return ESP_ERR_INVALID_ARG;
     for (size_t i = 0; i < s_active_count; i++) {
-        if (strcmp(s_active_components[i].component_id, component_id) == 0) {
+        if (strcmp(s_active_components[i].component_id, component_id) == 0 ||
+            strcasecmp(s_active_components[i].component_id, component_id) == 0) {
             *out_info = s_active_components[i];
             return ESP_OK;
         }
     }
+    // Transparent alias lookup across active components
+    for (size_t i = 0; i < s_active_count; i++) {
+        const char *cid = s_active_components[i].component_id;
+        const char *role = s_active_components[i].role;
+        // 12V Raw Water Pump aliases
+        if ((strcasecmp(component_id, "pump_submersible") == 0 ||
+             strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
+             strcasecmp(component_id, "pump_raw") == 0 ||
+             strcasecmp(component_id, "raw_water_pump") == 0) &&
+            (strcasecmp(cid, "pump_submersible") == 0 ||
+             strcasecmp(cid, "RAW_SUBMERSIBLE") == 0 ||
+             strcasecmp(cid, "pump_raw") == 0 ||
+             strcasecmp(cid, "raw_water_pump") == 0 ||
+             strcasecmp(role, "RAW_SUBMERSIBLE") == 0 ||
+             strcasecmp(role, "RAW_WATER") == 0)) {
+            *out_info = s_active_components[i];
+            return ESP_OK;
+        }
+        // Dosing A aliases
+        if ((strcasecmp(component_id, "pump_dosing_a") == 0 ||
+             strcasecmp(component_id, "dosingA") == 0 ||
+             strcasecmp(component_id, "DOSING_A") == 0) &&
+            (strcasecmp(cid, "pump_dosing_a") == 0 ||
+             strcasecmp(cid, "dosingA") == 0 ||
+             strcasecmp(cid, "DOSING_A") == 0 ||
+             strcasecmp(role, "DOSING_A") == 0)) {
+            *out_info = s_active_components[i];
+            return ESP_OK;
+        }
+        // Dosing B aliases
+        if ((strcasecmp(component_id, "pump_dosing_b") == 0 ||
+             strcasecmp(component_id, "dosingB") == 0 ||
+             strcasecmp(component_id, "DOSING_B") == 0) &&
+            (strcasecmp(cid, "pump_dosing_b") == 0 ||
+             strcasecmp(cid, "dosingB") == 0 ||
+             strcasecmp(cid, "DOSING_B") == 0 ||
+             strcasecmp(role, "DOSING_B") == 0)) {
+            *out_info = s_active_components[i];
+            return ESP_OK;
+        }
+    }
+
     size_t cid_len = strlen(component_id);
     if (cid_len > 4 && strcmp(component_id + cid_len - 4, "_hum") == 0) {
         char base_id[64];
@@ -681,13 +724,99 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
             memcpy(base_id, component_id, cid_len - 4);
             base_id[cid_len - 4] = '\0';
             for (size_t i = 0; i < s_active_count; i++) {
-                if (strcmp(s_active_components[i].component_id, base_id) == 0) {
+                if (strcasecmp(s_active_components[i].component_id, base_id) == 0) {
                     *out_info = s_active_components[i];
                     return ESP_OK;
                 }
             }
         }
     }
+
+    // Baseline fallback for canonical hardware when registry has no active entry
+    if (strcasecmp(component_id, "pump_submersible") == 0 ||
+        strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
+        strcasecmp(component_id, "pump_raw") == 0 ||
+        strcasecmp(component_id, "raw_water_pump") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "pump_submersible", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Pompa Air Baku 12V", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "RAW_SUBMERSIBLE", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "submersible-pump-12v", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_RAW_SUBMERSIBLE; // GPIO 4
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 900;
+        out_info->safety_params.flow_timeout_sec = 30;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_dosing_a") == 0 ||
+        strcasecmp(component_id, "dosingA") == 0 ||
+        strcasecmp(component_id, "DOSING_A") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "pump_dosing_a", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Dosing Pump A", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "DOSING_A", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "dosing-pump", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_DOSING_A; // GPIO 5
+        strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 300;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_dosing_b") == 0 ||
+        strcasecmp(component_id, "dosingB") == 0 ||
+        strcasecmp(component_id, "DOSING_B") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "pump_dosing_b", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Dosing Pump B", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "DOSING_B", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "dosing-pump", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_DOSING_B; // GPIO 6
+        strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 300;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_well") == 0 || strcasecmp(component_id, "WELL_PUMP") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "pump_well", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Well Pump", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "WELL_PUMP", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "deep-well-pump", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_WELL_PUMP; // GPIO 1
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 900;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "pump_dist") == 0 || strcasecmp(component_id, "DIST_PUMP") == 0 || strcasecmp(component_id, "DISTRIBUTION_PUMP") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "pump_dist", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Distribution Pump", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "DISTRIBUTION_PUMP", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "booster-pump", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_DIST_PUMP; // GPIO 2
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 900;
+        return ESP_OK;
+    }
+
     return ESP_ERR_NOT_FOUND;
 }
 

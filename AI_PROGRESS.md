@@ -1,3 +1,42 @@
+## SP-CALIBRATION-RAW-WATER-PUMP-RELAY-001 — Resolve 12V Raw Water Pump Relay Not Actuating on Calibration Start
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — HARDWARE LIVE FLASH & REST API PASS (100%)`
+- **Objective**:
+  - Fix failure where physical relay for 12V DC Raw Water Submersible Pump (`pump_submersible` / `RAW_SUBMERSIBLE` on GPIO 4, Active-LOW) failed to actuate during calibration.
+  - Identify all root causes across safety interlocks, GPIO HAL, registry lookup, and calibration management, and clean up obsolete code per Ponytail rules.
+- **Root Causes Identified & Fixed**:
+  1. **Safety Interlock Tank Low Float False-Trip**: `safety_monitor_task` previously checked `!sensors.float_lower_ok` against all pumps that required flow (`role_needs_flow()`), which included `RAW_SUBMERSIBLE`. Because the mixing tank lower float was low/open on bench/field setup, the monitor immediately force-tripped `actuator_hal_force_off_component()` within 500ms and claimed `ACTUATOR_OWNER_SAFETY`, preventing the pump relay from staying energized.
+     - *Fix*: Created `role_needs_lower_float_protection()` targeting distribution/delivery pumps only (`DISTRIBUTION_PUMP`, `DELIVERY_PUMP`, `FERTIGATION_PUMP`, `DIST_PUMP`). Fill pumps (`RAW_SUBMERSIBLE`, `WELL_PUMP`) are exempted because their purpose is to fill an empty tank. Added `owner == ACTUATOR_OWNER_CALIBRATION` bypass so calibration runs are not killed by operational timeouts.
+  2. **GPIO Reset Glitch in Actuator HAL**: `actuator_hal_set_by_component_id()` invoked `gpio_reset_pin(gpio)` on every toggle, which reset GPIO 4 to high-impedance input with pull-down, corrupting the optocoupled relay input channel IN1.
+     - *Fix*: Removed `gpio_reset_pin` from `actuator_hal_set_by_component_id()`; configured pin cleanly as output with level preserved.
+  3. **Hardware Registry Lookup & Case/Alias Sensitivity**: `hardware_registry_find_by_id()` failed when component ID differed in case or alias (`pump_submersible` vs `RAW_SUBMERSIBLE` vs `pump_raw`). Additionally, unpopulated dynamic registries returned `ESP_ERR_NOT_FOUND`.
+     - *Fix*: Added case-insensitive lookup (`strcasecmp`) and alias mapping in `hardware_registry_find_by_id()`, `actuator_hal.c`, and `api_calibration_handlers.c`, plus a static baseline fallback to `s_actuators` descriptor.
+  4. **Complex ID Scoping False-Rejection**: `calibration_component_scoped_to_device()` returned `false` when complex ID was unassigned or empty, causing calibration to be rejected with HTTP 409 `COMPONENT_COMPLEX_MISMATCH`.
+     - *Fix*: Permitted canonical on-device actuators and empty complex IDs.
+  5. **Flow Sensor Zero-Pulse Error Lockout**: `calibration_worker_task` previously aborted raw water pump calibration with `CALIBRATION_STATE_ERROR` (`NO_FLOW_PULSES`) if zero flow pulses were detected from ZJ-B1, blocking manual measuring container/beaker calibration workflows.
+     - *Fix*: Removed hard error abort. If pulses are metered, `measured_ml` is reported; if 0 pulses, test finishes with `CALIBRATION_STATE_COMPLETE` allowing manual volume input in the Web UI. Cleaned up unused helper `is_raw_water_pump_component`.
+  6. **Dual Duration Field Support**: Updated `api_calibration_start_handler` to accept both `duration_sec` and `durationSec`, and `api_calibration_get_rate_handler` to include static fallback for `rateRawWaterPumpMlSec`.
+- **Verification Results**:
+  - `npm test`: PASS — 28 canonical endpoints and 26 ESP32 handlers.
+  - ESP-IDF 5.5 compile (`scripts/build_esp32.ps1`): PASS (0 errors, 0 warnings).
+  - ESP32-S3 Flash via COM3 (`scripts/flash_esp32.ps1`): PASS.
+  - Live HTTP API Verification on ESP32 (`http://192.168.0.101`):
+    - `POST /api/v1/calibration` (`pump_submersible`, `VOLUMETRIC`, `duration_sec: 4`): Status `202 ACCEPTED` (`status: "RUNNING"`).
+    - Polling `/api/v1/status`: `actuators.rawSubmersible: true`, `pump_submersible.on: true` (Relay GPIO 4 active-LOW ON verified!).
+    - After 4s completion: `state: "COMPLETE"`, `pump_submersible.on: false` (Relay turned OFF cleanly).
+    - `POST /api/v1/calibration/rate` (`pump_submersible`, `45.0 mL/s`): Status `APPLIED` (`rateMlPerSec: 45`).
+    - `GET /api/v1/calibration/rate`: `dosingRates.pump_submersible: 45`, `rateRawWaterPumpMlSec: 45`.
+- **Changed Files**:
+  - `esp32/main/services/safety_monitor.h`
+  - `esp32/main/services/safety_monitor.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `esp32/main/services/calibration_mgr.c`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+
 ## SP-CALIBRATION-END-TO-END-EXECUTION-001 — Remove Well/Float Calibration Paths and Harden ZJ-B1 UI/API
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE — BUILD/TEST/FLASH PASS; HARDWARE ACCEPTANCE PENDING`

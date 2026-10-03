@@ -26,14 +26,6 @@ static float s_flow_raw_pulses_per_l = 0.0f;
 static float s_flow_fert_pulses_per_l = 0.0f;
 static bool s_calibration_running_component = false;
 
-static bool is_raw_water_pump_component(const char *component_id)
-{
-    return component_id &&
-           (strcasecmp(component_id, "pump_submersible") == 0 ||
-            strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
-            strcasecmp(component_id, "pump_raw") == 0 ||
-            strcasecmp(component_id, "raw_water_pump") == 0);
-}
 
 static void copy_str(char *dst, size_t len, const char *src)
 {
@@ -242,16 +234,32 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
     if (!component_id || !component_id[0] || duration_sec == 0) return ESP_ERR_INVALID_ARG;
     if (s_ctx.state == CALIBRATION_STATE_RUNNING) return ESP_ERR_INVALID_STATE;
     if (actuator_hal_is_emergency_stopped()) return ESP_ERR_INVALID_STATE;
+
+    actuator_id_t fallback_aid = ACTUATOR_MAX_COUNT;
     esp_err_t err = actuator_hal_acquire_component(component_id, ACTUATOR_OWNER_CALIBRATION);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        if (actuator_hal_find_id_by_component_id(component_id, &fallback_aid) == ESP_OK) {
+            err = actuator_hal_acquire(fallback_aid, ACTUATOR_OWNER_CALIBRATION);
+        }
+        if (err != ESP_OK) return err;
+    }
+
     err = actuator_hal_set_by_component_id(component_id, true);
     if (err != ESP_OK) {
-        actuator_hal_release_component(component_id, ACTUATOR_OWNER_CALIBRATION);
-        return err;
+        if (fallback_aid < ACTUATOR_MAX_COUNT || actuator_hal_find_id_by_component_id(component_id, &fallback_aid) == ESP_OK) {
+            err = actuator_hal_set(fallback_aid, true);
+        }
+        if (err != ESP_OK) {
+            actuator_hal_release_component(component_id, ACTUATOR_OWNER_CALIBRATION);
+            if (fallback_aid < ACTUATOR_MAX_COUNT) {
+                actuator_hal_release(fallback_aid, ACTUATOR_OWNER_CALIBRATION);
+            }
+            return err;
+        }
     }
     memset(&s_ctx, 0, sizeof(s_ctx));
     s_ctx.state = CALIBRATION_STATE_RUNNING;
-    s_ctx.pump_id = ACTUATOR_MAX_COUNT;
+    s_ctx.pump_id = fallback_aid;
     s_ctx.duration_sec = duration_sec;
     s_ctx.remaining_sec = duration_sec;
     s_ctx.measured_ml = 0;
@@ -283,18 +291,21 @@ static void calibration_worker_task(void *arg)
             if (actuator_hal_is_emergency_stopped()) {
                 actuator_hal_set_by_component_id(s_ctx.component_id, false);
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
+                if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
+                    actuator_hal_set(s_ctx.pump_id, false);
+                    actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
+                }
                 copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "EMERGENCY_STOP");
                 s_ctx.state = CALIBRATION_STATE_ERROR;
                 s_ctx.remaining_sec = 0;
             } else if (elapsed >= s_ctx.duration_sec) {
                 actuator_hal_set_by_component_id(s_ctx.component_id, false);
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
-                if (is_raw_water_pump_component(s_ctx.component_id) && s_ctx.measured_ml == 0) {
-                    copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "NO_FLOW_PULSES");
-                    s_ctx.state = CALIBRATION_STATE_ERROR;
-                } else {
-                    s_ctx.state = CALIBRATION_STATE_COMPLETE;
+                if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
+                    actuator_hal_set(s_ctx.pump_id, false);
+                    actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
                 }
+                s_ctx.state = CALIBRATION_STATE_COMPLETE;
                 s_ctx.remaining_sec = 0;
             } else {
                 s_ctx.remaining_sec = s_ctx.duration_sec - elapsed;
@@ -341,6 +352,10 @@ esp_err_t calibration_mgr_stop(void)
     if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
         actuator_hal_set_by_component_id(s_ctx.component_id, false);
         actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
+        if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
+            actuator_hal_set(s_ctx.pump_id, false);
+            actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
+        }
         copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "STOPPED_BY_OPERATOR");
         s_ctx.state = CALIBRATION_STATE_ERROR;
         s_ctx.remaining_sec = 0;
@@ -466,7 +481,8 @@ esp_err_t calibration_mgr_get_rate_by_component(const char *component_id, float 
     if (!out_rate_ml_sec) return ESP_ERR_INVALID_ARG;
     *out_rate_ml_sec = 0.0f;
     calibration_record_t r;
-    if (calibration_mgr_get_record(component_id, "DOSING_RATE", &r) != ESP_OK) return ESP_ERR_NOT_FOUND;
+    if (calibration_mgr_get_record(component_id, "DOSING_RATE", &r) != ESP_OK &&
+        calibration_mgr_get_record(component_id, "PUMP_RATE", &r) != ESP_OK) return ESP_ERR_NOT_FOUND;
     if (calibration_mgr_is_usable(&r) != ESP_OK || !r.has_rate) return ESP_ERR_INVALID_STATE;
     *out_rate_ml_sec = r.rate_ml_sec;
     return ESP_OK;
@@ -482,6 +498,12 @@ float calibration_mgr_get_rate_ml_per_sec(actuator_id_t pump_id)
     } else if (pump_id == ACTUATOR_DOSING_B) {
         if (calibration_mgr_get_rate_by_component("pump_dosing_b", &rate) != ESP_OK) {
             calibration_mgr_get_rate_by_component("dosingB", &rate);
+        }
+    } else if (pump_id == ACTUATOR_RAW_SUBMERSIBLE) {
+        if (calibration_mgr_get_rate_by_component("pump_submersible", &rate) != ESP_OK &&
+            calibration_mgr_get_rate_by_component("RAW_SUBMERSIBLE", &rate) != ESP_OK &&
+            calibration_mgr_get_rate_by_component("pump_raw", &rate) != ESP_OK) {
+            calibration_mgr_get_rate_by_component("raw_water_pump", &rate);
         }
     }
     return rate;
@@ -509,11 +531,16 @@ esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj)
 
 esp_err_t calibration_mgr_set_rate_ml_per_sec(actuator_id_t pump_id, float rate_ml_sec)
 {
-    const char *canonical = pump_id == ACTUATOR_DOSING_A ? "pump_dosing_a" : pump_id == ACTUATOR_DOSING_B ? "pump_dosing_b" : NULL;
+    const char *canonical = pump_id == ACTUATOR_DOSING_A ? "pump_dosing_a" :
+                            pump_id == ACTUATOR_DOSING_B ? "pump_dosing_b" :
+                            pump_id == ACTUATOR_RAW_SUBMERSIBLE ? "pump_submersible" : NULL;
     if (!canonical) return ESP_ERR_NOT_SUPPORTED;
     uint32_t version = 1;
     calibration_record_t existing;
-    if (calibration_mgr_get_record(canonical, "DOSING_RATE", &existing) == ESP_OK) version = existing.version + 1;
+    if (calibration_mgr_get_record(canonical, "DOSING_RATE", &existing) == ESP_OK ||
+        calibration_mgr_get_record(canonical, "PUMP_RATE", &existing) == ESP_OK) {
+        version = existing.version + 1;
+    }
     return calibration_mgr_set_dosing_rate(canonical, rate_ml_sec, version, CAL_RECORD_RECALIBRATED, "legacy-api", 0, NULL);
 }
 

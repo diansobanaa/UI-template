@@ -8,7 +8,7 @@
 #include <strings.h>
 #include <stdlib.h>
 
-static const char *TAG = "API_CALIB";
+static const char *TAG __attribute__((unused)) = "API_CALIB";
 static calibration_record_state_t parse_record_state(const char *s)
 {
     if (!s) return CAL_RECORD_NOT_CALIBRATED;
@@ -59,10 +59,22 @@ static bool calibration_component_scoped_to_device(const char *component_id)
 {
     if (!component_id || !component_id[0]) return false;
     const system_storage_state_t *state = storage_mgr_get_state();
-    if (!state || !state->complex_id[0]) return false;
     hw_component_info_t info;
-    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK) return false;
-    return info.assignment.complex_id[0] && strcmp(info.assignment.complex_id, state->complex_id) == 0;
+    if (hardware_registry_find_by_id(component_id, &info) != ESP_OK) {
+        if (strcasecmp(component_id, "pump_submersible") == 0 ||
+            strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
+            strcasecmp(component_id, "pump_raw") == 0 ||
+            strcasecmp(component_id, "raw_water_pump") == 0 ||
+            strcasecmp(component_id, "pump_dosing_a") == 0 ||
+            strcasecmp(component_id, "dosingA") == 0 ||
+            strcasecmp(component_id, "pump_dosing_b") == 0 ||
+            strcasecmp(component_id, "dosingB") == 0) {
+            return true;
+        }
+        return false;
+    }
+    if (!state || !state->complex_id[0] || !info.assignment.complex_id[0]) return true;
+    return strcmp(info.assignment.complex_id, state->complex_id) == 0;
 }
 
 static esp_err_t api_calibration_start_handler(httpd_req_t *req)
@@ -70,11 +82,27 @@ static esp_err_t api_calibration_start_handler(httpd_req_t *req)
     cJSON *json=NULL; if(http_parse_json_body(req,&json)!=ESP_OK||!json){http_send_error(req,400,"BAD_REQUEST","Invalid JSON",NULL);return ESP_FAIL;}
     cJSON *payload=cJSON_GetObjectItem(json,"payload"); cJSON *target=payload?payload:json;
     cJSON *comp=cJSON_GetObjectItem(target,"componentId"); cJSON *type=cJSON_GetObjectItem(target,"type"); cJSON *dur=cJSON_GetObjectItem(target,"duration_sec");
+    if(!dur) dur=cJSON_GetObjectItem(target,"durationSec");
     if(!comp||!cJSON_IsString(comp)||!type||!cJSON_IsString(type)||!dur||!cJSON_IsNumber(dur)||dur->valueint<=0){cJSON_Delete(json);http_send_error(req,422,"VALIDATION_FAILED","componentId, type and positive duration_sec are required",NULL);return ESP_FAIL;}
     if(strcasecmp(type->valuestring,"VOLUMETRIC")!=0){cJSON_Delete(json);http_send_error(req,422,"CALIBRATION_TYPE_UNSUPPORTED","Only VOLUMETRIC dosing/pump calibration execution is supported on-device.",NULL);return ESP_FAIL;}
     if (!calibration_component_scoped_to_device(comp->valuestring)) { cJSON_Delete(json); http_send_error(req,409,"COMPONENT_COMPLEX_MISMATCH","Calibration target component belongs to another Complex.",NULL); return ESP_FAIL; }
     hw_component_info_t component_info;
-    if (hardware_registry_find_by_id(comp->valuestring, &component_info) != ESP_OK || (!calibration_component_compatible(&component_info, "DOSING_RATE") && !calibration_component_compatible(&component_info, "PUMP_RATE"))) { cJSON_Delete(json); http_send_error(req,422,"CALIBRATION_COMPONENT_TYPE_MISMATCH","Calibration target is not a pump/dosing-capable component.",NULL); return ESP_FAIL; }
+    bool comp_ok = (hardware_registry_find_by_id(comp->valuestring, &component_info) == ESP_OK &&
+                    (calibration_component_compatible(&component_info, "DOSING_RATE") ||
+                     calibration_component_compatible(&component_info, "PUMP_RATE")));
+    if (!comp_ok) {
+        if (strcasecmp(comp->valuestring, "pump_submersible") == 0 ||
+            strcasecmp(comp->valuestring, "RAW_SUBMERSIBLE") == 0 ||
+            strcasecmp(comp->valuestring, "pump_raw") == 0 ||
+            strcasecmp(comp->valuestring, "raw_water_pump") == 0 ||
+            strcasecmp(comp->valuestring, "pump_dosing_a") == 0 ||
+            strcasecmp(comp->valuestring, "dosingA") == 0 ||
+            strcasecmp(comp->valuestring, "pump_dosing_b") == 0 ||
+            strcasecmp(comp->valuestring, "dosingB") == 0) {
+            comp_ok = true;
+        }
+    }
+    if (!comp_ok) { cJSON_Delete(json); http_send_error(req,422,"CALIBRATION_COMPONENT_TYPE_MISMATCH","Calibration target is not a pump/dosing-capable component.",NULL); return ESP_FAIL; }
     char comp_id[48] = {0};
     strncpy(comp_id, comp->valuestring, sizeof(comp_id) - 1);
     uint32_t dur_sec = (uint32_t)dur->valueint;
@@ -142,10 +170,22 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     strncpy(saved_comp_id, comp->valuestring, sizeof(saved_comp_id) - 1);
     double saved_rate_val = rate->valuedouble;
     hw_component_info_t component_info;
-    if (hardware_registry_find_by_id(saved_comp_id, &component_info) != ESP_OK ||
-        !calibration_component_scoped_to_device(saved_comp_id) ||
-        (!calibration_component_compatible(&component_info, "DOSING_RATE") &&
-         !calibration_component_compatible(&component_info, "PUMP_RATE"))) {
+    bool comp_ok = (hardware_registry_find_by_id(saved_comp_id, &component_info) == ESP_OK &&
+                    (calibration_component_compatible(&component_info, "DOSING_RATE") ||
+                     calibration_component_compatible(&component_info, "PUMP_RATE")));
+    if (!comp_ok) {
+        if (strcasecmp(saved_comp_id, "pump_submersible") == 0 ||
+            strcasecmp(saved_comp_id, "RAW_SUBMERSIBLE") == 0 ||
+            strcasecmp(saved_comp_id, "pump_raw") == 0 ||
+            strcasecmp(saved_comp_id, "raw_water_pump") == 0 ||
+            strcasecmp(saved_comp_id, "pump_dosing_a") == 0 ||
+            strcasecmp(saved_comp_id, "dosingA") == 0 ||
+            strcasecmp(saved_comp_id, "pump_dosing_b") == 0 ||
+            strcasecmp(saved_comp_id, "dosingB") == 0) {
+            comp_ok = true;
+        }
+    }
+    if (!comp_ok || !calibration_component_scoped_to_device(saved_comp_id)) {
         cJSON_Delete(json);
         http_send_error(req, 422, "CALIBRATION_COMPONENT_TYPE_MISMATCH",
                         "Calibration rate target is not a supported dosing or raw-water pump.",
@@ -234,9 +274,12 @@ static esp_err_t api_calibration_get_rate_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(rates_obj, "pump_dosing_b", rate_b);
     }
     float rate_raw = 0.0f;
-    if ((calibration_mgr_get_rate_by_component("pump_submersible", &rate_raw) == ESP_OK ||
-         calibration_mgr_get_rate_by_component("pump_raw", &rate_raw) == ESP_OK ||
-         calibration_mgr_get_rate_by_component("raw_water_pump", &rate_raw) == ESP_OK) && rate_raw > 0.0f) {
+    if (calibration_mgr_get_rate_by_component("pump_submersible", &rate_raw) != ESP_OK &&
+        calibration_mgr_get_rate_by_component("pump_raw", &rate_raw) != ESP_OK &&
+        calibration_mgr_get_rate_by_component("raw_water_pump", &rate_raw) != ESP_OK) {
+        rate_raw = calibration_mgr_get_rate_ml_per_sec(ACTUATOR_RAW_SUBMERSIBLE);
+    }
+    if (rate_raw > 0.0f) {
         if (!cJSON_GetObjectItem(rates_obj, "pump_submersible")) {
             cJSON_AddNumberToObject(rates_obj, "pump_submersible", rate_raw);
         }

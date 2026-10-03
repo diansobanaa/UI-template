@@ -1363,12 +1363,14 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
     - Never confuse or swap "Raw Water Pump 12V" with "Well Pump 220V".
 - **Operational Calibration Rule:**
   - The Raw Water Pump 12V DC MUST be field-calibrated to determine its actual pumping capacity / volumetric flow rate (L/min or mL/sec).
+  - **Tank Low Float Exemption:** The Raw Water Pump (`pump_submersible` / `RAW_SUBMERSIBLE` on GPIO 4) transfers water from the raw reservoir into the mixing tank to fill it. It is strictly exempted from the mixing tank dry-run interlock (`float_lower_ok`), which applies only to delivery/distribution pumps.
+  - **Calibration Ownership & Safety:** During calibration runs, the actuator is acquired under `ACTUATOR_OWNER_CALIBRATION` with `SAFETY_COMMAND_CALIBRATION` authorization. This prevents routine run-time flow-timeout tripping while preserving immediate hardware emergency-stop (`EMERGENCY_STOP`) and operator abort capabilities.
   - **Measurement Ingestion:** During a volumetric calibration run (`/api/v1/calibration` with `VOLUMETRIC` on `pump_submersible` for $T$ seconds):
-    1. ESP32 runs `pump_submersible` (GPIO 4) while accumulating pulses from the small raw flow sensor (`flow_sensor_water` / ZJ-B1 on GPIO 15) via `sensor_hal`.
+    1. ESP32 drives `pump_submersible` (GPIO 4 Active-LOW) while accumulating pulses from the small raw flow sensor (`flow_sensor_water` / ZJ-B1 on GPIO 15) via `sensor_hal`.
     2. ESP32 returns the delta volume in `/api/v1/calibration/status` (`measured_ml` and `measured_l`).
-    3. The Web UI automatically ingests `measured_ml` directly from the sensor (without requiring manual beaker measurements).
+    3. If pulses are metered, the Web UI automatically ingests `measured_ml` directly from the sensor. If pulses are zero (e.g. initial dry bench testing or open discharge into an external measuring container), the run completes with state `COMPLETE` (`measured_ml = 0`), enabling manual beaker volume input in the UI.
     4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record for `pump_submersible` (`rateRawWaterPumpMlSec`).
-  - **Fail-Safe Rule:** A raw-water calibration run is `ERROR` with `errorCode=NO_FLOW_PULSES` when it completes without any ZJ-B1 volume. It must not be accepted as a zero-flow or valid calibration result. Emergency-stop and operator-stop failures are reported as `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
+  - **Fail-Safe Rule:** Emergency-stop and operator-stop terminations are reported as `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
 
 
 

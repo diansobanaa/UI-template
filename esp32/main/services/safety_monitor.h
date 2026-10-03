@@ -20,7 +20,8 @@ typedef enum {
     SAFETY_COMMAND_NORMAL = 0,
     SAFETY_COMMAND_FILL,
     SAFETY_COMMAND_TRANSFER,
-    SAFETY_COMMAND_FERTIGATION
+    SAFETY_COMMAND_FERTIGATION,
+    SAFETY_COMMAND_CALIBRATION
 } safety_command_class_t;
 
 /** Initialize and start the background local safety monitor. */

@@ -56,13 +56,6 @@ static void copy_out(char *dst, size_t dst_len, const char *src)
     dst[dst_len - 1] = '\0';
 }
 
-static bool role_has(const hw_component_info_t *component, const char *needle)
-{
-    if (!component || !needle) return false;
-    return strcasecmp(component->role, needle) == 0 ||
-           strcasecmp(component->supported_type_id, needle) == 0;
-}
-
 static bool is_pump_role(const hw_component_info_t *component)
 {
     if (!component) return false;
@@ -96,6 +89,17 @@ static bool role_needs_flow(const hw_component_info_t *component)
            strcasestr(component->role, "FERTIGATION_PUMP") ||
            strcasestr(component->supported_type_id, "WELL_PUMP") ||
            strcasestr(component->supported_type_id, "RAW_SUBMERSIBLE");
+}
+
+static bool role_needs_lower_float_protection(const hw_component_info_t *component)
+{
+    if (!component) return false;
+    return strcasestr(component->role, "DISTRIBUTION_PUMP") ||
+           strcasestr(component->role, "DELIVERY_PUMP") ||
+           strcasestr(component->role, "FERTIGATION_PUMP") ||
+           strcasestr(component->role, "DIST_PUMP") ||
+           strcasestr(component->supported_type_id, "DISTRIBUTION_PUMP") ||
+           strcasestr(component->supported_type_id, "DIST_PUMP");
 }
 
 static uint32_t json_u32(const cJSON *obj, const char *key, uint32_t fallback)
@@ -253,18 +257,22 @@ static void safety_monitor_task(void *arg)
                     safety_set_fault("WATER_TEMP_HIGH", "Water temperature exceeded 45.0 C.", true, false);
                 }
 
-                /* Low-level protection is local and targeted: stop all operational
-                 * water-moving components when the configured lower-level input says dry. */
+                /* Low-level protection is local and targeted: stop operational
+                 * distribution pumps when the configured lower-level input says dry.
+                 * CRITICAL: Raw water fill pumps (RAW_SUBMERSIBLE, WELL_PUMP) transfer water
+                 * INTO the mixing tank and must NOT be stopped when the mixing tank is dry.
+                 * Also, components owned by ACTUATOR_OWNER_CALIBRATION are exempt during calibration. */
                 if (!sensors.float_lower_ok) {
                     const size_t count = hardware_registry_get_count();
                     for (size_t i = 0; i < count; ++i) {
                         hw_component_info_t info;
                         if (hardware_registry_get_by_index(i, &info) != ESP_OK || !hardware_registry_is_operational(info.component_id)) continue;
-                        if (!role_needs_flow(&info)) continue;
+                        if (!role_needs_lower_float_protection(&info)) continue;
                         bool on = false; actuator_owner_t owner; uint32_t runtime = 0;
                         if (actuator_hal_get_component_status(info.component_id, &on, &owner, &runtime) == ESP_OK && on) {
+                            if (owner == ACTUATOR_OWNER_CALIBRATION) continue;
                             (void)actuator_hal_force_off_component(info.component_id);
-                            safety_set_fault("TANK_LOW", "Lower-level protection stopped an active water pump.", false, false);
+                            safety_set_fault("TANK_LOW", "Lower-level protection stopped an active distribution pump.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "TANK_LOW", "Lower-level protection stopped the component.");
                             (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "TANK_LOW", "Lower-level float switch dry; affected water pump stopped.", info.component_id, info.assignment.gh_id);
                         }
@@ -283,6 +291,7 @@ static void safety_monitor_task(void *arg)
                         if (!role_needs_flow(&info)) continue;
                         bool on = false; actuator_owner_t owner; uint32_t runtime = 0;
                         if (actuator_hal_get_component_status(info.component_id, &on, &owner, &runtime) == ESP_OK && on) {
+                            if (owner == ACTUATOR_OWNER_CALIBRATION) continue;
                             (void)actuator_hal_force_off_component(info.component_id);
                             safety_set_fault("SAFETY_SENSOR_STALE", "Safety sensor sample is stale while a protected pump is running.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "SAFETY_SENSOR_STALE", "Safety sensor became stale.");
@@ -314,6 +323,10 @@ static void safety_monitor_task(void *arg)
                     }
 
                     if (on && role_needs_flow(&info) && sensors_fresh) {
+                        if (owner == ACTUATOR_OWNER_CALIBRATION) {
+                            // Flow watchdog during calibration is managed by calibration_mgr
+                            continue;
+                        }
                         flow_watch_t *watch = flow_watch_find(info.component_id, true);
                         if (!watch) continue;
                         uint32_t pulses = 0;
@@ -490,7 +503,7 @@ esp_err_t safety_monitor_authorize_component(
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (role_needs_flow(&info)) {
+    if (role_needs_lower_float_protection(&info) && command_class != SAFETY_COMMAND_CALIBRATION) {
         sensor_readings_t sensors;
         if (sensor_hal_get_readings(&sensors) != ESP_OK || !sensor_snapshot_fresh(&sensors)) {
             copy_out(out_reason_code, reason_code_len, "SAFETY_SENSOR_STALE");
