@@ -976,6 +976,19 @@ export function FertigationQueueDashboard({
     }
   };
 
+  const handleToggleSchedule = async (id: string, enabled: boolean) => {
+    setActionInProgress(`toggle-${id}`);
+    try {
+      await scheduleService.updateFertigation(id, { enabled, status: enabled ? "scheduled" : "disabled" });
+      toast(enabled ? "Jadwal diaktifkan" : "Jadwal dinonaktifkan", enabled ? "success" : "info");
+      await fetchStatus(true);
+    } catch (err: any) {
+      toast(`Gagal mengubah jadwal: ${err?.message || "Kesalahan kontroler"}`, "error");
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
   // -------------------------------------------------------------------------
   // View Routing: Scoped Greenhouse vs Complex Overview
   // -------------------------------------------------------------------------
@@ -1112,6 +1125,7 @@ export function FertigationQueueDashboard({
           schedules={allSchedules}
           greenhouses={ghs}
           onOpenCreate={onOpenCreate}
+          onToggleSchedule={handleToggleSchedule}
           isActionLoading={actionInProgress !== null}
           activeJob={activeJob}
           queuedJobs={queuedJobs}
