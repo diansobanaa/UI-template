@@ -155,16 +155,16 @@ export function ComplexFertigationOverview({
       <div>
         <div className="mb-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="text-[13px] font-semibold text-slate-200 uppercase tracking-wider">
+            <h3
+              className="text-[13px] font-semibold text-slate-200 uppercase tracking-wider cursor-default"
+              title="Tangki pencampur dan status proses terisolasi per greenhouse"
+            >
               Status Operasional Tiap Greenhouse
             </h3>
             <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-400">
               {greenhouses.length} Greenhouse Terdaftar
             </span>
           </div>
-          <span className="text-[11px] text-slate-500">
-            Tangki pencampur dan status proses terisolasi per greenhouse
-          </span>
         </div>
 
         {greenhouses.length === 0 ? (
@@ -216,14 +216,12 @@ export function ComplexFertigationOverview({
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
-                        {item.statusDesc}
-                      </p>
                     </div>
 
                     {/* Operational State Badge */}
                     <span
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                      title={item.statusDesc}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold cursor-default ${
                         item.statusTone === "emerald"
                           ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                           : item.statusTone === "cyan"

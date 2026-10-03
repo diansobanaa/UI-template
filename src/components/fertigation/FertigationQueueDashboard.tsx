@@ -1017,16 +1017,16 @@ export function FertigationQueueDashboard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-bold tracking-tight text-slate-100">
+              <h2
+                className="text-[14px] font-bold tracking-tight text-slate-100 cursor-default"
+                title="Alur operasional terintegrasi: Jadwal → Antrean FIFO Dosing Sentral → Tangki Pencampur GH → Irigasi Tanaman"
+              >
                 Sistem Fertigasi & Antrean Peracikan (Fertigation & Mixing System)
               </h2>
               <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
                 {complex?.name || "Complex"}
               </span>
             </div>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Alur operasional terintegrasi: Jadwal → Antrean FIFO Dosing Sentral → Tangki Pencampur GH → Irigasi Tanaman
-            </p>
           </div>
         </div>
 

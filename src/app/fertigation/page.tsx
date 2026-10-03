@@ -318,10 +318,17 @@ function FertigationContent() {
                 <Gauge className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-100">Status Pompa Dosing & Laju Alir Fisik</h3>
-                <p className="text-[11px] text-slate-400">
-                  Kalibrasi terakhir: <strong className="text-slate-200">{lastCalibration}</strong> • Debit riil menentukan durasi buka pompa saat peracikan resep otomatis.
-                </p>
+                <div className="flex items-center gap-2">
+                  <h3
+                    className="text-sm font-bold text-slate-100 cursor-default"
+                    title="Debit riil menentukan durasi buka pompa saat peracikan resep otomatis."
+                  >
+                    Status Pompa Dosing & Laju Alir Fisik
+                  </h3>
+                  <span className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-300">
+                    Kalibrasi: {lastCalibration}
+                  </span>
+                </div>
               </div>
             </div>
 

@@ -1557,8 +1557,12 @@ function GreenhouseContent() {
                   <Activity className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <h3 className="text-[17px] font-bold tracking-tight text-white">Environmental 24H</h3>
-                  <p className="mt-0.5 truncate text-[11px] text-slate-400">Temperature, Humidity, Light, Tank Level and Fertigation • {gh.code}</p>
+                  <h3
+                    className="text-[17px] font-bold tracking-tight text-white cursor-default"
+                    title={`Temperature, Humidity, Light, Tank Level and Fertigation • ${gh.code}`}
+                  >
+                    Environmental 24H
+                  </h3>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1750,8 +1754,12 @@ function GreenhouseContent() {
                   <Activity className="h-5 w-5" />
                 </span>
                 <div>
-                  <h3 className="text-[17px] font-bold tracking-tight text-white">Environmental 24H Overview</h3>
-                  <p className="mt-0.5 text-[11px] text-slate-400">Min, average, max and current values for each parameter</p>
+                  <h3
+                    className="text-[17px] font-bold tracking-tight text-white cursor-default"
+                    title="Min, average, max and current values for each parameter"
+                  >
+                    Environmental 24H Overview
+                  </h3>
                 </div>
               </div>
               <span className="pt-1 text-[10px] font-medium text-slate-300">min – max</span>

@@ -155,16 +155,16 @@ export function FertigationScheduleManager({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold tracking-tight text-slate-100">
+              <h3
+                className="text-sm font-bold tracking-tight text-slate-100 cursor-default"
+                title="Jadwal otomatisasi penyiraman dan pemberian nutrisi terencana per greenhouse."
+              >
                 Jadwal Otomasi Fertigasi (Fertigation Schedules)
               </h3>
               <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
                 {schedules.length} Jadwal Aktif
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Jadwal otomatisasi penyiraman dan pemberian nutrisi terencana per greenhouse.
-            </p>
           </div>
         </div>
 

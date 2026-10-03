@@ -85,16 +85,16 @@ export function GreenhouseMixingTanks({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold tracking-tight text-slate-100">
+              <h3
+                className="text-sm font-bold tracking-tight text-slate-100 cursor-default"
+                title="Setiap greenhouse memiliki tangki batch fisik mandiri — larutan nutrisi terisolasi dan tidak bercampur antar greenhouse."
+              >
                 Tangki Pencampur Tiap Greenhouse (Independent Mixing Tanks)
               </h3>
               <span className="rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
                 {tanks.length} Tangki Fisik Mandiri
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Setiap greenhouse memiliki tangki batch fisik mandiri — larutan nutrisi terisolasi dan tidak bercampur antar greenhouse.
-            </p>
           </div>
         </div>
       </div>
@@ -144,21 +144,20 @@ export function GreenhouseMixingTanks({
                         {tank.tankName}
                       </h4>
                     </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                      <span className="font-semibold text-slate-300">{tank.displayName}</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-200">{tank.displayName}</span>
                       {tank.crop && (
-                        <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[10px] text-slate-300">
+                        <span className="rounded bg-slate-800/90 border border-slate-700/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-300">
                           {tank.crop}
                         </span>
                       )}
-                      <span className="text-slate-500">•</span>
-                      <span>{tank.statusDescription}</span>
                     </div>
                   </div>
 
                   {/* Status Badge */}
                   <span
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                    title={tank.statusDescription}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold cursor-default ${
                       isReady
                         ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                         : isMixing

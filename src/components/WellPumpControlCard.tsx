@@ -237,16 +237,18 @@ export function WellPumpControlCard({
         )}
 
         {/* Schedule Info Box */}
-        <div className="space-y-2 rounded-xl border border-slate-700/20 bg-slate-800/10 p-4 text-xs">
+        <div className="rounded-xl border border-slate-700/20 bg-slate-800/10 p-3 text-xs">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 font-medium">Automatic Schedule:</span>
+            <span
+              className="text-slate-400 font-medium cursor-default"
+              title="Schedules execute automatically on the ESP32. Manual start runs for up to 15 minutes without interfering with configured timetables."
+            >
+              Automatic Schedule:
+            </span>
             <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-slate-200">
               <Clock className="h-3.5 w-3.5 text-sky-400" />
               {details?.nextSchedule ? `Next: Today ${details.nextSchedule}` : "Active / Configured"}
             </div>
-          </div>
-          <div className="text-[11px] text-slate-400 leading-relaxed">
-            Schedules execute automatically on the ESP32. Manual start runs for up to 15 minutes without interfering with configured timetables.
           </div>
         </div>
 

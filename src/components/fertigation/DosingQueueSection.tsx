@@ -99,18 +99,20 @@ export function DosingQueueSection({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold tracking-tight text-slate-100">
+              <h3
+                className="text-sm font-bold tracking-tight text-slate-100 cursor-default"
+                title={
+                  isMultiGh
+                    ? "Multi-GH: Unit Dosing Sentral meracik tangki batch setiap greenhouse bergantian (FIFO) agar seluruh tangki siap sebelum jam penyiraman (Distribusi Paralel)."
+                    : "Unit Dosing Sentral menyiapkan larutan nutrisi di tangki batch sebelum jadwal penyiraman fertigasi dimulai."
+                }
+              >
                 Antrean Dosing Central (FIFO Execution Order)
               </h3>
               <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
                 {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Menunggu Giliran
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              {isMultiGh
-                ? "Multi-GH: Unit Dosing Sentral meracik tangki batch setiap greenhouse bergantian (FIFO) agar seluruh tangki siap sebelum jam penyiraman (Distribusi Paralel)."
-                : "Unit Dosing Sentral menyiapkan larutan nutrisi di tangki batch sebelum jadwal penyiraman fertigasi dimulai."}
-            </p>
           </div>
         </div>
 
@@ -347,12 +349,12 @@ export function DosingQueueSection({
         {queuedJobs.length > 0 ? (
           <>
             <div className="flex items-center justify-between">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider text-slate-400 cursor-default"
+                title="Dieksekusi langsung berurutan (FIFO) agar tangki mixing siap sebelum jam penyiraman tanaman"
+              >
                 Urutan Antrean Peracikan Central (FIFO Execution Order)
               </div>
-              <span className="text-[11px] text-slate-500">
-                Dieksekusi langsung berurutan (FIFO) agar tangki mixing siap sebelum jam penyiraman tanaman
-              </span>
             </div>
 
             <div className="space-y-2">
@@ -373,7 +375,7 @@ export function DosingQueueSection({
                           Batch Tangki Mixing
                         </span>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-slate-400">
+                      <div className="mt-0.5 text-xs text-slate-300 font-medium">
                         Resep: <span className="text-slate-300">{q.recipeName}</span> • Target Air:{" "}
                         <span className="text-slate-300 font-semibold">{q.targetWaterL} L</span> • Nutrisi A (
                         {q.dosingAml > 0 ? q.dosingAml : Math.round(q.targetWaterL * 1.875)} ml) + B (

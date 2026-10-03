@@ -1,3 +1,20 @@
+## SP-UI-CLEANUP-TOOLTIP-001 — Remove Redundant Small Subheaders & Convert to Text-Based Tooltips
+- **Date**: 2026-10-03
+- **Git Commit**: `d970efe`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Remove visual clutter from small gray explanatory subheaders (`text-[11px] text-slate-400`) appearing beneath primary section titles and headings across the dashboard and schedule pages.
+  2. Convert removed subheaders into clean, text-based tooltips via native accessible `title` attributes on relevant existing headings, badges, and labels without adding decorative/question-mark icons.
+  3. Maintain strict visual hierarchy: primary information (headings, greenhouse IDs, operational states, measurements, controls) remains immediately visible; secondary information (explanatory notes, operational rules) moved into tooltips; tertiary repeated labels eliminated.
+  4. Elevate typography and spacing across Fertigation Queue, Independent Mixing Tanks, Schedule Manager, Pump Controls, and Environmental Overview.
+- **Verification Results**:
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: 20/20 PASS (100%).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,231.10 kB) built clean.
+
 ## SP-SYNC-RECIPE-DOSING-001 — Synchronize Schedule Dosing Targets with Recipe Nutrisi A and B
 - **Date**: 2026-10-03
 - **Git Commit**: `cf42ca4`

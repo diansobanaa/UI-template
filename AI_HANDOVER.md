@@ -1,4 +1,32 @@
-# AI HANDOVER — SP-SYNC-RECIPE-DOSING-001 (latest)
+# AI HANDOVER — SP-UI-CLEANUP-TOOLTIP-001 (latest)
+
+## Status — SP-UI-CLEANUP-TOOLTIP-001
+**Remove Redundant Small Subheaders & Convert to Text-Based Tooltips**
+**Safe Point**: `SP-UI-CLEANUP-TOOLTIP-001`
+**Date**: 2026-10-03
+**Git Commit**: `d970efe`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **System Header Clutter Removal (`FertigationQueueDashboard.tsx`)**:
+   - Converted small gray explanatory subtitle ("Alur operasional terintegrasi: Jadwal → Antrean FIFO Dosing Sentral...") to native `title` tooltip on `<h2>` heading.
+2. **Central Dosing Queue Streamlining (`DosingQueueSection.tsx`)**:
+   - Moved section subtitle ("Multi-GH: Unit Dosing Sentral meracik tangki batch...") to `title` tooltip on `<h3>` heading.
+   - Moved FIFO queue subtitle ("Dieksekusi langsung berurutan...") to `title` tooltip on queue title.
+   - Upgraded nutrient formula and dosing line from 11px gray to crisp `text-xs text-slate-300 font-medium`.
+3. **Independent Mixing Tanks Clean Layout (`GreenhouseMixingTanks.tsx`)**:
+   - Moved tank isolation subheader to `title` tooltip on section `<h3>`.
+   - Removed redundant visible `{tank.statusDescription}` which duplicated `{tank.status}`; attached it as a hover `title` tooltip directly to the status badge.
+   - Elevated `{tank.displayName}` and `{tank.crop}` to clean `text-xs` typography.
+4. **Schedule Manager Subheader (`FertigationScheduleManager.tsx`)**:
+   - Moved schedule automation subheader to `title` tooltip on `<h3>`.
+5. **Complex Overview & Peripheral Controls (`ComplexFertigationOverview.tsx`, `WellPumpControlCard.tsx`, `fertigation/page.tsx`, `page.tsx`)**:
+   - Converted redundant status descriptions and schedule notes to native `title` tooltips without decorative icons.
+   - Cleaned up Environmental 24H chart titles on the main dashboard.
+
+---
+
+# AI HANDOVER — SP-SYNC-RECIPE-DOSING-001 (previous)
 
 ## Status — SP-SYNC-RECIPE-DOSING-001
 **Synchronize Schedule Dosing Targets with Recipe Nutrisi A and B**
