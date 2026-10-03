@@ -1,4 +1,30 @@
-# AI HANDOVER — SP-GH-DETAIL-SCHEDULE-MANAGER-001 (latest)
+# AI HANDOVER — SP-DIAGNOSTIC-ERROR-CODES-001 (latest)
+
+## Status — SP-DIAGNOSTIC-ERROR-CODES-001
+**Firmware Error Code Contract & Web UI Smart Diagnostic Resolution Card**
+**Safe Point**: `SP-DIAGNOSTIC-ERROR-CODES-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **ESP32 Firmware Machine-Readable Error Reporting**:
+   - `esp32/main/services/scheduler.h`: Added `char error_code[32];` and `char affected_component_id[32];` to `dosing_queue_entry_t` and `today_occurrence_t`.
+   - `esp32/main/services/fertigation_mgr.h` & `fertigation_mgr.c`: Added rejection tracking (`fertigation_mgr_get_last_rejection`). Records machine codes (`DOSING_PUMP_NOT_CALIBRATED`, `FLOW_SENSOR_NOT_CALIBRATED`, `CONFIG_HASH_MISMATCH`, `EQUIPMENT_NOT_READY`, `INVALID_RECIPE_PARAMETERS`, etc.) and affected component IDs when payload parameters or equipment are invalid.
+   - `esp32/main/services/scheduler.c`: On batch submission failure, captures error code and component ID, synchronizes them to occurrences in `s_today_occurrences[]`, and immediately evicts the failed head (`s_dosing_queue_count--`) so the active FIFO queue never clogs.
+   - `esp32/main/http/api_fertigation_handlers.c`: Serializes `errorCode` and `affectedComponent` in `queuedBatches` and `todaySchedule` JSON responses.
+2. **Canonical OpenAPI Contract & Data Types**:
+   - `contracts/UI_ESP32_OPENAPI.yaml`: Added `errorCode` and `affectedComponent` to `queuedBatches` and `todaySchedule` array items.
+   - `src/lib/types.ts`: Extended `QueuedBatchItem` with `errorCode?: string; affectedComponent?: string;`.
+3. **Web UI Error Dictionary & Smart Diagnostic Card**:
+   - `src/lib/fertigationErrorMap.ts`: Created canonical error mapping dictionary providing human-friendly Indonesian translations, severity levels (`CRITICAL`, `WARNING`, `INFO`), and resolution action types (`CALIBRATE_PUMP`, `CALIBRATE_FLOW`, `CHECK_WATER`, `CHECK_EQUIPMENT`, `SYNC_SCHEDULE`).
+   - `src/components/fertigation/DosingQueueSection.tsx`: Rendered a prominent Smart Diagnostic Alert Card for blocked/failed batches with one-click resolution buttons (`[⚙ Kalibrasi Pompa Sekarang]`, `[🔄 Sinkronkan Ulang]`, `[✕ Abaikan]`).
+   - `src/components/fertigation/FertigationQueueDashboard.tsx`: Partitioned all queued jobs into living active queue (`livingQueuedJobs`) and diagnostic alerts (`blockedJobs`). Wired navigation to `/calibration?componentId=...` and alert dismissal.
+4. **Canonical Documentation**:
+   - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Added Section 33 defining error code contract, separation of concerns, and living queue isolation rules.
+
+---
+
+# AI HANDOVER — SP-GH-DETAIL-SCHEDULE-MANAGER-001 (previous)
 
 ## Status — SP-GH-DETAIL-SCHEDULE-MANAGER-001
 **Restore Fertigation Schedule Table and Add Button in Greenhouse Scoped View**

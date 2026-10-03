@@ -2205,14 +2205,16 @@ static void process_dosing_queue(time_t now) {
   fertigation_state_t fert_st = fertigation_mgr_get_state();
 
   if (head->state == QUEUE_STATE_FAILED) {
-    ESP_LOGE(TAG, "Queue head %s (GH %s) FAILED; removing so next batch can run",
-             head->queue_id, head->gh_id);
+    ESP_LOGE(TAG, "Queue head %s (GH %s) FAILED (code: %s); removing so next batch can run",
+             head->queue_id, head->gh_id, head->error_code[0] ? head->error_code : "UNKNOWN");
     (void)event_mgr_log(LOG_LEVEL_ERROR, "SCHEDULER", "DOSING_QUEUE_HEAD_FAILED",
-                        "Dosing batch could not be dispatched and was removed from the queue",
+                        head->error_code[0] ? head->error_code : "Dosing batch could not be dispatched and was removed from the queue",
                         NULL);
     for (size_t i = 0; i < s_today_occurrence_count; i++) {
       if (strcmp(s_today_occurrences[i].occurrence_id, head->occurrence_id) == 0) {
         s_today_occurrences[i].state = OCC_STATE_FAILED;
+        copy_string(s_today_occurrences[i].error_code, sizeof(s_today_occurrences[i].error_code), head->error_code);
+        copy_string(s_today_occurrences[i].affected_component_id, sizeof(s_today_occurrences[i].affected_component_id), head->affected_component_id);
         break;
       }
     }
@@ -2265,12 +2267,22 @@ static void process_dosing_queue(time_t now) {
             ESP_LOGI(TAG, "Global Dosing Queue HEAD %s dispatched (latch set)", head->queue_id);
           } else {
             ESP_LOGE(TAG, "Global Dosing Queue HEAD %s dispatch rejected: %d", head->queue_id, err);
+            char rej_code[32] = {0}, rej_comp[32] = {0};
+            fertigation_mgr_get_last_rejection(rej_code, sizeof(rej_code), rej_comp, sizeof(rej_comp));
+            if (rej_code[0]) {
+              copy_string(head->error_code, sizeof(head->error_code), rej_code);
+              copy_string(head->affected_component_id, sizeof(head->affected_component_id), rej_comp);
+            } else {
+              copy_string(head->error_code, sizeof(head->error_code), "DISPATCH_REJECTED");
+            }
             head->state = QUEUE_STATE_FAILED;
           }
         } else {
+          copy_string(head->error_code, sizeof(head->error_code), "MEMORY_ALLOC_FAILED");
           head->state = QUEUE_STATE_FAILED;
         }
       } else {
+        copy_string(head->error_code, sizeof(head->error_code), "INVALID_RECIPE_PARAMETERS");
         head->state = QUEUE_STATE_FAILED;
       }
     }
@@ -2292,9 +2304,11 @@ static void process_dosing_queue(time_t now) {
     if (head->state == QUEUE_STATE_DISPATCHED && (now_ms - head->dispatched_at_ms > 15000)) {
       ESP_LOGE(TAG, "Queue entry %s physical start watchdog expired", head->queue_id);
       head->state = QUEUE_STATE_FAILED;
+      copy_string(head->error_code, sizeof(head->error_code), "WATCHDOG_TIMEOUT");
       for (size_t i = 0; i < s_today_occurrence_count; i++) {
         if (strcmp(s_today_occurrences[i].occurrence_id, head->occurrence_id) == 0) {
           s_today_occurrences[i].state = OCC_STATE_FAILED;
+          copy_string(s_today_occurrences[i].error_code, sizeof(s_today_occurrences[i].error_code), "WATCHDOG_TIMEOUT");
           break;
         }
       }
@@ -2336,10 +2350,17 @@ static void process_dosing_queue(time_t now) {
       try_enqueue_pending_preparations(now);
     } else if (fert_st == FERT_STATE_FAULTED || fert_st == FERT_STATE_ABORTED || fert_st == FERT_STATE_INTERRUPTED) {
       head->state = QUEUE_STATE_FAILED;
-      ESP_LOGE(TAG, "Batch %s preparation faulted", head->batch_id);
+      fertigation_last_terminal_t term = {0};
+      if (fertigation_mgr_get_last_terminal_for_run(head->batch_id, &term) == ESP_OK && term.fault[0]) {
+        copy_string(head->error_code, sizeof(head->error_code), term.fault);
+      } else {
+        copy_string(head->error_code, sizeof(head->error_code), "MIXING_FAULT");
+      }
+      ESP_LOGE(TAG, "Batch %s preparation faulted: %s", head->batch_id, head->error_code);
       for (size_t i = 0; i < s_today_occurrence_count; i++) {
         if (strcmp(s_today_occurrences[i].occurrence_id, head->occurrence_id) == 0) {
           s_today_occurrences[i].state = OCC_STATE_FAILED;
+          copy_string(s_today_occurrences[i].error_code, sizeof(s_today_occurrences[i].error_code), head->error_code);
           break;
         }
       }

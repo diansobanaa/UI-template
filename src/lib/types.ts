@@ -545,13 +545,19 @@ export interface EnvironmentMetric {
 /* ------------------------------------------------------------------ */
 
 export interface QueuedBatchItem {
+  queueId?: string;
+  occurrenceId?: string;
   batchId: string;
   ghId: string;
   scheduleId?: string;
-  runtimeState: 'QUEUED' | 'MIXING_RAW_WATER' | 'DOSING' | 'READY';
+  runtimeState?: 'QUEUED' | 'MIXING_RAW_WATER' | 'DOSING' | 'READY';
+  status?: string;
+  state?: number | string;
   scheduledTime?: string;
   rawWaterTargetMl?: number;
   dosing?: Record<string, number>;
+  errorCode?: string;
+  affectedComponent?: string;
 }
 
 export interface DosingBatchRuntimeSnapshot {

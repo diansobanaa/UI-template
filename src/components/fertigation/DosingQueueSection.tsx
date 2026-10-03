@@ -16,7 +16,10 @@ import {
   RefreshCw,
   Sparkles,
   StopCircle,
+  Wrench,
+  X,
 } from "lucide-react";
+import { resolveFertigationError } from "@/lib/fertigationErrorMap";
 
 export interface OperationalStep {
   stepNumber: number;
@@ -42,9 +45,11 @@ export interface DosingQueueJob {
   mixingDurationSec: number;
   scheduledTimeStr: string;
   queuePosition: number; // 0 = Active, 1 = Next in line, etc.
-  status: "ACTIVE" | "PENDING_FIFO" | "WAITING_SCHEDULE" | "COMPLETED" | "FAILED";
+  status: "ACTIVE" | "PENDING_FIFO" | "WAITING_SCHEDULE" | "COMPLETED" | "FAILED" | "BLOCKED";
   statusLabel: string;
   steps: OperationalStep[];
+  errorCode?: string;
+  affectedComponent?: string;
 }
 
 export interface NextScheduledOperation {
@@ -63,10 +68,13 @@ export interface DosingErrorInfo {
 interface DosingQueueSectionProps {
   activeJob: DosingQueueJob | null;
   queuedJobs: DosingQueueJob[];
+  blockedJobs?: DosingQueueJob[];
   nextScheduledOp?: NextScheduledOperation | null;
   errorInfo?: DosingErrorInfo | null;
   onAbortActive?: () => void;
   onSyncQueue?: () => void;
+  onNavigateCalibration?: (componentId?: string) => void;
+  onDismissError?: (jobId: string) => void;
   isActionLoading?: boolean;
   isSyncingQueue?: boolean;
   syncCountdownSec?: number;
@@ -77,10 +85,13 @@ interface DosingQueueSectionProps {
 export function DosingQueueSection({
   activeJob,
   queuedJobs,
+  blockedJobs,
   nextScheduledOp,
   errorInfo,
   onAbortActive,
   onSyncQueue,
+  onNavigateCalibration,
+  onDismissError,
   isActionLoading = false,
   isSyncingQueue = false,
   syncCountdownSec = 0,
@@ -188,6 +199,85 @@ export function DosingQueueSection({
               <p className="mt-0.5 text-xs text-slate-300">{errorInfo.message}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ---------------- Smart Diagnostic Alert for Blocked / Failed Batches ---------------- */}
+      {blockedJobs && blockedJobs.length > 0 && (
+        <div className="space-y-3">
+          {blockedJobs.map((job) => {
+            const diag = resolveFertigationError(job.errorCode, job.affectedComponent);
+            const isCalib = diag.actionType === "CALIBRATE_PUMP" || diag.actionType === "CALIBRATE_FLOW";
+            return (
+              <div
+                key={job.id}
+                className="overflow-hidden rounded-xl border border-rose-500/50 bg-gradient-to-r from-rose-950/40 via-[#1a1120] to-[#0e1a2a] p-4 shadow-[0_6px_25px_rgba(244,63,94,0.18)]"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-rose-500/40 bg-rose-500/20 text-rose-300">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md border border-rose-500/40 bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-200">
+                          PERINGATAN OPERASI PERACIKAN
+                        </span>
+                        <span className="text-xs font-bold text-slate-200">
+                          {job.ghCode} ({job.ghName}) • {job.jobTitle}
+                        </span>
+                        {job.errorCode && (
+                          <span className="font-mono text-[10px] text-rose-300/80 bg-rose-950/70 px-1.5 py-0.5 rounded border border-rose-800/60">
+                            {job.errorCode}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="mt-1 text-sm font-bold text-white">{diag.title}</h4>
+                      <p className="mt-0.5 text-xs text-slate-300 leading-relaxed">{diag.description}</p>
+                    </div>
+                  </div>
+
+                  {/* Quick Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-2 self-start pt-1">
+                    {isCalib && onNavigateCalibration && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateCalibration(job.affectedComponent || "dp-a")}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/30 active:scale-95 shadow-sm"
+                      >
+                        <Wrench className="h-3.5 w-3.5 text-amber-300" />
+                        {diag.actionLabel || "Kalibrasi Sekarang"}
+                      </button>
+                    )}
+
+                    {onSyncQueue && (
+                      <button
+                        type="button"
+                        onClick={onSyncQueue}
+                        disabled={isSyncingQueue || isActionLoading}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 active:scale-95 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin text-cyan-400" : ""}`} />
+                        Sinkronkan Ulang
+                      </button>
+                    )}
+
+                    {onDismissError && (
+                      <button
+                        type="button"
+                        onClick={() => onDismissError(job.id)}
+                        title="Abaikan dan singkirkan catatan kendala ini dari layar"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/60 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Abaikan
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

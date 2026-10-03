@@ -1342,6 +1342,8 @@ paths:
                                 ghId: { type: string }
                                 batchId: { type: string }
                                 status: { type: string }
+                                errorCode: { type: string }
+                                affectedComponent: { type: string }
                           todaySchedule:
                             type: array
                             items:
@@ -1355,6 +1357,8 @@ paths:
                                 status: { type: string }
                                 queueId: { type: string }
                                 batchId: { type: string }
+                                errorCode: { type: string }
+                                affectedComponent: { type: string }
                           activeDeliveries:
                             type: array
                             items:

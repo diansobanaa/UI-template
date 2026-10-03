@@ -1,3 +1,17 @@
+## SP-DIAGNOSTIC-ERROR-CODES-001 — Firmware Error Code Contract & Web UI Smart Diagnostic Resolution Card
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Emit machine-readable `errorCode` and `affectedComponent` from ESP32 firmware upon batch failure or parameter rejection (e.g. `DOSING_PUMP_NOT_CALIBRATED`, `FLOW_SENSOR_NOT_CALIBRATED`, `CONFIG_HASH_MISMATCH`, etc.).
+  2. Implement canonical error mapping in Web UI (`src/lib/fertigationErrorMap.ts`) providing human-readable Indonesian explanations, severity ratings, and actionable resolution buttons (`[⚙ Kalibrasi Pompa Sekarang]`, `[🔄 Sinkronkan Antrean]`, `[✕ Abaikan]`).
+  3. Keep the active FIFO queue (`s_dosing_queue`) 100% clean and living by evicting blocked/failed heads in `scheduler.c`, and isolating blocked batches into a top-level Smart Diagnostic Alert Card in `FertigationQueueDashboard.tsx` and `DosingQueueSection.tsx`.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,244.94 kB) built clean in 10s.
+
 ## SP-GH-DETAIL-SCHEDULE-MANAGER-001 — Restore Fertigation Schedule Table and Add Button in Greenhouse Scoped View
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`

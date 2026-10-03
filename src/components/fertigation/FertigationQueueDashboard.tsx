@@ -85,6 +85,20 @@ export function FertigationQueueDashboard({
   const [offline, setOffline] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(new Set());
+
+  const handleNavigateCalibration = (componentId?: string) => {
+    navigate(`/calibration${componentId ? `?componentId=${encodeURIComponent(componentId)}` : ""}`);
+  };
+
+  const handleDismissError = (jobId: string) => {
+    setDismissedJobIds((prev) => {
+      const next = new Set(prev);
+      next.add(jobId);
+      return next;
+    });
+    toast("Catatan kendala disingkirkan dari tampilan.", "info");
+  };
 
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
@@ -270,78 +284,118 @@ export function FertigationQueueDashboard({
   };
 
   // -------------------------------------------------------------------------
-  // Construct Upcoming FIFO Jobs (Section 6 Spec)
+  // Construct Upcoming FIFO Jobs & Blocked Diagnostic Jobs (Section 6 Spec)
   // -------------------------------------------------------------------------
-  const allQueuedJobs: DosingQueueJob[] = useMemo(() => {
-    const list: DosingQueueJob[] = [];
+  const { livingQueuedJobs, blockedJobs } = useMemo(() => {
+    const living: DosingQueueJob[] = [];
+    const blocked: DosingQueueJob[] = [];
     const seenGhOrSched = new Set<string>();
 
     // 1. Primary source: Filter queued batches from authoritative liveQueue (queuedBatches from ESP32)
     if (Array.isArray(liveQueue) && liveQueue.length > 0) {
-      liveQueue
-        .filter((q) => q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1 || q.status === "FAILED" || q.state === 3)
-        .forEach((q, idx) => {
-          const targetGhId = q.ghId || q.gh_id;
-          const schedId = q.scheduleId || q.schedule_id;
-          const gh = greenhouseService.get(targetGhId);
-          const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
-          const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
-          const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
-
-          const sched = allSchedules.find((s) => s.id === schedId);
-          const dosingInfo = resolveDosingTargets(sched, gh, 80, q);
-
-          seenGhOrSched.add(`${targetGhId}_${schedId}`);
-          const isFailed = q.status === "FAILED" || q.state === 3;
-          const isDispatched = q.status === "DISPATCHED" || q.state === 1;
-
-          list.push({
-            id: q.queueId || q.queue_id || `q-${idx}`,
-            scheduleId: schedId,
-            ghId: targetGhId,
-            ghCode,
-            ghName,
-            jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
-            recipeName: dosingInfo.recipeName,
-            targetWaterL: dosingInfo.targetWaterL,
-            targetWaterMl: dosingInfo.targetWaterL * 1000,
-            dosingAml: dosingInfo.dosingAml,
-            dosingBml: dosingInfo.dosingBml,
-            mixingDurationSec: 180,
-            scheduledTimeStr: sched?.time || "Dalam Antrean",
-            queuePosition: idx + 1,
-            status: isFailed ? "FAILED" : isDispatched ? "ACTIVE" : "PENDING_FIFO",
-            statusLabel: isFailed
-              ? "Gagal Dieksekusi"
-              : isDispatched
-              ? "Sedang Disiapkan di Central"
-              : (idx === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${idx + 1}`),
-            steps: [],
-          });
-        });
-    }
-
-    // 2. Secondary source: Ingest today occurrences currently in PREPARING or WAITING_BATCH state
-    const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
-    occurrences
-      .filter((o) => o.state === "PREPARING" || o.state === "WAITING_BATCH" || o.status === "PREPARING" || o.status === "WAITING_BATCH")
-      .forEach((o, idx) => {
-        const targetGhId = o.gh_id || o.ghId;
-        const schedId = o.schedule_id || o.scheduleId;
-        const key = `${targetGhId}_${schedId}`;
-        if (seenGhOrSched.has(key)) return;
-        seenGhOrSched.add(key);
-
+      liveQueue.forEach((q, idx) => {
+        const targetGhId = q.ghId || q.gh_id;
+        const schedId = q.scheduleId || q.schedule_id;
         const gh = greenhouseService.get(targetGhId);
         const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
         const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
         const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
         const sched = allSchedules.find((s) => s.id === schedId);
-        const dosingInfo = resolveDosingTargets(sched, gh, 80, o);
+        const dosingInfo = resolveDosingTargets(sched, gh, 80, q);
 
-        list.push({
-          id: o.occurrenceId || o.occurrence_id || `occ-${idx}`,
+        const isFailed = q.status === "FAILED" || q.state === 3 || q.status === "BLOCKED" || Boolean(q.errorCode);
+        const isDispatched = q.status === "DISPATCHED" || q.state === 1;
+        const jobId = q.queueId || q.queue_id || `q-${idx}`;
+
+        const item: DosingQueueJob = {
+          id: jobId,
+          scheduleId: schedId,
+          ghId: targetGhId,
+          ghCode,
+          ghName,
+          jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
+          recipeName: dosingInfo.recipeName,
+          targetWaterL: dosingInfo.targetWaterL,
+          targetWaterMl: dosingInfo.targetWaterL * 1000,
+          dosingAml: dosingInfo.dosingAml,
+          dosingBml: dosingInfo.dosingBml,
+          mixingDurationSec: 180,
+          scheduledTimeStr: sched?.time || "Dalam Antrean",
+          queuePosition: living.length + 1,
+          status: isFailed ? (q.status === "BLOCKED" ? "BLOCKED" : "FAILED") : isDispatched ? "ACTIVE" : "PENDING_FIFO",
+          statusLabel: isFailed
+            ? (q.status === "BLOCKED" ? "Terblokir" : "Gagal Dieksekusi")
+            : isDispatched
+            ? "Sedang Disiapkan di Central"
+            : (living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`),
+          steps: [],
+          errorCode: q.errorCode || (isFailed ? "DOSING_PUMP_NOT_CALIBRATED" : undefined),
+          affectedComponent: q.affectedComponent || "dp-a",
+        };
+
+        if (isFailed) {
+          if (!dismissedJobIds.has(jobId)) {
+            blocked.push(item);
+          }
+        } else if (q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1) {
+          seenGhOrSched.add(`${targetGhId}_${schedId}`);
+          item.queuePosition = living.length + 1;
+          item.statusLabel = living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`;
+          living.push(item);
+        }
+      });
+    }
+
+    // 2. Secondary source: Ingest today occurrences currently in PREPARING or WAITING_BATCH state
+    const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
+    occurrences.forEach((o, idx) => {
+      const targetGhId = o.gh_id || o.ghId;
+      const schedId = o.schedule_id || o.scheduleId;
+      const key = `${targetGhId}_${schedId}`;
+      const occId = o.occurrenceId || o.occurrence_id || `occ-${idx}`;
+
+      const gh = greenhouseService.get(targetGhId);
+      const ghIndex = ghs.findIndex((g) => g.id === targetGhId);
+      const ghCode = gh?.code || `GH-${String((ghIndex >= 0 ? ghIndex : 0) + 1).padStart(2, "0")}`;
+      const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
+
+      const sched = allSchedules.find((s) => s.id === schedId);
+      const dosingInfo = resolveDosingTargets(sched, gh, 80, o);
+
+      const isFailedOcc = o.state === "FAILED" || o.status === "FAILED" || Boolean(o.errorCode);
+
+      if (isFailedOcc) {
+        if (!dismissedJobIds.has(occId) && !blocked.some((b) => b.scheduleId === schedId)) {
+          blocked.push({
+            id: occId,
+            scheduleId: schedId,
+            ghId: targetGhId,
+            ghCode,
+            ghName,
+            jobTitle: sched?.name || "Jadwal Fertigasi",
+            recipeName: dosingInfo.recipeName,
+            targetWaterL: dosingInfo.targetWaterL,
+            targetWaterMl: dosingInfo.targetWaterL * 1000,
+            dosingAml: dosingInfo.dosingAml,
+            dosingBml: dosingInfo.dosingBml,
+            mixingDurationSec: 180,
+            scheduledTimeStr: sched?.time || "Terjadwal",
+            queuePosition: 0,
+            status: "FAILED",
+            statusLabel: "Gagal Dieksekusi",
+            steps: [],
+            errorCode: o.errorCode || "DOSING_PUMP_NOT_CALIBRATED",
+            affectedComponent: o.affectedComponent || "dp-a",
+          });
+        }
+      } else if (
+        (o.state === "PREPARING" || o.state === "WAITING_BATCH" || o.status === "PREPARING" || o.status === "WAITING_BATCH") &&
+        !seenGhOrSched.has(key)
+      ) {
+        seenGhOrSched.add(key);
+        living.push({
+          id: occId,
           scheduleId: schedId,
           ghId: targetGhId,
           ghCode,
@@ -354,15 +408,16 @@ export function FertigationQueueDashboard({
           dosingBml: dosingInfo.dosingBml,
           mixingDurationSec: 180,
           scheduledTimeStr: sched?.time || "Siap Diracik",
-          queuePosition: list.length + 1,
+          queuePosition: living.length + 1,
           status: "PENDING_FIFO",
-          statusLabel: "Antrean Siap Racik",
+          statusLabel: living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`,
           steps: [],
         });
-      });
+      }
+    });
 
-    return list;
-  }, [liveQueue, liveStatus, allSchedules, ghs]);
+    return { livingQueuedJobs: living, blockedJobs: blocked };
+  }, [liveQueue, liveStatus, allSchedules, ghs, dismissedJobIds]);
 
   // -------------------------------------------------------------------------
   // Construct Active Dosing Queue Job with 5 Real Operational Steps (Section 5)
@@ -468,11 +523,11 @@ export function FertigationQueueDashboard({
   // FIFO Queued Jobs rendered in the list:
   // If top job was promoted to activeJob, only show subsequent jobs in the queue list!
   const queuedJobs = useMemo(() => {
-    if (activeJob && allQueuedJobs.length > 0 && activeJob.id === allQueuedJobs[0].id) {
-      return allQueuedJobs.slice(1);
+    if (activeJob && livingQueuedJobs.length > 0 && activeJob.id === livingQueuedJobs[0].id) {
+      return livingQueuedJobs.slice(1);
     }
-    return allQueuedJobs;
-  }, [activeJob, allQueuedJobs]);
+    return livingQueuedJobs;
+  }, [activeJob, livingQueuedJobs]);
 
   // -------------------------------------------------------------------------
   // Construct Next Scheduled Operation (Section 5 & 8)
@@ -962,10 +1017,13 @@ export function FertigationQueueDashboard({
           <DosingQueueSection
             activeJob={ghActiveJob}
             queuedJobs={ghQueuedJobs}
+            blockedJobs={blockedJobs.filter((b) => b.ghId === gh.id)}
             nextScheduledOp={nextScheduledOp}
             errorInfo={errorInfo}
             onAbortActive={handleAbort}
             onSyncQueue={handleTriggerQueueSync}
+            onNavigateCalibration={handleNavigateCalibration}
+            onDismissError={handleDismissError}
             isActionLoading={actionInProgress !== null}
             isSyncingQueue={isAwaitingQueueSync}
             syncCountdownSec={syncCountdown}
@@ -1066,10 +1124,13 @@ export function FertigationQueueDashboard({
         <DosingQueueSection
           activeJob={activeJob}
           queuedJobs={queuedJobs}
+          blockedJobs={blockedJobs}
           nextScheduledOp={nextScheduledOp}
           errorInfo={errorInfo}
           onAbortActive={handleAbort}
           onSyncQueue={handleTriggerQueueSync}
+          onNavigateCalibration={handleNavigateCalibration}
+          onDismissError={handleDismissError}
           isActionLoading={actionInProgress !== null}
           isSyncingQueue={isAwaitingQueueSync}
           syncCountdownSec={syncCountdown}

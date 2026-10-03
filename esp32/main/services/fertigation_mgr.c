@@ -96,6 +96,8 @@ static fertigation_last_terminal_t
 // (fertigation_mgr_get_last_terminal without slot param). It mirrors the most
 // recent terminal across all slots. New callers should use _for_slot variant.
 static fertigation_last_terminal_t s_last_terminal = {0};
+static char s_last_rejection_code[32] = {0};
+static char s_last_rejection_component[32] = {0};
 static uint32_t s_today_run_count = 0;
 static uint32_t s_today_delivered_ml = 0;
 static int s_today_fert_day = -1;
@@ -1461,6 +1463,8 @@ static esp_err_t parse_payload(const char *payload_json) {
   if (!root)
     return ESP_ERR_INVALID_ARG;
   memset(&s_batch, 0, sizeof(s_batch));
+  s_last_rejection_code[0] = '\0';
+  s_last_rejection_component[0] = '\0';
   cJSON *p = cJSON_GetObjectItem(root, "parameters");
   if (!p || !cJSON_IsObject(p))
     p = root;
@@ -1468,6 +1472,7 @@ static esp_err_t parse_payload(const char *payload_json) {
   if (!plan || !cJSON_IsObject(plan))
     plan = cJSON_GetObjectItem(p, "executionPlan");
   if (!plan || !cJSON_IsObject(plan)) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "INVALID_RECIPE_PARAMETERS");
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
@@ -1516,16 +1521,19 @@ static esp_err_t parse_payload(const char *payload_json) {
   const system_storage_state_t *ss = storage_mgr_get_state();
   if (!ss || !ss->complex_id[0] ||
       strcmp(s_batch.complex_id, ss->complex_id) != 0) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "CONFIG_HASH_MISMATCH");
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
   if (!s_batch.configuration_version ||
       ss->config_version != s_batch.configuration_version) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "CONFIG_HASH_MISMATCH");
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
   if (!ss->config_hash[0] || !s_batch.configuration_hash[0] ||
       strcmp(s_batch.configuration_hash, ss->config_hash) != 0) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "CONFIG_HASH_MISMATCH");
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
@@ -1735,24 +1743,32 @@ static esp_err_t parse_payload(const char *payload_json) {
       s_batch.delivery_pump_id};
   for (size_t i = 0; i < sizeof(required_ids) / sizeof(required_ids[0]); i++)
     if (!validate_component_for_gh(required_ids[i], s_batch.gh_id, true)) {
+      cp(s_last_rejection_code, sizeof(s_last_rejection_code), "EQUIPMENT_NOT_READY");
+      cp(s_last_rejection_component, sizeof(s_last_rejection_component), required_ids[i]);
       cJSON_Delete(root);
       return ESP_ERR_INVALID_STATE;
     }
   if (s_batch.mixing_duration_sec > 0 &&
       !validate_component_for_gh(s_batch.mixing_pump_id, s_batch.gh_id,
                                  false)) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "EQUIPMENT_NOT_READY");
+    cp(s_last_rejection_component, sizeof(s_last_rejection_component), s_batch.mixing_pump_id);
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
   if (strcasecmp(s_batch.delivery_mode, "DURATION") != 0 &&
       !validate_component_for_gh(s_batch.delivery_flow_sensor_id, s_batch.gh_id,
                                  true)) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "EQUIPMENT_NOT_READY");
+    cp(s_last_rejection_component, sizeof(s_last_rejection_component), s_batch.delivery_flow_sensor_id);
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
   if (strcasecmp(s_batch.delivery_mode, "PRESSURE_FLOW") == 0 &&
       !validate_component_for_gh(s_batch.pressure_sensor_id, s_batch.gh_id,
                                  true)) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "EQUIPMENT_NOT_READY");
+    cp(s_last_rejection_component, sizeof(s_last_rejection_component), s_batch.pressure_sensor_id);
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
@@ -1763,6 +1779,8 @@ static esp_err_t parse_payload(const char *payload_json) {
                                      s_batch.raw_flow_calibration_id,
                                      sizeof(s_batch.raw_flow_calibration_id),
                                      &s_batch.raw_flow_calibration_version)) {
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), "FLOW_SENSOR_NOT_CALIBRATED");
+    cp(s_last_rejection_component, sizeof(s_last_rejection_component), s_batch.raw_flow_sensor_id);
     cJSON_Delete(root);
     return ESP_ERR_INVALID_STATE;
   }
@@ -1772,6 +1790,8 @@ static esp_err_t parse_payload(const char *payload_json) {
         strcasecmp(d.calibration_type, "FLOW") != 0 ||
         strcmp(d.calibration_reference, s_batch.raw_flow_calibration_id) != 0 ||
         d.calibration_version != s_batch.raw_flow_calibration_version) {
+      cp(s_last_rejection_code, sizeof(s_last_rejection_code), "FLOW_SENSOR_NOT_CALIBRATED");
+      cp(s_last_rejection_component, sizeof(s_last_rejection_component), s_batch.raw_flow_sensor_id);
       cJSON_Delete(root);
       return ESP_ERR_INVALID_STATE;
     }
@@ -1844,12 +1864,16 @@ static esp_err_t parse_payload(const char *payload_json) {
       if (calibration_mgr_get_record(cid->valuestring, "DOSING_RATE", &rec) !=
               ESP_OK ||
           calibration_mgr_is_usable(&rec) != ESP_OK) {
+        cp(s_last_rejection_code, sizeof(s_last_rejection_code), "DOSING_PUMP_NOT_CALIBRATED");
+        cp(s_last_rejection_component, sizeof(s_last_rejection_component), cid->valuestring);
         cJSON_Delete(root);
         return ESP_ERR_INVALID_STATE;
       }
     }
     float rate = (float)ratev->valuedouble;
     if (fabsf(rate - rec.rate_ml_sec) > 0.005f) {
+      cp(s_last_rejection_code, sizeof(s_last_rejection_code), "DOSING_RATE_INVALID");
+      cp(s_last_rejection_component, sizeof(s_last_rejection_component), cid->valuestring);
       cJSON_Delete(root);
       return ESP_ERR_INVALID_STATE;
     }
@@ -2848,6 +2872,19 @@ esp_err_t fertigation_mgr_get_last_terminal(fertigation_last_terminal_t *out) {
   if (!out)
     return ESP_ERR_INVALID_ARG;
   *out = s_last_terminal;
+  return ESP_OK;
+}
+
+esp_err_t fertigation_mgr_get_last_rejection(char *out_code, size_t code_len,
+                                             char *out_comp, size_t comp_len) {
+  if (out_code && code_len > 0) {
+    strncpy(out_code, s_last_rejection_code, code_len - 1);
+    out_code[code_len - 1] = '\0';
+  }
+  if (out_comp && comp_len > 0) {
+    strncpy(out_comp, s_last_rejection_component, comp_len - 1);
+    out_comp[comp_len - 1] = '\0';
+  }
   return ESP_OK;
 }
 

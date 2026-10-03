@@ -126,6 +126,7 @@ esp_err_t fertigation_mgr_get_correlation(char *out_queue_id, size_t queue_id_le
                                           char *out_gh_id, size_t gh_id_len);
 bool fertigation_mgr_is_batch_ready(const char *gh_id, const char *occurrence_id);
 esp_err_t fertigation_mgr_trigger_distribution(const char *gh_id, const char *occurrence_id);
+esp_err_t fertigation_mgr_get_last_rejection(char *out_code, size_t code_len, char *out_comp, size_t comp_len);
 
 typedef struct {
     uint32_t run_count_today;

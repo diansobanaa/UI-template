@@ -1302,4 +1302,42 @@ To eliminate user confusion where equipment appears missing when filtering by gr
   - Provides instant draft activation (`+ Aktifkan`) for GPIO 40 and a one-click button to jump to the Shared Facility tab.
 - Schedule validation (`enrichScheduleWithActivationState`) inspects both complex-level shared equipment and greenhouse equipment (`gh.equipment` + `complex.equipment` + `gh.telemetry.tankCapacityL`), preventing spurious `MISSING_MIXING_TANK` blocked states.
 
+---
+
+# 33. Diagnostic Error Code Contract & Living Queue Isolation Model
+
+## 33.1 Separation of Concerns: Firmware Codes vs Web UI Diagnostic Presentation
+To guarantee predictable real-time execution and prevent memory overhead or string bloat on the ESP32 micro-controller:
+- **Firmware Authority:**
+  - ESP32 strictly emits compact, machine-readable alphanumeric error codes (`errorCode`, max 31 chars) and the associated hardware identifier (`affectedComponent`, max 31 chars) in its REST responses (`queuedBatches[]` and `todaySchedule[]`).
+  - ESP32 does *not* format multi-line human descriptions, markdown banners, or localized guidance strings.
+- **Web UI Authority:**
+  - The browser application maintains the authoritative diagnostic dictionary (`src/lib/fertigationErrorMap.ts`).
+  - Translates machine codes into clear, contextual Indonesian explanations, severity rankings (`CRITICAL`, `WARNING`, `INFO`), and provides contextual one-click resolution actions (e.g., direct navigation to `/calibration?componentId=...`, re-sync trigger, or dismiss).
+
+## 33.2 Standard Diagnostic Error Codes
+| Error Code | Affected Component / Context | Description | UI Action |
+| :--- | :--- | :--- | :--- |
+| `DOSING_PUMP_NOT_CALIBRATED` | `pump_dosing_a`, `pump_dosing_b`, etc. | Calibration pulse/flow parameters missing or 0 in hardware registry. | `[⚙ Kalibrasi Pompa Sekarang]` (navigates to `/calibration?componentId=...`) |
+| `DOSING_RATE_INVALID` | `pump_dosing_a`, etc. | Configured dosing flow rate is outside valid physical delivery range. | `[⚙ Kalibrasi Pompa Sekarang]` |
+| `FLOW_SENSOR_NOT_CALIBRATED` | `flow_sensor_water`, etc. | Water flow meter calibration coefficient missing or zero. | `[⚙ Kalibrasi Sensor Aliran]` |
+| `CONFIG_HASH_MISMATCH` | Complex / System | Deployed hardware configuration out of sync with ESP32 active registry. | `[🔄 Sinkronkan Antrean]` |
+| `EQUIPMENT_NOT_READY` | Actuator / Valve / Pump | Required dosing/mixing actuator unassigned or in faulted state. | `[⚙ Periksa Peralatan]` |
+| `INVALID_RECIPE_PARAMETERS` | Recipe / Channel | Recipe dosage volume evaluates to 0 ml or exceeds tank limits. | `[Periksa Resep]` |
+| `FLOW_FAULT` | Flow meter / Water Line | Water flow pulse stopped during active filling/delivery. | `[Periksa Jalur Air]` |
+| `DELIVERY_TIMEOUT` | Delivery Pump / Valve | Transfer volume not reached within maximum safety deadline. | `[Periksa Pompa Penyaluran]` |
+| `HARDWARE_INTERLOCK_FAULT` | Interlock circuit | Safety contact or tamper loop opened during run. | `[Periksa Interlock]` |
+| `EMERGENCY_STOP_ACTIVE` | E-Stop circuit | Physical emergency stop button pressed or latched. | `[Reset E-Stop]` |
+
+## 33.3 Living Queue Isolation & Head Eviction
+Under previous iterations, an uncalibrated pump or invalid batch left the entry sitting in `s_dosing_queue[0]` with state `FAILED`, presenting a contradictory UI state where Central Unit was "Standby" while Antrean #1 displayed a red "Gagal Dieksekusi" badge.
+- **Firmware Rule:**
+  - In `scheduler.c`, whenever command submission to `fertigation_mgr` fails or a batch encounters a terminal fault, the failure is recorded in `head->error_code`, mapped to the corresponding occurrence in `s_today_occurrences[]`, and the failed head is immediately evicted (`s_dosing_queue_count--`).
+  - Active execution queue (`s_dosing_queue`) contains strictly actionable jobs (`RUNNING`, `PENDING_FIFO`, `ACTIVE`).
+- **Web UI Presentation Rule:**
+  - `FertigationQueueDashboard.tsx` cleanly partitions jobs into `livingQueuedJobs` (only active items) and `blockedJobs` (batches with error codes or blocked statuses).
+  - Blocked batches are presented as a prominent **Smart Diagnostic Alert Card** with direct remediation buttons above the queue.
+  - Operators may resolve the issue (e.g. calibrate the pump) or dismiss the alert (`[✕ Abaikan]`), keeping the active FIFO execution sequence completely clear of dead or failed entries.
+
+
 

@@ -101,6 +101,8 @@ typedef struct {
     queue_entry_state_t state;
     int64_t dispatched_at_ms;
     uint32_t config_version;
+    char error_code[32];
+    char affected_component_id[32];
 } dosing_queue_entry_t;
 
 typedef struct {
@@ -112,6 +114,8 @@ typedef struct {
     occurrence_state_t state;
     char queue_id[48];
     char batch_id[48];
+    char error_code[32];
+    char affected_component_id[32];
 } today_occurrence_t;
 
 esp_err_t scheduler_get_dosing_queue(dosing_queue_entry_t *out_entries, size_t max_entries, size_t *out_count);

@@ -54,6 +54,12 @@ static void attach_queue_and_today_schedule(cJSON *out) {
             else if (q_entries[i].state == QUEUE_STATE_COMPLETED) st_str = "COMPLETED";
             else if (q_entries[i].state == QUEUE_STATE_FAILED) st_str = "FAILED";
             cJSON_AddStringToObject(item, "status", st_str);
+            if (q_entries[i].error_code[0]) {
+                cJSON_AddStringToObject(item, "errorCode", q_entries[i].error_code);
+            }
+            if (q_entries[i].affected_component_id[0]) {
+                cJSON_AddStringToObject(item, "affectedComponent", q_entries[i].affected_component_id);
+            }
             cJSON_AddItemToArray(qb, item);
         }
     }
@@ -83,6 +89,12 @@ static void attach_queue_and_today_schedule(cJSON *out) {
             cJSON_AddStringToObject(item, "status", st_str);
             cJSON_AddStringToObject(item, "queueId", occs[i].queue_id);
             cJSON_AddStringToObject(item, "batchId", occs[i].batch_id);
+            if (occs[i].error_code[0]) {
+                cJSON_AddStringToObject(item, "errorCode", occs[i].error_code);
+            }
+            if (occs[i].affected_component_id[0]) {
+                cJSON_AddStringToObject(item, "affectedComponent", occs[i].affected_component_id);
+            }
             cJSON_AddItemToArray(ts, item);
         }
     }
