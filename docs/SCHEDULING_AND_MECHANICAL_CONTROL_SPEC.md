@@ -3639,6 +3639,7 @@ PYTHON SAVE + ANALYSIS
      1. FreeRTOS scheduler (`scheduler.c`) maintains an autonomous 2-hour periodic check (`now - s_last_periodic_check_sec >= 7200`) executed using O(1) integer arithmetic without heap allocations or I2C bus traffic.
      2. Condition 3 checks missing occurrences (`s_today_occurrence_count == 0 && s_runtime_count > 0`): if ESP32 was powered off at 00:00:00 midnight and boots at any point later in the day (e.g. 02:30), the controller automatically materializes today's operational schedule and eagerly injects upcoming batches into `s_dosing_queue`.
      3. Clock synchronization (`POST /api/v1/clock-sync`) immediately invokes `scheduler_trigger_daily_now()`.
+     4. Intent mutation in firmware (`POST/PUT/DELETE /api/v1/schedule-intents`) directly invokes `scheduler_sync_intents()` and `scheduler_trigger_daily_now()` in internal C code, eliminating Web UI URL chaining and redundant manual re-fetch requests.
    - **Web UI Grace Period & Background Safety Net:**
      1. When Web UI detects empty dosing queue (`queuedJobs.length === 0`) while active schedules exist for today:
      2. The container displays an active synchronization loading state (*"Memverifikasi antrean peracikan dengan ESP32..."*) for a **15-second grace period**.

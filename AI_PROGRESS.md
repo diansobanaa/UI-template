@@ -1,3 +1,15 @@
+## SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001 — Direct Firmware Schedule Sync & Materialization & Web UI Fetch Loop Elimination
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Eliminate Web UI URL ping-pong orchestration where the browser fired multiple HTTP calls (`deployCompiledSchedules`, `triggerDailySchedules`, and reactive `fetchStatus` loops) on every schedule mutation (add/edit/delete/toggle).
+  2. Implement direct autonomous firmware synchronization in `esp32/main/http/api_schedule_handlers.c`: `api_schedule_intents_post_handler` and `api_schedule_intents_delete_handler` invoke both `scheduler_sync_intents()` and `scheduler_trigger_daily_now()` directly in C internal memory.
+  3. Remove redundant `dbVersion` watcher and extra `fetchStatus` calls from `FertigationQueueDashboard.tsx` during schedule mutations, leaving the lightweight, steady 3-second background polling interval to update telemetry cleanly.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `npm run build`: Singlefile bundle (1,231.81 kB) built clean.
+
 ## SP-UI-CLEANUP-TOOLTIP-001 — Remove Redundant Small Subheaders & Convert to Text-Based Tooltips
 - **Date**: 2026-10-03
 - **Git Commit**: `d970efe`

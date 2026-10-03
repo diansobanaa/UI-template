@@ -1,11 +1,25 @@
-# AI HANDOVER — SP-UI-CLEANUP-TOOLTIP-001 (latest)
+# AI HANDOVER — SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001 (latest)
 
-## Status — SP-UI-CLEANUP-TOOLTIP-001
-**Remove Redundant Small Subheaders & Convert to Text-Based Tooltips**
-**Safe Point**: `SP-UI-CLEANUP-TOOLTIP-001`
+## Status — SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001
+**Direct Firmware Schedule Sync & Materialization & Web UI Fetch Loop Elimination**
+**Safe Point**: `SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001`
 **Date**: 2026-10-03
-**Git Commit**: `d970efe`
 - **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Direct Firmware Intent Synchronization (`esp32/main/http/api_schedule_handlers.c`)**:
+   - `api_schedule_intents_post_handler` and `api_schedule_intents_delete_handler` invoke both `scheduler_sync_intents()` and `scheduler_trigger_daily_now()` directly in C internal memory.
+   - When schedules are added, edited, or deleted, ESP32 re-evaluates and materializes today's occurrences and dosing queue internally with zero network delay and zero extra HTTP URL requests.
+2. **Web UI Fetch Loop & Ping-Pong Elimination (`FertigationQueueDashboard.tsx`)**:
+   - Removed reactive `dbVersion` watcher that called `fetchStatus(false)` on every local mutation.
+   - Removed redundant `await fetchStatus(true)` in `handleToggleSchedule`.
+   - Web UI relies purely on the lightweight, steady 3-second background polling interval to read telemetry cleanly without hammering the controller.
+3. **Canonical Documentation Updated**:
+   - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` §6 updated to document direct intent firmware mutation.
+
+---
+
+# AI HANDOVER — SP-UI-CLEANUP-TOOLTIP-001 (previous)
 
 ### Summary of What Was Done
 1. **System Header Clutter Removal (`FertigationQueueDashboard.tsx`)**:

@@ -79,13 +79,6 @@ export function FertigationQueueDashboard({
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  const prevDbVersion = React.useRef(dbVersion);
-  useEffect(() => {
-    if (prevDbVersion.current !== dbVersion) {
-      prevDbVersion.current = dbVersion;
-      void fetchStatus(false);
-    }
-  }, [dbVersion]);
 
   // Poll authoritative ESP32 fertigation status & queue every 3s
   const inFlightRef = useRef(false);
@@ -981,7 +974,6 @@ export function FertigationQueueDashboard({
     try {
       await scheduleService.updateFertigation(id, { enabled, status: enabled ? "scheduled" : "disabled" });
       toast(enabled ? "Jadwal diaktifkan" : "Jadwal dinonaktifkan", enabled ? "success" : "info");
-      await fetchStatus(true);
     } catch (err: any) {
       toast(`Gagal mengubah jadwal: ${err?.message || "Kesalahan kontroler"}`, "error");
     } finally {

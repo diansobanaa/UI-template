@@ -322,8 +322,9 @@ static esp_err_t api_schedule_intents_post_handler(httpd_req_t *req)
         return http_send_error(req, 500, "PERSISTENCE_FAILED", "Failed to commit schedule intent to NVS", request_id);
     }
 
-    /* Synchronize local runtime scheduler with the persisted intents */
+    /* Synchronize local runtime scheduler with the persisted intents and evaluate daily schedule */
     (void)scheduler_sync_intents();
+    (void)scheduler_trigger_daily_now();
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", existing_idx >= 0 ? "UPDATED" : "PERSISTED");
@@ -393,8 +394,9 @@ static esp_err_t api_schedule_intents_delete_handler(httpd_req_t *req)
         return http_send_error(req, 500, "PERSISTENCE_FAILED", "Failed to commit updated schedule intents to NVS", NULL);
     }
 
-    /* Synchronize local runtime scheduler with the updated intents */
+    /* Synchronize local runtime scheduler with the updated intents and evaluate daily schedule */
     (void)scheduler_sync_intents();
+    (void)scheduler_trigger_daily_now();
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "DELETED");
