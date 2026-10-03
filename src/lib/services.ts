@@ -2490,8 +2490,12 @@ export const fertigationService = {
     if (gh.complexId && this.isStopped(gh.complexId)) {
       throw new ServiceError("CONFLICT", "System is in EMERGENCY STOP — resume the system before starting a run.");
     }
-    if (!gh.recipes.some((r) => r.id === recipeId)) {
+    const recipe = gh.recipes.find((r) => r.id === recipeId || r.name.toLowerCase() === (recipeId || "").toLowerCase()) || recipeService.get(recipeId);
+    if (!recipe && !gh.recipes.some((r) => r.id === recipeId)) {
       throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
+    }
+    if (recipe && !gh.recipes.some((r) => r.id === recipe.id)) {
+      gh.recipes.push(recipe);
     }
     if (!Number.isFinite(targetWaterL) || targetWaterL <= 0) {
       throw new ServiceError("VALIDATION_FAILED", "Target water must be greater than zero.", "targetWaterL");
@@ -2502,7 +2506,7 @@ export const fertigationService = {
     if (isDirectEsp32Enabled() || isPythonBackendEnabled()) {
       try {
         const configuration = await loadAuthoritativeConfiguration(gh.complexId);
-        const localRecipe = assertFound(gh.recipes.find((r) => r.id === recipeId), "Recipe");
+        const localRecipe = assertFound(recipe || gh.recipes.find((r) => r.id === recipeId), "Recipe");
         const inventory = isDirectEsp32Enabled() ? await esp32Client.getInventory() : await pythonScheduleClient.getInventory(gh.complexId);
         const dosing = (inventory.components ?? []).filter((c) => /DOSING/i.test(`${c.role ?? ""} ${c.supportedTypeId ?? ""} ${c.name ?? ""}`) && ["COMMISSIONED", "ENABLED"].includes(c.lifecycleState));
         const channels = (localRecipe as any).dosingChannels?.length ? (localRecipe as any).dosingChannels : dosing.map((c) => ({ componentId: c.componentId, requestedMl: 100 })).filter((x) => x.requestedMl > 0);

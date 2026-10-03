@@ -165,8 +165,13 @@ export function FertigationQueueDashboard({
           autoDispatchLockRef.current = { ghId, timestamp: nowMs };
           const gh = greenhouseService.get(ghId);
           const sched = allSchedules.find((s) => s.ghId === ghId && s.enabled);
-          const recipe = gh?.recipes?.[0];
-          const targetWater = sched?.targetWaterL || recipe?.waterL || 50;
+          const activeRecipeId = firstBatch.recipeId || firstBatch.recipe_id || sched?.recipeId;
+          const recipe =
+            gh?.recipes?.find((r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()) ||
+            (activeRecipeId ? recipeService.get(activeRecipeId) : undefined) ||
+            gh?.recipes?.[0] ||
+            recipeService.get("rcp-standar");
+          const targetWater = sched?.targetWaterL || firstBatch.targetWaterL || recipe?.waterL || 80;
           if (recipe) {
             fertigationService.startManual(ghId, recipe.id, targetWater)
               .then(() => fetchStatus(false))
@@ -226,8 +231,13 @@ export function FertigationQueueDashboard({
 
         if (pendingGh) {
           const sched = allSchedules.find((s) => s.ghId === pendingGh.id && s.enabled);
-          const recipe = pendingGh.recipes?.[0];
-          const targetWater = sched?.targetWaterL || recipe?.waterL || 50;
+          const activeRecipeId = sched?.recipeId;
+          const recipe =
+            pendingGh.recipes?.find((r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()) ||
+            (activeRecipeId ? recipeService.get(activeRecipeId) : undefined) ||
+            pendingGh.recipes?.[0] ||
+            recipeService.get("rcp-standar");
+          const targetWater = sched?.targetWaterL || recipe?.waterL || 80;
           if (recipe) {
             try {
               await fertigationService.startManual(pendingGh.id, recipe.id, targetWater);
