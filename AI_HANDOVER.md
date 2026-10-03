@@ -1,4 +1,28 @@
-# AI HANDOVER — SP-DOSING-UNIFIED-CHECKPOINT-001 (latest)
+# AI HANDOVER — SP-SCHEDULE-CONTAINER-DEDUP-001 (latest)
+
+## Status — SP-SCHEDULE-CONTAINER-DEDUP-001
+**Dedup Fertigation & Mixing Container: Dosing Queue, Mixing Tanks & Schedule List**
+**Safe Point**: `SP-SCHEDULE-CONTAINER-DEDUP-001`
+**Date**: 2026-10-03
+**Git Commit**: `139e579`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Container Redundancy Elimination in `FertigationQueueDashboard.tsx`**:
+   - Removed `<ComplexFertigationOverview />` from the container, which previously duplicated individual greenhouse status cards and forced 6 redundant KPI boxes on single-GH views.
+   - Streamlined the container to the 3 distinct, essential lists:
+     1. **Informasi Queue Dosing** (`DosingQueueSection`): Central unit 3-stage progress and FIFO dosing queue list.
+     2. **Status Tangki Pencampur Tiap Greenhouse** (`GreenhouseMixingTanks`): Batch tank level gauge, physical volume measurements, and direct link to greenhouse panel.
+     3. **List Jadwal Otomasi Fertigasi** (`FertigationScheduleManager`): Configured daily fertigation schedules.
+2. **Greenhouse Navigation Link**:
+   - Added direct `<Link to="/greenhouse/{tank.ghId}">Buka Panel GH →</Link>` to `GreenhouseMixingTanks` card footers so users retain instant access to greenhouse detail controls.
+3. **Verification**:
+   - All test suites pass (15/15 queue consistency, 20/20 dosing & checkpoint, 7/7 dual-guard invariants).
+   - Singlefile production bundle compiled clean (1,222.48 kB).
+
+---
+
+# AI HANDOVER — SP-DOSING-UNIFIED-CHECKPOINT-001 (previous)
 
 ## Status — SP-DOSING-UNIFIED-CHECKPOINT-001
 **Simultaneous Dosing Protocol, Unified 3-Second Checkpoint, Decoupled Distribution & Power Recovery Hold**

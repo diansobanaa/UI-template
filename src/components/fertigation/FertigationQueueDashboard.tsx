@@ -31,10 +31,7 @@ import { useDeviceClock } from "@/lib/device-clock";
 import type { FertigationSchedule, Greenhouse, Recipe } from "@/lib/types";
 import { formatGreenhouseName } from "@/lib/format";
 
-import {
-  ComplexFertigationOverview,
-  type GreenhouseFertigationSummary,
-} from "./ComplexFertigationOverview";
+import type { GreenhouseFertigationSummary } from "./ComplexFertigationOverview";
 import {
   DosingQueueSection,
   type DosingQueueJob,
@@ -1015,16 +1012,7 @@ export function FertigationQueueDashboard({
       </div>
 
       <div className="p-4 md:p-5 space-y-6">
-        {/* 1. Complex-Level Overview for all Greenhouses (Section 10) */}
-        <ComplexFertigationOverview
-          complexName={complex?.name || "Complex"}
-          greenhouses={ghSummaries}
-          onPreMixGh={handlePreMixGh}
-          onDeliverGh={handleDeliverGh}
-          loadingActionGhId={actionInProgress ? actionInProgress.replace(/^(premix-|deliver-)/, "") : null}
-        />
-
-        {/* 2. Dosing Queue Section (Central Unit 5-Step Progress & FIFO List - Section 5 & 6) */}
+        {/* 1. Dosing Queue Section (Central Unit 3-Step Progress & FIFO Dosing Queue List) */}
         <DosingQueueSection
           activeJob={activeJob}
           queuedJobs={queuedJobs}

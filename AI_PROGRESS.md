@@ -1,3 +1,22 @@
+## SP-SCHEDULE-CONTAINER-DEDUP-001 — Dedup Fertigation & Mixing Container: Dosing Queue, Mixing Tanks & Schedule List
+- **Date**: 2026-10-03
+- **Git Commit**: `139e579`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Eliminate massive UI redundancy inside "Sistem Fertigasi & Antrean Peracikan (Fertigation & Mixing System)" on `/schedule?complex=complex-01`.
+  2. Remove `ComplexFertigationOverview` from the container, which duplicated greenhouse status cards and rendered 6 redundant KPI boxes for single-GH complexes.
+  3. Streamline the container to strictly 3 non-redundant sections:
+     - `DosingQueueSection` (Informasi Queue Dosing & Central Unit 3-Step Progress).
+     - `GreenhouseMixingTanks` (Status Tangki Pencampur Tiap Greenhouse with physical volume gauge & "Buka Panel GH →" link).
+     - `FertigationScheduleManager` (List Jadwal Otomasi Fertigasi).
+- **Verification Results**:
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: 20/20 PASS (100%).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,222.48 kB) built clean in 25s.
+
 ## SP-DOSING-UNIFIED-CHECKPOINT-001 — Simultaneous Dosing Protocol, Unified 3-Second Checkpoint, Decoupled Distribution & Power Recovery Hold
 - **Date**: 2026-10-03
 - **Git Commit**: `84398f9`

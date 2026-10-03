@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -255,9 +256,12 @@ export function GreenhouseMixingTanks({
 
                 {/* Action Row & Automation Clarity (Section 9 Spec) */}
                 <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-slate-800/60 pt-3">
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    ID: {tank.technicalId}
-                  </span>
+                  <Link
+                    to={`/greenhouse/${tank.ghId}`}
+                    className="text-[11px] font-medium text-slate-400 hover:text-emerald-300 transition flex items-center gap-1"
+                  >
+                    Buka Panel GH →
+                  </Link>
 
                   <div className="flex items-center gap-2">
                     {tank.canDeliverNow && onDeliver && (
