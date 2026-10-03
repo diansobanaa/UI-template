@@ -12,6 +12,7 @@
   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
   - `npx tsc --noEmit`: 0 errors.
   - `npm run build`: Singlefile bundle (1,247.93 kB) built clean.
+  - `Git Commit`: `499a316`
 
 ## SP-DIAGNOSTIC-ERROR-CODES-001 — Firmware Error Code Contract & Web UI Smart Diagnostic Resolution Card
 - **Date**: 2026-10-03
