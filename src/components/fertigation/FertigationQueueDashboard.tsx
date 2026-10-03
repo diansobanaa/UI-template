@@ -24,7 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import { esp32Client } from "@/lib/api/esp32-client";
-import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
+import { complexService, fertigationService, greenhouseService, recipeService, scheduleService } from "@/lib/services";
 import { useToast } from "@/components/ui/toast";
 import { useDbVersion } from "@/lib/useDb";
 import { useDeviceClock } from "@/lib/device-clock";
@@ -268,6 +268,71 @@ export function FertigationQueueDashboard({
   const fwStateRaw = (liveStatus?.runtimeState || liveStatus?.state || liveStatus?.phase || "IDLE").toUpperCase();
   const fwState = fwStateRaw.replace(/^FERT_STATE_/, "");
 
+  // Helper: Synchronize & resolve authoritative dosing nutrient targets from schedule & recipe
+  const resolveDosingTargets = (
+    sched: FertigationSchedule | undefined,
+    gh: Greenhouse | undefined,
+    fallbackWaterL = 80,
+    sourceItem?: any
+  ) => {
+    const activeRecipeId = sched?.recipeId || sourceItem?.recipeId || sourceItem?.recipe_id;
+    const recipe =
+      gh?.recipes?.find(
+        (r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()
+      ) ||
+      (activeRecipeId ? recipeService.get(activeRecipeId) : undefined) ||
+      recipeService.get("rcp-standar");
+
+    const targetWaterL =
+      sourceItem?.targetWaterL ||
+      sourceItem?.waterL ||
+      (sourceItem?.targetWaterMl ? sourceItem.targetWaterMl / 1000 : undefined) ||
+      sched?.targetWaterL ||
+      recipe?.waterL ||
+      fallbackWaterL;
+
+    let chA = 0;
+    if (sourceItem?.dosingAml && sourceItem.dosingAml > 0) {
+      chA = sourceItem.dosingAml;
+    } else if (sourceItem?.dosing_a_ml && sourceItem.dosing_a_ml > 0) {
+      chA = sourceItem.dosing_a_ml;
+    } else if (sched?.dosingAml && sched.dosingAml > 0) {
+      chA = sched.dosingAml;
+    } else if (sched?.dosingChannels?.[0]?.requestedMl && sched.dosingChannels[0].requestedMl > 0) {
+      chA = sched.dosingChannels[0].requestedMl;
+    } else if (recipe?.dosingAml && recipe.dosingAml > 0) {
+      chA = recipe.dosingAml;
+    } else if (recipe?.dosingChannels?.[0]?.requestedMl && recipe.dosingChannels[0].requestedMl > 0) {
+      chA = recipe.dosingChannels[0].requestedMl;
+    } else {
+      chA = Math.round(targetWaterL * 1.875);
+    }
+
+    let chB = 0;
+    if (sourceItem?.dosingBml && sourceItem.dosingBml > 0) {
+      chB = sourceItem.dosingBml;
+    } else if (sourceItem?.dosing_b_ml && sourceItem.dosing_b_ml > 0) {
+      chB = sourceItem.dosing_b_ml;
+    } else if (sched?.dosingBml && sched.dosingBml > 0) {
+      chB = sched.dosingBml;
+    } else if (sched?.dosingChannels?.[1]?.requestedMl && sched.dosingChannels[1].requestedMl > 0) {
+      chB = sched.dosingChannels[1].requestedMl;
+    } else if (recipe?.dosingBml && recipe.dosingBml > 0) {
+      chB = recipe.dosingBml;
+    } else if (recipe?.dosingChannels?.[1]?.requestedMl && recipe.dosingChannels[1].requestedMl > 0) {
+      chB = recipe.dosingChannels[1].requestedMl;
+    } else {
+      chB = Math.round(targetWaterL * 1.875);
+    }
+
+    return {
+      targetWaterL,
+      dosingAml: chA,
+      dosingBml: chB,
+      recipeName: recipe?.name || "Nutrisi Standar",
+    };
+  };
+
   // -------------------------------------------------------------------------
   // Construct Upcoming FIFO Jobs (Section 6 Spec)
   // -------------------------------------------------------------------------
@@ -288,8 +353,7 @@ export function FertigationQueueDashboard({
           const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
           const sched = allSchedules.find((s) => s.id === schedId);
-          const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
-          const targetWaterL = sched?.targetWaterL || 50;
+          const dosingInfo = resolveDosingTargets(sched, gh, 80, q);
 
           seenGhOrSched.add(`${targetGhId}_${schedId}`);
 
@@ -300,11 +364,11 @@ export function FertigationQueueDashboard({
             ghCode,
             ghName,
             jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
-            recipeName: recipe?.name || "Nutrisi Standar",
-            targetWaterL,
-            targetWaterMl: targetWaterL * 1000,
-            dosingAml: sched?.dosingAml ?? 150,
-            dosingBml: sched?.dosingBml ?? 150,
+            recipeName: dosingInfo.recipeName,
+            targetWaterL: dosingInfo.targetWaterL,
+            targetWaterMl: dosingInfo.targetWaterL * 1000,
+            dosingAml: dosingInfo.dosingAml,
+            dosingBml: dosingInfo.dosingBml,
             mixingDurationSec: 180,
             scheduledTimeStr: sched?.time || "Dalam Antrean",
             queuePosition: idx + 1,
@@ -332,8 +396,7 @@ export function FertigationQueueDashboard({
         const ghName = formatGreenhouseName(gh, ghIndex >= 0 ? ghIndex : 0);
 
         const sched = allSchedules.find((s) => s.id === schedId);
-        const recipe = gh?.recipes?.find((r) => r.id === sched?.recipeId);
-        const targetWaterL = sched?.targetWaterL || 50;
+        const dosingInfo = resolveDosingTargets(sched, gh, 80, o);
 
         list.push({
           id: o.occurrenceId || o.occurrence_id || `occ-${idx}`,
@@ -342,11 +405,11 @@ export function FertigationQueueDashboard({
           ghCode,
           ghName,
           jobTitle: sched?.name || "Persiapan Peracikan Dosing",
-          recipeName: recipe?.name || "Nutrisi Standar",
-          targetWaterL,
-          targetWaterMl: targetWaterL * 1000,
-          dosingAml: sched?.dosingAml ?? 150,
-          dosingBml: sched?.dosingBml ?? 150,
+          recipeName: dosingInfo.recipeName,
+          targetWaterL: dosingInfo.targetWaterL,
+          targetWaterMl: dosingInfo.targetWaterL * 1000,
+          dosingAml: dosingInfo.dosingAml,
+          dosingBml: dosingInfo.dosingBml,
           mixingDurationSec: 180,
           scheduledTimeStr: sched?.time || "Siap Diracik",
           queuePosition: list.length + 1,
@@ -379,11 +442,11 @@ export function FertigationQueueDashboard({
 
       const schedId = liveStatus.scheduleId || "";
       const sched = allSchedules.find((s) => s.id === schedId);
-      const recipe = gh?.recipes?.find((r) => r.id === (sched?.recipeId || liveStatus.recipeId));
-
-      const targetWaterL = (liveStatus.targetWaterMl ? liveStatus.targetWaterMl / 1000 : sched?.targetWaterL) || 50;
-      const chA = sched?.dosingAml ?? 150;
-      const chB = sched?.dosingBml ?? 150;
+      const fallbackWater = (liveStatus.targetWaterMl ? liveStatus.targetWaterMl / 1000 : sched?.targetWaterL) || 80;
+      const dosingInfo = resolveDosingTargets(sched, gh, fallbackWater, liveStatus);
+      const targetWaterL = fallbackWater;
+      const chA = dosingInfo.dosingAml;
+      const chB = dosingInfo.dosingBml;
 
       // Dosing Protocol Specification: 3 Physical Stages (Dosing Queue Pipeline)
       // 1. Persiapan Air Baku (Filling to threshold X%)
@@ -441,7 +504,7 @@ export function FertigationQueueDashboard({
         ghCode,
         ghName,
         jobTitle: sched?.name || "Peracikan Nutrisi Terjadwal",
-        recipeName: recipe?.name || "Nutrisi Standar",
+        recipeName: dosingInfo.recipeName,
         targetWaterL,
         targetWaterMl: targetWaterL * 1000,
         dosingAml: chA,

@@ -153,8 +153,26 @@ export function AddFertigationDrawer({
   // keep targets in sync when recipe changes (volume mode, create only)
   useEffect(() => {
     if (open && !editing && targetMode === "volume" && recipe) {
-      setWater(String(recipe.waterL));
-      setDosingChannels(Object.fromEntries((recipe.dosingChannels ?? []).map((c: { componentId: string; requestedMl: number }) => [c.componentId, String(c.requestedMl)])));
+      setWater(String(recipe.waterL || 80));
+      const map: Record<string, string> = {};
+      if (Array.isArray(recipe.dosingChannels) && recipe.dosingChannels.length > 0) {
+        for (const c of recipe.dosingChannels) {
+          map[c.componentId] = String(c.requestedMl);
+        }
+      }
+      dosingComponents.forEach((comp, idx) => {
+        if (!map[comp.componentId]) {
+          const val = idx === 0
+            ? (recipe.dosingAml ?? (recipe as any).nutrientAml ?? 150)
+            : idx === 1
+            ? (recipe.dosingBml ?? (recipe as any).nutrientBml ?? 150)
+            : undefined;
+          if (val != null) {
+            map[comp.componentId] = String(val);
+          }
+        }
+      });
+      setDosingChannels(map);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipeId, open]);
@@ -254,6 +272,44 @@ export function AddFertigationDrawer({
       return;
     }
     form.submit(async () => {
+      const currentChannels = targetMode === "volume"
+        ? dosingComponents
+            .map((c) => ({
+              componentId: c.componentId,
+              requestedMl: Number(dosingChannels[c.componentId] || 0),
+              ...(c.calibrationId ? { calibrationId: c.calibrationId } : {}),
+              ...(c.calibrationVersion ? { calibrationVersion: c.calibrationVersion } : {}),
+            }))
+            .filter((c) => c.requestedMl > 0)
+        : [];
+
+      const targetW = Number(water) || recipe?.waterL || 80;
+      const chA = Number(
+        currentChannels[0]?.requestedMl ||
+        dosingChannels[dosingComponents[0]?.componentId] ||
+        (recipe as any)?.dosingAml ||
+        (recipe as any)?.nutrientAml ||
+        recipe?.dosingChannels?.[0]?.requestedMl ||
+        Math.round(targetW * 1.875)
+      );
+      const chB = Number(
+        currentChannels[1]?.requestedMl ||
+        dosingChannels[dosingComponents[1]?.componentId] ||
+        (recipe as any)?.dosingBml ||
+        (recipe as any)?.nutrientBml ||
+        recipe?.dosingChannels?.[1]?.requestedMl ||
+        Math.round(targetW * 1.875)
+      );
+
+      const finalChannels = currentChannels.length > 0
+        ? currentChannels
+        : (recipe?.dosingChannels && recipe.dosingChannels.length > 0)
+        ? recipe.dosingChannels
+        : [
+            { componentId: dosingComponents[0]?.componentId || "dosing_a", requestedMl: chA },
+            { componentId: dosingComponents[1]?.componentId || "dosing_b", requestedMl: chB },
+          ];
+
       await onSubmit(
         {
           ghId,
@@ -266,20 +322,11 @@ export function AddFertigationDrawer({
           intervalHours: !isFallbackMode && trigger === "interval" ? Number(intervalH) || undefined : undefined,
           date: !isFallbackMode && trigger === "specific-date" ? date : undefined,
           targetMode,
-          targetWaterL: Number(water) || 0,
+          targetWaterL: targetW,
           rawWaterStartThresholdPercent: Number(rawWaterStartThresholdPercent) || 20,
-          dosingAml: 0,
-          dosingBml: 0,
-          dosingChannels: targetMode === "volume"
-            ? dosingComponents
-                .map((c) => ({
-                  componentId: c.componentId,
-                  requestedMl: Number(dosingChannels[c.componentId] || 0),
-                  ...(c.calibrationId ? { calibrationId: c.calibrationId } : {}),
-                  ...(c.calibrationVersion ? { calibrationVersion: c.calibrationVersion } : {}),
-                }))
-                .filter((c) => c.requestedMl > 0)
-            : [],
+          dosingAml: chA,
+          dosingBml: chB,
+          dosingChannels: finalChannels,
           targetPpm: targetMode === "ppm" ? Number(ppm) || undefined : undefined,
           fallbackEnabled: false,
           fallbackScheduleId: undefined,

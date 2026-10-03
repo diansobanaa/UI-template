@@ -274,7 +274,12 @@ export function FertigationScheduleManager({
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Resep Nutrisi:</span>
-                      <span className="font-semibold text-slate-200">{recipe?.name || "Nutrisi Standar"}</span>
+                      <span className="font-semibold text-slate-200">
+                        {recipe?.name || "Nutrisi Standar"}{" "}
+                        <span className="text-slate-400 font-normal">
+                          (A: {s.dosingAml || recipe?.dosingAml || Math.round((s.targetWaterL || 80) * 1.875)} ml, B: {s.dosingBml || recipe?.dosingBml || Math.round((s.targetWaterL || 80) * 1.875)} ml)
+                        </span>
+                      </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Target Volume:</span>

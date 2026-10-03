@@ -1,3 +1,20 @@
+## SP-SYNC-RECIPE-DOSING-001 — Synchronize Schedule Dosing Targets with Recipe Nutrisi A and B
+- **Date**: 2026-10-03
+- **Git Commit**: `cf42ca4`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Fix synchronization and integration between Fertigation Schedules, Recipes, and Dosing Queue where schedules displayed `Resep: Nutrisi Standar • Target Air: 80 L • Nutrisi A (0 ml) + B (0 ml)` despite a recipe being selected during schedule registration.
+  2. Ensure bi-directional resolution of nutrient dosages (`dosingAml`, `dosingBml`, and `dosingChannels`) across the drawer submission (`AddFertigationDrawer.tsx`), service layer (`services.ts`), state restoration/reconstruction (`operational-state.ts`), dashboard pipeline (`FertigationQueueDashboard.tsx`), queue section UI (`DosingQueueSection.tsx`), and schedule list manager (`FertigationScheduleManager.tsx`).
+  3. Eliminate Javascript `0 ?? 150` trap where `0` is treated as a valid value by nullish coalescing, preventing default/recipe fallbacks.
+  4. Provide authoritative standard nutrient ratio ($1.875\text{ ml/L}$ of water, so $80\text{ L} \to 150\text{ ml}$) as a safety baseline so that neither user interface nor physical actuator can be given 0 ml nutrients for scheduled fertigation.
+- **Verification Results**:
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: 20/20 PASS (100%).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,231.18 kB) built clean.
+
 ## SP-SCHEDULE-CONTAINER-DEDUP-001 — Dedup Fertigation & Mixing Container: Dosing Queue, Mixing Tanks & Schedule List
 - **Date**: 2026-10-03
 - **Git Commit**: `139e579`

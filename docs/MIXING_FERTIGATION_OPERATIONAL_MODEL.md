@@ -1273,6 +1273,12 @@ The system remains operational even when physical MicroSD media is absent or unm
   - Firmware does NOT crash, assert, or reset.
   - Unrelated subsystems (scheduler, HTTP server, telemetry, topology, emergency stop) continue normal operation.
 
+## 31.4 Bi-directional Recipe Dosing Synchronization
+- When a schedule references a recipe (`recipeId`), the schedule inherits the recipe's nutrient channel definitions (`dosingAml`, `dosingBml`, `dosingChannels`).
+- If schedule dosing fields are unspecified or 0, the system automatically resolves the dosages from the referenced recipe.
+- If a standard nutrient formula is used without custom dosing quantities, the baseline target nutrient ratio is $1.875\text{ ml/L}$ of target water (e.g., $80\text{ L} \times 1.875 = 150\text{ ml}$ Nutrisi A + $150\text{ ml}$ Nutrisi B).
+- The Web UI, schedule store, and Dosing Queue pipeline strictly synchronize these values across all layers, ensuring that scheduled runs never evaluate or display as `0 ml` when a recipe is attached.
+
 ---
 
 # 32. Mixing Tank Infrastructure & Equipment Scope Assignment

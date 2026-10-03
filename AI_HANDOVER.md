@@ -1,4 +1,31 @@
-# AI HANDOVER — SP-SCHEDULE-CONTAINER-DEDUP-001 (latest)
+# AI HANDOVER — SP-SYNC-RECIPE-DOSING-001 (latest)
+
+## Status — SP-SYNC-RECIPE-DOSING-001
+**Synchronize Schedule Dosing Targets with Recipe Nutrisi A and B**
+**Safe Point**: `SP-SYNC-RECIPE-DOSING-001`
+**Date**: 2026-10-03
+**Git Commit**: `cf42ca4`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Drawer & Schedule Creation Synchronization (`AddFertigationDrawer.tsx`)**:
+   - Replaced hardcoded `dosingAml: 0, dosingBml: 0` submission with proactive resolution from user inputs, recipe channel definitions, and baseline nutrient calculation ($1.875\text{ ml/L}$, so $80\text{ L} \to 150\text{ ml}$).
+   - Synchronized drawer state `dosingChannels` when selecting a recipe across both `recipe.dosingChannels` and `recipe.dosingAml`/`recipe.dosingBml`.
+2. **Service Layer & Self-Healing Store (`services.ts`)**:
+   - In `scheduleService.fertigationForGh()`, automatically self-heal and resolve any legacy schedules containing `0` or missing `dosingAml`/`dosingBml` from their linked recipe or baseline formula before passing to UI consumers.
+   - In `createFertigation()` and `updateFertigation()`, auto-resolve `dosingAml`, `dosingBml`, and `dosingChannels` from the selected recipe and synchronize the recipe into `gh.recipes`.
+   - In `loadScheduleIntentsFromController()`, convert `recipeId` safely and populate missing/zero nutrient quantities from recipe definitions.
+3. **State Reconstruction & MicroSD Sync (`operational-state.ts`)**:
+   - In `reconstructSnapshotsFromEsp32()`, resolve `dosingAml`, `dosingBml`, and `dosingChannels` when merging backend context and when building `FertigationSchedule` instances from ESP32 NVS intents.
+4. **Dashboard & Queue Display Integration (`FertigationQueueDashboard.tsx` & `DosingQueueSection.tsx`)**:
+   - In `resolveDosingTargets()`, inspect queue item, schedule, and recipe attributes with water-proportional fallback to ensure `0 ml` is never rendered.
+   - Updated `DosingQueueSection.tsx` and `FertigationScheduleManager.tsx` to display active dosages cleanly.
+5. **Canonical Documentation**:
+   - Updated `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` with Section 31.4 detailing bi-directional recipe dosing synchronization and the baseline $1.875\text{ ml/L}$ formula.
+
+---
+
+# AI HANDOVER — SP-SCHEDULE-CONTAINER-DEDUP-001 (previous)
 
 ## Status — SP-SCHEDULE-CONTAINER-DEDUP-001
 **Dedup Fertigation & Mixing Container: Dosing Queue, Mixing Tanks & Schedule List**

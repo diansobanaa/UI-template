@@ -206,8 +206,12 @@ export function DosingQueueSection({
               <p className="mt-1 text-xs text-slate-400">
                 Formula: <span className="font-semibold text-slate-200">{activeJob.recipeName}</span> • Target Air:{" "}
                 <span className="font-semibold text-slate-200">{activeJob.targetWaterL} L</span> • Nutrisi A:{" "}
-                <span className="font-semibold text-cyan-300">{activeJob.dosingAml} ml</span> • Nutrisi B:{" "}
-                <span className="font-semibold text-cyan-300">{activeJob.dosingBml} ml</span>
+                <span className="font-semibold text-cyan-300">
+                  {activeJob.dosingAml > 0 ? activeJob.dosingAml : Math.round(activeJob.targetWaterL * 1.875)} ml
+                </span> • Nutrisi B:{" "}
+                <span className="font-semibold text-cyan-300">
+                  {activeJob.dosingBml > 0 ? activeJob.dosingBml : Math.round(activeJob.targetWaterL * 1.875)} ml
+                </span>
               </p>
             </div>
 
@@ -371,7 +375,9 @@ export function DosingQueueSection({
                       </div>
                       <div className="mt-0.5 text-[11px] text-slate-400">
                         Resep: <span className="text-slate-300">{q.recipeName}</span> • Target Air:{" "}
-                        <span className="text-slate-300 font-semibold">{q.targetWaterL} L</span> • Nutrisi A ({q.dosingAml} ml) + B ({q.dosingBml} ml)
+                        <span className="text-slate-300 font-semibold">{q.targetWaterL} L</span> • Nutrisi A (
+                        {q.dosingAml > 0 ? q.dosingAml : Math.round(q.targetWaterL * 1.875)} ml) + B (
+                        {q.dosingBml > 0 ? q.dosingBml : Math.round(q.targetWaterL * 1.875)} ml)
                       </div>
                     </div>
                   </div>

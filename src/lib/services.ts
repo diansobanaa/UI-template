@@ -1428,9 +1428,37 @@ export const scheduleService = {
             date: item.date as string | undefined,
             targetMode: (item.targetMode as any) || "volume",
             targetWaterL: item.targetWaterL !== undefined ? Number(item.targetWaterL) : (item.targetWaterVolumeMl !== undefined ? Number(item.targetWaterVolumeMl) / 1000 : 50),
-            dosingAml: Number(item.dosingAml ?? 0),
-            dosingBml: Number(item.dosingBml ?? 0),
-            dosingChannels: item.dosingChannels as any,
+            dosingAml: (() => {
+              const direct = Number(item.dosingAml ?? 0);
+              if (direct > 0) return direct;
+              const ch0 = Array.isArray(item.dosingChannels) ? Number(item.dosingChannels[0]?.requestedMl ?? 0) : 0;
+              if (ch0 > 0) return ch0;
+              const recIdStr = typeof item.recipeId === "string" ? item.recipeId : "";
+              const rec = gh.recipes.find((r) => r.id === recIdStr || r.name.toLowerCase() === recIdStr.toLowerCase()) || recipeService.get(recIdStr);
+              return rec?.dosingAml || rec?.dosingChannels?.[0]?.requestedMl || (item.targetWaterL ? Math.round(Number(item.targetWaterL) * 1.875) : 150);
+            })(),
+            dosingBml: (() => {
+              const direct = Number(item.dosingBml ?? 0);
+              if (direct > 0) return direct;
+              const ch1 = Array.isArray(item.dosingChannels) ? Number(item.dosingChannels[1]?.requestedMl ?? 0) : 0;
+              if (ch1 > 0) return ch1;
+              const recIdStr = typeof item.recipeId === "string" ? item.recipeId : "";
+              const rec = gh.recipes.find((r) => r.id === recIdStr || r.name.toLowerCase() === recIdStr.toLowerCase()) || recipeService.get(recIdStr);
+              return rec?.dosingBml || rec?.dosingChannels?.[1]?.requestedMl || (item.targetWaterL ? Math.round(Number(item.targetWaterL) * 1.875) : 150);
+            })(),
+            dosingChannels: (Array.isArray(item.dosingChannels) && item.dosingChannels.length > 0)
+              ? item.dosingChannels
+              : (() => {
+                  const recIdStr = typeof item.recipeId === "string" ? item.recipeId : "";
+                  const rec = gh.recipes.find((r) => r.id === recIdStr || r.name.toLowerCase() === recIdStr.toLowerCase()) || recipeService.get(recIdStr);
+                  if (rec?.dosingChannels && rec.dosingChannels.length > 0) return rec.dosingChannels;
+                  const a = rec?.dosingAml || 150;
+                  const b = rec?.dosingBml || 150;
+                  return [
+                    { componentId: "dosing_a", requestedMl: a },
+                    { componentId: "dosing_b", requestedMl: b },
+                  ];
+                })(),
             targetPpm: item.targetPpm !== undefined ? Number(item.targetPpm) : undefined,
             fallbackEnabled: Boolean(item.fallbackEnabled),
             fallbackScheduleId: item.fallbackScheduleId as string | undefined,
@@ -1505,7 +1533,50 @@ export const scheduleService = {
   fertigationForGh(ghId: string): FertigationSchedule[] {
     const gh = greenhouseService.get(ghId);
     const schedules = gh?.fertigationSchedules ?? [];
-    return schedules.map((s) => enrichScheduleWithActivationState(s, "fertigation", ghId, gh?.complexId));
+    return schedules.map((s) => {
+      let cur = s;
+      if (!cur.dosingAml || cur.dosingAml <= 0 || !cur.dosingBml || cur.dosingBml <= 0) {
+        const recipe = gh?.recipes?.find((r) => r.id === cur.recipeId || r.name.toLowerCase() === (cur.recipeId || "").toLowerCase()) || recipeService.get(cur.recipeId || "");
+        const targetWater = Number(cur.targetWaterL || recipe?.waterL || 80);
+        const a = (cur.dosingAml && cur.dosingAml > 0)
+          ? cur.dosingAml
+          : (cur.dosingChannels?.[0]?.requestedMl && cur.dosingChannels[0].requestedMl > 0)
+          ? cur.dosingChannels[0].requestedMl
+          : (recipe?.dosingAml && recipe.dosingAml > 0)
+          ? recipe.dosingAml
+          : (recipe?.dosingChannels?.[0]?.requestedMl && recipe.dosingChannels[0].requestedMl > 0)
+          ? recipe.dosingChannels[0].requestedMl
+          : Math.round(targetWater * 1.875);
+
+        const b = (cur.dosingBml && cur.dosingBml > 0)
+          ? cur.dosingBml
+          : (cur.dosingChannels?.[1]?.requestedMl && cur.dosingChannels[1].requestedMl > 0)
+          ? cur.dosingChannels[1].requestedMl
+          : (recipe?.dosingBml && recipe.dosingBml > 0)
+          ? recipe.dosingBml
+          : (recipe?.dosingChannels?.[1]?.requestedMl && recipe.dosingChannels[1].requestedMl > 0)
+          ? recipe.dosingChannels[1].requestedMl
+          : Math.round(targetWater * 1.875);
+
+        const channels = (cur.dosingChannels && cur.dosingChannels.length > 0)
+          ? cur.dosingChannels
+          : (recipe?.dosingChannels && recipe.dosingChannels.length > 0)
+          ? recipe.dosingChannels
+          : [
+              { componentId: "dosing_a", requestedMl: a },
+              { componentId: "dosing_b", requestedMl: b },
+            ];
+
+        cur = {
+          ...cur,
+          targetWaterL: targetWater,
+          dosingAml: a,
+          dosingBml: b,
+          dosingChannels: channels,
+        };
+      }
+      return enrichScheduleWithActivationState(cur, "fertigation", ghId, gh?.complexId);
+    });
   },
   wellPumpForComplex(complexId: string): WellPumpSchedule[] {
     const complex = complexService.get(complexId);
@@ -1521,15 +1592,55 @@ export const scheduleService = {
 
   async createFertigation(input: Omit<FertigationSchedule, "id">): Promise<FertigationSchedule> {
     const gh = assertFound(greenhouseService.get(input.ghId), "Greenhouse");
-    if (input.recipeId && !gh.recipes.some((r) => r.id === input.recipeId)) throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
+    const recipe = gh.recipes.find((r) => r.id === input.recipeId || r.name.toLowerCase() === (input.recipeId || "").toLowerCase()) || recipeService.get(input.recipeId || "");
+    if (input.recipeId && !recipe && gh.recipes.length > 0 && !gh.recipes.some((r) => r.id === input.recipeId)) {
+      throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
+    }
+    if (recipe && !gh.recipes.some((r) => r.id === recipe.id)) {
+      gh.recipes.push(recipe);
+    }
     if (!input.name.trim()) throw new ServiceError("VALIDATION_FAILED", "Schedule name is required.", "name");
     if (gh.fertigationSchedules.some((s) => s.name.toLowerCase() === input.name.trim().toLowerCase())) throw new ServiceError("DUPLICATE_ID", `A fertigation schedule named "${input.name.trim()}" already exists in this greenhouse.`, "name");
 
     const id = (input as any).id || `fert-${Date.now()}`;
+    const targetWater = Number(input.targetWaterL || recipe?.waterL || 80);
+    const resolvedDosingA = (input.dosingAml && input.dosingAml > 0)
+      ? input.dosingAml
+      : (input.dosingChannels?.[0]?.requestedMl && input.dosingChannels[0].requestedMl > 0)
+      ? input.dosingChannels[0].requestedMl
+      : (recipe?.dosingAml && recipe.dosingAml > 0)
+      ? recipe.dosingAml
+      : (recipe?.dosingChannels?.[0]?.requestedMl && recipe.dosingChannels[0].requestedMl > 0)
+      ? recipe.dosingChannels[0].requestedMl
+      : Math.round(targetWater * 1.875);
+
+    const resolvedDosingB = (input.dosingBml && input.dosingBml > 0)
+      ? input.dosingBml
+      : (input.dosingChannels?.[1]?.requestedMl && input.dosingChannels[1].requestedMl > 0)
+      ? input.dosingChannels[1].requestedMl
+      : (recipe?.dosingBml && recipe.dosingBml > 0)
+      ? recipe.dosingBml
+      : (recipe?.dosingChannels?.[1]?.requestedMl && recipe.dosingChannels[1].requestedMl > 0)
+      ? recipe.dosingChannels[1].requestedMl
+      : Math.round(targetWater * 1.875);
+
+    const resolvedChannels = (input.dosingChannels && input.dosingChannels.length > 0)
+      ? input.dosingChannels
+      : (recipe?.dosingChannels && recipe.dosingChannels.length > 0)
+      ? recipe.dosingChannels
+      : [
+          { componentId: "dosing_a", requestedMl: resolvedDosingA },
+          { componentId: "dosing_b", requestedMl: resolvedDosingB },
+        ];
+
     const created: FertigationSchedule = {
       ...input,
       id,
       name: input.name.trim(),
+      targetWaterL: targetWater,
+      dosingAml: resolvedDosingA,
+      dosingBml: resolvedDosingB,
+      dosingChannels: resolvedChannels,
     } as FertigationSchedule;
 
     const intentPayload = {
@@ -1578,7 +1689,36 @@ export const scheduleService = {
       patch = { ...patch, name: patch.name.trim() };
     }
     const proposed = { ...existing, ...patch } as FertigationSchedule;
-    if (patch.recipeId && !gh.recipes.some((r) => r.id === patch.recipeId)) throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
+    const activeRecipeId = proposed.recipeId;
+    const recipe = gh.recipes.find((r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()) || recipeService.get(activeRecipeId || "");
+    if (patch.recipeId && !recipe && gh.recipes.length > 0 && !gh.recipes.some((r) => r.id === patch.recipeId)) {
+      throw new ServiceError("INVALID_RELATIONSHIP", "The selected recipe does not belong to this greenhouse.", "recipeId");
+    }
+    if (recipe && !gh.recipes.some((r) => r.id === recipe.id)) {
+      gh.recipes.push(recipe);
+    }
+    if (!proposed.dosingAml || proposed.dosingAml <= 0) {
+      proposed.dosingAml = (proposed.dosingChannels?.[0]?.requestedMl && proposed.dosingChannels[0].requestedMl > 0)
+        ? proposed.dosingChannels[0].requestedMl
+        : (recipe?.dosingAml && recipe.dosingAml > 0)
+        ? recipe.dosingAml
+        : Math.round((proposed.targetWaterL || 80) * 1.875);
+    }
+    if (!proposed.dosingBml || proposed.dosingBml <= 0) {
+      proposed.dosingBml = (proposed.dosingChannels?.[1]?.requestedMl && proposed.dosingChannels[1].requestedMl > 0)
+        ? proposed.dosingChannels[1].requestedMl
+        : (recipe?.dosingBml && recipe.dosingBml > 0)
+        ? recipe.dosingBml
+        : Math.round((proposed.targetWaterL || 80) * 1.875);
+    }
+    if (!proposed.dosingChannels || proposed.dosingChannels.length === 0) {
+      proposed.dosingChannels = (recipe?.dosingChannels && recipe.dosingChannels.length > 0)
+        ? recipe.dosingChannels
+        : [
+            { componentId: "dosing_a", requestedMl: proposed.dosingAml },
+            { componentId: "dosing_b", requestedMl: proposed.dosingBml },
+          ];
+    }
 
     const intentPayload = {
       ...proposed,
@@ -3046,17 +3186,55 @@ export const recipeService = {
   list(ghId?: string): Recipe[] {
     if (ghId) {
       const gh = greenhouseService.get(ghId);
-      return gh?.recipes || [];
+      const list = gh?.recipes || [];
+      if (list.length > 0) return list;
     }
     const snap = getOperationalSnapshot();
-    return snap.greenhouses.flatMap((g) => g.recipes || []);
+    const all = snap.greenhouses.flatMap((g) => g.recipes || []);
+    if (all.length > 0) return all;
+    return [
+      {
+        id: "rcp-standar",
+        name: "Nutrisi Standar",
+        waterL: 80,
+        targetWaterL: 80,
+        dosingAml: 150,
+        dosingBml: 150,
+        dosingChannels: [
+          { componentId: "dosing_a", requestedMl: 150 },
+          { componentId: "dosing_b", requestedMl: 150 },
+        ],
+        targetEc: "1.8",
+        targetPpm: 900,
+        description: "Formula nutrisi AB-Mix standar untuk sayuran dan buah",
+        version: 1,
+      },
+    ];
   },
 
   get(id: string): Recipe | undefined {
     const snap = getOperationalSnapshot();
     for (const g of snap.greenhouses) {
-      const r = (g.recipes || []).find((rec) => rec.id === id);
+      const r = (g.recipes || []).find((rec) => rec.id === id || rec.name.toLowerCase() === id.toLowerCase());
       if (r) return r;
+    }
+    if (!id || id === "rcp-standar" || id.toLowerCase().includes("standar")) {
+      return {
+        id: "rcp-standar",
+        name: "Nutrisi Standar",
+        waterL: 80,
+        targetWaterL: 80,
+        dosingAml: 150,
+        dosingBml: 150,
+        dosingChannels: [
+          { componentId: "dosing_a", requestedMl: 150 },
+          { componentId: "dosing_b", requestedMl: 150 },
+        ],
+        targetEc: "1.8",
+        targetPpm: 900,
+        description: "Formula nutrisi AB-Mix standar untuk sayuran dan buah",
+        version: 1,
+      };
     }
     return undefined;
   },

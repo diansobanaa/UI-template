@@ -401,19 +401,50 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
         try {
           const recipeRes = await esp32Client.getRecipes();
           const remoteRecipes = Array.isArray(recipeRes?.recipes) ? recipeRes.recipes : [];
-          const normalizedRecipes = remoteRecipes.map((r: any) => ({
-            id: r.recipeId || r.id,
-            recipeId: r.recipeId || r.id,
-            name: r.name || r.recipeId || "Unnamed Recipe",
-            waterL: Number(r.waterL ?? r.targetWaterL ?? (r.volumeMl ? r.volumeMl / 1000 : 80)),
-            dosingAml: Number(r.dosingAml ?? r.nutrientAml ?? 0),
-            dosingBml: Number(r.dosingBml ?? r.nutrientBml ?? 0),
-            dosingChannels: r.dosingChannels || [],
-            targetEc: r.targetEc ? String(r.targetEc) : "-",
-            targetPpm: r.targetPpm != null ? Number(r.targetPpm) : undefined,
-            description: r.description || "",
-            version: Number(r.version || 1),
-          }));
+          const normalizedRecipes = remoteRecipes.map((r: any) => {
+            const dosingA = Number(r.dosingAml ?? r.nutrientAml ?? r.dosingChannels?.[0]?.requestedMl ?? 0);
+            const dosingB = Number(r.dosingBml ?? r.nutrientBml ?? r.dosingChannels?.[1]?.requestedMl ?? 0);
+            const waterL = Number(r.waterL ?? r.targetWaterL ?? (r.volumeMl ? r.volumeMl / 1000 : 80));
+            const resolvedA = dosingA > 0 ? dosingA : Math.round(waterL * 1.875);
+            const resolvedB = dosingB > 0 ? dosingB : Math.round(waterL * 1.875);
+            const channels = (Array.isArray(r.dosingChannels) && r.dosingChannels.length > 0)
+              ? r.dosingChannels
+              : [
+                  { componentId: "dosing_a", requestedMl: resolvedA },
+                  { componentId: "dosing_b", requestedMl: resolvedB },
+                ];
+            return {
+              id: r.recipeId || r.id,
+              recipeId: r.recipeId || r.id,
+              name: r.name || r.recipeId || "Unnamed Recipe",
+              waterL,
+              dosingAml: resolvedA,
+              dosingBml: resolvedB,
+              dosingChannels: channels,
+              targetEc: r.targetEc ? String(r.targetEc) : "-",
+              targetPpm: r.targetPpm != null ? Number(r.targetPpm) : undefined,
+              description: r.description || "",
+              version: Number(r.version || 1),
+            };
+          });
+          if (normalizedRecipes.length === 0) {
+            normalizedRecipes.push({
+              id: "rcp-standar",
+              recipeId: "rcp-standar",
+              name: "Nutrisi Standar",
+              waterL: 80,
+              dosingAml: 150,
+              dosingBml: 150,
+              dosingChannels: [
+                { componentId: "dosing_a", requestedMl: 150 },
+                { componentId: "dosing_b", requestedMl: 150 },
+              ],
+              targetEc: "1.8",
+              targetPpm: 900,
+              description: "Formula nutrisi AB-Mix standar untuk sayuran dan buah",
+              version: 1,
+            });
+          }
           for (const g of reconstructed.greenhouses) {
             g.recipes = normalizedRecipes;
           }
@@ -478,9 +509,47 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                 if (remoteG.plants) g.plants = remoteG.plants;
                 if (remoteG.crop) g.crop = remoteG.crop;
                 if (remoteG.equipment) g.equipment = remoteG.equipment;
-                // Note: Recipes are authoritative on ESP32 MicroSD card, not Python backend.
                 if (Array.isArray(remoteG.fertigationSchedules)) {
-                  g.fertigationSchedules = remoteG.fertigationSchedules;
+                  g.fertigationSchedules = remoteG.fertigationSchedules.map((s: any) => {
+                    const targetWater = Number(s.targetWaterL ?? 80);
+                    const rec = g.recipes?.find((r) => r.id === s.recipeId || r.name.toLowerCase() === (s.recipeId || "").toLowerCase());
+                    let resolvedA = Number(s.dosingAml ?? 0);
+                    if (resolvedA <= 0 && Array.isArray(s.dosingChannels) && s.dosingChannels.length > 0) {
+                      resolvedA = Number(s.dosingChannels[0]?.requestedMl ?? 0);
+                    }
+                    if (resolvedA <= 0 && rec) {
+                      resolvedA = Number(rec.dosingAml ?? rec.dosingChannels?.[0]?.requestedMl ?? 0);
+                    }
+                    if (resolvedA <= 0) {
+                      resolvedA = Math.round(targetWater * 1.875);
+                    }
+
+                    let resolvedB = Number(s.dosingBml ?? 0);
+                    if (resolvedB <= 0 && Array.isArray(s.dosingChannels) && s.dosingChannels.length > 1) {
+                      resolvedB = Number(s.dosingChannels[1]?.requestedMl ?? 0);
+                    }
+                    if (resolvedB <= 0 && rec) {
+                      resolvedB = Number(rec.dosingBml ?? rec.dosingChannels?.[1]?.requestedMl ?? 0);
+                    }
+                    if (resolvedB <= 0) {
+                      resolvedB = Math.round(targetWater * 1.875);
+                    }
+
+                    const resolvedChannels = (Array.isArray(s.dosingChannels) && s.dosingChannels.length > 0)
+                      ? s.dosingChannels
+                      : [
+                          { componentId: "dosing_a", requestedMl: resolvedA },
+                          { componentId: "dosing_b", requestedMl: resolvedB },
+                        ];
+
+                    return {
+                      ...s,
+                      targetWaterL: targetWater,
+                      dosingAml: resolvedA,
+                      dosingBml: resolvedB,
+                      dosingChannels: resolvedChannels,
+                    };
+                  });
                 }
                 if (Array.isArray(remoteG.fanSchedules)) {
                   g.fanSchedules = remoteG.fanSchedules;
@@ -626,6 +695,39 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
               if (targetGh) {
                 if (!targetGh.fertigationSchedules) targetGh.fertigationSchedules = [];
                 const existingIdx = targetGh.fertigationSchedules.findIndex((s) => s.id === item.id);
+                const targetWater = item.targetWaterL !== undefined ? Number(item.targetWaterL) : (item.targetWaterVolumeMl !== undefined ? Number(item.targetWaterVolumeMl) / 1000 : 80);
+                const recId = (item.recipeId as string) || "";
+                const rec = targetGh.recipes?.find((r) => r.id === recId || r.name.toLowerCase() === recId.toLowerCase());
+
+                let resolvedDosingA = Number(item.dosingAml ?? 0);
+                if (resolvedDosingA <= 0 && Array.isArray(item.dosingChannels) && item.dosingChannels.length > 0) {
+                  resolvedDosingA = Number(item.dosingChannels[0]?.requestedMl ?? 0);
+                }
+                if (resolvedDosingA <= 0 && rec) {
+                  resolvedDosingA = Number(rec.dosingAml ?? rec.dosingChannels?.[0]?.requestedMl ?? 0);
+                }
+                if (resolvedDosingA <= 0) {
+                  resolvedDosingA = Math.round(targetWater * 1.875);
+                }
+
+                let resolvedDosingB = Number(item.dosingBml ?? 0);
+                if (resolvedDosingB <= 0 && Array.isArray(item.dosingChannels) && item.dosingChannels.length > 1) {
+                  resolvedDosingB = Number(item.dosingChannels[1]?.requestedMl ?? 0);
+                }
+                if (resolvedDosingB <= 0 && rec) {
+                  resolvedDosingB = Number(rec.dosingBml ?? rec.dosingChannels?.[1]?.requestedMl ?? 0);
+                }
+                if (resolvedDosingB <= 0) {
+                  resolvedDosingB = Math.round(targetWater * 1.875);
+                }
+
+                const resolvedChannels = (Array.isArray(item.dosingChannels) && item.dosingChannels.length > 0)
+                  ? item.dosingChannels
+                  : [
+                      { componentId: "dosing_a", requestedMl: resolvedDosingA },
+                      { componentId: "dosing_b", requestedMl: resolvedDosingB },
+                    ];
+
                 const s: FertigationSchedule = {
                   id: item.id,
                   ghId: targetGh.id,
@@ -639,10 +741,10 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                   intervalHours: item.intervalHours !== undefined ? Number(item.intervalHours) : undefined,
                   date: item.date as string | undefined,
                   targetMode: (item.targetMode as any) || "volume",
-                  targetWaterL: item.targetWaterL !== undefined ? Number(item.targetWaterL) : (item.targetWaterVolumeMl !== undefined ? Number(item.targetWaterVolumeMl) / 1000 : 50),
-                  dosingAml: Number(item.dosingAml ?? 0),
-                  dosingBml: Number(item.dosingBml ?? 0),
-                  dosingChannels: item.dosingChannels as any,
+                  targetWaterL: targetWater,
+                  dosingAml: resolvedDosingA,
+                  dosingBml: resolvedDosingB,
+                  dosingChannels: resolvedChannels,
                   targetPpm: item.targetPpm !== undefined ? Number(item.targetPpm) : undefined,
                   fallbackEnabled: Boolean(item.fallbackEnabled),
                   fallbackScheduleId: item.fallbackScheduleId as string | undefined,
