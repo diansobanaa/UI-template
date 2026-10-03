@@ -24,6 +24,7 @@
   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
   - `npx tsc --noEmit`: 0 errors.
   - `npm run build`: Singlefile bundle (1,248.24 kB) built clean.
+  - `Git Commit`: `9c6e181`
 
 ## SP-CALIBRATION-RAW-PUMP-FLOW-001 — Lower Float Calibration Exemption & Raw Water Pump Calibration via Small Flow Sensor
 - **Date**: 2026-10-03
