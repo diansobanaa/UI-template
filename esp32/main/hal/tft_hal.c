@@ -28,6 +28,8 @@ static bool s_tft_available = false;
 static tft_screen_id_t s_current_screen = TFT_SCREEN_HOME;
 static TaskHandle_t s_tft_task_handle = NULL;
 static bool s_need_full_redraw = false;
+static volatile bool s_tft_rendering = false;
+static volatile bool s_tft_pause_requested = false;
 
 /* Custom 7x7 High-Density Vector Icons */
 static const uint8_t s_icon_leaf[7]     = { 0x1C, 0x3E, 0x7E, 0x7C, 0x38, 0x10, 0x30 };
@@ -1276,7 +1278,8 @@ static void tft_screen_task(void *pvParameters)
     (void)pvParameters;
     ESP_LOGI(TAG, "TFT dynamic refresh task started (1s cadence, zero busy-wait).");
     while (1) {
-        if (s_tft_available) {
+        if (s_tft_available && !s_tft_pause_requested) {
+            s_tft_rendering = true;
             if (s_need_full_redraw) {
                 s_need_full_redraw = false;
                 ESP_LOGI(TAG, "TFT rendering screen %d (full redraw)", (int)s_current_screen);
@@ -1284,6 +1287,7 @@ static void tft_screen_task(void *pvParameters)
             } else {
                 tft_render_current_screen_dynamic();
             }
+            s_tft_rendering = false;
         }
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
     }
@@ -1313,6 +1317,11 @@ tft_screen_id_t tft_get_current_screen(void)
 
 void tft_hal_pause(void)
 {
+    s_tft_pause_requested = true;
+    int wait_count = 0;
+    while (s_tft_rendering && wait_count++ < 15) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
     if (s_tft_task_handle) {
         vTaskSuspend(s_tft_task_handle);
     }
@@ -1322,6 +1331,7 @@ void tft_hal_pause(void)
 
 void tft_hal_resume(void)
 {
+    s_tft_pause_requested = false;
     if (s_tft_task_handle) {
         vTaskResume(s_tft_task_handle);
     }

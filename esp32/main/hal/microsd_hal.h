@@ -30,6 +30,8 @@ typedef struct {
     bool format_in_progress;    /**< True if runtime FAT32 format task is actively running */
     uint64_t capacity_mb;       /**< Total capacity in Megabytes (MB) */
     char card_name[32];         /**< Card Product Name from CID register (e.g. "SL08G") */
+    char last_format_result[16]; /**< "SUCCESS", "FAILED", or empty */
+    char last_format_error[64];  /**< Detailed error string if format failed */
 } microsd_card_info_t;
 
 /* Backward-compatibility alias for storage handler */
@@ -40,6 +42,11 @@ typedef microsd_card_info_t sdcard_card_info_t;
  * Non-blocking / fail-safe: if MicroSD card is not present, falls back gracefully to degraded mode.
  */
 esp_err_t microsd_hal_init(void);
+
+/**
+ * @brief Run diagnostic file I/O tests (normal write, read, append) to distinguish format from file I/O.
+ */
+esp_err_t microsd_hal_test_file_io(char *out_log, size_t max_len);
 
 /**
  * @brief Check if MicroSD card is currently mounted.

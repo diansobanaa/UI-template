@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <inttypes.h>
+#include <errno.h>
 
 static const char *TAG = "TELEM_STORE";
 
@@ -296,9 +297,10 @@ esp_err_t telemetry_store_flush(void)
     microsd_hal_lock();
     FILE *f = fopen(path, "ab");
     if (!f) {
+        int err = errno;
         microsd_hal_unlock();
         s_status.is_degraded = true;
-        ESP_LOGW(TAG, "Failed to open segment file '%s' for append", path);
+        ESP_LOGW(TAG, "Failed to open segment file '%s' for append: errno=%d (%s)", path, err, strerror(err));
         heap_caps_free(local_batch);
         return ESP_FAIL;
     }

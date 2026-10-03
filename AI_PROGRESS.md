@@ -1,3 +1,63 @@
+## SP-SDCARD-FORMAT-DIAG-001 — Resolve MicroSD FAT32 Format Verification Failure & Telemetry Persistence via LFN Heap Support & Pin Protection
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Diagnose and resolve why the manual "Format SD Card" feature triggered from the Web UI failed write+read verification (`MICROSD_HAL: FORMAT FAILED: Write+read verification failed`).
+  - Preserve the existing clickable Web UI format feature, ensuring complete end-to-end operation and verification without disabling, faking, or bypassing.
+  - Distinguish format from normal SD file I/O (TEST A: mount, TEST B: write/read, TEST C: append, TEST D: format via UI, TEST E: remount & file I/O).
+  - Investigate and resolve `TELEM_STORE: Failed to open segment file '/sdcard/tlm_20261004.dat' for append`.
+  - Capture underlying ESP-IDF error codes and return transparent failure status to the Web UI if formatting fails.
+- **Root Cause & Forensic Proof**:
+  1. **Dual-Purpose GPIO 48 Pin Hijack**:
+     - GPIO 48 is shared between MicroSD CS and onboard WS2812 RGB LED.
+     - Post-mount in `microsd_hal_init()` and post-format in `format_worker_task()`, `ws2812_clear(PIN_MICROSD_CS)` called `gpio_reset_pin(48)`, wiping out the SDSPI host driver configuration and holding CS permanently HIGH/disconnected.
+  2. **FATFS Long Filename (LFN) Disabled**:
+     - `sdkconfig.defaults` contained `CONFIG_FATFS_MAX_LFN=255`, but omitted `CONFIG_FATFS_LFN_HEAP=y`. ESP-IDF defaulted to `CONFIG_FATFS_LFN_NONE=y` (strict 8.3 filename mode).
+     - When `format_worker_task` attempted to create verification file `/sdcard/_fmt_test.txt` (9 characters base name), FatFS rejected it with `FR_INVALID_NAME` (`EINVAL` / `errno 22`).
+     - Similarly, `telemetry_store.c` attempted to create directory `/sdcard/telemetry` (9 chars) and segment file `/sdcard/tlm_20261004.dat` (12 chars base name), which were rejected with `FR_INVALID_NAME`, causing `TELEM_STORE: Failed to open segment file` and marking storage degraded.
+  3. **Shared SPI Bus Arbitration Hazard**:
+     - `tft_hal_pause()` called `vTaskSuspend(s_tft_task_handle)` asynchronously without checking if an SPI transaction was in progress, risking SPI bus lockup.
+  4. **API Storage Handlers Result Masking**:
+     - In `handler_get_format_result()`, if format failed, `info.mounted` was false but `info.detected` was true, causing the handler to emit `result: null, status: "IDLE"`. The Web UI format polling loop checks for `result === "FAILED"`, so the UI never received failure status.
+- **Completed Work**:
+  1. `esp32/main/hal/microsd_hal.c` & `esp32/main/hal/microsd_hal.h`:
+     - Removed destructive `ws2812_clear` calls post-mount and post-format.
+     - Changed verification test path to 8.3-compliant `/sdcard/_fmttest.txt`.
+     - Increased `format_worker_task` stack size from 4096 to 8192 bytes for deep FatFS calls.
+     - Added deep diagnostics (`errno`, `strerror`) to format verification.
+     - Implemented `microsd_hal_test_file_io()` executing TEST A (mount check), TEST B (write + read verify), and TEST C (file append verify).
+     - Added `last_format_result[16]` and `last_format_error[64]` to `microsd_card_info_t`.
+  2. `esp32/main/hal/tft_hal.c`:
+     - Added `s_tft_rendering` and `s_tft_pause_requested` synchronization flags to prevent suspending TFT mid-SPI transaction.
+  3. `esp32/main/http/api_storage_handlers.c`:
+     - Updated `handler_get_format_result()` to check `info.last_format_result` and emit `result: "FAILED"`, `status: "FORMAT_FAILED"`, `errorCode: info.last_format_error` when format fails.
+     - Added `handler_get_storage_test()` registered at `GET /api/v1/storage/test`.
+  4. `esp32/main/storage/telemetry_store.c`:
+     - Added `#include <errno.h>` and formatted `errno` and `strerror` on segment file open failure.
+  5. `esp32/sdkconfig.defaults` & `esp32/sdkconfig`:
+     - Added `CONFIG_FATFS_LFN_HEAP=y` to enable up to 255-character filenames using PSRAM heap without consuming task stack.
+  6. `contracts/UI_ESP32_OPENAPI.yaml`:
+     - Added OpenAPI specification for `GET /api/v1/storage/test`.
+- **Live Hardware Verification Results (ESP32-S3 COM3 / 192.168.0.101)**:
+  - Cold Boot & Storage Status: `GET /api/v1/storage/status` -> HTTP 200 OK (`detected: true`, `mounted: true`, `capacityMb: 7431`, `cardName: "SD"`, `status: "READY"`).
+  - Diagnostic Battery: `GET /api/v1/storage/test` -> HTTP 200 OK:
+    `{"success":true,"result":"PASS","log":"TEST_A_MOUNT: PASS; TEST_B_VERIFY: PASS; TEST_C_VERIFY: PASS (append OK)"}`.
+  - Web UI Format Request: `POST /api/v1/storage/format` with `{"confirm": true}` -> HTTP 202 Accepted.
+  - Format Result Polling: `GET /api/v1/storage/format/result` -> HTTP 200 OK:
+    `{"formatInProgress":false,"result":"SUCCESS","status":"FORMAT_SUCCESS","mounted":true,"capacityMb":7431}`.
+  - Post-Format Remount & File I/O: `GET /api/v1/storage/test` -> HTTP 200 OK (`TEST_A_MOUNT: PASS; TEST_B_VERIFY: PASS; TEST_C_VERIFY: PASS (append OK)`).
+  - Telemetry Persistence Verification: `(curl http://192.168.0.101/api/v1/telemetry?cursor=1).data.storageAvailable` -> `True`! Segment file created and records appended successfully.
+  - Format Repeatability: Second format cycle executed and verified (`result: "SUCCESS"`, `mounted: true`, subsequent file I/O 100% PASS).
+- **Changed Files**:
+  - `esp32/main/hal/microsd_hal.c`
+  - `esp32/main/hal/microsd_hal.h`
+  - `esp32/main/hal/tft_hal.c`
+  - `esp32/main/http/api_storage_handlers.c`
+  - `esp32/main/storage/telemetry_store.c`
+  - `esp32/sdkconfig.defaults`
+  - `esp32/sdkconfig`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+
 ## SP-BOOT-OFFLINE-SYNC-PSRAM-001 — Eliminate Bootloop by Migrating offline_sync Task Stack to PSRAM & Non-Fatal app_main Handling
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

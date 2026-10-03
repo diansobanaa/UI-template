@@ -19,11 +19,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 static const char *TAG = "MICROSD_HAL";
 static bool s_microsd_mounted = false;
 static bool s_microsd_detected = false;
 static bool s_format_in_progress = false;
+static char s_last_format_result[16] = {0};
+static char s_last_format_error[64] = {0};
 static SemaphoreHandle_t s_microsd_lock = NULL;
 
 #if FEATURE_MICROSD_ENABLED
@@ -183,10 +186,6 @@ esp_err_t microsd_hal_init(void)
         s_microsd_detected = true;
         microsd_hal_unlock();
 
-        ws2812_clear((gpio_num_t)PIN_MICROSD_CS);
-        gpio_set_direction((gpio_num_t)PIN_MICROSD_CS, GPIO_MODE_OUTPUT);
-        gpio_set_level((gpio_num_t)PIN_MICROSD_CS, 1);
-
         uint64_t capacity_mb = ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024);
         ESP_LOGI(TAG, "MicroSD Card mounted successfully at /sdcard (Name: %s, Capacity: %llu MB / %llu GB)",
                  s_card->cid.name, capacity_mb, capacity_mb / 1024);
@@ -196,10 +195,6 @@ esp_err_t microsd_hal_init(void)
         /* Accurate hardware detection state: only mark detected if card responded to low-level init */
         s_microsd_detected = (s_card != NULL);
         microsd_hal_unlock();
-
-        ws2812_clear((gpio_num_t)PIN_MICROSD_CS);
-        gpio_set_direction((gpio_num_t)PIN_MICROSD_CS, GPIO_MODE_OUTPUT);
-        gpio_set_level((gpio_num_t)PIN_MICROSD_CS, 1);
 
         if (s_microsd_detected) {
             ESP_LOGW(TAG, "MicroSD Card detected via SPI but mount failed (err=0x%x). Card may need FAT32 format.", ret);
@@ -243,6 +238,8 @@ void microsd_hal_get_card_info(microsd_card_info_t *out)
     out->format_in_progress = s_format_in_progress;
     out->mounted = s_microsd_mounted;
     out->detected = s_microsd_detected || s_microsd_mounted;
+    strncpy(out->last_format_result, s_last_format_result, sizeof(out->last_format_result) - 1);
+    strncpy(out->last_format_error, s_last_format_error, sizeof(out->last_format_error) - 1);
 
 #if FEATURE_MICROSD_ENABLED
     if (s_card != NULL) {
@@ -261,6 +258,8 @@ static void format_worker_task(void *arg)
 {
     (void)arg;
     ESP_LOGI(TAG, "FORMAT: Dedicated format task started.");
+    s_last_format_result[0] = '\0';
+    s_last_format_error[0] = '\0';
 
     /* 1. Pause TFT refresh task to release shared SPI bus during format */
     tft_hal_pause();
@@ -305,34 +304,55 @@ static void format_worker_task(void *arg)
         /* Run explicit format to ensure fresh FAT32 structures */
         ESP_LOGI(TAG, "FORMAT: Running esp_vfs_fat_sdcard_format()...");
         ret = esp_vfs_fat_sdcard_format("/sdcard", s_card);
+        ESP_LOGI(TAG, "FORMAT: esp_vfs_fat_sdcard_format returned 0x%x (%s)", ret, esp_err_to_name(ret));
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "FORMAT: esp_vfs_fat_sdcard_format returned 0x%x (mount format may already be complete)", ret);
         }
 
-        /* Write + read verification test */
-        static const char *test_path = "/sdcard/_fmt_test.txt";
+        /* Write + read verification test (8.3 safe filename) */
+        static const char *test_path = "/sdcard/_fmttest.txt";
         static const char *test_data = "AgroTech MicroSD format verification OK";
         bool verify_ok = false;
 
         FILE *f = fopen(test_path, "w");
         if (f != NULL) {
-            fputs(test_data, f);
-            fclose(f);
+            int w_res = fputs(test_data, f);
+            int fl_res = fflush(f);
+            int cl_res = fclose(f);
+            ESP_LOGI(TAG, "FORMAT VERIFY: write test: fputs=%d, fflush=%d, fclose=%d", w_res, fl_res, cl_res);
 
             f = fopen(test_path, "r");
             if (f != NULL) {
                 char buf[64] = {0};
                 if (fgets(buf, sizeof(buf), f) != NULL) {
+                    ESP_LOGI(TAG, "FORMAT VERIFY: read back: '%s'", buf);
                     if (strcmp(buf, test_data) == 0) {
                         verify_ok = true;
+                    } else {
+                        ESP_LOGE(TAG, "FORMAT VERIFY: content mismatch! Expected '%s', got '%s'", test_data, buf);
+                        snprintf(s_last_format_error, sizeof(s_last_format_error), "DATA_MISMATCH");
                     }
+                } else {
+                    int err = errno;
+                    ESP_LOGE(TAG, "FORMAT VERIFY: fgets failed! errno=%d (%s)", err, strerror(err));
+                    snprintf(s_last_format_error, sizeof(s_last_format_error), "FGETS_ERRNO_%d", err);
                 }
                 fclose(f);
+            } else {
+                int err = errno;
+                ESP_LOGE(TAG, "FORMAT VERIFY: fopen('%s', 'r') failed! errno=%d (%s)", test_path, err, strerror(err));
+                snprintf(s_last_format_error, sizeof(s_last_format_error), "FOPEN_READ_ERRNO_%d", err);
             }
             remove(test_path);
+        } else {
+            int err = errno;
+            ESP_LOGE(TAG, "FORMAT VERIFY: fopen('%s', 'w') failed! errno=%d (%s)", test_path, err, strerror(err));
+            snprintf(s_last_format_error, sizeof(s_last_format_error), "FOPEN_WRITE_ERRNO_%d", err);
         }
 
         if (verify_ok) {
+            strncpy(s_last_format_result, "SUCCESS", sizeof(s_last_format_result) - 1);
+            s_last_format_error[0] = '\0';
             microsd_hal_lock();
             s_microsd_mounted = true;
             s_microsd_detected = true;
@@ -340,21 +360,115 @@ static void format_worker_task(void *arg)
             uint64_t cap = ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024);
             ESP_LOGI(TAG, "FORMAT COMPLETE: MicroSD card ready at /sdcard (Capacity: %llu MB)", cap);
         } else {
-            ESP_LOGE(TAG, "FORMAT FAILED: Write+read verification failed.");
+            strncpy(s_last_format_result, "FAILED", sizeof(s_last_format_result) - 1);
+            if (s_last_format_error[0] == '\0') {
+                snprintf(s_last_format_error, sizeof(s_last_format_error), "VERIFY_FAILED");
+            }
+            ESP_LOGE(TAG, "FORMAT FAILED: Write+read verification failed (%s).", s_last_format_error);
         }
     } else {
+        strncpy(s_last_format_result, "FAILED", sizeof(s_last_format_result) - 1);
+        snprintf(s_last_format_error, sizeof(s_last_format_error), "MOUNT_FAILED_%s", esp_err_to_name(ret));
         ESP_LOGE(TAG, "FORMAT FAILED: Mount+format returned 0x%x (%s)", ret, esp_err_to_name(ret));
     }
-
-    ws2812_clear((gpio_num_t)PIN_MICROSD_CS);
-    gpio_set_direction((gpio_num_t)PIN_MICROSD_CS, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)PIN_MICROSD_CS, 1);
 
     /* Resume TFT display refresh */
     tft_hal_resume();
 
     s_format_in_progress = false;
     vTaskDelete(NULL);
+}
+
+esp_err_t microsd_hal_test_file_io(char *out_log, size_t max_len)
+{
+    if (!out_log || max_len == 0) return ESP_ERR_INVALID_ARG;
+    out_log[0] = '\0';
+    size_t off = 0;
+
+    bool mounted = microsd_hal_is_mounted();
+    off += snprintf(out_log + off, max_len - off, "TEST_A_MOUNT: %s; ", mounted ? "PASS" : "FAIL (not mounted)");
+    if (!mounted) return ESP_ERR_NOT_FOUND;
+
+    microsd_hal_lock();
+
+    const char *test_b_path = "/sdcard/_test_b.txt";
+    const char *test_b_data = "TEST_B_NORMAL_IO_OK";
+    FILE *f = fopen(test_b_path, "w");
+    if (!f) {
+        int err = errno;
+        off += snprintf(out_log + off, max_len - off, "TEST_B_WRITE: FAIL (fopen w errno=%d: %s); ", err, strerror(err));
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    fputs(test_b_data, f);
+    fflush(f);
+    fclose(f);
+
+    f = fopen(test_b_path, "r");
+    if (!f) {
+        int err = errno;
+        off += snprintf(out_log + off, max_len - off, "TEST_B_READ: FAIL (fopen r errno=%d: %s); ", err, strerror(err));
+        remove(test_b_path);
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    char buf[64] = {0};
+    fgets(buf, sizeof(buf), f);
+    fclose(f);
+    remove(test_b_path);
+
+    if (strcmp(buf, test_b_data) != 0) {
+        off += snprintf(out_log + off, max_len - off, "TEST_B_VERIFY: FAIL (read '%s'); ", buf);
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    off += snprintf(out_log + off, max_len - off, "TEST_B_VERIFY: PASS; ");
+
+    const char *test_c_path = "/sdcard/_test_c.txt";
+    f = fopen(test_c_path, "w");
+    if (!f) {
+        int err = errno;
+        off += snprintf(out_log + off, max_len - off, "TEST_C_INIT: FAIL (fopen w errno=%d: %s); ", err, strerror(err));
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    fputs("PART1_", f);
+    fclose(f);
+
+    f = fopen(test_c_path, "ab");
+    if (!f) {
+        int err = errno;
+        off += snprintf(out_log + off, max_len - off, "TEST_C_APPEND: FAIL (fopen ab errno=%d: %s); ", err, strerror(err));
+        remove(test_c_path);
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    fputs("PART2_OK", f);
+    fflush(f);
+    fclose(f);
+
+    f = fopen(test_c_path, "r");
+    if (!f) {
+        int err = errno;
+        off += snprintf(out_log + off, max_len - off, "TEST_C_READ: FAIL (fopen r errno=%d: %s); ", err, strerror(err));
+        remove(test_c_path);
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    memset(buf, 0, sizeof(buf));
+    fgets(buf, sizeof(buf), f);
+    fclose(f);
+    remove(test_c_path);
+
+    if (strcmp(buf, "PART1_PART2_OK") != 0) {
+        off += snprintf(out_log + off, max_len - off, "TEST_C_VERIFY: FAIL (read '%s'); ", buf);
+        microsd_hal_unlock();
+        return ESP_FAIL;
+    }
+    off += snprintf(out_log + off, max_len - off, "TEST_C_VERIFY: PASS (append OK)");
+
+    microsd_hal_unlock();
+    return ESP_OK;
 }
 #endif
 
@@ -375,11 +489,11 @@ esp_err_t microsd_hal_format_fat32(void)
     ESP_LOGW(TAG, "  RUNTIME MICROSD FAT32 FORMAT INITIATED VIA API");
     ESP_LOGW(TAG, "============================================================");
 
-    /* Spawn dedicated worker task on Core 0 with 4KB stack */
+    /* Spawn dedicated worker task on Core 0 with 8KB stack for FatFS mkfs + VFS */
     BaseType_t res = xTaskCreatePinnedToCore(
         format_worker_task,
         "microsd_fmt",
-        4096,
+        8192,
         NULL,
         3,
         NULL,

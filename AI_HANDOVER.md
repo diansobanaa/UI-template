@@ -1,4 +1,35 @@
-# AI HANDOVER — SP-BOOT-OFFLINE-SYNC-PSRAM-001 (latest)
+# AI HANDOVER — SP-SDCARD-FORMAT-DIAG-001 (latest)
+
+## Status — SP-SDCARD-FORMAT-DIAG-001
+**Resolve MicroSD FAT32 Format Verification Failure & Telemetry Persistence via LFN Heap Support & Pin Protection**
+**Safe Point**: `SP-SDCARD-FORMAT-DIAG-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis & Forensic Confirmation**:
+   - The manual Web UI format operation (`POST /api/v1/storage/format`) ran `esp_vfs_fat_sdcard_format()`, but write+read verification failed with `FOPEN_WRITE_ERRNO_22` (`EINVAL`).
+   - Forensic tracing showed `CONFIG_FATFS_LFN_HEAP=y` was missing in `sdkconfig.defaults`, falling back to `CONFIG_FATFS_LFN_NONE=y` (strict 8.3 filename mode). FatFS rejected `/sdcard/_fmt_test.txt` (9-char base name) with `FR_INVALID_NAME` (`EINVAL`).
+   - Simultaneously, `telemetry_store.c` failed to create `/sdcard/telemetry` (9 chars) and `/sdcard/tlm_20261004.dat` (12 chars), causing `TELEM_STORE: Failed to open segment file '/sdcard/tlm_20261004.dat' for append`.
+   - Furthermore, dual-purpose GPIO 48 (MicroSD CS + WS2812 RGB LED) had `ws2812_clear(PIN_MICROSD_CS)` called post-mount and post-format, resetting pin routing and pulling CS high.
+2. **Firmware & Configuration Fixes**:
+   - Enabled `CONFIG_FATFS_LFN_HEAP=y` in `sdkconfig.defaults` and `sdkconfig` to support up to 255-character filenames using PSRAM heap.
+   - Removed destructive `ws2812_clear(PIN_MICROSD_CS)` post-mount and post-format calls in `microsd_hal.c`.
+   - Set verification test file to 8.3-compliant `/sdcard/_fmttest.txt` and increased format worker stack to 8KB.
+   - Enhanced `handler_get_format_result()` in `api_storage_handlers.c` to accurately surface errors to the Web UI instead of masking them as `IDLE`.
+   - Added diagnostic endpoint `GET /api/v1/storage/test` verifying mount, file write/read, and file append.
+   - Synchronized TFT task pausing with SPI activity in `tft_hal.c`.
+3. **Live Hardware Verification on ESP32-S3 (COM3, IP 192.168.0.101)**:
+   - Initial file I/O test (`GET /api/v1/storage/test`): PASS (`TEST_A_MOUNT: PASS; TEST_B_VERIFY: PASS; TEST_C_VERIFY: PASS (append OK)`).
+   - Format triggered via API (`POST /api/v1/storage/format` with `confirm: true`): Completed successfully.
+   - Format result polling (`GET /api/v1/storage/format/result`): `{"result":"SUCCESS","status":"FORMAT_SUCCESS","mounted":true,"capacityMb":7431}`.
+   - Post-format file I/O test: PASS (mount, write, read, and append all verified).
+   - Telemetry store verification: `storageAvailable` is `true`; `/sdcard/telemetry/tlm_20261004.dat` created and appended without warnings.
+   - Repetition test: Second format cycle executed and verified 100% stable.
+
+---
+
+# AI HANDOVER — SP-BOOT-OFFLINE-SYNC-PSRAM-001 (previous)
 
 ## Status — SP-BOOT-OFFLINE-SYNC-PSRAM-001
 **Eliminate Bootloop by Migrating offline_sync Task Stack to PSRAM & Non-Fatal app_main Handling**

@@ -1942,6 +1942,34 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/storage/test:
+    get:
+      tags: [Storage]
+      summary: Run diagnostic file I/O verification test on MicroSD Card
+      description: Performs mount check, test file write/read verification, and test file append verification.
+      operationId: getStorageTest
+      responses:
+        "200":
+          description: Test completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result: { type: string, enum: [PASS, FAIL] }
+                  log: { type: string }
+        "500":
+          description: Diagnostic test failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result: { type: string, enum: [PASS, FAIL] }
+                  log: { type: string }
+
 components:
   securitySchemes:
     bearerAuth:

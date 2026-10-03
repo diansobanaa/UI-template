@@ -117,6 +117,11 @@ static esp_err_t handler_get_format_result(httpd_req_t *req)
     if (info.format_in_progress) {
         cJSON_AddNullToObject(root, "result");
         cJSON_AddStringToObject(root, "status", "FORMATTING");
+    } else if (strcmp(info.last_format_result, "FAILED") == 0) {
+        cJSON_AddStringToObject(root, "result", "FAILED");
+        cJSON_AddStringToObject(root, "status", "FORMAT_FAILED");
+        cJSON_AddStringToObject(root, "errorCode", info.last_format_error[0] ? info.last_format_error : "VERIFICATION_FAILED");
+        cJSON_AddBoolToObject(root, "mounted", info.mounted);
     } else if (info.mounted) {
         cJSON_AddStringToObject(root, "result", "SUCCESS");
         cJSON_AddStringToObject(root, "status", "FORMAT_SUCCESS");
@@ -131,6 +136,23 @@ static esp_err_t handler_get_format_result(httpd_req_t *req)
     }
 
     return http_send_enveloped_response(req, 200, NULL, root);
+}
+
+/* ---------- GET /api/v1/storage/test ---------- */
+
+static esp_err_t handler_get_storage_test(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+
+    char log_buf[256] = {0};
+    esp_err_t test_ret = microsd_hal_test_file_io(log_buf, sizeof(log_buf));
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", test_ret == ESP_OK);
+    cJSON_AddStringToObject(root, "result", test_ret == ESP_OK ? "PASS" : "FAIL");
+    cJSON_AddStringToObject(root, "log", log_buf);
+
+    return http_send_enveloped_response(req, test_ret == ESP_OK ? 200 : 500, NULL, root);
 }
 
 /* ---------- Registration ---------- */
@@ -160,6 +182,14 @@ void register_api_storage_handlers(httpd_handle_t server)
         .user_ctx = NULL
     };
     httpd_register_uri_handler(server, &uri_format_result);
+
+    httpd_uri_t uri_test = {
+        .uri = "/api/v1/storage/test",
+        .method = HTTP_GET,
+        .handler = handler_get_storage_test,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &uri_test);
 
     ESP_LOGI(TAG, "Registered Storage API endpoints (/api/v1/storage/*)");
 }
