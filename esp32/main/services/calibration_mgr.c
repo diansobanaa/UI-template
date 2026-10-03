@@ -99,6 +99,15 @@ static bool component_id_matches(const char *rec_id, const char *query_id)
         (strcasecmp(query_id, "dosingB") == 0 || strcasecmp(query_id, "DOSING_B") == 0 || strcasecmp(query_id, "pump_dosing_b") == 0)) {
         return true;
     }
+    // Transparently resolve 12V DC Raw Water Pump: pump_submersible <-> RAW_SUBMERSIBLE <-> pump_raw <-> raw_water_pump
+    // Note: NEVER match pump_well / WELL_PUMP (which is 220V AC Well Pump)
+    bool rec_is_raw = (strcasecmp(rec_id, "pump_submersible") == 0 || strcasecmp(rec_id, "RAW_SUBMERSIBLE") == 0 ||
+                       strcasecmp(rec_id, "pump_raw") == 0 || strcasecmp(rec_id, "raw_water_pump") == 0);
+    bool query_is_raw = (strcasecmp(query_id, "pump_submersible") == 0 || strcasecmp(query_id, "RAW_SUBMERSIBLE") == 0 ||
+                         strcasecmp(query_id, "pump_raw") == 0 || strcasecmp(query_id, "raw_water_pump") == 0);
+    if (rec_is_raw && query_is_raw) {
+        return true;
+    }
     return false;
 }
 

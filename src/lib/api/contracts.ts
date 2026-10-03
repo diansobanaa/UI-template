@@ -923,6 +923,9 @@ export interface CalibrationStatus {
 export interface CalibrationRates {
   rateDosingAMlSec: number;
   rateDosingBMlSec: number;
+  /** Calibration rate for 12V DC Raw Water Pump (pump_submersible / GPIO 4) in mL/sec */
+  rateRawWaterPumpMlSec?: number;
+  /** @deprecated Use rateRawWaterPumpMlSec. Well pump is 220V AC, not 12V raw water pump. */
   rateWellPumpMlSec?: number;
   flowRawPulsesPerL: number;
   flowFertPulsesPerL: number;

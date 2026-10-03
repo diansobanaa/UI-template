@@ -43,7 +43,7 @@ static bool calibration_component_compatible(const hw_component_info_t *info, co
     char text[160];
     snprintf(text, sizeof(text), "%s %s %s %s", info->supported_type_id, info->role, info->name, info->component_id);
     if (strcasecmp(cal_type, "DOSING_RATE") == 0 || strcasecmp(cal_type, "PUMP_RATE") == 0) {
-        return strcasestr(text, "DOSING") != NULL || strcasestr(text, "WELL_PUMP") != NULL || strcasestr(text, "PUMP_WELL") != NULL || strcasestr(text, "RAW_WATER") != NULL;
+        return strcasestr(text, "DOSING") != NULL || strcasestr(text, "RAW_SUBMERSIBLE") != NULL || strcasestr(text, "SUBMERSIBLE") != NULL || strcasestr(text, "RAW_WATER") != NULL || strcasestr(text, "PUMP_RAW") != NULL;
     }
     if (strcasecmp(cal_type, "FLOW") == 0) return strcasestr(text, "FLOW") != NULL;
     if (strcasecmp(cal_type, "LEVEL") == 0) {
@@ -221,12 +221,15 @@ static esp_err_t api_calibration_get_rate_handler(httpd_req_t *req)
     if (rate_b > 0.0f && !cJSON_GetObjectItem(rates_obj, "pump_dosing_b")) {
         cJSON_AddNumberToObject(rates_obj, "pump_dosing_b", rate_b);
     }
-    float rate_well = 0.0f;
-    if (calibration_mgr_get_rate_by_component("pump_well", &rate_well) == ESP_OK && rate_well > 0.0f) {
-        if (!cJSON_GetObjectItem(rates_obj, "pump_well")) {
-            cJSON_AddNumberToObject(rates_obj, "pump_well", rate_well);
+    float rate_raw = 0.0f;
+    if ((calibration_mgr_get_rate_by_component("pump_submersible", &rate_raw) == ESP_OK ||
+         calibration_mgr_get_rate_by_component("pump_raw", &rate_raw) == ESP_OK ||
+         calibration_mgr_get_rate_by_component("raw_water_pump", &rate_raw) == ESP_OK) && rate_raw > 0.0f) {
+        if (!cJSON_GetObjectItem(rates_obj, "pump_submersible")) {
+            cJSON_AddNumberToObject(rates_obj, "pump_submersible", rate_raw);
         }
-        cJSON_AddNumberToObject(resp, "rateWellPumpMlSec", rate_well);
+        cJSON_AddNumberToObject(resp, "rateRawWaterPumpMlSec", rate_raw);
+        cJSON_AddNumberToObject(resp, "rateWellPumpMlSec", rate_raw);
     }
 
     cJSON_AddNumberToObject(resp, "rateDosingAMlSec", rate_a);

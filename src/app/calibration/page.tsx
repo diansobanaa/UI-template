@@ -60,7 +60,7 @@ const PROGRESSIVE_DURATIONS = [10, 30, 60] as const;
 const FILTERS = [
   { id: "all", label: "Semua Perangkat" },
   { id: "dosing-pumps", label: "Pompa Dosing" },
-  { id: "water-pumps", label: "Pompa Air Baku" },
+  { id: "water-pumps", label: "Pompa Air Baku (12V)" },
   { id: "sensors", label: "Sensor (pH/EC)" },
 ];
 
@@ -751,10 +751,10 @@ function DosingPumpCalibrationWizard({
                 </div>
                 <div>
                   <b className="text-slate-800 block">
-                    {device.category === "raw-water-pump" ? "Jalur Pipa & Sensor Flow" : "Siapkan Gelas Ukur"}
+                    {device.category === "raw-water-pump" ? "Jalur Pipa Pompa 12V & Sensor Flow" : "Siapkan Gelas Ukur"}
                   </b>
                   {device.category === "raw-water-pump"
-                    ? "Pastikan pipa air baku terhubung melewati Sensor Flow Water Kecil (GPIO 15 / ZJ-B1) menuju tangki mixing."
+                    ? "Pastikan pipa air baku dari Pompa 12V DC (GPIO 4) terhubung melewati Sensor Flow Water Kecil (GPIO 15 / ZJ-B1) menuju tangki mixing."
                     : `Arahkan selang output pompa ${channel} ke wadah/gelas ukur terpisah (skala mililiter).`}
                 </div>
               </div>
@@ -1256,8 +1256,8 @@ function DosingPumpCalibrationWizard({
                 <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2.5">
                   <Sparkles className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <b className="block font-bold">Terhitung Otomatis dari Sensor Flow Water Kecil (GPIO 15 / ZJ-B1)</b>
-                    <span>Sensor flow water kecil menghitung pulsa aliran selama pompa menyala. Nilai volume otomatis terisi di bawah (dapat disesuaikan jika perlu).</span>
+                    <b className="block font-bold">Terhitung Otomatis dari Sensor Flow Water Kecil (GPIO 15 / ZJ-B1) — Pompa Air Baku 12V (GPIO 4)</b>
+                    <span>Sensor flow water kecil menghitung pulsa aliran selama Pompa Air Baku 12V menyala. Nilai volume otomatis terisi di bawah.</span>
                   </div>
                 </div>
               )}

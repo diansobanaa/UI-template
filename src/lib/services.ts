@@ -2110,7 +2110,7 @@ export const calibrationService = {
     const effectiveComponents: InstalledComponent[] = activeDosingOrSensors.length > 0
       ? activeDosingOrSensors
       : CANONICAL_GPIO_PIN_MAP
-        .filter((p) => p.equipment && /DOSING|PH|EC|WELL_PUMP|RAW_WATER|PUMP_WELL/i.test(`${p.equipment.role} ${p.equipment.supportedTypeId} ${p.equipment.name} ${p.equipment.componentId}`))
+        .filter((p) => p.equipment && /DOSING|PH|EC|RAW_SUBMERSIBLE|RAW_WATER|PUMP_SUBMERSIBLE|PUMP_RAW/i.test(`${p.equipment.role} ${p.equipment.supportedTypeId} ${p.equipment.name} ${p.equipment.componentId}`))
         .map((p) => ({
           componentId: p.equipment!.componentId,
           name: p.equipment!.name,
@@ -2151,7 +2151,8 @@ export const calibrationService = {
     const devices: CalibrationDevice[] = effectiveComponents
       .map((component) => {
         const text = `${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`.toUpperCase();
-        const isRawPump = /WELL_PUMP|PUMP_WELL|RAW_WATER/i.test(text);
+        // 12V DC Raw Water Pump (pump_submersible / GPIO 4) — strictly distinct from 220V AC Well Pump (pump_well / GPIO 1)
+        const isRawPump = /RAW_SUBMERSIBLE|PUMP_SUBMERSIBLE|RAW_WATER|PUMP_RAW/i.test(text) && !/WELL_PUMP|PUMP_WELL|DEEP.*WELL/i.test(text);
         const category: CalibrationDevice["category"] = isRawPump
           ? "raw-water-pump"
           : text.includes("DOSING")
@@ -2164,7 +2165,7 @@ export const calibrationService = {
         const validUntil = calibration?.validUntilMs ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not scheduled";
         let channel = component.parameters?.channel != null ? String(component.parameters.channel) : undefined;
         if (!channel && (category === "dosing-pump" || category === "raw-water-pump")) {
-          channel = isRawPump ? "Air Baku" : (component.name?.trim() || component.componentId);
+          channel = isRawPump ? "Air Baku 12V" : (component.name?.trim() || component.componentId);
         }
 
         let reading = "—";
@@ -2176,8 +2177,11 @@ export const calibrationService = {
           if (esp32Rates) {
             if (esp32Rates.dosingRates && esp32Rates.dosingRates[component.componentId] != null) {
               rateMlSec = Number(esp32Rates.dosingRates[component.componentId]) || 0;
-            } else if (isRawPump && esp32Rates.rateWellPumpMlSec != null) {
-              rateMlSec = esp32Rates.rateWellPumpMlSec;
+            } else if (isRawPump) {
+              rateMlSec = Number(esp32Rates.rateRawWaterPumpMlSec) ||
+                          Number(esp32Rates.dosingRates?.['pump_submersible']) ||
+                          Number(esp32Rates.dosingRates?.['pump_raw']) ||
+                          Number(esp32Rates.rateWellPumpMlSec) || 0;
             } else if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
               rateMlSec = esp32Rates.rateDosingAMlSec || 0;
             } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
@@ -2212,10 +2216,10 @@ export const calibrationService = {
         return {
           id: `dev-${component.componentId}`,
           category,
-          name: isRawPump ? "Pompa Air Baku (Well Pump)" : component.name,
+          name: isRawPump ? "Pompa Air Baku 12V" : component.name,
           ...(channel ? { channel } : {}),
           ghId: assignmentGhId,
-          location: assignmentGhId ? `${assignmentGhId} – Installed Component` : `${complexId} – Central Infrastructure`,
+          location: isRawPump ? `${complexId} – Central Tandon Air Baku (12V DC)` : (assignmentGhId ? `${assignmentGhId} – Installed Component` : `${complexId} – Central Infrastructure`),
           reading,
           unit: category === "raw-water-pump" ? "ml/min" : category === "dosing-pump" ? "ml/min" : category === "ph" ? "pH" : "mS/cm",
           online: true,

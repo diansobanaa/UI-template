@@ -1351,16 +1351,24 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
   - The firmware and Web UI **MUST NEVER** request, demand, or check calibration for `float_lower`, nor block any operational schedule because a float switch is "uncalibrated".
   - In `esp32/main/http/api_calibration_handlers.c`, float switches are explicitly excluded from `LEVEL` calibration compatibility.
 
-## 34.2 Raw Water Pump (`pump_well` / GPIO 1) — Field Calibration via Raw Flow Sensor
-- **Physical Characteristic:** Deep well / raw water pump transferring raw water into the central mixing tank.
-- **Operational Rule:**
-  - The raw water pump MUST be field-calibrated to determine its actual pumping capacity / volumetric flow rate (L/min or mL/sec).
-  - **Measurement Ingestion:** The raw water pump is calibrated **by calculating the flow from the small raw water flow sensor** (`flow_sensor_water` / ZJ-B1 on GPIO 15).
-  - During a volumetric calibration run (`/api/v1/calibration` with `VOLUMETRIC` on `pump_well` for $T$ seconds):
-    1. ESP32 runs `pump_well` while accumulating pulses from the small raw flow sensor via `sensor_hal`.
+## 34.2 Raw Water Pump 12V DC (`pump_submersible` / GPIO 4) — Field Calibration via Small Flow Sensor
+- **CRITICAL TERMINOLOGY & HARDWARE BOUNDARY:**
+  - **Raw Water Pump 12V DC (`pump_submersible` / GPIO 4 / 4-Ch Relay IN1 / PUMP 3):**
+    - Submersible 12V DC pump transferring water from the raw water storage reservoir into the central mixing tank.
+    - **Pipe Line:** The water line from this pump passes through the **Small Raw Water Pulse Flow Meter (`flow_sensor_water` / ZJ-B1 on GPIO 15)**.
+    - **Calibration Target:** THIS IS THE PUMP TO BE CALIBRATED.
+  - **Deep Well Pump 220V AC (`pump_well` / GPIO 1 / Omron Relay #1 / PUMP 1):**
+    - High-voltage 220V AC submersible pump dedicated to deep ground well extraction to fill the raw water storage reservoir.
+    - It is **NOT** the 12V raw water mixing feed pump and does **NOT** route through the small ZJ-B1 flow meter.
+    - Never confuse or swap "Raw Water Pump 12V" with "Well Pump 220V".
+- **Operational Calibration Rule:**
+  - The Raw Water Pump 12V DC MUST be field-calibrated to determine its actual pumping capacity / volumetric flow rate (L/min or mL/sec).
+  - **Measurement Ingestion:** During a volumetric calibration run (`/api/v1/calibration` with `VOLUMETRIC` on `pump_submersible` for $T$ seconds):
+    1. ESP32 runs `pump_submersible` (GPIO 4) while accumulating pulses from the small raw flow sensor (`flow_sensor_water` / ZJ-B1 on GPIO 15) via `sensor_hal`.
     2. ESP32 returns the delta volume in `/api/v1/calibration/status` (`measured_ml` and `measured_l`).
-    3. The Web UI automatically ingests `measured_ml` directly from the sensor (without requiring the operator to manually measure with a beaker).
-    4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to the ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record.
+    3. The Web UI automatically ingests `measured_ml` directly from the sensor (without requiring manual beaker measurements).
+    4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record for `pump_submersible` (`rateRawWaterPumpMlSec`).
+
 
 
 

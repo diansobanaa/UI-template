@@ -1,3 +1,30 @@
+## SP-CALIBRATION-RAW-WATER-PUMP-12V-001 — Strict Hardware & Terminological Separation: Raw Water Pump 12V DC vs Deep Well Pump 220V AC
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%)`
+- **Objective**:
+  1. Enforce strict physical, electrical, and terminological separation between Raw Water Pump 12V DC and Deep Well Pump 220V AC per user mandate:
+     - **Raw Water Pump (12V DC / GPIO 4 / 4-Ch Relay IN1 / `pump_submersible` / PUMP 3):** Submersible 12V DC pump transferring water from the raw water reservoir into the central mixing tank. Its fluid path is metered directly by the small raw water pulse flow meter (`flow_sensor_water` / ZJ-B1 on GPIO 15). THIS IS THE CALIBRATION TARGET.
+     - **Deep Well Pump (220V AC / GPIO 1 / Omron Relay #1 / `pump_well` / PUMP 1):** 220V AC deep well pump for groundwater extraction to the raw water storage reservoir. It does NOT route through the small ZJ-B1 flow sensor and is strictly distinct from the 12V raw water pump.
+  2. Firmware Updates:
+     - In `esp32/main/http/api_calibration_handlers.c`: `calibration_component_compatible` strictly binds `PUMP_RATE` / `DOSING_RATE` to `RAW_SUBMERSIBLE` / `pump_submersible` / `PUMP_RAW`, not `WELL_PUMP`.
+     - In `api_calibration_get_rate_handler`: Queries `pump_submersible` and returns `rateRawWaterPumpMlSec` (with backward-compatible `rateWellPumpMlSec` fallback).
+     - In `esp32/main/services/calibration_mgr.c`: `component_id_matches` transparently maps `pump_submersible` <-> `RAW_SUBMERSIBLE` <-> `pump_raw` <-> `raw_water_pump` while strictly isolating `pump_well`.
+  3. Contracts & Web UI:
+     - `contracts/UI_ESP32_OPENAPI.yaml` & `UI_ESP32_OPENAPI.yaml`: Added `rateRawWaterPumpMlSec` and deprecated `rateWellPumpMlSec`.
+     - `src/lib/types.ts` & `src/lib/api/contracts.ts`: Added `rateRawWaterPumpMlSec?: number;`.
+     - `src/lib/services.ts`: Corrected `loadAuthoritative` to filter `RAW_SUBMERSIBLE` (GPIO 4), bind category `"raw-water-pump"`, name `"Pompa Air Baku 12V"`, channel `"Air Baku 12V"`, location `"Central Tandon Air Baku (12V DC)"`, and read `rateRawWaterPumpMlSec`.
+     - `src/lib/data/calibration-reference.ts`: Documented `Raw Water Pump 12V` (`pump_submersible` / GPIO 4) and noted 220V Well Pump exclusion.
+     - `src/lib/fertigationErrorMap.ts`: Updated `RAW_WATER_PUMP_NOT_CALIBRATED` to refer to Pompa Air Baku 12V (`pump_submersible`).
+     - `src/app/calibration/page.tsx`: Updated filter tab to `"Pompa Air Baku (12V)"` and wizard SOP/banners to highlight 12V DC (GPIO 4).
+  4. Canonical Documentation:
+     - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Updated Section 34.2 with clear electrical and piping boundaries between 12V Raw Water Pump and 220V Well Pump.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,248.24 kB) built clean.
+
 ## SP-CALIBRATION-RAW-PUMP-FLOW-001 — Lower Float Calibration Exemption & Raw Water Pump Calibration via Small Flow Sensor
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`

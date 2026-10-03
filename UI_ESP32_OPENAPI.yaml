@@ -2184,10 +2184,15 @@ components:
           format: float
           deprecated: true
           description: "@deprecated use dosingRates['pump_dosing_b'] instead"
+        rateRawWaterPumpMlSec:
+          type: number
+          format: float
+          description: "Calibration rate for 12V DC raw water pump (pump_submersible / GPIO 4) in mL/sec"
         rateWellPumpMlSec:
           type: number
           format: float
-          description: "Calibration rate for raw water pump (pump_well) in mL/sec"
+          deprecated: true
+          description: "@deprecated Use rateRawWaterPumpMlSec. Well pump is 220V AC, not 12V raw water pump."
         flowRawPulsesPerL: { type: number, minimum: 0 }
         flowFertPulsesPerL: { type: number, minimum: 0 }
 
