@@ -378,23 +378,34 @@ Mixing menerima paling tidak:
 - active dosing calibration
 - target GH / mixing tank
 
-## 7.2 Operasi
+## 7.2 Operasi & Tahapan Fisik Dosing (3 Tahap Utama)
 
-Typical sequence:
+Dosing Queue pipeline dieksekusi secara terpadu melalui 3 tahap fisik:
 
 ```text
-1. Validate recipe
-2. Validate tank/resource
-3. Fill raw water
-4. Dose A
-5. Dose B
-6. Dose N (jika diperlukan)
-7. Mix / homogenize
-8. Verify completion
-9. Publish MIX_READY
-```
+1. Tahap 1: Persiapan Air Baku
+   - Pengisian awal air baku via pompa raw water hingga mencapai ambang X% (misal 20% = 16 L dari target 80 L).
+   - Pengukuran berbasis akumulasi pulsa flow sensor secara riil (bukan estimasi waktu).
+   - Status Web UI/TFT: "Persiapan Air Baku" (hanya "RUNNING" bila pompa aktif & aliran terdeteksi).
 
-Urutan aktual dapat berbeda bila hardware design mensyaratkan urutan tertentu, tetapi tidak boleh menghilangkan semantic phases tersebut.
+2. Tahap 2: Dosing & Mixing Simultan
+   - Begitu ambang batas X% tercapai: Seluruh pompa dosing dalam resep (DP-A, DP-B, DP-N) mulai bekerja BERSAMAAN (simultan).
+   - Pompa mixing submersible 220V AC (GPIO 40) diaktifkan bersamaan.
+   - Pompa air baku tetap menyala mengisi hingga volume 100% (target volume).
+   - Masing-masing pompa dosing berhenti secara individual saat dosisnya tercapai (berbasis kalibrasi ml/s).
+   - Timeout proteksi: MAX_RUNTIME = 1.5 × ESTIMATED_RUNTIME.
+   - Status Web UI/TFT: "Dosing & Mixing Simultan".
+
+3. Tahap 3: Pengadukan Akhir (Final Mixing)
+   - Setelah pengisian air 100% dan seluruh dosis nutrisi selesai, mixer homogenisasi terus menyala selama durasi configured mixing (misal 180s).
+   - Tidak ada pompa distribusi yang dijalankan pada tahap ini.
+   - Status Web UI/TFT: "Pengadukan Akhir".
+
+Terminal State: READY_TO_FERTIGATE (MIX_READY)
+   - Seluruh pompa OFF (raw water OFF, dosing OFF, mixer OFF).
+   - Batch larutan siap di tangki batch / mixing tank.
+   - Penyaluran (distribusi) ke tanaman adalah tanggung jawab Fertigation Schedule independen (bukan tahap 5 dosing!).
+```
 
 ## 7.3 Calibration
 
@@ -877,7 +888,32 @@ A browser refresh must retrieve authoritative data from ESP32; browser storage m
 
 Browser persistence may contain only approved bootstrap hints such as ESP32 address and minimal Complex/GH identity metadata.
 
----
+## 20.1 Unified Checkpoint Mechanism (3-Second Interval)
+
+Untuk memantau dan mempertahankan progres tanpa membebani flash:
+- **Interval Tunggal 3 Detik:** Seluruh proses aktif (dosing peracikan maupun distribusi fertigasi) menggunakan satu mekanisme checkpoint periodik setiap 3.000 ms.
+- **Immediate State Trigger:** Perubahan status penting (transisi tahap fisik, penyelesaian batch, fault) langsung memicu penulisan checkpoint seketika melalui fungsi yang sama (`fertigation_mgr_save_checkpoint`).
+- **Binary Static Format:** Checkpoint disimpan dalam format binary statis kompak (`fert_checkpoint_t`, ~140 bytes) ke MicroSD (`/sdcard/fert_checkpoint.bin`) dengan fallback SPIFFS (`/spiffs/fert_checkpoint.bin`), serta sinkronisasi NVS pada transisi status utama.
+- **Integritas Data:** Dilengkapi CRC32 (`esp_rom_crc32_le`), versi skema (`FERT_CHECKPOINT_VERSION = 1`), sequence number monotonic, target vs actual water volume, dan observed runtime per dosing channel.
+- **Zero Extra Tasks:** Checkpoint dipanggil langsung dari loop task kontroler yang sudah ada (`task` di `fertigation_mgr.c`), tanpa membuat FreeRTOS task checkpoint terpisah.
+
+## 20.2 Power Recovery & RECOVERY_REQUIRED Protocol
+
+Ketika ESP32 menyala kembali setelah listrik mati atau restart:
+1. **Actuator Safe Boot:** Seluruh output GPIO/relay dipaksa `OFF` (inactive level) sebelum pemulihan status.
+2. **Checkpoint Validation:** Firmware memeriksa checkpoint biner. Jika CRC32 atau versi tidak valid, fail-safe diterapkan.
+3. **Mid-Stream Interruption Guard (`RECOVERY_REQUIRED`):**
+   - Jika reboot terjadi saat **FILLING**, **DOSING**, atau **FINAL_MIXING**, volume fisik air aktual atau dosis yang telah tersalurkan tidak dapat dipastikan dengan presisi 100%.
+   - Kontroler **WAJIB** menetapkan status `RECOVERY_REQUIRED` (`FERT_STATE_RECOVERY_HOLD`).
+   - Kontroler **DILARANG MELANJUTKAN DOSING OTOMATIS** untuk melindungi tanaman dari risiko toksisitas atau kelebihan pupuk (overdosing).
+   - Operator harus melakukan pengecekan fisik (drain atau cancel batch) melalui Web UI.
+4. **Ready Batch Restoration:** Jika checkpoint mencatat status `MIX_READY` (`READY_TO_FERTIGATE`) sebelum reboot, batch larutan di tangki dinyatakan valid dan dipulihkan ke slot delivery `READY_TO_SEND` tanpa perlu pengadukan ulang atau dosing ulang.
+
+## 20.3 Batasan Otoritas `hardware_outputs_mask`
+
+- `hardware_outputs_mask` dalam checkpoint **hanya merupakan catatan status perintah sebelumnya** untuk keperluan telemetri dan audit diagnostik.
+- Firmware **DILARANG KERAS** menyalakan kembali pompa atau relay saat boot berdasarkan catatan mask tersebut.
+
 
 # 21. API / Frontend Boundary
 

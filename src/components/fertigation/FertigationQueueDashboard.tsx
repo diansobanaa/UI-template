@@ -388,64 +388,52 @@ export function FertigationQueueDashboard({
       const chA = sched?.dosingAml ?? 150;
       const chB = sched?.dosingBml ?? 150;
 
-      // Define 5 operational steps based on live firmware phase
-      const isWaterDone = fwState === "DOSING" || fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "DELIVERY";
+      // Dosing Protocol Specification: 3 Physical Stages (Dosing Queue Pipeline)
+      // 1. Persiapan Air Baku (Filling to threshold X%)
+      // 2. Dosing & Mixing Simultan (DP-A, DP-B, Mixer ON concurrently, Raw Water to 100%)
+      // 3. Pengadukan Akhir (Final homogenization mixing)
+      // Terminal state: READY_TO_FERTIGATE (Distribution is a decoupled Fertigation Schedule event)
+      const isWaterDone = fwState === "DOSING" || fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "COMPLETE";
       const isWaterRunning = fwState === "FILLING" || fwState === "PRECHECK";
 
-      const isDosingDone = fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "DELIVERY";
+      const isDosingDone = fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "COMPLETE";
       const isDosingRunning = fwState === "DOSING";
-      const activeChan = (liveStatus.activeChannel || "").toUpperCase();
 
-      const isMixingDone = fwState === "MIX_READY" || fwState === "DELIVERY";
+      const isMixingDone = fwState === "MIX_READY" || fwState === "COMPLETE";
       const isMixingRunning = fwState === "FINAL_MIXING";
 
-      const isPumpDone = fwState === "COMPLETE";
-      const isPumpRunning = fwState === "DELIVERY";
+      const threshPct = liveStatus.thresholdPercent || 20;
 
       const steps: OperationalStep[] = [
         {
           stepNumber: 1,
           name: "Persiapan Air Baku",
-          description: `Pengisian tangki s/d ${targetWaterL} L (Threshold 20%)`,
+          description: `Pengisian tangki s/d ${targetWaterL} L (Threshold ${threshPct}%)`,
           status: isWaterDone ? "COMPLETED" : isWaterRunning ? "RUNNING" : "WAITING",
-          details: isWaterRunning ? `${((liveStatus.actualWaterMl || 0) / 1000).toFixed(1)} / ${targetWaterL} L` : undefined,
-          progressPct: isWaterDone ? 100 : isWaterRunning && targetWaterL > 0 ? ((liveStatus.actualWaterMl || 0) / (targetWaterL * 1000)) * 100 : 0,
+          details: isWaterRunning
+            ? (liveStatus.actualWaterMl && liveStatus.actualWaterMl > 0
+                ? `${((liveStatus.actualWaterMl || 0) / 1000).toFixed(1)} / ${targetWaterL} L`
+                : "Mengaktifkan Pompa Air Baku")
+            : undefined,
+          progressPct: isWaterDone
+            ? 100
+            : isWaterRunning && targetWaterL > 0
+            ? Math.min(100, ((liveStatus.actualWaterMl || 0) / (targetWaterL * 1000)) * 100)
+            : 0,
         },
         {
           stepNumber: 2,
-          name: "Injeksi Nutrisi A",
-          description: `Pompa DP-A (${chA} ml pekatan A)`,
-          status: isDosingDone || (isDosingRunning && activeChan.includes("B"))
-            ? "COMPLETED"
-            : isDosingRunning && (activeChan.includes("A") || !activeChan)
-            ? "RUNNING"
-            : "WAITING",
-          details: isDosingRunning && activeChan.includes("A") ? "Pompa DP-A Aktif" : undefined,
+          name: "Dosing & Mixing Simultan",
+          description: `Injeksi Pupuk A (${chA} ml) & B (${chB} ml) bersamaan + Pengaduk AC`,
+          status: isDosingDone ? "COMPLETED" : isDosingRunning ? "RUNNING" : "WAITING",
+          details: isDosingRunning ? "DP-A & DP-B Aktif Simultan" : undefined,
         },
         {
           stepNumber: 3,
-          name: "Injeksi Nutrisi B",
-          description: `Pompa DP-B (${chB} ml pekatan B)`,
-          status: isDosingDone
-            ? "COMPLETED"
-            : isDosingRunning && activeChan.includes("B")
-            ? "RUNNING"
-            : "WAITING",
-          details: isDosingRunning && activeChan.includes("B") ? "Pompa DP-B Aktif" : undefined,
-        },
-        {
-          stepNumber: 4,
-          name: "Pengadukan & Homogenisasi",
-          description: "Sirkulasi homogen di tangki batch",
+          name: "Pengadukan Akhir",
+          description: `Homogenisasi larutan di tangki (${liveStatus.mixingDurationSec || 180}s)`,
           status: isMixingDone ? "COMPLETED" : isMixingRunning ? "RUNNING" : "WAITING",
-          details: isMixingRunning ? "Mixer ON" : undefined,
-        },
-        {
-          stepNumber: 5,
-          name: "Pompa Distribusi Fertigasi",
-          description: "Penyiraman ke dripper tanaman",
-          status: isPumpDone ? "COMPLETED" : isPumpRunning ? "RUNNING" : "WAITING",
-          details: isPumpRunning ? "Pompa Irigasi ON" : undefined,
+          details: isMixingRunning ? "Mixer Sirkulasi Aktif" : undefined,
         },
       ];
 
@@ -461,67 +449,19 @@ export function FertigationQueueDashboard({
         targetWaterMl: targetWaterL * 1000,
         dosingAml: chA,
         dosingBml: chB,
-        mixingDurationSec: 180,
+        mixingDurationSec: liveStatus.mixingDurationSec || 180,
         scheduledTimeStr: sched?.time || "Sekarang",
         queuePosition: 0,
         status: "ACTIVE",
-        statusLabel: "Sedang Berjalan",
+        statusLabel: fwState === "MIX_READY" ? "Siap Disalurkan" : "Sedang Berjalan",
         steps,
       };
     }
 
-    // Spec & Operational Model: Continuous FIFO Execution
-    // If Central Dosing Unit is IDLE and there is an item in queue,
-    // list item #1 is promoted to active execution (Persiapan Air Baku dimulai),
-    // NOT left stranded as 'menunggu giliran' while Central Dosing claims to be Standby!
-    if (allQueuedJobs.length > 0) {
-      const topJob = allQueuedJobs[0];
-      const steps: OperationalStep[] = [
-        {
-          stepNumber: 1,
-          name: "Persiapan Air Baku",
-          description: `Pengisian tangki s/d ${topJob.targetWaterL} L (Threshold 20%)`,
-          status: "RUNNING",
-          details: "Memulai Pengisian Air",
-          progressPct: 15,
-        },
-        {
-          stepNumber: 2,
-          name: "Injeksi Nutrisi A",
-          description: `Pompa DP-A (${topJob.dosingAml} ml pekatan A)`,
-          status: "WAITING",
-        },
-        {
-          stepNumber: 3,
-          name: "Injeksi Nutrisi B",
-          description: `Pompa DP-B (${topJob.dosingBml} ml pekatan B)`,
-          status: "WAITING",
-        },
-        {
-          stepNumber: 4,
-          name: "Pengadukan & Homogenisasi",
-          description: "Sirkulasi homogen di tangki batch",
-          status: "WAITING",
-        },
-        {
-          stepNumber: 5,
-          name: "Pompa Distribusi Fertigasi",
-          description: "Penyiraman ke dripper tanaman",
-          status: "WAITING",
-        },
-      ];
-
-      return {
-        ...topJob,
-        status: "ACTIVE",
-        statusLabel: "Sedang Berjalan",
-        queuePosition: 0,
-        steps,
-      };
-    }
-
+    // When firmware is IDLE, there is NO active hardware execution.
+    // All queued items remain honestly in queuedJobs (waiting for turn or dispatch).
     return null;
-  }, [liveStatus, fwState, ghs, allSchedules, allQueuedJobs]);
+  }, [liveStatus, fwState, ghs, allSchedules]);
 
   // FIFO Queued Jobs rendered in the list:
   // If top job was promoted to activeJob, only show subsequent jobs in the queue list!

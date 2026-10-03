@@ -1,3 +1,29 @@
+## SP-DOSING-UNIFIED-CHECKPOINT-001 — Simultaneous Dosing Protocol, Unified 3-Second Checkpoint, Decoupled Distribution & Power Recovery Hold
+- **Date**: 2026-10-03
+- **Git Commit**: `84398f9`
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS (20/20 PASS) — IDF FIRMWARE COMPILED — FRONTEND BUILD PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Implement simultaneous dosing of all active nutrient channels (DP-A, DP-B, DP-N) once raw water reaches threshold X% (e.g. 20% = 16L of 80L) instead of sequential dosing.
+  2. Implement concurrent raw water filling until 100% target volume and continuous submersible mixer operation during dosing and final mixing.
+  3. Implement monotonic 1.5x timeout protection per pump based on calibrated flow rate.
+  4. Implement unified lightweight 3-second checkpoint struct (`fert_checkpoint_t` with CRC32) across all active processes on MicroSD/SPIFFS/NVS without spawning new FreeRTOS tasks.
+  5. Implement power recovery protocol: boot all actuators to safe OFF, validate checkpoint, hold interrupted processes in `FERT_STATE_RECOVERY_HOLD` (`RECOVERY_REQUIRED`) to protect plants from overdosing, and restore `MIX_READY` without re-mixing.
+  6. Ensure `hardware_outputs_mask` is strictly forensic/telemetry and never energizes pumps at boot.
+  7. Decouple Fertigation Distribution: strictly remove Stage 5 ("Pompa Distribusi Fertigasi") from the Dosing Queue pipeline (dosing ends at `READY_TO_FERTIGATE`).
+  8. Fix fake UI status ("Sedang Berjalan - Memulai Pengisian Air" while pumps are idle) by removing synthetic activeJob synthesis and aligning Web UI & TFT with 3 physical stages (`sm:grid-cols-3`).
+- **Root Cause & Resolution**:
+  - *Sequential Dosing & Decoupled Distribution:* Prior code ran channels sequentially via `s_active_dosing_channel_idx++` and mistakenly treated Stage 5 Distribution as part of the dosing pipeline. Resolved by starting all dosing channels simultaneously at threshold volume, running mixer pump concurrently, stopping each channel independently upon reaching its individual dose, and concluding the pipeline at `READY_TO_FERTIGATE`. Distribution is left strictly to the Fertigation Schedule.
+  - *Fake UI Status:* `FertigationQueueDashboard.tsx` previously synthesized a fake `activeJob` with `status: "RUNNING"` whenever `allQueuedJobs.length > 0` even when ESP32 state was `IDLE`. Resolved by removing fake synthesis; UI now truthfully reflects firmware state machine.
+  - *Checkpoint & Power Recovery:* Built unified `fert_checkpoint_t` binary struct with CRC32 written every 3 seconds during active processes. On boot, `restore_recovery_checkpoint()` checks data integrity: if interrupted during filling, dosing, or mixing, it places the batch in `RECOVERY_REQUIRED` to avoid fatal chemical double-dosing.
+- **Verification Results**:
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: 20/20 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `npm test`: 28 canonical OpenAPI endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,232.95 kB) built clean.
+  - ESP-IDF compilation (`idf.py build`): Passed cleanly with 0 errors, generating `agrotech_esp32.bin`.
+
 ## SP-SCHEDULE-DEDUP-DISPATCH-001 — Immediate FIFO Queue Batch Execution from Standby & Schedule Page Redundancy Elimination via Category Tabs
 - **Date**: 2026-10-03
 - **Git Commit**: `0aac860`

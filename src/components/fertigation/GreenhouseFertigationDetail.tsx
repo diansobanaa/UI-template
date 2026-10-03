@@ -235,7 +235,7 @@ export function GreenhouseFertigationDetail({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {activeJob.steps.map((st) => (
               <div
                 key={st.stepNumber}

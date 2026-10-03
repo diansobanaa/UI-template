@@ -1,4 +1,43 @@
-# AI HANDOVER — SP-SCHEDULE-DEDUP-DISPATCH-001 (latest)
+# AI HANDOVER — SP-DOSING-UNIFIED-CHECKPOINT-001 (latest)
+
+## Status — SP-DOSING-UNIFIED-CHECKPOINT-001
+**Simultaneous Dosing Protocol, Unified 3-Second Checkpoint, Decoupled Distribution & Power Recovery Hold**
+**Safe Point**: `SP-DOSING-UNIFIED-CHECKPOINT-001`
+**Date**: 2026-10-03
+**Git Commit**: `84398f9`
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS (20/20 PASS) — IDF FIRMWARE COMPILED — FRONTEND BUILD PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **ESP32 Firmware (`fertigation_mgr.c`) Refactoring**:
+   - **Simultaneous Dosing**: Eliminated sequential `s_active_dosing_channel_idx++`. Once raw water reaches threshold $X\%$ (e.g. 20% = 16 L of 80 L), all configured dosing pumps (DP-A, DP-B, DP-N) start simultaneously.
+   - **Concurrent Raw Water Filling & Mixing**: Raw water pump continues filling concurrently until 100% target volume is achieved. Submersible 220V mixer pump starts at threshold volume and runs continuously through dosing and final mixing.
+   - **Individual Channel Target & 1.5x Monotonic Timeout**: Each dosing pump stops individually upon reaching its target dosage runtime, monitored with monotonic timers (`now_ms() - s_dosing_start_ms[ch]`). Monotonic $1.5\times$ timeout aborts any faulty pump.
+   - **Decoupled Fertigation Distribution**: Dosing pipeline terminates cleanly at `READY_TO_FERTIGATE`. Stage 5 ("Pompa Distribusi Fertigasi") is strictly removed from the dosing queue pipeline.
+   - **Unified 3-Second Checkpoint**: Created packed binary struct `fert_checkpoint_t` (~140 bytes) with CRC32 checksum, sequence counter, hardware mask, target vs actual volumes, and dosing runtimes. Saved every 3 seconds and on state changes to `/sdcard/fert_checkpoint.bin` (SPIFFS fallback + NVS sync) within existing 200ms task loop without spawning new FreeRTOS tasks.
+   - **Safe Power Recovery**: On boot, all actuators are explicitly forced to inactive level. `restore_recovery_checkpoint()` verifies CRC32 and version: if power cut occurred during filling, dosing, or mixing, the process is safely marked `FERT_STATE_RECOVERY_HOLD` (`RECOVERY_REQUIRED`) to prevent toxic double-dosing of fertilizer. If already in `MIX_READY`, it restores readiness without re-mixing.
+   - **`hardware_outputs_mask` Safety**: strictly maintained as a telemetry snapshot and never re-energizes pumps at boot.
+2. **Web UI & Display Alignment**:
+   - `FertigationQueueDashboard.tsx`: Removed fake optimistic `RUNNING` synthesis when ESP32 is `IDLE`. Replaced 5 legacy stages with the 3 true physical stages:
+     1. Tahap 1: Persiapan Air Baku
+     2. Tahap 2: Dosing & Mixing Simultan
+     3. Tahap 3: Pengadukan Akhir
+     Terminal state: `READY_TO_FERTIGATE`.
+   - `DosingQueueSection.tsx`: Updated grid layout from 5 columns to 3 columns (`sm:grid-cols-3`).
+   - `GreenhouseFertigationDetail.tsx`: Updated grid layout to 3 columns (`sm:grid-cols-3`).
+3. **Canonical Documentation**:
+   - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Updated Section 7.2 to reflect 3 physical dosing stages and added Sections 20.1-20.3 detailing checkpoint struct, power recovery hold, and output mask authority.
+4. **Verification & Tests**:
+   - `scripts/test_dosing_checkpoint_recovery.mjs`: 20/20 PASS (100%).
+   - `scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+   - `scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+   - `npx tsc --noEmit`: 0 errors.
+   - `npm run build`: Singlefile bundle (1,232.95 kB) built clean.
+   - `idf.py build`: Full ESP32-S3 firmware build passed with zero errors (`agrotech_esp32.bin`).
+
+---
+
+# AI HANDOVER — SP-SCHEDULE-DEDUP-DISPATCH-001 (previous)
 
 ## Status — SP-SCHEDULE-DEDUP-DISPATCH-001
 **Immediate FIFO Queue Batch Execution from Standby & Schedule Page Redundancy Elimination via Category Tabs**

@@ -236,7 +236,7 @@ export function DosingQueueSection({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {activeJob.steps.map((st) => {
                 const isCompleted = st.status === "COMPLETED";
                 const isRunning = st.status === "RUNNING";
