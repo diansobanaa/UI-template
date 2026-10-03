@@ -83,8 +83,9 @@ export function ScheduleContent({
   const scheduleGreenhouses = scopedGhId ? (gh ? [gh] : []) : ghs;
   const realtimeState = complexRealtimeState(complex, ghs);
 
+  const targetGhForFert = gh || ghs[0];
   const openFertigationCreate = () => {
-    if (!gh) { toast("Select a greenhouse before creating a fertigation schedule.", "error"); return; }
+    if (!targetGhForFert) { toast("Select a greenhouse before creating a fertigation schedule.", "error"); return; }
     setEditFert(null); setFertOpen(true);
   };
   const openFanCreate = () => {
@@ -928,15 +929,15 @@ export function ScheduleContent({
       )}
 
       {/* Drawers */}
-      {gh && <AddFertigationDrawer
+      {targetGhForFert && <AddFertigationDrawer
         open={fertOpen}
         onClose={() => setFertOpen(false)}
-        ghId={gh.id}
-        ghCode={gh.code}
-        recipes={gh.recipes}
+        ghId={targetGhForFert.id}
+        ghCode={targetGhForFert.code}
+        recipes={targetGhForFert.recipes}
         dosingComponents={dosingComponents}
         initial={editFert}
-        tankCapacityL={gh.telemetry.tankCapacityL}
+        tankCapacityL={targetGhForFert.telemetry.tankCapacityL}
         onSubmit={handleFertSubmit}
       />}
       <AddWellPumpDrawer

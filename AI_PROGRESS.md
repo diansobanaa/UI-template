@@ -1,3 +1,18 @@
+## SP-GH-DETAIL-SCHEDULE-MANAGER-001 — Restore Fertigation Schedule Table and Add Button in Greenhouse Scoped View
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Fix missing schedule table and "+ Tambah Jadwal" button in Greenhouse Scoped View (`Operasi Fertigasi & Nutrisi GH-01`).
+  2. In `FertigationQueueDashboard.tsx`: when `effectiveGhId` is provided, render `GreenhouseFertigationDetail`, `DosingQueueSection` (pipeline for this GH), and `FertigationScheduleManager` (schedule cards, operational status badges, toggle switches, and "+ Tambah Jadwal" button) scoped to the active greenhouse.
+  3. In `GreenhouseFertigationDetail.tsx`: add `onOpenCreate` to props and render a prominent `+ Tambah Jadwal` button directly in the top header Quick Actions next to "Siram ke Tanaman Sekarang".
+  4. In `FertigationQueueDashboard.tsx`: provide an autonomous `handleCreate` navigation fallback (`/schedule?complex=...&gh=...`) so clicking "+ Tambah Jadwal" always opens the schedule creation drawer across all pages.
+  5. In `schedule/page.tsx`: ensure `targetGhForFert = gh || ghs[0]` so opening the drawer never fails with "Select a greenhouse" even if no greenhouse parameter was specified in the URL.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,233.40 kB) built clean.
+
 ## SP-FERT-QUEUE-RECIPE-001 — Recipe Milliliters Ingestion, Dosing Queue Eviction on Failure, and Fail-Safe Clutter Removal
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`

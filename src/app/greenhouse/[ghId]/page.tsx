@@ -1576,6 +1576,7 @@ function GreenhouseContent() {
         <FertigationQueueDashboard
           complexId={gh.complexId}
           selectedGhId={gh.id}
+          onOpenCreate={() => router(`/schedule?complex=${gh.complexId}&gh=${gh.id}`)}
         />
       </div>
 

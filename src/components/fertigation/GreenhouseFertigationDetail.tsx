@@ -10,6 +10,7 @@ import {
   Droplets,
   FlaskConical,
   Play,
+  Plus,
   RotateCcw,
   Sparkles,
   StopCircle,
@@ -43,6 +44,7 @@ interface GreenhouseFertigationDetailProps {
   mixingTank: GreenhouseTankInfo;
   activeJob: DosingQueueJob | null;
   queuedJobs: DosingQueueJob[];
+  onOpenCreate?: () => void;
   onPreMix?: () => void;
   onDeliver?: () => void;
   onAbort?: () => void;
@@ -65,6 +67,7 @@ export function GreenhouseFertigationDetail({
   mixingTank,
   activeJob,
   queuedJobs,
+  onOpenCreate,
   onPreMix,
   onDeliver,
   onAbort,
@@ -123,6 +126,17 @@ export function GreenhouseFertigationDetail({
 
         {/* Quick Actions */}
         <div className="flex items-center gap-2">
+          {onOpenCreate && (
+            <button
+              type="button"
+              onClick={onOpenCreate}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-95"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Tambah Jadwal
+            </button>
+          )}
+
           {mixingTank.canDeliverNow && onDeliver && (
             <button
               type="button"

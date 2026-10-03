@@ -307,7 +307,7 @@ function FertigationContent() {
         <FertigationQueueDashboard
           complexId={complex.id}
           selectedGhId={selectedGhId || undefined}
-          onOpenCreate={() => router(`/schedule?complex=${complex.id}`)}
+          onOpenCreate={() => router(`/schedule?complex=${complex.id}${selectedGhId ? `&gh=${selectedGhId}` : ""}`)}
         />
 
         {/* ---------------- 3. Dosing Pump Status & Calibrations ---------------- */}

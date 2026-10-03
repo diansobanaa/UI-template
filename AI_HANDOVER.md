@@ -1,4 +1,28 @@
-# AI HANDOVER — SP-FERT-QUEUE-RECIPE-001 (latest)
+# AI HANDOVER — SP-GH-DETAIL-SCHEDULE-MANAGER-001 (latest)
+
+## Status — SP-GH-DETAIL-SCHEDULE-MANAGER-001
+**Restore Fertigation Schedule Table and Add Button in Greenhouse Scoped View**
+**Safe Point**: `SP-GH-DETAIL-SCHEDULE-MANAGER-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Restored Fertigation Schedule Manager to Scoped Greenhouse View (`FertigationQueueDashboard.tsx`)**:
+   - Fixed early-return branch when `effectiveGhId` is provided (e.g. `Operasi Fertigasi & Nutrisi GH-01`).
+   - The view now renders:
+     - `GreenhouseFertigationDetail`: Status banner, KPI metrics, physical tank levels, and active batch steps.
+     - `DosingQueueSection`: Pipeline antrean peracikan central khusus greenhouse ini.
+     - `FertigationScheduleManager`: Full schedule cards grid for this greenhouse, operational badges, on/off toggles, and `+ Tambah Jadwal` button.
+2. **Prominent "+ Tambah Jadwal" Quick Action Button (`GreenhouseFertigationDetail.tsx`)**:
+   - Added `onOpenCreate` prop and placed a visible emerald `+ Tambah Jadwal` button in the top header Quick Actions directly next to "Siram ke Tanaman Sekarang".
+3. **Autonomous Navigation Fallback (`FertigationQueueDashboard.tsx`)**:
+   - Defined `handleCreate = onOpenCreate || (() => navigate('/schedule?complex=' + complexId + '&gh=' + ghId))`. Clicking "+ Tambah Jadwal" reliably navigates to the schedule drawer across dashboard, fertigation, and greenhouse pages.
+4. **Resilient Greenhouse Target Resolution (`src/app/schedule/page.tsx`)**:
+   - Set `targetGhForFert = gh || ghs[0]`, ensuring `openFertigationCreate` and `AddFertigationDrawer` open reliably even if the URL didn't have a pre-selected `?gh=` parameter.
+
+---
+
+# AI HANDOVER — SP-FERT-QUEUE-RECIPE-001 (previous)
 
 ## Status — SP-FERT-QUEUE-RECIPE-001
 **Recipe Milliliters Ingestion, Dosing Queue Eviction on Failure, and Fail-Safe Clutter Removal**

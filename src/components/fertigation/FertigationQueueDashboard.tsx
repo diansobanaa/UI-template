@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -71,6 +72,12 @@ export function FertigationQueueDashboard({
   const effectiveGhId = selectedGhId || currentGhId;
   const effectiveComplexId =
     complexId || (effectiveGhId ? greenhouseService.get(effectiveGhId)?.complexId || "" : "") || complexService.list()[0]?.id || "";
+
+  const navigate = useNavigate();
+  const handleCreate = onOpenCreate || (() => {
+    const targetComplex = effectiveComplexId || complexService.list()[0]?.id || "";
+    navigate(`/schedule?complex=${targetComplex}${effectiveGhId ? `&gh=${effectiveGhId}` : ""}`);
+  });
 
   const [liveStatus, setLiveStatus] = useState<any>(null);
   const [liveQueue, setLiveQueue] = useState<any[]>([]);
@@ -924,29 +931,62 @@ export function FertigationQueueDashboard({
     if (gh && summary && tank) {
       const ghActiveJob = activeJob?.ghId === gh.id ? activeJob : null;
       const ghQueuedJobs = queuedJobs.filter((q) => q.ghId === gh.id);
+      const ghSchedules = allSchedules.filter((s) => s.ghId === gh.id);
 
       return (
-        <GreenhouseFertigationDetail
-          gh={gh}
-          status={summary.status}
-          statusLabel={summary.statusLabel}
-          statusTone={summary.statusTone}
-          statusDesc={summary.statusDesc}
-          currentOperationText={summary.statusDesc}
-          nextScheduleTime={summary.nextScheduleTime}
-          nextRecipeName={summary.nextRecipeName}
-          targetWaterL={summary.targetWaterL}
-          cyclesCompletedToday={summary.cyclesCompletedToday}
-          totalCyclesToday={summary.totalCyclesToday}
-          mixingTank={tank}
-          activeJob={ghActiveJob}
-          queuedJobs={ghQueuedJobs}
-          onPreMix={() => handlePreMixGh(gh.id)}
-          onDeliver={() => handleDeliverGh(gh.id)}
-          onAbort={handleAbort}
-          isActionLoading={actionInProgress !== null}
-          className={className}
-        />
+        <div className={`space-y-6 ${className}`}>
+          {/* Detail Operasi Greenhouse & Monitoring Batch */}
+          <GreenhouseFertigationDetail
+            gh={gh}
+            status={summary.status}
+            statusLabel={summary.statusLabel}
+            statusTone={summary.statusTone}
+            statusDesc={summary.statusDesc}
+            currentOperationText={summary.statusDesc}
+            nextScheduleTime={summary.nextScheduleTime}
+            nextRecipeName={summary.nextRecipeName}
+            targetWaterL={summary.targetWaterL}
+            cyclesCompletedToday={summary.cyclesCompletedToday}
+            totalCyclesToday={summary.totalCyclesToday}
+            mixingTank={tank}
+            activeJob={ghActiveJob}
+            queuedJobs={ghQueuedJobs}
+            onOpenCreate={handleCreate}
+            onPreMix={() => handlePreMixGh(gh.id)}
+            onDeliver={() => handleDeliverGh(gh.id)}
+            onAbort={handleAbort}
+            isActionLoading={actionInProgress !== null}
+          />
+
+          {/* Pipeline Antrean Peracikan Central (Dosing Queue) */}
+          <DosingQueueSection
+            activeJob={ghActiveJob}
+            queuedJobs={ghQueuedJobs}
+            nextScheduledOp={nextScheduledOp}
+            errorInfo={errorInfo}
+            onAbortActive={handleAbort}
+            onSyncQueue={handleTriggerQueueSync}
+            isActionLoading={actionInProgress !== null}
+            isSyncingQueue={isAwaitingQueueSync}
+            syncCountdownSec={syncCountdown}
+            isMultiGh={false}
+          />
+
+          {/* Tabel Jadwal Fertigasi & Tombol Tambah Jadwal untuk Greenhouse ini */}
+          <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e1a2a] p-5 shadow-sm">
+            <FertigationScheduleManager
+              schedules={ghSchedules}
+              greenhouses={[gh]}
+              onOpenCreate={handleCreate}
+              onToggleSchedule={handleToggleSchedule}
+              isActionLoading={actionInProgress !== null}
+              activeJob={ghActiveJob}
+              queuedJobs={ghQueuedJobs}
+              liveStatus={liveStatus}
+              liveQueue={liveQueue}
+            />
+          </div>
+        </div>
       );
     }
   }
@@ -1048,7 +1088,7 @@ export function FertigationQueueDashboard({
         <FertigationScheduleManager
           schedules={allSchedules}
           greenhouses={ghs}
-          onOpenCreate={onOpenCreate}
+          onOpenCreate={handleCreate}
           onToggleSchedule={handleToggleSchedule}
           isActionLoading={actionInProgress !== null}
           activeJob={activeJob}
