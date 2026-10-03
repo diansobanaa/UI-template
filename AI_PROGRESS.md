@@ -48,6 +48,7 @@
   - Post-Format Remount & File I/O: `GET /api/v1/storage/test` -> HTTP 200 OK (`TEST_A_MOUNT: PASS; TEST_B_VERIFY: PASS; TEST_C_VERIFY: PASS (append OK)`).
   - Telemetry Persistence Verification: `(curl http://192.168.0.101/api/v1/telemetry?cursor=1).data.storageAvailable` -> `True`! Segment file created and records appended successfully.
   - Format Repeatability: Second format cycle executed and verified (`result: "SUCCESS"`, `mounted: true`, subsequent file I/O 100% PASS).
+- **Git Commit Hash**: `9bc3525`
 - **Changed Files**:
   - `esp32/main/hal/microsd_hal.c`
   - `esp32/main/hal/microsd_hal.h`
