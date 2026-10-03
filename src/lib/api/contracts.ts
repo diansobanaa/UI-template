@@ -923,6 +923,7 @@ export interface CalibrationStatus {
 export interface CalibrationRates {
   rateDosingAMlSec: number;
   rateDosingBMlSec: number;
+  rateWellPumpMlSec?: number;
   flowRawPulsesPerL: number;
   flowFertPulsesPerL: number;
   dosingRates?: Record<string, number>;

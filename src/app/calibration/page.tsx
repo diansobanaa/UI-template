@@ -59,8 +59,9 @@ const PROGRESSIVE_DURATIONS = [10, 30, 60] as const;
 
 const FILTERS = [
   { id: "all", label: "Semua Perangkat" },
-  { id: "sensors", label: "Sensor (pH/EC)" },
   { id: "dosing-pumps", label: "Pompa Dosing" },
+  { id: "water-pumps", label: "Pompa Air Baku" },
+  { id: "sensors", label: "Sensor (pH/EC)" },
 ];
 
 export default function CalibrationPage() {
@@ -132,7 +133,13 @@ function CalibrationContent() {
   }, [complex.id]);
 
   const devices = authoritativeDevices
-    .filter((d) => (category === "all" ? true : (category === "sensors" ? ["ph", "ec"].includes(d.category) : d.category === "dosing-pump")))
+    .filter((d) => {
+      if (category === "all") return true;
+      if (category === "sensors") return ["ph", "ec"].includes(d.category);
+      if (category === "dosing-pumps") return d.category === "dosing-pump";
+      if (category === "water-pumps") return d.category === "raw-water-pump";
+      return true;
+    })
     .filter((d) => d.ghId === null || d.ghId === gh?.id || !gh?.id);
   const device = devices.find((d) => d.id === selectedDeviceId) ?? devices[0] ?? null;
   const history = authoritativeHistory;
@@ -319,7 +326,7 @@ function CalibrationContent() {
               </div>
 
               <div className="flex-1 overflow-y-auto scroll-thin p-6 bg-slate-50/50">
-                {activeTab === "calibrate" && device.category === "dosing-pump" && (
+                {activeTab === "calibrate" && (device.category === "dosing-pump" || device.category === "raw-water-pump") && (
                   <DosingPumpCalibrationWizard
                     key={device.id}
                     device={device}
@@ -476,9 +483,20 @@ function DosingPumpCalibrationWizard({
     if (workflowStep === "RUNNING" && run === null) {
       setWorkflowStep("INPUT_VOLUME");
       setValidationError(null);
-      toast(`Pengujian tahap ${currentDuration} detik selesai! Silakan catat volume cairan di gelas ukur.`, "info");
+      if (device.category === "raw-water-pump") {
+        calibrationService.getCalibrationStatus().then((st) => {
+          if (st.measured_ml != null && st.measured_ml > 0) {
+            setVolumeInput(String(st.measured_ml));
+            toast(`Pengujian selesai! Sensor flow water kecil mendeteksi ${st.measured_ml} mL (${(st.measured_ml / 1000).toFixed(2)} L).`, "success");
+          } else {
+            toast(`Pengujian tahap ${currentDuration} detik selesai! Periksa nilai aliran sensor flow air baku.`, "info");
+          }
+        });
+      } else {
+        toast(`Pengujian tahap ${currentDuration} detik selesai! Silakan catat volume cairan di gelas ukur.`, "info");
+      }
     }
-  }, [run, workflowStep, currentDuration]);
+  }, [run, workflowStep, currentDuration, device.category]);
 
   // Handler to initiate preparation countdown before pump start
   const handleBeginPreparing = () => {
@@ -732,8 +750,12 @@ function DosingPumpCalibrationWizard({
                   1
                 </div>
                 <div>
-                  <b className="text-slate-800 block">Siapkan Gelas Ukur</b>
-                  Arahkan selang output pompa {channel} ke wadah/gelas ukur terpisah (skala mililiter).
+                  <b className="text-slate-800 block">
+                    {device.category === "raw-water-pump" ? "Jalur Pipa & Sensor Flow" : "Siapkan Gelas Ukur"}
+                  </b>
+                  {device.category === "raw-water-pump"
+                    ? "Pastikan pipa air baku terhubung melewati Sensor Flow Water Kecil (GPIO 15 / ZJ-B1) menuju tangki mixing."
+                    : `Arahkan selang output pompa ${channel} ke wadah/gelas ukur terpisah (skala mililiter).`}
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -750,8 +772,12 @@ function DosingPumpCalibrationWizard({
                   3
                 </div>
                 <div>
-                  <b className="text-slate-800 block">Catat Volume Cairan</b>
-                  Setelah pompa berhenti, masukkan angka mililiter (ml) yang terkumpul di gelas ukur.
+                  <b className="text-slate-800 block">
+                    {device.category === "raw-water-pump" ? "Pengukuran Otomatis Sensor" : "Catat Volume Cairan"}
+                  </b>
+                  {device.category === "raw-water-pump"
+                    ? "Sensor flow water kecil otomatis mengukur pulsa dan volume air yang lewat (tanpa perlu gelas ukur manual)."
+                    : "Setelah pompa berhenti, masukkan angka mililiter (ml) yang terkumpul di gelas ukur."}
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -760,7 +786,7 @@ function DosingPumpCalibrationWizard({
                 </div>
                 <div>
                   <b className="text-slate-800 block">Simpan ke Kontroler</b>
-                  Sistem otomatis menghitung Flow Rate (ml/mnt) dan menyimpannya secara permanen.
+                  Sistem otomatis menghitung Flow Rate dan menyimpannya secara permanen ke memori ESP32.
                 </div>
               </div>
             </div>
@@ -1209,10 +1235,14 @@ function DosingPumpCalibrationWizard({
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <h3 className="font-bold text-slate-900 text-base">
-                    Pengukuran Selesai! Catat Volume Cairan
+                    {device.category === "raw-water-pump"
+                      ? "Pengujian Selesai! Verifikasi Volume Sensor Flow"
+                      : "Pengukuran Selesai! Catat Volume Cairan"}
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Masukkan jumlah mililiter (ml) cairan yang terkumpul selama pengujian <b>{currentDuration} detik</b>.
+                    {device.category === "raw-water-pump"
+                      ? `Volume air baku yang terdeteksi sensor flow water kecil selama pengujian ${currentDuration} detik.`
+                      : `Masukkan jumlah mililiter (ml) cairan yang terkumpul selama pengujian ${currentDuration} detik.`}
                   </p>
                 </div>
                 {testMode === "multi" && (
@@ -1222,10 +1252,22 @@ function DosingPumpCalibrationWizard({
                 )}
               </div>
 
+              {device.category === "raw-water-pump" && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2.5">
+                  <Sparkles className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <b className="block font-bold">Terhitung Otomatis dari Sensor Flow Water Kecil (GPIO 15 / ZJ-B1)</b>
+                    <span>Sensor flow water kecil menghitung pulsa aliran selama pompa menyala. Nilai volume otomatis terisi di bawah (dapat disesuaikan jika perlu).</span>
+                  </div>
+                </div>
+              )}
+
               {/* Form Input Volume */}
               <div>
                 <Label className="text-slate-800 font-bold mb-1.5 block">
-                  {testMode === "multi"
+                  {device.category === "raw-water-pump"
+                    ? `Volume Air Baku Terdeteksi (${currentDuration} Detik) — dalam ml:`
+                    : testMode === "multi"
                     ? `Volume Cairan Tertampung (${currentDuration} Detik) — dalam ml:`
                     : `Volume Cairan Tertampung di Gelas Ukur (${currentDuration} Detik) — ml:`}
                 </Label>
@@ -1239,7 +1281,7 @@ function DosingPumpCalibrationWizard({
                         setValidationError(null);
                       }
                     }}
-                    placeholder={`Contoh: ${currentDuration === 10 ? "20" : currentDuration === 30 ? "60" : "120"}`}
+                    placeholder={device.category === "raw-water-pump" ? "Contoh: 10000 (10 L)" : `Contoh: ${currentDuration === 10 ? "20" : currentDuration === 30 ? "60" : "120"}`}
                     unit="ml"
                     autoFocus
                     className="font-mono text-lg bg-slate-50 py-2.5"
@@ -1251,7 +1293,9 @@ function DosingPumpCalibrationWizard({
                   </p>
                 )}
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Catatan: Masukkan angka sesuai permukaan meniskus bawah cairan di gelas ukur.
+                  {device.category === "raw-water-pump"
+                    ? "Catatan: Nilai diisi otomatis dari sensor flow water kecil. Anda dapat mengoreksi bila ada selisih fisik."
+                    : "Catatan: Masukkan angka sesuai permukaan meniskus bawah cairan di gelas ukur."}
                 </p>
               </div>
 
@@ -1263,12 +1307,20 @@ function DosingPumpCalibrationWizard({
                       <Gauge className="h-4 w-4 text-blue-600" /> Hasil Debit (Flow Rate) Tahap Ini:
                     </span>
                     <span className="font-mono font-extrabold text-blue-700 text-xl">
-                      {singleFlowRate.toFixed(1)}{" "}
-                      <span className="text-xs font-normal text-blue-600">ml/mnt</span>
+                      {device.category === "raw-water-pump"
+                        ? `${((singleFlowRate / 60) * 60 / 1000).toFixed(2)} L/mnt`
+                        : `${singleFlowRate.toFixed(1)} ml/mnt`}
+                      {device.category === "raw-water-pump" && (
+                        <span className="text-xs font-normal text-blue-600 ml-1.5">({singleFlowRate.toFixed(0)} ml/mnt)</span>
+                      )}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-600 font-mono flex items-center justify-between border-t border-blue-200/60 pt-1.5">
-                    <span>Rumus: ({volumeNum} ml ÷ {currentDuration} dtk) × 60</span>
+                    <span>
+                      {device.category === "raw-water-pump"
+                        ? `Setara Fisik: ${(volumeNum / 1000).toFixed(2)} Liter dalam ${currentDuration} dtk`
+                        : `Rumus: (${volumeNum} ml ÷ ${currentDuration} dtk) × 60`}
+                    </span>
                     <span>= {(singleFlowRate / 60).toFixed(2)} ml/dtk</span>
                   </div>
                   {isCalibrated && (

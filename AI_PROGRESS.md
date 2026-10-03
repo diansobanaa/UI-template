@@ -1,3 +1,18 @@
+## SP-CALIBRATION-RAW-PUMP-FLOW-001 — Lower Float Calibration Exemption & Raw Water Pump Calibration via Small Flow Sensor
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Exempt Lower Float Switch (`float_lower` / GPIO 38) from calibration: Lower Float Switch is a discrete binary safety interlock (dry contact switch), not an analog or continuous calibratable level sensor. Removed `FLOAT` from `LEVEL` calibration compatibility in `api_calibration_handlers.c`, ensuring system never requests or expects calibration for float switches.
+  2. Implement Raw Water Pump (`pump_well` / GPIO 1) field calibration: Added `"raw-water-pump"` category across Web UI and firmware calibration subsystems, exposing `rateWellPumpMlSec` and persistent calibration storage.
+  3. Integrate automatic flow ingestion from the small raw water pulse flow meter (`flow_sensor_water` / ZJ-B1 on GPIO 15): During volumetric pump calibration on `pump_well`, ESP32 firmware calculates `measured_ml` from raw flow pulse accumulation, returns it in `/api/v1/calibration/status`, and Web UI auto-populates the measured volume and calculated flow rate (L/min and mL/sec) for one-click calibration saving without requiring a manual measuring beaker.
+  4. Canonical API Contracts: Updated `contracts/UI_ESP32_OPENAPI.yaml` and `UI_ESP32_OPENAPI.yaml` documenting `rateWellPumpMlSec` in `CalibrationRates` and `measured_ml` / `measured_l` in `CalibrationStatus`.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,247.93 kB) built clean.
+
 ## SP-DIAGNOSTIC-ERROR-CODES-001 — Firmware Error Code Contract & Web UI Smart Diagnostic Resolution Card
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`

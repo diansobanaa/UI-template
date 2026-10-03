@@ -2102,15 +2102,15 @@ export const calibrationService = {
       }
     }
 
-    // 4. Default fallback to canonical supported dosing and sensors so calibration page is never blank
+    // 4. Default fallback to canonical supported dosing, pumps, and sensors so calibration page is never blank
     const activeDosingOrSensors = components
       .filter((component) => ["COMMISSIONED", "ENABLED", "REGISTERED"].includes(component.lifecycleState ?? "COMMISSIONED"))
-      .filter((component) => /DOSING|PH|EC/i.test(`${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""}`));
+      .filter((component) => /DOSING|PH|EC|WELL_PUMP|RAW_WATER|PUMP_WELL/i.test(`${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`));
 
     const effectiveComponents: InstalledComponent[] = activeDosingOrSensors.length > 0
       ? activeDosingOrSensors
       : CANONICAL_GPIO_PIN_MAP
-        .filter((p) => p.equipment && /DOSING|PH|EC/i.test(`${p.equipment.role} ${p.equipment.supportedTypeId} ${p.equipment.name}`))
+        .filter((p) => p.equipment && /DOSING|PH|EC|WELL_PUMP|RAW_WATER|PUMP_WELL/i.test(`${p.equipment.role} ${p.equipment.supportedTypeId} ${p.equipment.name} ${p.equipment.componentId}`))
         .map((p) => ({
           componentId: p.equipment!.componentId,
           name: p.equipment!.name,
@@ -2150,25 +2150,34 @@ export const calibrationService = {
     }
     const devices: CalibrationDevice[] = effectiveComponents
       .map((component) => {
-        const text = `${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""}`.toUpperCase();
-        const category: CalibrationDevice["category"] = text.includes("DOSING") ? "dosing-pump" : text.includes("PH") ? "ph" : "ec";
+        const text = `${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`.toUpperCase();
+        const isRawPump = /WELL_PUMP|PUMP_WELL|RAW_WATER/i.test(text);
+        const category: CalibrationDevice["category"] = isRawPump
+          ? "raw-water-pump"
+          : text.includes("DOSING")
+            ? "dosing-pump"
+            : text.includes("PH")
+              ? "ph"
+              : "ec";
         const assignmentGhId = component.assignment?.ghId ?? null;
         const calibration = latestByComponent.get(component.componentId);
         const validUntil = calibration?.validUntilMs ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not scheduled";
         let channel = component.parameters?.channel != null ? String(component.parameters.channel) : undefined;
-        if (!channel && category === "dosing-pump") {
-          channel = component.name?.trim() || component.componentId;
+        if (!channel && (category === "dosing-pump" || category === "raw-water-pump")) {
+          channel = isRawPump ? "Air Baku" : (component.name?.trim() || component.componentId);
         }
 
         let reading = "—";
         let calibratedAtMs: number | null = calibration?.createdAtMs ?? null;
 
-        if (category === "dosing-pump") {
+        if (category === "dosing-pump" || category === "raw-water-pump") {
           let rateMlSec = 0;
           const compLower = component.componentId.toLowerCase();
           if (esp32Rates) {
             if (esp32Rates.dosingRates && esp32Rates.dosingRates[component.componentId] != null) {
               rateMlSec = Number(esp32Rates.dosingRates[component.componentId]) || 0;
+            } else if (isRawPump && esp32Rates.rateWellPumpMlSec != null) {
+              rateMlSec = esp32Rates.rateWellPumpMlSec;
             } else if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
               rateMlSec = esp32Rates.rateDosingAMlSec || 0;
             } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
@@ -2203,17 +2212,17 @@ export const calibrationService = {
         return {
           id: `dev-${component.componentId}`,
           category,
-          name: component.name,
+          name: isRawPump ? "Pompa Air Baku (Well Pump)" : component.name,
           ...(channel ? { channel } : {}),
           ghId: assignmentGhId,
-          location: assignmentGhId ? `${assignmentGhId} – Installed Component` : `${complexId} – Central Calibration`,
+          location: assignmentGhId ? `${assignmentGhId} – Installed Component` : `${complexId} – Central Infrastructure`,
           reading,
-          unit: category === "dosing-pump" ? "ml/min" : category === "ph" ? "pH" : "mS/cm",
+          unit: category === "raw-water-pump" ? "ml/min" : category === "dosing-pump" ? "ml/min" : category === "ph" ? "pH" : "mS/cm",
           online: true,
           lastCalibration: lastCalibrationStr,
           calibratedAtMs,
           due: validUntil,
-          method: category === "dosing-pump" ? "single" : "two",
+          method: "single",
           standardOptions: category === "ph" ? ["4.00", "6.86", "7.00", "9.18"] : category === "ec" ? ["1.41", "12.88"] : ["10", "30"],
           standardUnit: category === "ph" ? "pH" : category === "ec" ? "mS/cm" : "s run",
           measuredUnit: category === "ph" ? "pH" : category === "ec" ? "mS/cm" : "ml",
@@ -2280,7 +2289,7 @@ export const calibrationService = {
     const componentId = device.id.replace("dev-", "");
     const targetComplexId = (device.ghId ? greenhouseService.get(device.ghId)?.complexId : null) || complexService.list()[0]?.id || "";
     try {
-      if (device.category === "dosing-pump") {
+      if (device.category === "dosing-pump" || device.category === "raw-water-pump") {
         let flowRateMlMin = samplingInfo?.flowRateMlMin ?? 0;
         let measuredMl = samplingInfo?.measuredMl ?? 0;
         let durationSec = samplingInfo?.durationSec ?? 30;
@@ -2311,7 +2320,7 @@ export const calibrationService = {
           }
         }
         await operationalPythonClient.saveCalibration(targetComplexId, {
-          calibrationType: "DOSING_RATE",
+          calibrationType: device.category === "raw-water-pump" ? "PUMP_RATE" : "DOSING_RATE",
           componentId,
           measuredMl: Number(measuredMl.toFixed(1)),
           durationSec,
@@ -2368,7 +2377,7 @@ export const calibrationService = {
       }
     }
   },
-  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number }> {
+  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number }> {
     if (isDirectEsp32Enabled()) {
       try {
         return await esp32Client.getCalibrationStatus();

@@ -479,8 +479,8 @@ export class Esp32Client {
     return this.deleteEnveloped<any>("/api/v1/calibration");
   }
 
-  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number }> {
-    return this.getEnveloped<{ state: string; remaining_sec: number }>("/api/v1/calibration/status");
+  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number }> {
+    return this.getEnveloped<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number }>("/api/v1/calibration/status");
   }
 
   async getCalibrationRates(): Promise<CalibrationRates> {

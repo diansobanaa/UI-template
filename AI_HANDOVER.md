@@ -1,4 +1,38 @@
-# AI HANDOVER — SP-DIAGNOSTIC-ERROR-CODES-001 (latest)
+# AI HANDOVER — SP-CALIBRATION-RAW-PUMP-FLOW-001 (latest)
+
+## Status — SP-CALIBRATION-RAW-PUMP-FLOW-001
+**Lower Float Switch Calibration Exemption & Raw Water Pump Calibration via Small Flow Sensor**
+**Safe Point**: `SP-CALIBRATION-RAW-PUMP-FLOW-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Lower Float Switch (`float_lower` / GPIO 38) Calibration Exemption**:
+   - Explicitly clarified in system documentation and firmware that `float_lower` is a binary dry-run safety contact switch, not a continuous level meter.
+   - Removed `FLOAT` from `LEVEL` calibration compatibility in `esp32/main/http/api_calibration_handlers.c`.
+   - Verified `hardwareCatalog.ts` defines `lower-float` with `calibrationRequired: false`.
+   - Ensured no scheduler, execution plan generator, or UI component treats float switch as requiring calibration.
+2. **Raw Water Pump (`pump_well` / GPIO 1) Field Calibration**:
+   - Added `"raw-water-pump"` category across `CalibrationCategory` (`src/lib/types.ts`) and calibration catalog (`src/lib/data/calibration-reference.ts`).
+   - Extended `api_calibration_handlers.c` to accept `pump_well` / `WELL_PUMP` / `PUMP_RATE` for volumetric pump runs, and serialized `rateWellPumpMlSec` in `/api/v1/calibration/rate`.
+   - Updated `services.ts` to include `pump_well` in `loadAuthoritative`, mapping it with channel `"Air Baku"` and location `"Central Infrastructure"`.
+3. **Small Raw Flow Sensor Pulse Ingestion (`flow_sensor_water` / ZJ-B1 on GPIO 15)**:
+   - In `esp32/main/services/calibration_mgr.c`, during volumetric testing on `pump_well`, firmware takes a delta snapshot of `total_ml_raw_zjb1` from `sensor_hal`.
+   - Exposes `measured_ml` and `measured_l` in real-time in `/api/v1/calibration/status`.
+   - Web UI automatically reads `measured_ml` upon pump run completion, populating the volume and computing flow rate in L/min and mL/sec without requiring the operator to manually measure with a beaker.
+4. **Canonical Documentation & Contracts**:
+   - Updated `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` with Section 34 detailing the calibration exemption for `float_lower` and the flow-meter calculation workflow for `pump_well`.
+   - Updated `contracts/UI_ESP32_OPENAPI.yaml` and `UI_ESP32_OPENAPI.yaml` with `rateWellPumpMlSec` in `CalibrationRates` and `measured_ml`/`measured_l` in `CalibrationStatus`.
+5. **Verification**:
+   - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+   - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+   - `npm test`: 28 canonical endpoints + 26 ESP32 HTTP handlers PASS (100%).
+   - `npx tsc --noEmit`: 0 errors.
+   - `npm run build`: Singlefile bundle (1,247.93 kB) built clean.
+
+---
+
+# AI HANDOVER — SP-DIAGNOSTIC-ERROR-CODES-001 (previous)
 
 ## Status — SP-DIAGNOSTIC-ERROR-CODES-001
 **Firmware Error Code Contract & Web UI Smart Diagnostic Resolution Card**

@@ -437,6 +437,7 @@ export type CalibrationCategory =
   | "ph"
   | "ec"
   | "dosing-pump"
+  | "raw-water-pump"
   | "flow-meter"
   | "water-level"
   | "temp-humidity"

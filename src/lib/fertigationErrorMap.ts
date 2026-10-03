@@ -57,6 +57,14 @@ const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     actionLabel: "Kalibrasi Sensor Alir",
     severity: "error",
   },
+  RAW_WATER_PUMP_NOT_CALIBRATED: {
+    title: "Pompa Air Baku Belum Dikalibrasi",
+    description: (comp) =>
+      `Pompa air baku (${comp || "pump_well"}) belum memiliki catatan kalibrasi aktif di ESP32. Debit dihitung otomatis dari sensor flow water kecil.`,
+    actionType: "CALIBRATE_PUMP",
+    actionLabel: "Kalibrasi Pompa Air Baku",
+    severity: "error",
+  },
   EQUIPMENT_NOT_READY: {
     title: "Peralatan Belum Siap / Non-aktif",
     description: (comp) =>

@@ -7,6 +7,7 @@
 #include "cJSON.h"
 #include "storage/storage_mgr.h"
 #include "hal/hardware_registry.h"
+#include "hal/sensor_hal.h"
 #include "services/event_mgr.h"
 #include <string.h>
 #include <strings.h>
@@ -18,6 +19,7 @@ static const char *TAG = "CALIB_MGR";
 static calibration_status_t s_ctx;
 static SemaphoreHandle_t s_mutex = NULL;
 static uint32_t s_start_tick = 0;
+static uint32_t s_start_raw_flow_ml = 0;
 static calibration_record_t s_records[MAX_CAL_RECORDS];
 static size_t s_record_count = 0;
 static float s_flow_raw_pulses_per_l = 0.0f;
@@ -234,6 +236,12 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
     s_ctx.pump_id = ACTUATOR_MAX_COUNT;
     s_ctx.duration_sec = duration_sec;
     s_ctx.remaining_sec = duration_sec;
+    s_ctx.measured_ml = 0;
+    s_start_raw_flow_ml = 0;
+    sensor_readings_t rd;
+    if (sensor_hal_get_readings(&rd) == ESP_OK) {
+        s_start_raw_flow_ml = rd.total_ml_raw_zjb1;
+    }
     copy_str(s_ctx.component_id, sizeof(s_ctx.component_id), component_id);
     s_start_tick = xTaskGetTickCount();
     s_calibration_running_component = true;
@@ -248,6 +256,12 @@ static void calibration_worker_task(void *arg)
         if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) continue;
         if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
             uint32_t elapsed = (xTaskGetTickCount() - s_start_tick) / pdMS_TO_TICKS(1000);
+            sensor_readings_t rd;
+            if (sensor_hal_get_readings(&rd) == ESP_OK) {
+                if (rd.total_ml_raw_zjb1 >= s_start_raw_flow_ml) {
+                    s_ctx.measured_ml = rd.total_ml_raw_zjb1 - s_start_raw_flow_ml;
+                }
+            }
             if (actuator_hal_is_emergency_stopped()) {
                 actuator_hal_set_by_component_id(s_ctx.component_id, false);
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
@@ -455,10 +469,10 @@ esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj)
     for (size_t i = 0; i < s_record_count; ++i) {
         const calibration_record_t *r = &s_records[i];
         if (record_in_current_complex(r) &&
-            strcasecmp(r->calibration_type, "DOSING_RATE") == 0 &&
+            (strcasecmp(r->calibration_type, "DOSING_RATE") == 0 || strcasecmp(r->calibration_type, "PUMP_RATE") == 0) &&
             r->has_rate && r->rate_ml_sec > 0.0f &&
             state_usable(r->state)) {
-            int latest = find_latest_record_locked(r->component_id, "DOSING_RATE");
+            int latest = find_latest_record_locked(r->component_id, r->calibration_type);
             if (latest >= 0 && (size_t)latest == i) {
                 cJSON_AddNumberToObject(out_obj, r->component_id, r->rate_ml_sec);
             }

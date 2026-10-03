@@ -42,9 +42,14 @@ static bool calibration_component_compatible(const hw_component_info_t *info, co
     if (info->lifecycle_state == HW_LIFECYCLE_REMOVED) return false;
     char text[160];
     snprintf(text, sizeof(text), "%s %s %s %s", info->supported_type_id, info->role, info->name, info->component_id);
-    if (strcasecmp(cal_type, "DOSING_RATE") == 0) return strcasestr(text, "DOSING") != NULL;
+    if (strcasecmp(cal_type, "DOSING_RATE") == 0 || strcasecmp(cal_type, "PUMP_RATE") == 0) {
+        return strcasestr(text, "DOSING") != NULL || strcasestr(text, "WELL_PUMP") != NULL || strcasestr(text, "PUMP_WELL") != NULL || strcasestr(text, "RAW_WATER") != NULL;
+    }
     if (strcasecmp(cal_type, "FLOW") == 0) return strcasestr(text, "FLOW") != NULL;
-    if (strcasecmp(cal_type, "LEVEL") == 0) return strcasestr(text, "LEVEL") || strcasestr(text, "RADAR") || strcasestr(text, "FLOAT");
+    if (strcasecmp(cal_type, "LEVEL") == 0) {
+        // Lower Float Switch is a binary dry-run safety switch, not a continuous calibratable level sensor
+        return (strcasestr(text, "LEVEL") || strcasestr(text, "RADAR")) && strcasestr(text, "FLOAT") == NULL;
+    }
     if (strcasecmp(cal_type, "PH") == 0) return strcasestr(text, "PH") != NULL;
     if (strcasecmp(cal_type, "EC") == 0) return strcasestr(text, "EC") || strcasestr(text, "CONDUCTIVITY");
     return false;
@@ -66,10 +71,10 @@ static esp_err_t api_calibration_start_handler(httpd_req_t *req)
     cJSON *payload=cJSON_GetObjectItem(json,"payload"); cJSON *target=payload?payload:json;
     cJSON *comp=cJSON_GetObjectItem(target,"componentId"); cJSON *type=cJSON_GetObjectItem(target,"type"); cJSON *dur=cJSON_GetObjectItem(target,"duration_sec");
     if(!comp||!cJSON_IsString(comp)||!type||!cJSON_IsString(type)||!dur||!cJSON_IsNumber(dur)||dur->valueint<=0){cJSON_Delete(json);http_send_error(req,422,"VALIDATION_FAILED","componentId, type and positive duration_sec are required",NULL);return ESP_FAIL;}
-    if(strcasecmp(type->valuestring,"VOLUMETRIC")!=0){cJSON_Delete(json);http_send_error(req,422,"CALIBRATION_TYPE_UNSUPPORTED","Only VOLUMETRIC dosing calibration execution is supported on-device.",NULL);return ESP_FAIL;}
+    if(strcasecmp(type->valuestring,"VOLUMETRIC")!=0){cJSON_Delete(json);http_send_error(req,422,"CALIBRATION_TYPE_UNSUPPORTED","Only VOLUMETRIC dosing/pump calibration execution is supported on-device.",NULL);return ESP_FAIL;}
     if (!calibration_component_scoped_to_device(comp->valuestring)) { cJSON_Delete(json); http_send_error(req,409,"COMPONENT_COMPLEX_MISMATCH","Calibration target component belongs to another Complex.",NULL); return ESP_FAIL; }
     hw_component_info_t component_info;
-    if (hardware_registry_find_by_id(comp->valuestring, &component_info) != ESP_OK || !calibration_component_compatible(&component_info, "DOSING_RATE")) { cJSON_Delete(json); http_send_error(req,422,"CALIBRATION_COMPONENT_TYPE_MISMATCH","Calibration target is not a dosing-capable component.",NULL); return ESP_FAIL; }
+    if (hardware_registry_find_by_id(comp->valuestring, &component_info) != ESP_OK || (!calibration_component_compatible(&component_info, "DOSING_RATE") && !calibration_component_compatible(&component_info, "PUMP_RATE"))) { cJSON_Delete(json); http_send_error(req,422,"CALIBRATION_COMPONENT_TYPE_MISMATCH","Calibration target is not a pump/dosing-capable component.",NULL); return ESP_FAIL; }
     char comp_id[48] = {0};
     strncpy(comp_id, comp->valuestring, sizeof(comp_id) - 1);
     uint32_t dur_sec = (uint32_t)dur->valueint;
@@ -101,6 +106,8 @@ static esp_err_t api_calibration_status_handler(httpd_req_t *req)
     
     cJSON_AddStringToObject(resp, "state", state_str);
     cJSON_AddNumberToObject(resp, "remaining_sec", st.remaining_sec);
+    cJSON_AddNumberToObject(resp, "measured_ml", st.measured_ml);
+    cJSON_AddNumberToObject(resp, "measured_l", (double)st.measured_ml / 1000.0);
     
     return http_send_enveloped_response(req, 200, NULL, resp);
 }
@@ -213,6 +220,13 @@ static esp_err_t api_calibration_get_rate_handler(httpd_req_t *req)
     }
     if (rate_b > 0.0f && !cJSON_GetObjectItem(rates_obj, "pump_dosing_b")) {
         cJSON_AddNumberToObject(rates_obj, "pump_dosing_b", rate_b);
+    }
+    float rate_well = 0.0f;
+    if (calibration_mgr_get_rate_by_component("pump_well", &rate_well) == ESP_OK && rate_well > 0.0f) {
+        if (!cJSON_GetObjectItem(rates_obj, "pump_well")) {
+            cJSON_AddNumberToObject(rates_obj, "pump_well", rate_well);
+        }
+        cJSON_AddNumberToObject(resp, "rateWellPumpMlSec", rate_well);
     }
 
     cJSON_AddNumberToObject(resp, "rateDosingAMlSec", rate_a);

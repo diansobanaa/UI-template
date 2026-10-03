@@ -2157,11 +2157,14 @@ components:
 
     CalibrationStatus:
       type: object
-      required: [state, remainingSec]
+      required: [state]
       properties:
         state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
-        remainingSec: { type: integer, minimum: 0 }
+        remaining_sec: { type: integer, minimum: 0 }
+        remainingSec: { type: integer, minimum: 0, deprecated: true }
         measuredValue: { type: number, nullable: true }
+        measured_ml: { type: integer, nullable: true, description: "Measured volume in mL accumulated during test" }
+        measured_l: { type: number, nullable: true, description: "Measured volume in L accumulated during test" }
 
     CalibrationRates:
       type: object
@@ -2181,6 +2184,10 @@ components:
           format: float
           deprecated: true
           description: "@deprecated use dosingRates['pump_dosing_b'] instead"
+        rateWellPumpMlSec:
+          type: number
+          format: float
+          description: "Calibration rate for raw water pump (pump_well) in mL/sec"
         flowRawPulsesPerL: { type: number, minimum: 0 }
         flowFertPulsesPerL: { type: number, minimum: 0 }
 
