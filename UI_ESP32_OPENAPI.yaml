@@ -2164,6 +2164,7 @@ components:
         remainingSec: { type: integer, minimum: 0, deprecated: true }
         measuredValue: { type: number, nullable: true }
         measured_ml: { type: integer, nullable: true, description: "Measured volume in mL accumulated during test" }
+        errorCode: { type: string, nullable: true, description: "Failure reason when calibration state is ERROR" }
         measured_l: { type: number, nullable: true, description: "Measured volume in L accumulated during test" }
 
     CalibrationRates:

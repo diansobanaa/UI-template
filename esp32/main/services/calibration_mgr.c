@@ -26,6 +26,15 @@ static float s_flow_raw_pulses_per_l = 0.0f;
 static float s_flow_fert_pulses_per_l = 0.0f;
 static bool s_calibration_running_component = false;
 
+static bool is_raw_water_pump_component(const char *component_id)
+{
+    return component_id &&
+           (strcasecmp(component_id, "pump_submersible") == 0 ||
+            strcasecmp(component_id, "RAW_SUBMERSIBLE") == 0 ||
+            strcasecmp(component_id, "pump_raw") == 0 ||
+            strcasecmp(component_id, "raw_water_pump") == 0);
+}
+
 static void copy_str(char *dst, size_t len, const char *src)
 {
     if (!dst || len == 0) return;
@@ -274,12 +283,18 @@ static void calibration_worker_task(void *arg)
             if (actuator_hal_is_emergency_stopped()) {
                 actuator_hal_set_by_component_id(s_ctx.component_id, false);
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
+                copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "EMERGENCY_STOP");
                 s_ctx.state = CALIBRATION_STATE_ERROR;
                 s_ctx.remaining_sec = 0;
             } else if (elapsed >= s_ctx.duration_sec) {
                 actuator_hal_set_by_component_id(s_ctx.component_id, false);
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
-                s_ctx.state = CALIBRATION_STATE_COMPLETE;
+                if (is_raw_water_pump_component(s_ctx.component_id) && s_ctx.measured_ml == 0) {
+                    copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "NO_FLOW_PULSES");
+                    s_ctx.state = CALIBRATION_STATE_ERROR;
+                } else {
+                    s_ctx.state = CALIBRATION_STATE_COMPLETE;
+                }
                 s_ctx.remaining_sec = 0;
             } else {
                 s_ctx.remaining_sec = s_ctx.duration_sec - elapsed;
@@ -326,6 +341,7 @@ esp_err_t calibration_mgr_stop(void)
     if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
         actuator_hal_set_by_component_id(s_ctx.component_id, false);
         actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
+        copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "STOPPED_BY_OPERATOR");
         s_ctx.state = CALIBRATION_STATE_ERROR;
         s_ctx.remaining_sec = 0;
     }

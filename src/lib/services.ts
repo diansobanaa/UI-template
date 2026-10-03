@@ -2381,7 +2381,7 @@ export const calibrationService = {
       }
     }
   },
-  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number }> {
+  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number; errorCode?: string }> {
     if (isDirectEsp32Enabled()) {
       try {
         return await esp32Client.getCalibrationStatus();

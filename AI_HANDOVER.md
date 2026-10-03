@@ -4350,3 +4350,23 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 - Watch out: the serial capture tool toggles DTR/RTS and resets the board on open/close - do not mistake that for a firmware reboot.
 - Open items: internal heap tight after Wi-Fi (~11KB free, sporadic `esp-aes: Failed to allocate memory`); `EMERGENCY_STOP` / `health=CRITICAL` from pre-existing `TAMPER_LOOP_OPEN`.
 - Working tree: changes are still UNCOMMITTED in the main checkout (`esp32/main/main.c`, `esp32/main/network/network_mgr.c`, `esp32/sdkconfig*`, plus earlier `dht22.c`/`sensor_hal.c`/`tft_hal.*` edits).
+## AI HANDOVER — SP-CALIBRATION-FAILSAFE-NO-FLOW-001
+
+### Status
+**Raw-water-pump calibration now rejects zero ZJ-B1 flow**
+**Safe Point**: `SP-CALIBRATION-FAILSAFE-NO-FLOW-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`
+
+### Summary
+- The execution prompt's no-pulse requirement is now enforced in `esp32/main/services/calibration_mgr.c`.
+- A timed Raw Water Pump run with zero measured ZJ-B1 volume ends in `ERROR` with `errorCode=NO_FLOW_PULSES`; it cannot be accepted as a valid zero-flow calibration.
+- Emergency and operator stops expose `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
+- `GET /api/v1/calibration/status` and both OpenAPI contracts expose the optional `errorCode`.
+- Canonical operational documentation was updated.
+
+### Verification
+- `npm test`: PASS (28 canonical endpoints, 26 ESP32 handlers).
+- `npm run build`: PASS.
+- `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: PASS.
+- No physical reflash was performed for this change. Next action is flash and hardware acceptance testing with pulse and no-pulse cases.

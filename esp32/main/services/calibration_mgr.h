@@ -34,6 +34,7 @@ typedef struct {
     uint32_t remaining_sec;
     char component_id[40];
     uint32_t measured_ml;
+    char error_code[40];
 } calibration_status_t;
 
 typedef struct {

@@ -1368,7 +1368,7 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
     2. ESP32 returns the delta volume in `/api/v1/calibration/status` (`measured_ml` and `measured_l`).
     3. The Web UI automatically ingests `measured_ml` directly from the sensor (without requiring manual beaker measurements).
     4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record for `pump_submersible` (`rateRawWaterPumpMlSec`).
-
+  - **Fail-Safe Rule:** A raw-water calibration run is `ERROR` with `errorCode=NO_FLOW_PULSES` when it completes without any ZJ-B1 volume. It must not be accepted as a zero-flow or valid calibration result. Emergency-stop and operator-stop failures are reported as `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
 
 
 

@@ -1,3 +1,30 @@
+## SP-CALIBRATION-FAILSAFE-NO-FLOW-001 — Reject Raw-Water Calibration Without ZJ-B1 Pulses
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`
+- **Objective**:
+  - Enforce the execution prompt's fail-safe rule: raw-water-pump calibration must not become valid when ZJ-B1 reports zero transferred volume.
+  - Return machine-readable calibration failure reasons through `/api/v1/calibration/status`.
+- **Completed Work**:
+  - `calibration_mgr.c`: Raw Water Pump aliases (`pump_submersible`, `RAW_SUBMERSIBLE`, `pump_raw`, `raw_water_pump`) now enter `ERROR` with `NO_FLOW_PULSES` when a timed run completes with zero measured volume.
+  - Emergency stop and operator stop now expose `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
+  - `api_calibration_handlers.c`, both OpenAPI contracts, and frontend ESP32 client types expose optional `errorCode`.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: documented the fail-safe behavior.
+- **Verification**:
+  - `npm test`: PASS — 28 canonical endpoints and 26 ESP32 handlers.
+  - `npm run build`: PASS — singlefile bundle generated.
+  - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: PASS — `Project build complete`.
+  - Physical flash: NOT repeated; this change still requires hardware flash and no-pulse/pulse acceptance testing.
+- **Changed Files**:
+  - `esp32/main/services/calibration_mgr.c`
+  - `esp32/main/services/calibration_mgr.h`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `src/lib/api/esp32-client.ts`
+  - `src/lib/services.ts`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `UI_ESP32_OPENAPI.yaml`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+- **Known Issue / Next Action**: Flash the rebuilt firmware, then run one valid ZJ-B1 calibration and one no-pulse run; verify `COMPLETE` versus `ERROR/NO_FLOW_PULSES`.
+
 ## SP-CALIBRATION-RAW-WATER-PUMP-12V-001 — Strict Hardware & Terminological Separation: Raw Water Pump 12V DC vs Deep Well Pump 220V AC
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%)`

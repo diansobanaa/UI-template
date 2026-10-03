@@ -108,6 +108,7 @@ static esp_err_t api_calibration_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(resp, "remaining_sec", st.remaining_sec);
     cJSON_AddNumberToObject(resp, "measured_ml", st.measured_ml);
     cJSON_AddNumberToObject(resp, "measured_l", (double)st.measured_ml / 1000.0);
+    if (st.error_code[0]) cJSON_AddStringToObject(resp, "errorCode", st.error_code);
     
     return http_send_enveloped_response(req, 200, NULL, resp);
 }
