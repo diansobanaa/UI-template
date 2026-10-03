@@ -4356,7 +4356,7 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 **Raw-water-pump calibration now rejects zero ZJ-B1 flow**
 **Safe Point**: `SP-CALIBRATION-FAILSAFE-NO-FLOW-001`
 **Date**: 2026-10-03
-- **Verdict**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`
+- **Verdict**: `COMPLETE — BUILD/TEST/FLASH PASS; HARDWARE ACCEPTANCE PENDING`
 
 ### Summary
 - The execution prompt's no-pulse requirement is now enforced in `esp32/main/services/calibration_mgr.c`.
@@ -4389,4 +4389,5 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 - `npm test`: PASS.
 - `npm run build`: PASS.
 - ESP32 build script: PASS.
-- Hardware flash and physical acceptance tests remain pending.
+- ESP32 flash via COM3: PASS — data hash verified and hard reset via RTS.
+- Physical acceptance tests remain pending: valid ZJ-B1 flow, no-pulse failure, Lower Float interlock, and Well Pump manual/scheduled control.
