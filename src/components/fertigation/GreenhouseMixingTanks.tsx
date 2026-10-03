@@ -278,7 +278,7 @@ export function GreenhouseMixingTanks({
                     {isWaitingSchedule && (
                       <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 px-2.5 py-1 text-[11px] font-medium text-slate-300">
                         <Clock className="h-3 w-3 text-amber-400/80" />
-                        Otomasi Terjadwal (Fail-Safe)
+                        {tank.timingValue ? `Terjadwal ${tank.timingValue}` : "Otomasi Terjadwal"}
                       </span>
                     )}
 

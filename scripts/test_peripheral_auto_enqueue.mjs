@@ -23,8 +23,8 @@ const dashboardTsx = fs.readFileSync("src/components/fertigation/FertigationQueu
 assert(
   dashboardTsx.includes("isAwaitingQueueSync") &&
   dashboardTsx.includes("syncCountdown") &&
-  dashboardTsx.includes("scheduleService.deploySchedules(effectiveComplexId)"),
-  "FertigationQueueDashboard must implement 15-second grace period and background trigger"
+  dashboardTsx.includes("esp32Client.triggerDailySchedules()"),
+  "FertigationQueueDashboard must implement 15-second grace period and direct ESP32 trigger"
 );
 console.log("PASS 3: FertigationQueueDashboard implements 15-second grace period & background trigger");
 

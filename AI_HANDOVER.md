@@ -1,4 +1,25 @@
-# AI HANDOVER — SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001 (latest)
+# AI HANDOVER — SP-FERT-QUEUE-RECIPE-001 (latest)
+
+## Status — SP-FERT-QUEUE-RECIPE-001
+**Recipe Milliliters Ingestion, Dosing Queue Eviction on Failure, and Fail-Safe Clutter Removal**
+**Safe Point**: `SP-FERT-QUEUE-RECIPE-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+
+### Summary of What Was Done
+1. **Bug A — Recipe Nutrients in Milliliters Preservation & Autonomous Plan Synthesis**:
+   - `src/lib/services.ts`: Added `buildIntentExecutionPlan()` that embeds exact nutrient ml (`dosingChannels`), target volume (`targetWaterMl`), and safety bounds into the schedule intent at schedule creation/update time.
+   - `esp32/main/services/scheduler.c`: Added `synthesize_fertigation_plan_from_intent()`. If an intent lacks a pre-compiled plan, firmware synthesizes it directly from `targetWaterL`, `dosingAml`, `dosingBml`, and active `hardware_registry` dosing pumps.
+2. **Bug B — Dosing Queue Head Eviction on Failed State**:
+   - In `process_dosing_queue()` (`scheduler.c`), added detection for `head->state == QUEUE_STATE_FAILED`. Failed entries are cleanly logged, marked in today's occurrences as `OCC_STATE_FAILED`, shifted left, and removed (`s_dosing_queue_count--`), preventing queue head deadlock at `#1`.
+3. **Web UI Direct Execution & Clutter Removal**:
+   - Removed browser interval auto-dispatch hacks (`startManual` calls in `fetchStatus` and `handleTriggerQueueSync`).
+   - Replaced hardcoded `"Menunggu Giliran Unit Central (Otomatis)"` in `DosingQueueSection.tsx` with dynamic badges (`Antrean #1 · Siap Diracik Central`, `Sedang Disiapkan Central`, `Gagal Dieksekusi`).
+   - Removed all occurrences of `(Fail-Safe)` text across `FertigationQueueDashboard.tsx`, `GreenhouseMixingTanks.tsx`, `ComplexFertigationOverview.tsx`, and `GreenhouseFertigationDetail.tsx`.
+
+---
+
+# AI HANDOVER — SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001 (previous)
 
 ## Status — SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001
 **Direct Firmware Schedule Sync & Materialization & Web UI Fetch Loop Elimination**

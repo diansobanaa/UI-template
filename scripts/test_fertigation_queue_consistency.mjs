@@ -160,8 +160,8 @@ test("4. FIFO Queue Execution Order & Details", () => {
   );
   assert.match(
     dosingQueueSectionFile,
-    /Menunggu Giliran Unit Central/,
-    "Pending queue item status must be human-readable"
+    /Antrean #1 · Siap Diracik|Menunggu Giliran|Gagal Dieksekusi|Sedang Disiapkan/,
+    "Pending queue item status must be human-readable and dynamic"
   );
 });
 
@@ -222,8 +222,8 @@ test("6. Honest Volume Labeling (Measured vs Target vs Capacity)", () => {
   );
   assert.match(
     dashboardFile,
-    /Volumetrik Fail-Safe|Sensor tidak terpasang|Sensor level fisik tidak terpasang/,
-    "Must explicitly handle unmetered batch tank as fail-safe volumetric mode"
+    /Target: \$\{targetWaterL\} L|Sensor tidak terpasang|Sensor level fisik tidak terpasang/,
+    "Must explicitly handle unmetered batch tank with clean target water label"
   );
 });
 
@@ -283,11 +283,11 @@ test("8. Button Clarification & Duplicate Prevention", () => {
     "When waiting for schedule, premature manual enqueue button is suppressed"
   );
 
-  // Fail-safe scheduled indicator badge must be present
+  // Automated scheduled indicator badge must be present
   assert.match(
     tanksFile,
-    /Otomasi Terjadwal \(Fail-Safe\)/,
-    "Tanks view must show fail-safe automation badge when waiting for schedule"
+    /Terjadwal|Otomasi Terjadwal/,
+    "Tanks view must show scheduled automation badge when waiting for schedule"
   );
 });
 

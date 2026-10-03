@@ -1,3 +1,17 @@
+## SP-FERT-QUEUE-RECIPE-001 — Recipe Milliliters Ingestion, Dosing Queue Eviction on Failure, and Fail-Safe Clutter Removal
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`
+- **Objective**:
+  1. Fix Bug A (Recipe Nutrients in ml Missing): Ensure recipe dosing in milliliters from schedule registration drawer is embedded as a valid execution plan in the schedule intent (`buildIntentExecutionPlan` in `services.ts`) and synthesized in C firmware if missing (`synthesize_fertigation_plan_from_intent` in `scheduler.c`).
+  2. Fix Bug B (Failed Queue Entry Never Evicted): In `process_dosing_queue()`, detect `head->state == QUEUE_STATE_FAILED`, mark occurrence failed, log event, and shift queue entries left (`s_dosing_queue_count--`) so subsequent preparations run without deadlocking.
+  3. Clean up Web UI: Remove browser auto-dispatch interval hacks (`startManual` auto-dispatch in `fetchStatus` and `handleTriggerQueueSync`), replace hardcoded "Menunggu Giliran Unit Central (Otomatis)" with dynamic state-aware badges in `DosingQueueSection.tsx`, and completely eliminate confusing "(Fail-Safe)" labels across all screens.
+- **Verification Results**:
+  - `node scripts/test_peripheral_auto_enqueue.mjs`: 7/7 PASS (100%).
+  - `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS (100%).
+  - `node scripts/test_targeted_fix_verification.mjs`: ALL PASS (100%).
+  - `npx tsc --noEmit`: 0 errors.
+  - `npm run build`: Singlefile bundle (1,232.43 kB) built clean.
+
 ## SP-FIRMWARE-DIRECT-SCHEDULE-SYNC-001 — Direct Firmware Schedule Sync & Materialization & Web UI Fetch Loop Elimination
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — AUTOMATED TESTS PASS (100%) — SINGLEFILE BUNDLE PASS (0 TYPE ERRORS)`

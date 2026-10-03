@@ -96,8 +96,6 @@ export function FertigationQueueDashboard({
     };
   }, []);
 
-  const autoDispatchLockRef = useRef<{ ghId: string; timestamp: number } | null>(null);
-
   const fetchStatus = async (isManual = false) => {
     if (inFlightRef.current && !isManual) return;
     inFlightRef.current = true;
@@ -111,14 +109,6 @@ export function FertigationQueueDashboard({
       setIsAwaitingQueueSync(false);
     }
     try {
-      if (isManual && effectiveComplexId) {
-        try {
-          await scheduleService.deploySchedules(effectiveComplexId);
-        } catch {
-          // best-effort
-        }
-      }
-
       const [statusRes, queueRes] = await Promise.allSettled([
         esp32Client.getFertigationStatus(),
         esp32Client.getFertigationQueue(),
@@ -147,32 +137,6 @@ export function FertigationQueueDashboard({
       qBatches = qFromQueue.length > 0 ? qFromQueue : qFromStatus;
       setLiveQueue(qBatches);
 
-      // Continuous FIFO Execution (Spec §52 & Operational Model):
-      // If controller is IDLE and queue has items, immediately trigger startManual for batch #1
-      const currentFw = (stVal?.runtimeState || stVal?.state || "IDLE").toUpperCase().replace(/^FERT_STATE_/, "");
-      if (currentFw === "IDLE" && qBatches.length > 0) {
-        const firstBatch = qBatches[0];
-        const ghId = firstBatch.ghId || firstBatch.gh_id;
-        const nowMs = Date.now();
-        if (ghId && (!autoDispatchLockRef.current || autoDispatchLockRef.current.ghId !== ghId || nowMs - autoDispatchLockRef.current.timestamp > 15000)) {
-          autoDispatchLockRef.current = { ghId, timestamp: nowMs };
-          const gh = greenhouseService.get(ghId);
-          const sched = allSchedules.find((s) => s.ghId === ghId && s.enabled);
-          const activeRecipeId = firstBatch.recipeId || firstBatch.recipe_id || sched?.recipeId;
-          const recipe =
-            gh?.recipes?.find((r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()) ||
-            (activeRecipeId ? recipeService.get(activeRecipeId) : undefined) ||
-            gh?.recipes?.[0] ||
-            recipeService.get("rcp-standar");
-          const targetWater = sched?.targetWaterL || firstBatch.targetWaterL || recipe?.waterL || 80;
-          if (recipe) {
-            fertigationService.startManual(ghId, recipe.id, targetWater)
-              .then(() => fetchStatus(false))
-              .catch((err) => console.warn("[fetchStatus] Continuous FIFO auto-dispatch notice:", err));
-          }
-        }
-      }
-
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
@@ -198,51 +162,13 @@ export function FertigationQueueDashboard({
     setSyncCountdown(0);
 
     try {
-      if (effectiveComplexId) {
-        try {
-          await scheduleService.deploySchedules(effectiveComplexId);
-          await esp32Client.triggerDailySchedules();
-        } catch (triggerErr) {
-          console.warn("[FertigationQueueDashboard] trigger sync notice:", triggerErr);
-        }
+      try {
+        await esp32Client.triggerDailySchedules();
+      } catch (triggerErr) {
+        console.warn("[FertigationQueueDashboard] trigger sync notice:", triggerErr);
       }
       await fetchStatus(true);
-
-      // Spec §52 & Operational Model: FETCH LANGSUNG EKSEKUSI DOSING
-      // If Central Dosing Unit is IDLE and a greenhouse mixing tank is not ready, start dosing immediately!
-      const currentFw = (liveStatus?.runtimeState || liveStatus?.state || "IDLE").toUpperCase().replace(/^FERT_STATE_/, "");
-      if (currentFw === "IDLE") {
-        const pendingGh = ghs.find((g) => {
-          const ghScheds = scheduleService.fertigationForGh(g.id).filter((s) => s.enabled);
-          if (ghScheds.length === 0) return false;
-          const occs: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
-          const isReady = occs.some((o) => (o.ghId || o.gh_id) === g.id && (o.state === "READY_TO_SEND" || o.state === 3 || o.status === "READY_TO_SEND"));
-          const dels: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
-          const isDeliv = dels.some((d) => (d.ghId || d.gh_id) === g.id);
-          return !isReady && !isDeliv;
-        });
-
-        if (pendingGh) {
-          const sched = allSchedules.find((s) => s.ghId === pendingGh.id && s.enabled);
-          const activeRecipeId = sched?.recipeId;
-          const recipe =
-            pendingGh.recipes?.find((r) => r.id === activeRecipeId || r.name.toLowerCase() === (activeRecipeId || "").toLowerCase()) ||
-            (activeRecipeId ? recipeService.get(activeRecipeId) : undefined) ||
-            pendingGh.recipes?.[0] ||
-            recipeService.get("rcp-standar");
-          const targetWater = sched?.targetWaterL || recipe?.waterL || 80;
-          if (recipe) {
-            try {
-              await fertigationService.startManual(pendingGh.id, recipe.id, targetWater);
-              await fetchStatus(false);
-            } catch (startErr) {
-              console.warn("[handleTriggerQueueSync] Auto eager-dosing start notice:", startErr);
-            }
-          }
-        }
-      }
-
-      toast("Antrean peracikan berhasil disinkronkan & eksekusi dosing aktif", "success");
+      toast("Antrean peracikan berhasil disinkronkan dengan ESP32", "success");
     } catch {
       toast("Gagal menyinkronkan antrean peracikan", "error");
     } finally {
@@ -346,7 +272,7 @@ export function FertigationQueueDashboard({
     // 1. Primary source: Filter queued batches from authoritative liveQueue (queuedBatches from ESP32)
     if (Array.isArray(liveQueue) && liveQueue.length > 0) {
       liveQueue
-        .filter((q) => q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1)
+        .filter((q) => q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1 || q.status === "FAILED" || q.state === 3)
         .forEach((q, idx) => {
           const targetGhId = q.ghId || q.gh_id;
           const schedId = q.scheduleId || q.schedule_id;
@@ -359,6 +285,8 @@ export function FertigationQueueDashboard({
           const dosingInfo = resolveDosingTargets(sched, gh, 80, q);
 
           seenGhOrSched.add(`${targetGhId}_${schedId}`);
+          const isFailed = q.status === "FAILED" || q.state === 3;
+          const isDispatched = q.status === "DISPATCHED" || q.state === 1;
 
           list.push({
             id: q.queueId || q.queue_id || `q-${idx}`,
@@ -375,8 +303,12 @@ export function FertigationQueueDashboard({
             mixingDurationSec: 180,
             scheduledTimeStr: sched?.time || "Dalam Antrean",
             queuePosition: idx + 1,
-            status: "PENDING_FIFO",
-            statusLabel: "Menunggu Antrean",
+            status: isFailed ? "FAILED" : isDispatched ? "ACTIVE" : "PENDING_FIFO",
+            statusLabel: isFailed
+              ? "Gagal Dieksekusi"
+              : isDispatched
+              ? "Sedang Disiapkan di Central"
+              : (idx === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${idx + 1}`),
             steps: [],
           });
         });
@@ -719,7 +651,7 @@ export function FertigationQueueDashboard({
         timingValue = `Pukul ${upcomingSched.time}`;
         canPreMixNow = false;
         isActionDisabled = true;
-        actionDisabledReason = `Otomatis dijadwalkan pukul ${upcomingSched.time} (Fail-Safe)`;
+        actionDisabledReason = `Otomatis dijadwalkan pukul ${upcomingSched.time}`;
       } else if (ghOccCompleted.length > 0) {
         status = "Completed";
         statusTone = "emerald";
@@ -766,8 +698,8 @@ export function FertigationQueueDashboard({
         volumeDisplayValue = `${actualWaterL} / ${targetWaterL} L (Pengisian Volumetrik)`;
       } else {
         levelPct = 0;
-        volumeDisplayLabel = "Volume Tangki Batch (Fail-Safe)";
-        volumeDisplayValue = `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L (Volumetrik Fail-Safe)`;
+        volumeDisplayLabel = "Volume Tangki Batch";
+        volumeDisplayValue = `0 / ${capacityL} L (0%) · Target: ${targetWaterL} L`;
       }
 
       return {

@@ -1121,6 +1121,50 @@ async function deployCompiledScheduleSet(complexId: string, overrides: {
   return compiled;
 }
 
+/** Build the ESP32 executionPlan for a fertigation schedule intent (dosing ml from the drawer). */
+async function buildIntentExecutionPlan(schedule: FertigationSchedule, complexId: string): Promise<Record<string, unknown> | null> {
+  if (!isDirectEsp32Enabled()) return null;
+  try {
+    const configuration = await loadAuthoritativeConfiguration(complexId);
+    let calibrations: any = {};
+    try { calibrations = await esp32Client.getCalibrationRates(); } catch { }
+    const components = (configuration as any).components ?? [];
+    const dosingIds = components
+      .filter((c: any) => /DOSING/i.test(`${c.role ?? ""} ${c.supportedTypeId ?? ""} ${c.componentId ?? ""}`) && ["COMMISSIONED", "ENABLED"].includes(c.lifecycleState))
+      .map((c: any) => c.componentId);
+    // Placeholder IDs (dosing_a/dosing_b) map by position onto the real commissioned dosing pumps.
+    const channels = (schedule.dosingChannels ?? []).map((ch, i) =>
+      components.some((c: any) => c.componentId === ch.componentId) || !dosingIds[i] ? ch : { ...ch, componentId: dosingIds[i] });
+    const recipeKnown = ((configuration as any).recipes ?? []).some((r: any) => (r.recipeId || r.id) === schedule.recipeId);
+    const targetWaterMl = Math.round(Number(schedule.targetWaterL || 0) * 1000);
+    const res = generateFertigationExecutionPlan(configuration, {
+      complexId,
+      ghId: schedule.ghId,
+      recipeId: recipeKnown ? schedule.recipeId : undefined,
+      targetWaterMl,
+      dosingChannels: channels,
+      deliveryMode: "VOLUME",
+      targetDeliveredMl: targetWaterMl,
+      durationSec: (schedule as any).durationSec ?? ((schedule as any).durationMin ? (schedule as any).durationMin * 60 : undefined),
+      mixingDurationSec: (schedule as any).mixingDurationSec ?? 0,
+    }, calibrations);
+    if (!res.valid || !res.executionPlan) {
+      console.warn("[buildIntentExecutionPlan] blocked:", res.blockedReasons.map((r: any) => r.message).join("; "));
+      return null;
+    }
+    // Keep the SPIFFS intent store small (16 KB cap): drop fields the firmware never reads.
+    const plan: any = { ...res.executionPlan };
+    delete plan.topologyPaths;
+    delete plan.resourceResolution;
+    if (plan.mixing) plan.mixing = { ...plan.mixing, dosingChannels: undefined };
+    if (plan.recipe) plan.recipe = { recipeId: plan.recipe.recipeId, version: plan.recipe.version };
+    return plan;
+  } catch (err) {
+    console.warn("[buildIntentExecutionPlan] failed:", err);
+    return null;
+  }
+}
+
 async function loadAuthoritativeConfiguration(complexId: string): Promise<ConfigurationPayload> {
   const snapshot = getOperationalSnapshot();
   // ITEM-1: Removed complexes[0] silent fallback. If complexId not found in snapshot,
@@ -1648,9 +1692,10 @@ export const scheduleService = {
       kind: "fertigation",
       complexId: gh.complexId,
       ghId: gh.id,
+      executionPlan: await buildIntentExecutionPlan(created, gh.complexId),
     };
 
-    // 1. Authoritative persistence on ESP32 NVS
+    // 1. Authoritative persistence on ESP32 (firmware syncs runtime + enqueues internally)
     if (isDirectEsp32Enabled()) {
       await esp32Client.saveScheduleIntent(intentPayload as any);
     }
@@ -1664,13 +1709,9 @@ export const scheduleService = {
       fertigationSchedules: [...gh.fertigationSchedules.filter((s) => s.id !== created.id), created],
     });
 
-    // 3. Compile and deploy executable subset to ESP32 FreeRTOS runtime scheduler
-    try {
-      await deployCompiledScheduleSet(gh.complexId, {}, created.id);
-    } catch (err) {
-      console.warn("[scheduleService] Fertigation compiled deployment warning:", err);
-      // NOTE: DO NOT delete the persisted schedule intent!
-      // A schedule whose runtime deployment is blocked remains 100% persisted in NVS intent store!
+    // 3. Python backend mode only: ESP32-direct mode is handled inside the firmware.
+    if (!isDirectEsp32Enabled()) {
+      await deployCompiledScheduleSet(gh.complexId, {}, created.id).catch((err) => console.warn("[scheduleService] Fertigation deploy warning:", err));
     }
     return created;
   },
@@ -1725,9 +1766,10 @@ export const scheduleService = {
       kind: "fertigation",
       complexId: gh.complexId,
       ghId: gh.id,
+      executionPlan: await buildIntentExecutionPlan(proposed, gh.complexId),
     };
 
-    // 1. Authoritative persistence on ESP32 NVS
+    // 1. Authoritative persistence on ESP32 (firmware syncs runtime + enqueues internally)
     if (isDirectEsp32Enabled()) {
       await esp32Client.saveScheduleIntent(intentPayload as any);
     }
@@ -1741,11 +1783,9 @@ export const scheduleService = {
       fertigationSchedules: gh.fertigationSchedules.map((s) => s.id === id ? proposed : s),
     });
 
-    // 3. Compile and deploy executable subset
-    try {
-      await deployCompiledScheduleSet(gh.complexId, {}, id);
-    } catch (err) {
-      console.warn("[scheduleService] Fertigation update compiled deployment warning:", err);
+    // 3. Python backend mode only: ESP32-direct mode is handled inside the firmware.
+    if (!isDirectEsp32Enabled()) {
+      await deployCompiledScheduleSet(gh.complexId, {}, id).catch((err) => console.warn("[scheduleService] Fertigation update deploy warning:", err));
     }
     return proposed;
   },
@@ -1760,7 +1800,7 @@ export const scheduleService = {
 
     const remaining = gh.fertigationSchedules.filter((s) => s.id !== id);
 
-    // 1. Authoritative deletion from ESP32 NVS
+    // 1. Authoritative deletion from ESP32 NVS/SPIFFS
     if (isDirectEsp32Enabled()) {
       await esp32Client.deleteScheduleIntent(id);
     }
@@ -1774,11 +1814,9 @@ export const scheduleService = {
       fertigationSchedules: remaining,
     });
 
-    // 3. Recompile and redeploy remaining schedules
-    try {
-      await deployCompiledScheduleSet(gh.complexId, { fertigation: remaining });
-    } catch (err) {
-      console.warn("[scheduleService] Fertigation delete redeployment warning:", err);
+    // 3. Python backend mode only: ESP32-direct mode is handled inside the firmware.
+    if (!isDirectEsp32Enabled()) {
+      await deployCompiledScheduleSet(gh.complexId, { fertigation: remaining }).catch((err) => console.warn("[scheduleService] Fertigation delete redeployment warning:", err));
     }
   },
 

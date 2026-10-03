@@ -3893,5 +3893,23 @@ PYTHON SAVE + ANALYSIS
        - At 21:49:10 WIB (14:49:10Z): `FAN_STOPPED` logged; Relay IN3 physically clicked OFF.
        - Schedule entry updated with `lastExecutionTimestamp: 1790952540` (21:49:00 WIB) and `isRunning: false`.
 
+61. Autonomous Fertigation Recipe Resolution & Dosing Queue Eviction (SP-FERT-QUEUE-RECIPE-001)
 
+1. **Bug A — Recipe Nutrients in Milliliters Preservation & Autonomous Synthesis**
+   - **Problem**: When a fertigation schedule was created in the drawer with specific nutrient amounts in milliliters (e.g. Nutrisi A 500 ml, Nutrisi B 50 ml, Target Air 80 L), the schedule intent saved to ESP32 storage lacked an executable `executionPlan` object. As a result, the ESP32 FreeRTOS scheduler could not parse dosing requirements, leading to empty dosing payloads.
+   - **Resolution**:
+     - Frontend (`src/lib/services.ts`): Implemented `buildIntentExecutionPlan()` which generates a valid, authoritative `executionPlan` object containing calibrated dosing pump IDs, targeted milliliters (`dosingChannels`), target volume (`targetWaterMl`), and safety bounds from active controller configuration at schedule save/update time.
+     - ESP32 Firmware (`esp32/main/services/scheduler.c`): Implemented `synthesize_fertigation_plan_from_intent()`. If an intent JSON provides `targetWaterL`, `dosingAml`, `dosingBml`, or `dosingChannels` without a pre-compiled `executionPlan`, the firmware autonomously synthesizes a complete, valid execution plan referencing active configuration hashes, timeouts, delivery modes, and operational dosing pumps discovered from `hardware_registry`.
 
+2. **Bug B — Dosing Queue Head Eviction on Failure**
+   - **Problem**: When an enqueued dosing batch failed dispatch (e.g. missing payload or validation error), `s_dosing_queue[0]` was marked `QUEUE_STATE_FAILED`, but was never evicted from the queue. This deadlocked the central dosing engine indefinitely, freezing queue head at `#1` while the Web UI displayed `Menunggu Giliran Unit Central (Otomatis)`.
+   - **Resolution**: In `process_dosing_queue()` (`scheduler.c`), added detection for `head->state == QUEUE_STATE_FAILED`. When a queue head fails, it logs an error event, marks the today occurrence as `OCC_STATE_FAILED`, shifts subsequent queue items left (`s_dosing_queue_count--`), and triggers the next preparation, preventing deadlocks.
+
+3. **Web UI Direct ESP32 Architecture & Clutter Cleanup**
+   - **Direct Firmware Execution**: Removed browser-side interval dispatch hacks (`startManual` auto-dispatch in `fetchStatus` and `handleTriggerQueueSync`) and URL re-deploy chains from the Web UI. The ESP32 FreeRTOS scheduler operates as the physical runtime authority, executing FIFO dosing batches autonomously.
+   - **Dynamic Queue Status Badges**: In `DosingQueueSection.tsx`, replaced hardcoded `"Menunggu Giliran Unit Central (Otomatis)"` with dynamic state-aware badges:
+     - `FAILED`: "Gagal Dieksekusi" (Rose tone with warning icon)
+     - `ACTIVE`: "Sedang Disiapkan Central" (Cyan tone with spinner)
+     - `PENDING (index 0)`: "Antrean #1 · Siap Diracik Central" (Amber tone with clock icon)
+     - `PENDING (index > 0)`: "Menunggu Giliran #N" (Slate tone)
+   - **Elimination of `(Fail-Safe)` Copy**: Removed confusing `(Fail-Safe)` labels across `FertigationQueueDashboard.tsx`, `GreenhouseMixingTanks.tsx`, `ComplexFertigationOverview.tsx`, and `GreenhouseFertigationDetail.tsx`, replacing them with honest, clear schedule timing (e.g. `Terjadwal Pukul 06:00`).

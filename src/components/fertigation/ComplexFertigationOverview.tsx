@@ -336,7 +336,7 @@ export function ComplexFertigationOverview({
                             : item.status === "MIXING" || item.status === "DISTRIBUTING"
                             ? "Alur Otomatis Aktif"
                             : item.status === "WAITING_SCHEDULE"
-                            ? "Otomasi Terjadwal (Fail-Safe)"
+                            ? (item.nextScheduleTime ? `Terjadwal Pukul ${item.nextScheduleTime}` : "Otomasi Terjadwal")
                             : "Siaga"}
                         </span>
                       )}

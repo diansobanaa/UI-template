@@ -248,6 +248,22 @@ static bool resource_is_operational(const char *resource_id) {
   return false;
 }
 
+/* command_mgr + fertigation_mgr parse_payload require {"executionPlan":{...}} */
+static bool store_fertigation_plan(runtime_schedule_t *out, cJSON *plan) {
+  char *s = plan ? cJSON_PrintUnformatted(plan) : NULL;
+  if (!s)
+    return false;
+  int n = snprintf(out->fertigation_payload_json,
+                   sizeof(out->fertigation_payload_json),
+                   "{\"executionPlan\":%s}", s);
+  free(s);
+  if (n <= 0 || (size_t)n >= sizeof(out->fertigation_payload_json)) {
+    out->fertigation_payload_json[0] = '\0';
+    return false;
+  }
+  return true;
+}
+
 static bool parse_runtime_schedule(cJSON *item, runtime_schedule_t *out) {
   if (!item || !out || !cJSON_IsObject(item))
     return false;
@@ -343,16 +359,8 @@ static bool parse_runtime_schedule(cJSON *item, runtime_schedule_t *out) {
     }
     if (!ep || !cJSON_IsObject(ep))
       return false;
-    char *serialized_plan = cJSON_PrintUnformatted(ep);
-    if (!serialized_plan ||
-        strlen(serialized_plan) >= sizeof(out->fertigation_payload_json)) {
-      if (serialized_plan)
-        free(serialized_plan);
+    if (!store_fertigation_plan(out, ep))
       return false;
-    }
-    copy_string(out->fertigation_payload_json,
-                sizeof(out->fertigation_payload_json), serialized_plan);
-    free(serialized_plan);
   }
 
   cJSON *params = cJSON_GetObjectItem(item, "parameters");
@@ -887,6 +895,129 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
   return err;
 }
 
+static bool synthesize_fertigation_plan_from_intent(runtime_schedule_t *rs, cJSON *it, const char *sched_id) {
+  const system_storage_state_t *ss = storage_mgr_get_state();
+  if (!ss || !ss->config_hash[0]) {
+    ESP_LOGW(TAG, "Cannot synthesize plan for '%s': no active configuration", sched_id ? sched_id : "?");
+    return false;
+  }
+
+  cJSON *prm = cJSON_GetObjectItem(it, "parameters");
+  cJSON *tw_item = cJSON_GetObjectItem(it, "targetWaterL");
+  if (!tw_item && prm) tw_item = cJSON_GetObjectItem(prm, "targetWaterL");
+  cJSON *tw_ml_item = cJSON_GetObjectItem(it, "targetWaterMl");
+  if (!tw_ml_item && prm) tw_ml_item = cJSON_GetObjectItem(prm, "targetWaterMl");
+
+  double water_ml = 80000.0;
+  if (tw_ml_item && cJSON_IsNumber(tw_ml_item)) {
+    water_ml = tw_ml_item->valuedouble;
+  } else if (tw_item && cJSON_IsNumber(tw_item)) {
+    water_ml = tw_item->valuedouble * 1000.0;
+  }
+  if (water_ml <= 0.0) water_ml = 80000.0;
+
+  cJSON *da_item = cJSON_GetObjectItem(it, "dosingAml");
+  if (!da_item && prm) da_item = cJSON_GetObjectItem(prm, "dosingAml");
+  cJSON *db_item = cJSON_GetObjectItem(it, "dosingBml");
+  if (!db_item && prm) db_item = cJSON_GetObjectItem(prm, "dosingBml");
+
+  double da_ml = da_item && cJSON_IsNumber(da_item) ? da_item->valuedouble : 150.0;
+  double db_ml = db_item && cJSON_IsNumber(db_item) ? db_item->valuedouble : 150.0;
+
+  cJSON *plan = cJSON_CreateObject();
+  if (!plan) return false;
+
+  cJSON_AddNumberToObject(plan, "configurationVersion", ss->config_version);
+  cJSON_AddStringToObject(plan, "configurationHash", ss->config_hash);
+  cJSON_AddNumberToObject(plan, "targetWaterMl", water_ml);
+  cJSON_AddNumberToObject(plan, "mixingDurationSec", 0);
+  cJSON_AddNumberToObject(plan, "rawWaterStartThresholdPercent", 20);
+
+  cJSON *delivery = cJSON_CreateObject();
+  cJSON_AddStringToObject(delivery, "mode", "VOLUME");
+  cJSON_AddNumberToObject(delivery, "toleranceMl", 2000);
+  cJSON_AddNumberToObject(delivery, "durationSec", 900);
+  cJSON_AddNumberToObject(delivery, "targetFlowLpm", 10.0);
+  cJSON_AddNumberToObject(delivery, "targetPressureKpa", 100.0);
+  cJSON_AddBoolToObject(delivery, "allowDurationFallback", true);
+  cJSON_AddItemToObject(plan, "delivery", delivery);
+
+  cJSON *timeouts = cJSON_CreateObject();
+  cJSON_AddNumberToObject(timeouts, "maxRuntimeSec", 1800);
+  cJSON_AddNumberToObject(timeouts, "minDosingRuntimeSec", 1);
+  cJSON_AddNumberToObject(timeouts, "maxDosingRuntimeSec", 600);
+  cJSON_AddNumberToObject(timeouts, "fillTimeoutSec", 600);
+  cJSON_AddNumberToObject(timeouts, "deliveryTimeoutSec", 900);
+  cJSON_AddItemToObject(plan, "timeouts", timeouts);
+
+  cJSON *safety = cJSON_CreateObject();
+  cJSON_AddBoolToObject(safety, "pressureReliefEnabled", true);
+  cJSON_AddNumberToObject(safety, "maxContinuousSec", 1800);
+  cJSON_AddItemToObject(plan, "safety", safety);
+
+  cJSON *channels = cJSON_CreateArray();
+  char dosing_ids[2][32] = { {0}, {0} };
+  size_t count = hardware_registry_get_count();
+  int found_dosing = 0;
+  for (size_t i = 0; i < count && found_dosing < 2; i++) {
+    hw_component_info_t info;
+    if (hardware_registry_get_by_index(i, &info) == ESP_OK) {
+      if (strstr(info.role, "DOSING") != NULL || strstr(info.supported_type_id, "DOSING") != NULL || strstr(info.component_id, "dosing") != NULL) {
+        if (info.lifecycle_state == HW_LIFECYCLE_COMMISSIONED || info.lifecycle_state == HW_LIFECYCLE_ENABLED) {
+          copy_string(dosing_ids[found_dosing++], 32, info.component_id);
+        }
+      }
+    }
+  }
+  if (found_dosing == 0) {
+    copy_string(dosing_ids[0], 32, "dosing_pump_a");
+    copy_string(dosing_ids[1], 32, "dosing_pump_b");
+  } else if (found_dosing == 1) {
+    copy_string(dosing_ids[1], 32, dosing_ids[0]);
+  }
+
+  cJSON *in_channels = cJSON_GetObjectItem(it, "dosingChannels");
+  if (!in_channels && prm) in_channels = cJSON_GetObjectItem(prm, "dosingChannels");
+
+  if (in_channels && cJSON_IsArray(in_channels) && cJSON_GetArraySize(in_channels) > 0) {
+    cJSON *ch_item = NULL;
+    int idx = 0;
+    cJSON_ArrayForEach(ch_item, in_channels) {
+      const char *cid = json_string(ch_item, "componentId");
+      if (!cid || !cid[0] || strcmp(cid, "dosing_a") == 0 || strcmp(cid, "dosing_b") == 0) {
+        cid = dosing_ids[idx < 2 ? idx : 0];
+      }
+      cJSON *vol = cJSON_GetObjectItem(ch_item, "requestedMl");
+      if (!vol) vol = cJSON_GetObjectItem(ch_item, "targetVolumeMl");
+      double vml = vol && cJSON_IsNumber(vol) ? vol->valuedouble : (idx == 0 ? da_ml : db_ml);
+      cJSON *new_ch = cJSON_CreateObject();
+      cJSON_AddStringToObject(new_ch, "componentId", cid);
+      cJSON_AddNumberToObject(new_ch, "targetVolumeMl", vml);
+      cJSON_AddItemToArray(channels, new_ch);
+      idx++;
+    }
+  } else {
+    cJSON *chA = cJSON_CreateObject();
+    cJSON_AddStringToObject(chA, "componentId", dosing_ids[0]);
+    cJSON_AddNumberToObject(chA, "targetVolumeMl", da_ml);
+    cJSON_AddItemToArray(channels, chA);
+
+    cJSON *chB = cJSON_CreateObject();
+    cJSON_AddStringToObject(chB, "componentId", dosing_ids[1]);
+    cJSON_AddNumberToObject(chB, "targetVolumeMl", db_ml);
+    cJSON_AddItemToArray(channels, chB);
+  }
+  cJSON_AddItemToObject(plan, "dosingChannels", channels);
+
+  bool ok = store_fertigation_plan(rs, plan);
+  cJSON_Delete(plan);
+  if (ok) {
+    ESP_LOGI(TAG, "Synthesized fertigation plan for '%s': water=%.1fL, doseA=%.1fml, doseB=%.1fml",
+             sched_id ? sched_id : "?", water_ml / 1000.0, da_ml, db_ml);
+  }
+  return ok;
+}
+
 static esp_err_t sync_intents_locked(void) {
   int fd = open(SPIFFS_SCHEDULE_INTENTS_FILE, O_RDONLY);
   if (fd < 0) {
@@ -987,6 +1118,22 @@ static esp_err_t sync_intents_locked(void) {
       copy_string(rs->action, sizeof(rs->action), "FERTIGATION");
     } else {
       copy_string(rs->action, sizeof(rs->action), "WATER_PUMP");
+    }
+
+    if (strcmp(rs->action, "FERTIGATION") == 0) {
+      cJSON *ep = cJSON_GetObjectItem(it, "executionPlan");
+      if (!ep || !cJSON_IsObject(ep)) {
+        cJSON *prm = cJSON_GetObjectItem(it, "parameters");
+        ep = prm ? cJSON_GetObjectItem(prm, "executionPlan") : NULL;
+      }
+      bool stored = (ep && cJSON_IsObject(ep) && store_fertigation_plan(rs, ep));
+      if (!stored) {
+        stored = synthesize_fertigation_plan_from_intent(rs, it, sched_id);
+      }
+      if (!stored) {
+        ESP_LOGW(TAG, "Fertigation intent '%s' could not obtain valid executionPlan; not executable", sched_id);
+        continue;
+      }
     }
 
     if (comp_id && comp_id[0]) {
@@ -2057,6 +2204,26 @@ static void process_dosing_queue(time_t now) {
   dosing_queue_entry_t *head = &s_dosing_queue[0];
   fertigation_state_t fert_st = fertigation_mgr_get_state();
 
+  if (head->state == QUEUE_STATE_FAILED) {
+    ESP_LOGE(TAG, "Queue head %s (GH %s) FAILED; removing so next batch can run",
+             head->queue_id, head->gh_id);
+    (void)event_mgr_log(LOG_LEVEL_ERROR, "SCHEDULER", "DOSING_QUEUE_HEAD_FAILED",
+                        "Dosing batch could not be dispatched and was removed from the queue",
+                        NULL);
+    for (size_t i = 0; i < s_today_occurrence_count; i++) {
+      if (strcmp(s_today_occurrences[i].occurrence_id, head->occurrence_id) == 0) {
+        s_today_occurrences[i].state = OCC_STATE_FAILED;
+        break;
+      }
+    }
+    for (size_t i = 1; i < s_dosing_queue_count; i++) {
+      s_dosing_queue[i - 1] = s_dosing_queue[i];
+    }
+    s_dosing_queue_count--;
+    try_enqueue_pending_preparations(now);
+    return;
+  }
+
   if (head->state == QUEUE_STATE_PENDING) {
     if (fert_st == FERT_STATE_IDLE) {
       runtime_schedule_t *sched = find_schedule_by_id(head->schedule_id);
@@ -2588,7 +2755,11 @@ esp_err_t scheduler_init(void) {
   load_markers();
   apply_timezone_from_active_config();
 
-  char *compiled = calloc(1, MAX_COMPILED_JSON);
+  /* Schedule intents (SPIFFS) are authoritative; they carry the execution plan. */
+  (void)sync_intents_locked();
+
+  /* Legacy fallback: compiled runtime set in NVS when no intents exist */
+  char *compiled = s_runtime_count == 0 ? calloc(1, MAX_COMPILED_JSON) : NULL;
   if (compiled) {
     size_t len = 0;
     if (load_compiled_runtime_json(compiled, MAX_COMPILED_JSON, &len) ==
@@ -2610,12 +2781,6 @@ esp_err_t scheduler_init(void) {
       }
     }
     free(compiled);
-  }
-
-  /* Autonomous fallback: If no valid compiled runtime set in NVS, sync directly from stored schedule intents */
-  if (s_runtime_count == 0) {
-    ESP_LOGI(TAG, "No compiled runtime schedules in NVS; synchronizing from stored schedule intents");
-    sync_intents_locked();
   }
 
   const system_storage_state_t *state = storage_mgr_get_state();

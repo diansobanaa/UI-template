@@ -110,7 +110,7 @@ export function DosingQueueSection({
                 Antrean Dosing Central (FIFO Execution Order)
               </h3>
               <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-300">
-                {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Menunggu Giliran
+                {activeJob ? "1 Aktif Berjalan" : "Standby"} • {queuedJobs.length} Antrean
               </span>
             </div>
           </div>
@@ -385,9 +385,26 @@ export function DosingQueueSection({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium">
-                      Menunggu Giliran Unit Central (Otomatis)
-                    </span>
+                    {q.status === "FAILED" ? (
+                      <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-300 font-medium flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-rose-400" />
+                        Gagal Dieksekusi
+                      </span>
+                    ) : q.status === "ACTIVE" ? (
+                      <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-300 font-medium flex items-center gap-1.5">
+                        <Activity className="h-3 w-3 text-cyan-400 animate-spin" />
+                        Sedang Disiapkan Central
+                      </span>
+                    ) : idx === 0 ? (
+                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium flex items-center gap-1.5">
+                        <Clock className="h-3 w-3 text-amber-400" />
+                        Antrean #1 · Siap Diracik Central
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] text-slate-300 font-medium">
+                        Menunggu Giliran #{idx + 1}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
