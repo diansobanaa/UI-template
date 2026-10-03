@@ -2105,7 +2105,11 @@ export const calibrationService = {
     // 4. Default fallback to canonical supported dosing, pumps, and sensors so calibration page is never blank
     const activeDosingOrSensors = components
       .filter((component) => ["COMMISSIONED", "ENABLED", "REGISTERED"].includes(component.lifecycleState ?? "COMMISSIONED"))
-      .filter((component) => /DOSING|PH|EC|WELL_PUMP|RAW_WATER|PUMP_WELL/i.test(`${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`));
+      .filter((component) => {
+        const text = `${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`;
+        return /DOSING|PH|EC|RAW_SUBMERSIBLE|PUMP_SUBMERSIBLE|PUMP_RAW/i.test(text) &&
+          !/WELL_PUMP|PUMP_WELL|DEEP.*WELL|FLOAT|FLOW.?METER|FLOW_SENSOR/i.test(text);
+      });
 
     const effectiveComponents: InstalledComponent[] = activeDosingOrSensors.length > 0
       ? activeDosingOrSensors
@@ -2152,7 +2156,8 @@ export const calibrationService = {
       .map((component) => {
         const text = `${component.role ?? ""} ${component.supportedTypeId ?? ""} ${component.name ?? ""} ${component.componentId ?? ""}`.toUpperCase();
         // 12V DC Raw Water Pump (pump_submersible / GPIO 4) — strictly distinct from 220V AC Well Pump (pump_well / GPIO 1)
-        const isRawPump = /RAW_SUBMERSIBLE|PUMP_SUBMERSIBLE|RAW_WATER|PUMP_RAW/i.test(text) && !/WELL_PUMP|PUMP_WELL|DEEP.*WELL/i.test(text);
+        const isRawPump = /RAW_SUBMERSIBLE|PUMP_SUBMERSIBLE|PUMP_RAW/i.test(text) &&
+          !/WELL_PUMP|PUMP_WELL|DEEP.*WELL|FLOAT|FLOW.?METER|FLOW_SENSOR/i.test(text);
         const category: CalibrationDevice["category"] = isRawPump
           ? "raw-water-pump"
           : text.includes("DOSING")

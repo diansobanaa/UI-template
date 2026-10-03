@@ -485,7 +485,9 @@ function DosingPumpCalibrationWizard({
       setValidationError(null);
       if (device.category === "raw-water-pump") {
         calibrationService.getCalibrationStatus().then((st) => {
-          if (st.measured_ml != null && st.measured_ml > 0) {
+          if (st.state === "ERROR") {
+            toast(`Kalibrasi gagal (${st.errorCode || "UNKNOWN_ERROR"}). Periksa aliran dan pulsa ZJ-B1 GPIO 15.`, "error");
+          } else if (st.measured_ml != null && st.measured_ml > 0) {
             setVolumeInput(String(st.measured_ml));
             toast(`Pengujian selesai! Sensor flow water kecil mendeteksi ${st.measured_ml} mL (${(st.measured_ml / 1000).toFixed(2)} L).`, "success");
           } else {

@@ -4370,3 +4370,23 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 - `npm run build`: PASS.
 - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: PASS.
 - No physical reflash was performed for this change. Next action is flash and hardware acceptance testing with pulse and no-pulse cases.
+## AI HANDOVER — SP-CALIBRATION-END-TO-END-EXECUTION-001
+
+### Status
+**End-to-end calibration dependency execution**
+**Safe Point**: `SP-CALIBRATION-END-TO-END-EXECUTION-001`
+**Date**: 2026-10-03
+- **Verdict**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`
+
+### Changes
+- `/api/v1/calibration/rate` now rejects Well Pump, Lower Float, flow meters, and unscoped components; only dosing pumps and the Raw Water Pump are accepted.
+- Calibration UI excludes Well Pump, Lower Float, and flow-meter components while preserving their operational/status surfaces elsewhere.
+- Raw-water calibration failures returned by ESP32 are now shown with their `errorCode`.
+- ZJ-B1 catalog text identifies the raw-water transfer line into the mixing tank.
+- Existing fill execution already uses accumulated ZJ-B1 volume and target-volume comparison; FS400A remains separate.
+
+### Verification
+- `npm test`: PASS.
+- `npm run build`: PASS.
+- ESP32 build script: PASS.
+- Hardware flash and physical acceptance tests remain pending.

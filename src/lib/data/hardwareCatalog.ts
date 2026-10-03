@@ -140,7 +140,7 @@ export const hardwareCatalog: SupportedComponentDefinition[] = [
       { id: "k_factor", name: "K-Factor", type: "number", required: true, defaultValue: 5.0, description: "Pulses per liter" }
     ],
     installationGuide: {
-      purpose: "Monitors water delivered from well pump into mixing tank.",
+      purpose: "Monitors raw water transferred from the raw-water reservoir into the mixing tank.",
       wiringInstructions: "Signal to GPIO 15 interrupt line with 5V VCC and common GND.",
       safetyWarnings: ["Calibrate against known graduated cylinder before automatic dosing."],
       verificationTest: "Run pump for 10 seconds and verify pulses increment."

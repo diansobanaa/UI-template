@@ -1,3 +1,25 @@
+## SP-CALIBRATION-END-TO-END-EXECUTION-001 — Remove Well/Float Calibration Paths and Harden ZJ-B1 UI/API
+- **Date**: 2026-10-03
+- **Status**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`
+- **Completed Work**:
+  - Rate-save API now rejects non-dosing/non-raw-water targets, including `pump_well`, and enforces active-complex scoping.
+  - Calibration UI inventory excludes Well Pump, Lower Float, and flow-meter components; operational controls/status remain outside calibration.
+  - Raw-water calibration error status is surfaced in the UI with the firmware `errorCode`.
+  - ZJ-B1 catalog wording now identifies the raw-water reservoir to mixing-tank path, not the Well Pump.
+  - Existing raw-water fill path already measures accumulated ZJ-B1 volume against the target; no FS400A, dosing, schedule, network, or safety logic was changed.
+- **Verification**:
+  - `npm test`: PASS — 28 canonical endpoints and 26 ESP32 handlers.
+  - `npm run build`: PASS — singlefile bundle generated.
+  - `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1`: PASS — `Project build complete`.
+  - Diagnostics: no errors in touched TypeScript/C files.
+- **Changed Files**:
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `src/app/calibration/page.tsx`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/data/hardwareCatalog.ts`
+  - `src/lib/services.ts`
+- **Known Issue / Next Action**: Flash the new firmware and perform hardware acceptance: valid ZJ-B1 flow, no-pulse failure, Lower Float interlock, and Well Pump manual/scheduled control.
+
 ## SP-CALIBRATION-FAILSAFE-NO-FLOW-001 — Reject Raw-Water Calibration Without ZJ-B1 Pulses
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE — FRONTEND/CONTRACT/FIRMWARE BUILD PASS`

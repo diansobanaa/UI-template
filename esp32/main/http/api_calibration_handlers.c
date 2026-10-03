@@ -141,6 +141,17 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     char saved_comp_id[32] = {0};
     strncpy(saved_comp_id, comp->valuestring, sizeof(saved_comp_id) - 1);
     double saved_rate_val = rate->valuedouble;
+    hw_component_info_t component_info;
+    if (hardware_registry_find_by_id(saved_comp_id, &component_info) != ESP_OK ||
+        !calibration_component_scoped_to_device(saved_comp_id) ||
+        (!calibration_component_compatible(&component_info, "DOSING_RATE") &&
+         !calibration_component_compatible(&component_info, "PUMP_RATE"))) {
+        cJSON_Delete(json);
+        http_send_error(req, 422, "CALIBRATION_COMPONENT_TYPE_MISMATCH",
+                        "Calibration rate target is not a supported dosing or raw-water pump.",
+                        NULL);
+        return ESP_FAIL;
+    }
 
     esp_err_t err = calibration_mgr_set_dosing_rate(saved_comp_id, (float)saved_rate_val, version, CAL_RECORD_CALIBRATED, operator_id, 0, cal_id);
     cJSON_Delete(json);

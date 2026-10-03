@@ -918,6 +918,9 @@ export interface CalibrationStatus {
   state: "IDLE" | "RUNNING" | "COMPLETE" | "ERROR";
   remainingSec: number;
   measuredValue?: number | null;
+  measuredMl?: number | null;
+  measuredL?: number | null;
+  errorCode?: string | null;
 }
 
 export interface CalibrationRates {
@@ -1179,4 +1182,3 @@ export interface WellPumpStatusResponse {
   success: boolean;
   data: WellPumpDetails;
 }
-
