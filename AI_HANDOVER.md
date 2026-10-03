@@ -1,8 +1,53 @@
-# AI HANDOVER — SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001 (latest)
+# AI HANDOVER — SP-BOOT-OFFLINE-SYNC-PSRAM-001 (latest)
 
-## Status — SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001
-**Reconcile 5V Active Buzzer to N-Channel MOSFET #4 (GPIO 18) and Free Relay IN2**
-**Safe Point**: `SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001`
+## Status — SP-BOOT-OFFLINE-SYNC-PSRAM-001
+**Eliminate Bootloop by Migrating offline_sync Task Stack to PSRAM & Non-Fatal app_main Handling**
+**Safe Point**: `SP-BOOT-OFFLINE-SYNC-PSRAM-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis & Serial Forensic Confirmation**:
+   - ESP32-S3 suffered a continuous bootloop (`Boots=4954`+) restarting immediately on boot:
+     `ESP_ERROR_CHECK failed: esp_err_t 0x101 (ESP_ERR_NO_MEM) at 0x4200fa8b file: "./main/main.c" line 387 expression: offline_sync_mgr_init()`
+   - Internal DRAM was nearly depleted after WiFi, lwIP, hardware registry, scheduler, HTTP server, and telemetry manager (288-slot history in RAM).
+   - Right before `offline_sync_mgr_init()`, free internal DRAM had a largest contiguous block of only **2,176 bytes**, while `offline_sync_mgr.c` requested a **4,096-byte stack** in internal DRAM using `xTaskCreatePinnedToCore`.
+   - The allocation failed (`pdFAIL / ESP_ERR_NO_MEM`), and `ESP_ERROR_CHECK()` aborted and rebooted the controller in an infinite cycle.
+
+2. **PSRAM Task Stack Migration**:
+   - In `esp32/main/services/offline_sync_mgr.c`:
+     - Included `utils/psram_task.h` and `esp_heap_caps.h`.
+     - Replaced `xTaskCreatePinnedToCore` with established project helper `psram_task_create_pinned(sync_task, "offline_sync", 4096, NULL, 3, &s_sync_task_handle, 1)`.
+     - Preserved all task properties: name `"offline_sync"`, stack size 4096 B, priority 3, pinned to core 1, function `sync_task`.
+     - Added clean failure handling: if creation fails, clears `s_sync_task_handle`, keeps `s_initialized = false`, logs heap stats, and returns `ESP_ERR_NO_MEM`.
+     - Added state inquiry getter `offline_sync_mgr_is_initialized()`.
+   - In `esp32/main/services/offline_sync_mgr.h`:
+     - Declared `bool offline_sync_mgr_is_initialized(void);`.
+
+3. **Non-Fatal Boot Semantics in `app_main()`**:
+   - In `esp32/main/main.c`:
+     - Replaced fatal `ESP_ERROR_CHECK(offline_sync_mgr_init())` with non-fatal warning check (`offline_sync_mgr_init non-fatal failure — continuing boot without background cloud sync`).
+     - Added heap telemetry logs before and after offline sync init.
+
+4. **Task Documentation Sync**:
+   - In `esp32/main/utils/psram_task.h`:
+     - Updated header comments to document `offline_sync` (4096 B) converted to PSRAM.
+
+5. **Hardware Verification on Physical ESP32-S3 (COM3, IP 192.168.0.101)**:
+   - Flashed via `python scripts/run_idf.py -p COM3 flash` (1,607,520 bytes written and verified).
+   - Serial trace confirmed:
+     `[HEAP] before offline sync: internal=4075, largest=2176, PSRAM=7801508`
+     `PSRAM_TASK: task 'offline_sync': 4096 B stack -> PSRAM (TCB internal)`
+     `OFFLINE_SYNC: Offline sync manager initialized (PSRAM stack); cursors telemetry=0 events=0`
+     `[HEAP] after offline sync: internal=3719, largest=1856, PSRAM=7797408`
+   - `app_main()` completed cleanly; ST7735 TFT display initialized and rendered screen 0; WiFi connected to `192.168.0.101`; DHT22 read 26.7°C, 74.4% humidity.
+   - Continuous runtime stability: Monitored 65+ seconds with 0 reboots; diagnostics task executed on schedule (`[DIAG] heap: internal=20091 free, largest=16384; PSRAM=7784044 free; integrity=OK`).
+   - Live REST API: `GET /api/v1/fertigation/status` and `GET /api/v1/alarms` responded with HTTP 200 OK.
+   - All regression suites (`npm test`, `test_peripheral_auto_enqueue.mjs`, `test_fertigation_queue_consistency.mjs`) passed 100%.
+
+---
+
+# AI HANDOVER — SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001 (previous)
 **Date**: 2026-10-03
 - **Verdict**: `COMPLETE & FULLY VERIFIED — CANONICAL DOCUMENTATION RECONCILED (100%)`
 

@@ -1,3 +1,58 @@
+## SP-BOOT-OFFLINE-SYNC-PSRAM-001 — Eliminate Bootloop by Migrating offline_sync Task Stack to PSRAM & Non-Fatal app_main Handling
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Resolve deterministic ESP32-S3 bootloop (`Boots=4954`+) where `app_main()` aborted at line 387 on `ESP_ERROR_CHECK(offline_sync_mgr_init())` with `ESP_ERR_NO_MEM (0x101)`.
+  - Migrate `sync_task` ("offline_sync", 4096 B stack, prio 3, core 1) from internal DRAM to PSRAM using the project's canonical `psram_task_create_pinned()` helper.
+  - Make `offline_sync_mgr_init()` non-fatal in `app_main()` so background cloud sync failure never halts greenhouse actuators, safety, scheduler, or Web UI.
+- **Root Cause & Mathematical Proof**:
+  - Live serial capture before offline sync: `internal=4075, largest=2176, PSRAM=7801508`.
+  - The largest contiguous free block in internal DRAM was only 2,176 bytes. Calling `xTaskCreatePinnedToCore` for a 4,096-byte stack in internal DRAM inevitably failed with `pdFAIL / ESP_ERR_NO_MEM`.
+  - Wrapping it in `ESP_ERROR_CHECK()` in `main.c:387` forced a fatal `abort()`, restarting the chip infinitely on every boot.
+- **Completed Work**:
+  1. `esp32/main/services/offline_sync_mgr.c`:
+     - Included `utils/psram_task.h` and `esp_heap_caps.h`.
+     - Replaced `xTaskCreatePinnedToCore` with `psram_task_create_pinned(sync_task, "offline_sync", 4096, NULL, 3, &s_sync_task_handle, 1)`.
+     - Preserved all task parameters: task name `"offline_sync"`, priority 3, pinned core 1, stack size 4096 B, task function `sync_task`.
+     - Added explicit tracking `s_sync_task_handle` and clean failure handling (clears handle, sets `s_initialized = false`, logs error with heap stats, returns `ESP_ERR_NO_MEM`).
+     - Added `offline_sync_mgr_is_initialized()`.
+  2. `esp32/main/services/offline_sync_mgr.h`:
+     - Declared `bool offline_sync_mgr_is_initialized(void);`.
+  3. `esp32/main/main.c`:
+     - Replaced fatal `ESP_ERROR_CHECK(offline_sync_mgr_init())` with non-fatal warning check.
+     - Added DRAM & PSRAM heap logging before and after offline sync init.
+  4. `esp32/main/utils/psram_task.h`:
+     - Updated header documentation to reflect `offline_sync` (4096 B) converted to PSRAM.
+- **Verification Results**:
+  - ESP-IDF 5.5 compile (`python scripts/run_idf.py build`): PASS (`agrotech_esp32.bin` 1.6 MB).
+  - ESP32-S3 Flash via COM3 (`python scripts/run_idf.py -p COM3 flash`): PASS (100% hash verified).
+  - Live Serial Cold Boot Verification:
+    - `[HEAP] before offline sync: internal=4075, largest=2176, PSRAM=7801508`
+    - `PSRAM_TASK: task 'offline_sync': 4096 B stack -> PSRAM (TCB internal)`
+    - `OFFLINE_SYNC: Offline sync manager initialized (PSRAM stack); cursors telemetry=0 events=0`
+    - `[HEAP] after offline sync: internal=3719, largest=1856, PSRAM=7797408`
+    - `app_main()` returned successfully (no abort, no reboot loop).
+    - ST7735 TFT 1.8" SPI display initialized and rendered screen 0.
+    - WiFi connected: STA IP `192.168.0.101`.
+    - DHT22 reading success: `Temp=26.7 C, Humidity=74.4%`.
+  - 65-Second Continuous Runtime Verification:
+    - Zero unexpected reboots.
+    - Diagnostics task ran at 60s: `[DIAG] heap: internal=20091 free, largest=16384; PSRAM=7784044 free; min_free=7511188; integrity=OK`.
+  - Live REST API Tests (`http://192.168.0.101`):
+    - `GET /api/v1/fertigation/status` -> HTTP 200 OK (`state: "IDLE"`, `phase: "IDLE"`, `todaySchedule: 1 pending item`).
+    - `GET /api/v1/alarms` -> HTTP 200 OK.
+  - Regression Suites:
+    - `npm test`: 28 canonical endpoints + 26 ESP32 handlers PASS (100%).
+    - Dual-Guard Invariants (`test_peripheral_auto_enqueue.mjs`): 7/7 PASS (100%).
+    - Fertigation Queue Consistency (`test_fertigation_queue_consistency.mjs`): 15/15 PASS (100%).
+- **Changed Files**:
+  - `esp32/main/services/offline_sync_mgr.c`
+  - `esp32/main/services/offline_sync_mgr.h`
+  - `esp32/main/main.c`
+  - `esp32/main/utils/psram_task.h`
+- **Next Safe Point**:
+  - Ready for operational testing or user requests.
+
 ## SP-DOCS-BUZZER-MOSFET-RECONCILIATION-001 — Reconcile 5V Active Buzzer to N-Channel MOSFET #4 (GPIO 18) and Free Relay IN2
 - **Date**: 2026-10-03
 - **Status**: `COMPLETE & FULLY VERIFIED — CANONICAL DOCUMENTATION RECONCILED (100%)`

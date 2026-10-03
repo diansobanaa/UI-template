@@ -384,7 +384,24 @@ void app_main(void) {
 
   ESP_ERROR_CHECK(crop_cycle_mgr_init());
   ESP_ERROR_CHECK(telemetry_mgr_init());
-  ESP_ERROR_CHECK(offline_sync_mgr_init());
+
+  ESP_LOGI(TAG, "[HEAP] before offline sync: internal=%u, largest=%u, PSRAM=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  esp_err_t sync_err = offline_sync_mgr_init();
+  if (sync_err != ESP_OK) {
+    ESP_LOGW(TAG,
+             "offline_sync_mgr_init non-fatal failure (0x%x) — continuing boot without background cloud sync.",
+             sync_err);
+  } else {
+    ESP_LOGI(TAG, "Offline sync manager initialized.");
+  }
+  ESP_LOGI(TAG, "[HEAP] after offline sync: internal=%u, largest=%u, PSRAM=%u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
   ESP_ERROR_CHECK(topology_pool_init());
 
   /* TFT init AFTER HTTP server — TFT is lowest priority for internal RAM. */

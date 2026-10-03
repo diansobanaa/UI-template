@@ -17,7 +17,7 @@
 | **BREADBOARD**| 400-Point Breadboard + Wiring Accessories | 1 kit | N/A | Prototyping | **READY**: Workbench prototyping & sensor interconnect |
 | **ETH** | W5500 SPI Ethernet Module | 1 | 3.3V DC | **NO PIN IN CANONICAL MAP** | **BLOCKED**: Not part of active commissioning; do not wire to GPIO10 |
 | **WIFI-ANT** | External 2.4GHz 5dBi Antenna + U.FL to SMA Pigtail | 1 | Passive RF | U.FL / SMA | **READY**: External high-gain wireless network antenna |
-| **RTC** | DS3231 High-Precision I2C RTC Module (6-pin: 32K, SQW, SCL, SDA, VCC, GND) | 1 | 3.3V DC | I2C (SDA: GPIO 8, SCL: GPIO 9) | **READY**: Battery-backed I2C RTC (32K & SQW NC; driver update pending) |
+| **RTC** | DS3231 High-Precision I2C RTC Module (6-pin: 32K, SQW, SCL, SDA, VCC, GND) | 1 | 3.3V DC | I2C (SDA: GPIO 8, SCL: GPIO 9) | **READY**: Battery-backed I2C RTC (32K & SQW NC; driver integrated & verified) |
 | **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42, SCK: 11, MOSI: 12) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
 | **STORAGE** | MicroSD Card Adapter Module (EasyWare Part#: EP000094) | 1 | 5V DC (Onboard 3.3V LDO) | Shared SPI (CS: GPIO 48, SCK: 11, MOSI: 12, MISO: 13, VCC: 5V Rail) | **READY**: Standalone MicroSD breakout module with level shifter |
 | **FRAM** | Ferroelectric RAM | 0 | N/A | N/A | **NOT USED / NOT REQUIRED**: NVS & SPIFFS used for persistence |

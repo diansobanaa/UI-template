@@ -6,6 +6,8 @@
 #include "config/system_config.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "utils/psram_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "cJSON.h"
@@ -22,6 +24,7 @@ static const char *TAG = "OFFLINE_SYNC";
 static uint64_t s_telemetry_cursor = 0;
 static uint64_t s_event_cursor = 0;
 static bool s_initialized = false;
+static TaskHandle_t s_sync_task_handle = NULL;
 
 static const char *backend_url(void)
 {
@@ -116,15 +119,27 @@ static void sync_task(void *arg)
     }
 }
 
+bool offline_sync_mgr_is_initialized(void)
+{
+    return s_initialized && (s_sync_task_handle != NULL);
+}
+
 esp_err_t offline_sync_mgr_init(void)
 {
-    if (s_initialized) return ESP_OK;
+    if (s_initialized && s_sync_task_handle != NULL) return ESP_OK;
     (void)storage_mgr_get_sync_cursor("telemetry", &s_telemetry_cursor);
     (void)storage_mgr_get_sync_cursor("events", &s_event_cursor);
-    // HEAP-FIX: Was 7168. cJSON + HTTP ops go to PSRAM. Saves 3KB internal RAM.
-    BaseType_t ok = xTaskCreatePinnedToCore(sync_task, "offline_sync", 4096, NULL, 3, NULL, 1);
-    if (ok != pdPASS) return ESP_ERR_NO_MEM;
+
+    /* Allocate task stack in PSRAM via project helper to protect constrained internal DRAM */
+    s_sync_task_handle = psram_task_create_pinned(sync_task, "offline_sync", 4096, NULL, 3, NULL, 1);
+    if (!s_sync_task_handle) {
+        s_initialized = false;
+        ESP_LOGE(TAG, "Failed to create offline_sync task (heap exhausted: internal=%u, PSRAM=%u)",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        return ESP_ERR_NO_MEM;
+    }
     s_initialized = true;
-    ESP_LOGI(TAG, "Offline sync manager initialized; cursors telemetry=%" PRIu64 " events=%" PRIu64, s_telemetry_cursor, s_event_cursor);
+    ESP_LOGI(TAG, "Offline sync manager initialized (PSRAM stack); cursors telemetry=%" PRIu64 " events=%" PRIu64, s_telemetry_cursor, s_event_cursor);
     return ESP_OK;
 }

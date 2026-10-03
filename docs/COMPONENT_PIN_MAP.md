@@ -18,7 +18,7 @@ This document specifies the exact mapping from the physical pins of each discret
 ### 2.1. Real-Time Clock: DS3231 High-Precision I2C RTC Module
 - **Physical Module:** 6-Pin I2C Breakout Board (ZS-042 / DS3231).
 - **Status:** **ACTIVE CANONICAL RTC** (Replaces obsolete DS1302 3-wire module).
-- **Firmware Status:** **SOFTWARE UPDATE REQUIRED** (Firmware driver update to I2C DS3231 pending).
+- **Firmware Status:** **VERIFIED READY** (Firmware driver `rtc_ds3231.c` integrated, tested, and active).
 
 | Component | Physical Pin | Pin Function | ESP32 GPIO / Power Rail | Interface | Direction | Active Level | Status |
 |:---|:---:|:---|:---|:---:|:---:|:---:|:---:|
