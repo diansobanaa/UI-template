@@ -169,12 +169,6 @@ esp_err_t event_mgr_flush_to_storage(void)
     return ESP_OK;
 }
 
-static void ring_push_locked(const system_event_t *src)
-{
-    s_events[s_head] = *src;
-    s_head = (s_head + 1U) % EVENT_RING_BUFFER_SIZE;
-    if (s_count < EVENT_RING_BUFFER_SIZE) s_count++;
-}
 
 static esp_err_t log_internal(event_level_t level, const char *category, const char *code,
                               const char *message, const char *command_id, const char *complex_id,
@@ -187,30 +181,34 @@ static esp_err_t log_internal(event_level_t level, const char *category, const c
     }
     if (xSemaphoreTake(s_evt_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
 
-    system_event_t e;
-    memset(&e, 0, sizeof(e));
-    e.seq = allocate_sequence_locked();
+    system_event_t *e = &s_events[s_head];
+    memset(e, 0, sizeof(*e));
+    e->seq = allocate_sequence_locked();
     const system_storage_state_t *storage = storage_mgr_get_state();
     const char *device_id = storage && storage->device_id[0] ? storage->device_id : "unknown-device";
-    snprintf(e.id, sizeof(e.id), "evt-%s-%" PRIu64, device_id, e.seq);
-    timestamp_now(e.timestamp);
-    e.level = level;
-    strncpy(e.category, category ? category : "SYSTEM", sizeof(e.category) - 1);
-    strncpy(e.code, code ? code : "EVENT", sizeof(e.code) - 1);
-    strncpy(e.message, message ? message : "", sizeof(e.message) - 1);
-    resolve_default_context(&e, component_id);
-    if (complex_id && complex_id[0]) strncpy(e.complex_id, complex_id, sizeof(e.complex_id) - 1);
-    if (gh_id && gh_id[0]) strncpy(e.gh_id, gh_id, sizeof(e.gh_id) - 1);
-    if (command_id && command_id[0]) strncpy(e.command_id, command_id, sizeof(e.command_id) - 1);
-    if (resource_id && resource_id[0]) strncpy(e.resource_id, resource_id, sizeof(e.resource_id) - 1);
-    e.configuration_version = configuration_version;
-    ring_push_locked(&e);
+    snprintf(e->id, sizeof(e->id), "evt-%s-%" PRIu64, device_id, e->seq);
+    timestamp_now(e->timestamp);
+    e->level = level;
+    strncpy(e->category, category ? category : "SYSTEM", sizeof(e->category) - 1);
+    strncpy(e->code, code ? code : "EVENT", sizeof(e->code) - 1);
+    strncpy(e->message, message ? message : "", sizeof(e->message) - 1);
+    resolve_default_context(e, component_id);
+    if (complex_id && complex_id[0]) strncpy(e->complex_id, complex_id, sizeof(e->complex_id) - 1);
+    if (gh_id && gh_id[0]) strncpy(e->gh_id, gh_id, sizeof(e->gh_id) - 1);
+    if (command_id && command_id[0]) strncpy(e->command_id, command_id, sizeof(e->command_id) - 1);
+    if (resource_id && resource_id[0]) strncpy(e->resource_id, resource_id, sizeof(e->resource_id) - 1);
+    e->configuration_version = configuration_version;
+
+    /* Advance ring buffer pointers directly under mutex */
+    s_head = (s_head + 1U) % EVENT_RING_BUFFER_SIZE;
+    if (s_count < EVENT_RING_BUFFER_SIZE) s_count++;
+
     xSemaphoreGive(s_evt_mutex);
 
     /* Signal persistence worker to flush pending events without executing disk I/O on caller stack */
     telemetry_mgr_trigger_persistence();
 
-    ESP_LOGI(TAG, "[%s] %s: %s", level_to_str(level), e.code, e.message);
+    ESP_LOGI(TAG, "[%s] %s: %s", level_to_str(level), code ? code : "EVENT", message ? message : "");
     return ESP_OK;
 }
 

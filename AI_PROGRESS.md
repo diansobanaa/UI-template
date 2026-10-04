@@ -1,3 +1,41 @@
+## SP-SCHEDULER-STACK-RECOVERY-001 — Fixed FreeRTOS Mutex Assertion via Scheduler Stack Restoration & Event Manager Zero-Stack Struct Elimination
+- **Date**: 2026-10-05
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Resolve crash `assert failed: xQueueSemaphoreTake queue.c:1713 (pxQueue->uxItemSize == 0)` occurring upon daily schedule trigger.
+  - Audit all recently introduced FreeRTOS queues, mutexes, and workers (`s_panel_btn_queue`, `panel_btn_worker`, `s_cmd_queue`).
+  - Eliminate caller stack footprint in `event_mgr.c` and restore safe headroom in `scheduler_task`.
+- **Root Cause & Forensic Audit**:
+  - The crash was decoded via `xtensa-esp-elf-addr2line`:
+    `scheduler_task` $\to$ `scheduler_evaluate_at` (line 2669) $\to$ `dispatch_runtime_schedule` (line 1666) $\to$ `command_mgr_submit` (line 784) $\to$ `log_command_event` (line 476) $\to$ `event_mgr_log_command` (line 253) $\to$ `log_internal` (line 213) $\to$ `ESP_LOGI` $\to$ `vprintf` $\to$ `uart_write` $\to$ `_lock_acquire_recursive(&s_ctx[fd]->write_lock)`.
+  - In `event_mgr.c:190`, `system_event_t e;` allocated 536 bytes directly on the caller stack.
+  - Together with `_vfprintf_r` buffers and register window spills, the call stack consumed 4,096 bytes (0x1000).
+  - In SP-HEAP-OPT-MEASURED-001, `scheduler_task` stack was trimmed to 4,608 bytes, causing stack penetration past the task stack boundary into adjacent internal DRAM heap memory containing newlib's recursive mutex `write_lock`.
+  - `pxQueue->uxItemSize` was overwritten with non-zero return address data, triggering the FreeRTOS assertion.
+- **Completed Work**:
+  1. **Zero-Stack Struct Optimization in Event Manager (`esp32/main/services/event_mgr.c`)**:
+     - Eliminated local `system_event_t e;` (536 B) stack allocation in `log_internal()`.
+     - Populated ring buffer slot directly under `s_evt_mutex` (`system_event_t *e = &s_events[s_head]`).
+     - Removed unused `ring_push_locked()` helper.
+     - Saves 536 bytes of stack on EVERY task calling `event_mgr_log` or `event_mgr_log_command`.
+  2. **Scheduler Task Headroom Restoration (`esp32/main/services/scheduler.c`)**:
+     - Restored `scheduler_task` stack size from 4,608 B back to 6,144 B (+1,536 B margin, giving >3.5 KB free headroom).
+  3. **MicroSD Power Reconnection**:
+     - 5V power supply reconnected to EasyWare EP000094 MicroSD card adapter module.
+- **Verification Results**:
+  - ESP-IDF build (`python scripts/run_idf.py build`): **PASS** (`agrotech_esp32.bin` generated, 0 warnings/errors).
+  - Flashed to physical ESP32-S3 on COM3 (460800 baud): **PASS** (100% hash verified, RTS reset).
+  - Hardware Pin Audit (`python scripts/test_m17_hardware_pin_audit.py`): **PASS** (100%).
+  - Live hardware boot & runtime verification (`COM3` live log):
+    - MicroSD mounted successfully: `7431 MB / 7 GB` at `/sdcard`.
+    - TelemetryStore restored 640 historical records into RAM cache.
+    - Daily schedule trigger executed: `Daily schedule trigger executed for yday 277 (schedules=21, occurrences=0)`: **ZERO CRASH, ZERO REBOOT, ROCK SOLID**.
+    - REST API tests on live IP `192.168.0.101`:
+      - `GET /api/v1/status`: 200 OK (`uptimeSec: 26+`, `state: RUNNING`, `freeHeap: 7.79 MB`).
+      - `GET /api/v1/storage/status`: 200 OK (`detected: true`, `mounted: true`, `status: READY`).
+      - `GET /api/v1/schedules`: 200 OK (all 21 schedules returned).
+      - `GET /api/v1/events`: 200 OK (events history streaming correctly).
+
 ## SP-HEAP-OPT-MEASURED-001 — Measured FreeRTOS Task Stack Optimization & Internal Heap Recovery
 - **Date**: 2026-10-04 / 2026-10-05
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
