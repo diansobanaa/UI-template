@@ -15,7 +15,7 @@
    - Instead of simply bumping `btn_poll_task` stack size (which would consume scarce internal RAM where free internal heap is only $\approx 35$ KB), separated BUTTON INPUT from ACTUATOR EXECUTION.
    - `esp32/main/services/panel_button_mgr.c`:
      - Created FreeRTOS queue `s_panel_btn_queue` (16 items of 12-byte `panel_btn_event_t`).
-     - Spawned dedicated worker task `panel_btn_worker` with 4,096-byte stack in **PSRAM** via `psram_task_create_pinned` (zero internal DRAM stack cost).
+     - Spawned dedicated worker task `panel_btn_worker` with 8,192-byte stack in **PSRAM** via `psram_task_create_pinned` (zero internal DRAM stack cost).
      - Reduced `on_panel_button_event()` to a non-blocking queue push (`xQueueSend(s_panel_btn_queue, &evt, 0)`), returning immediately to the 20ms polling loop.
      - Moved actuator/safety execution and logging to `panel_btn_worker`.
    - `esp32/main/hal/button_hal.c`:

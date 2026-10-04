@@ -10,7 +10,7 @@
 - **Completed Architectural Work**:
   - `esp32/main/services/panel_button_mgr.c`:
     - Introduced FreeRTOS queue `s_panel_btn_queue` (16 entries of `panel_btn_event_t`).
-    - Introduced dedicated worker task `panel_btn_worker` with 4,096 bytes stack allocated in **PSRAM** (`psram_task_create_pinned`) on Core 1 (preserving scarce internal RAM, where free heap is only $\approx 35$ KB).
+    - Introduced dedicated worker task `panel_btn_worker` with 8,192 bytes stack allocated in **PSRAM** (`psram_task_create_pinned`) on Core 1 (preserving scarce internal RAM, where free heap is only $\approx 35$ KB).
     - Reduced `on_panel_button_event()` callback executed within `btn_poll_task` to purely non-blocking event packaging (`xQueueSend(s_panel_btn_queue, &evt, 0)`), returning immediately to the 20ms polling loop.
     - Moved all button execution logic (Well Pump toggle, TFT screen cycling, SoftAP timers) to `process_panel_button_event()` running in `panel_btn_worker`.
     - Added stack high-water mark monitoring `MEM panel_btn_worker stack_hwm=%u B`.
@@ -18,7 +18,7 @@
     - Added stack high-water mark logging immediately following callback dispatch.
     - Added periodic `MEM btn_poll_task stack_hwm=%u B` heap/stack audit log every ~60s in `button_poll_task`.
   - `esp32/main/utils/psram_task.h`:
-    - Registered `panel_btn_worker (panel_button_mgr.c) 4096 B` in the list of verified safe PSRAM tasks.
+    - Registered `panel_btn_worker (panel_button_mgr.c) 8192 B` in the list of verified safe PSRAM tasks.
   - `docs/M17_END_TO_END_AND_PHYSICAL_COMMISSIONING.md`:
     - Documented asynchronous queue and PSRAM worker decoupling for local operator physical button path.
 - **Verification**:
@@ -26,8 +26,8 @@
   - Pin audit test (`python scripts/test_m17_hardware_pin_audit.py`): **PASS** (100%).
   - Flashed to physical ESP32-S3 on `COM3` at 460800 baud: **PASS** (1,616,320 bytes written, verified, RTS reset complete).
   - Live hardware memory verification (`COM3` live log):
-    - `btn_poll_task` stack high-water mark: `1072 B` free of 3072 B (rock solid, zero overflow risk).
-    - `panel_btn_worker` task created: `4096 B` stack in PSRAM (zero internal RAM consumed).
+    - `btn_poll_task` stack high-water mark: `1032 B` - `1080 B` free of 3072 B (rock solid, zero overflow risk).
+    - `panel_btn_worker` task created: `8192 B` stack in PSRAM (zero internal RAM consumed, ample headroom for both ON and OFF sequences).
   - Live physical button & HTTP verification:
     - Button 2 pressed: `wellPump` toggled `true` (`state: RUNNING`, `manualActive: true`, 15-minute runtime ceiling active).
     - System uptime advanced continuously without restart (`uptimeSec: 34+`, `freeHeap: 7.78 MB`).

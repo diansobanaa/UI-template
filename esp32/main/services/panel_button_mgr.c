@@ -249,7 +249,7 @@ esp_err_t panel_button_mgr_init(void)
         s_panel_worker_handle = psram_task_create_pinned(
             panel_btn_worker_task,
             "panel_btn_worker",
-            4096,
+            8192,
             NULL,
             5,
             &s_panel_worker_handle,
