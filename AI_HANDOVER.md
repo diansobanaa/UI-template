@@ -1,4 +1,26 @@
-# AI HANDOVER — SP-DS18B20-HARDENING-001 (latest)
+# AI HANDOVER — SP-DHT22-HOLD-LAST-VALID-001 (latest)
+
+## Status — SP-DHT22-HOLD-LAST-VALID-001
+**Latch & Hold Last Known Good Value for DHT22 Environmental Sensor**
+**Safe Point**: `SP-DHT22-HOLD-LAST-VALID-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **User Requirement & Principle**:
+   - When DHT22 read fails or returns empty/timeout: do NOT overwrite data with empty/null/`--`, retain the previous valid reading in memory.
+   - When fresh valid data arrives: update the reading values.
+2. **Firmware Implementation (`esp32/main/hal/sensor_hal.c`)**:
+   - In `sensor_hal_poll()`: when `dht_err == ESP_OK`, update `dht22_temperature_c` and `dht22_humidity_rh`, setting `dht22_state = SENSOR_STATE_VALID`.
+   - When `dht_err != ESP_OK`: if previously valid, do not overwrite state with `UNAVAILABLE` or `INVALID`. Preserve the existing valid readings.
+   - Scheduled quick 3-second retry back-off on any read failure instead of waiting 60 seconds.
+3. **Live Hardware Verification**:
+   - Built and flashed to ESP32-S3 via COM3 without errors.
+   - Health check verified via `GET /api/v1/health` (HTTP 200 OK, HEALTHY).
+
+---
+
+# AI HANDOVER — SP-DS18B20-HARDENING-001 (previous)
 
 ## Status — SP-DS18B20-HARDENING-001
 **DS18B20 1-Wire Critical Section Protection, Dallas CRC-8 Validation & Rapid Recovery**

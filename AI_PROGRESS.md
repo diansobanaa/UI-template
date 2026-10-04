@@ -1,3 +1,28 @@
+## SP-DHT22-HOLD-LAST-VALID-001 — Latch & Hold Last Known Good Value for DHT22 Environmental Sensor
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Prevent telemetry dropouts where temporary read failures or empty/timeout responses overwrite valid DHT22 environmental readings with empty/null/`--`.
+  - Maintain the previous valid reading in memory if a new poll fails or returns empty/invalid data.
+  - Only update `dht22_temperature_c` and `dht22_humidity_rh` when fresh valid data is successfully read.
+- **Completed Work**:
+  - `esp32/main/hal/sensor_hal.c`:
+    - Updated `sensor_hal_poll()` DHT22 handling: when `dht_err == ESP_OK`, update with fresh data and mark `SENSOR_STATE_VALID`.
+    - When `dht_err != ESP_OK`: if previously valid, preserve the existing valid reading and state (`SENSOR_STATE_VALID`), avoiding null/empty telemetry.
+    - Only assign `UNAVAILABLE` or `INVALID` if no valid reading has ever been obtained since boot.
+    - Updated back-off retry on any read failure to 3 seconds (`DHT22_RETRY_INTERVAL_MS`) instead of waiting full 60 seconds.
+  - `docs/HARDWARE_WIRING_MAP.md`:
+    - Documented failure and hysteresis policy for DHT22 retaining last known valid value.
+- **Verification on Live Hardware (ESP32-S3 COM3 / 192.168.0.101)**:
+  - Firmware compiled cleanly with zero errors (`agrotech_esp32.bin`).
+  - Flashed successfully to ESP32-S3 via COM3.
+  - API Health: `GET /api/v1/health` -> HTTP 200 OK (`health: "HEALTHY"`).
+- **Changed Files**:
+  - `esp32/main/hal/sensor_hal.c`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+
 ## SP-DS18B20-HARDENING-001 — DS18B20 1-Wire Critical Section Protection, Dallas CRC-8 Validation & Rapid Recovery
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
