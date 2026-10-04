@@ -9,6 +9,7 @@
 #include "actuator_hal.h"
 #include "event_mgr.h"
 #include "storage_mgr.h"
+#include "utils/psram_task.h"
 
 static const char *TAG = "alarm_mgr";
 
@@ -169,8 +170,8 @@ esp_err_t alarm_mgr_init(void) {
     s_pattern_step_ms = 0;
     s_buzzer_physical_on = false;
 
-    // Launch FreeRTOS pattern engine task
-    BaseType_t res = xTaskCreatePinnedToCore(
+    // Launch FreeRTOS pattern engine task (migrated to PSRAM: zero flash writes in loop)
+    TaskHandle_t alarm_handle = psram_task_create_pinned(
         alarm_pattern_task,
         "alarm_task",
         3072,
@@ -179,7 +180,7 @@ esp_err_t alarm_mgr_init(void) {
         NULL,
         1
     );
-    if (res != pdPASS) {
+    if (!alarm_handle) {
         ESP_LOGE(TAG, "Failed to create alarm pattern task");
         return ESP_ERR_NO_MEM;
     }

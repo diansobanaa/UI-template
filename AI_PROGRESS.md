@@ -1,3 +1,45 @@
+## SP-HEAP-OPT-MEASURED-001 — Measured FreeRTOS Task Stack Optimization & Internal Heap Recovery
+- **Date**: 2026-10-04 / 2026-10-05
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Resolve warning `[DIAG] Internal heap LOW: 18271 bytes free (<30KB threshold)` without blindly mass-migrating tasks to PSRAM.
+  - Measure exact per-task stack High-Water Marks on live hardware.
+  - Trim over-allocated stacks, migrate suitable non-flash tasks to PSRAM, and fix under-allocated PSRAM tasks.
+- **Root Cause & Discovery**:
+  - Internal DRAM was pressurized down to 18,271 B due to excessive stack sizes allocated in internal RAM (`cmd_worker` 8KB, `fert_mgr` 6KB, `scheduler` 6KB, `calib_mgr` 4KB, `net_reconnect` 4KB, `alarm_task` 3KB, `sys_evt` 6KB, `main_task` 16KB).
+  - During boot, free internal RAM dipped to a critical `112 B` (`min_free`), exposing the system to boot-time `ESP_ERR_NO_MEM`.
+  - PSRAM tasks `well_pump_mon` (HWM 72 B) and `telem_store_tsk` (HWM 452 B) were dangerously close to overflowing.
+- **Completed Optimization Work**:
+  1. **Diagnostics Infrastructure**:
+     - Extended existing `diagnostics_task` (`esp32/main/main.c`) with a lightweight per-task stack HWM report via `uxTaskGetSystemState()` allocated in PSRAM, identifying `INT` vs `PSRAM` memory placement.
+  2. **PSRAM Migration (Task with zero flash writes)**:
+     - `alarm_task` (3,072 B) migrated to PSRAM using `psram_task_create_pinned()` (`esp32/main/services/alarm_mgr.c`). Registered in `psram_task.h`. Frees 3,072 B internal DRAM.
+  3. **Over-allocated Stack Trimming (Internal RAM)**:
+     - `cmd_worker`: 8,192 B $\to$ 4,608 B (`esp32/main/config/system_config.h`). Frees 3,584 B.
+     - `fert_mgr`: 6,144 B $\to$ 3,584 B (`esp32/main/services/fertigation_mgr.c`). Frees 2,560 B.
+     - `scheduler`: 6,144 B $\to$ 4,608 B (`esp32/main/services/scheduler.c`). Frees 1,536 B.
+     - `safety_mon`: 6,144 B $\to$ 4,608 B (`esp32/main/config/system_config.h`). Frees 1,536 B.
+     - `calib_mgr`: 4,096 B $\to$ 2,560 B (`esp32/main/services/calibration_mgr.c`). Frees 1,536 B.
+     - `net_reconnect`: 4,096 B $\to$ 2,560 B (`esp32/main/network/network_mgr.c`). Frees 1,536 B.
+     - `sys_evt`: 6,144 B $\to$ 4,096 B (`esp32/sdkconfig`). Frees 2,048 B.
+     - `main_task`: 16,384 B $\to$ 8,192 B (`esp32/sdkconfig`). Frees 8,192 B boot DRAM.
+  4. **PSRAM Stack Overflow Safety Padding**:
+     - `well_pump_mon`: 2,048 B $\to$ 3,072 B in PSRAM (`esp32/main/services/well_pump_mgr.c`). HWM increased from 72 B to 1,092 B!
+     - `telem_store_tsk`: 4,096 B $\to$ 6,144 B in PSRAM (`esp32/main/storage/telemetry_store.c`). HWM increased from 452 B to 2,584 B!
+  5. **Flash/NVS Cache Protection in Event Manager**:
+     - Updated `esp32/main/services/event_mgr.c` so sequence block NVS reservations are pre-allocated by `tele_persist_task` (internal stack), preventing flash cache crashes from callers on PSRAM stacks.
+- **Verification Results**:
+  - Python ESP-IDF build (`python scripts/run_idf.py build`): **PASS** (`agrotech_esp32.bin` built cleanly, 0 errors).
+  - Flashed to physical ESP32-S3 on COM3 (460800 baud): **PASS** (100% hash verified, RTS reset).
+  - Live hardware memory metrics (150s continuous capture):
+    - Free internal heap: **35,883 B** (was 18,271 B, **+17,612 B / +96.4% gain**).
+    - Largest free block: **18,432 B** (was 15,872 B, **+2,560 B gain**).
+    - Minimum free heap during boot: **26,056 B** (was a critical 112 B, **+25,944 B gain**).
+    - `[DIAG] Internal heap LOW` warning: **COMPLETELY RESOLVED (0 warnings)**.
+    - Heap integrity: `OK` (zero corruption).
+    - `btn_poll_task` HWM: `1,080 B` (stable, queue-decoupled).
+  - REST API / Web UI stress tests: **PASS** (`/status`, `/telemetry`, `/events`, `/schedules`, `/fertigation/status`, `/storage/status` all returned 200 OK).
+
 ## SP-BTN-STACK-DECOUPLING-001 — Fixed btn_poll_task Stack Overflow via Asynchronous Event Dispatch Architecture
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

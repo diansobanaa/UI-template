@@ -1,4 +1,40 @@
-# AI HANDOVER — SP-BTN-STACK-DECOUPLING-001 (latest)
+# AI HANDOVER — SP-HEAP-OPT-MEASURED-001 (latest)
+
+## Status — SP-HEAP-OPT-MEASURED-001
+**Measured FreeRTOS Task Stack Optimization & Internal Heap Recovery**
+**Safe Point**: `SP-HEAP-OPT-MEASURED-001`
+**Date**: 2026-10-04 / 2026-10-05
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Measured Diagnostic Baseline**:
+   - Captured 150 seconds of live execution with diagnostic task stack reports (`uxTaskGetSystemState`).
+   - Identified exact per-task stack High-Water Marks (`uxTaskGetStackHighWaterMark`) and RAM placements (`INT` vs `PSRAM`).
+   - Initial Free Internal Heap was 18,271 B (triggering the `<30KB` warning), with critical boot-time dip to 112 B.
+2. **Conservative Stack Optimization**:
+   - `alarm_task` (3,072 B) migrated to PSRAM via `psram_task_create_pinned` (zero flash writes in its loop).
+   - Over-allocated internal tasks trimmed based on actual measured peak usage while preserving 60%–240% safety margins:
+     - `cmd_worker`: 8,192 $\to$ 4,608 B (saves 3,584 B)
+     - `fert_mgr`: 6,144 $\to$ 3,584 B (saves 2,560 B)
+     - `scheduler`: 6,144 $\to$ 4,608 B (saves 1,536 B)
+     - `safety_mon`: 6,144 $\to$ 4,608 B (saves 1,536 B)
+     - `calib_mgr`: 4,096 $\to$ 2,560 B (saves 1,536 B)
+     - `net_reconnect`: 4,096 $\to$ 2,560 B (saves 1,536 B)
+     - `sys_evt`: 6,144 $\to$ 4,096 B (saves 2,048 B)
+     - `main_task`: 16,384 $\to$ 8,192 B (saves 8,192 B boot DRAM)
+   - Dangerous under-allocated PSRAM stacks padded for overflow prevention:
+     - `well_pump_mon`: 2,048 $\to$ 3,072 B (HWM rose from 72 B to 1,092 B)
+     - `telem_store_tsk`: 4,096 $\to$ 6,144 B (HWM rose from 452 B to 2,584 B)
+3. **Verification**:
+   - Free internal heap rose from **18,271 B to 35,883 B** (+96.4% gain, permanently silencing `<30KB` warning).
+   - Largest free block rose from **15,872 B to 18,432 B**.
+   - Boot-time minimum free heap rose from **112 B to 26,056 B**.
+   - All REST APIs (`/status`, `/telemetry`, `/events`, `/schedules`, `/fertigation/status`, `/storage/status`) returned HTTP 200 OK.
+   - Zero stack overflows, zero memory panics, zero watchdog triggers.
+
+---
+
+# AI HANDOVER — SP-BTN-STACK-DECOUPLING-001 (previous)
 
 ## Status — SP-BTN-STACK-DECOUPLING-001
 **Fixed btn_poll_task Stack Overflow via Asynchronous Event Dispatch Architecture**

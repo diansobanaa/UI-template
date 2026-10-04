@@ -561,7 +561,8 @@ esp_err_t telemetry_store_init(void)
 
     reset_daily_history(get_current_date_int());
 
-    psram_task_create_pinned(telemetry_store_task, "telem_store_tsk", 4096, NULL, TASK_TELEMETRY_PRIO - 1, &s_store_task_handle, 1);
+    /* STACK-SAFETY: measured HWM was 452 B (used 3644 B). Increasing to 6144 B in PSRAM provides 2500 B margin for FatFS cluster writes (0 internal DRAM cost). */
+    psram_task_create_pinned(telemetry_store_task, "telem_store_tsk", 6144, NULL, TASK_TELEMETRY_PRIO - 1, &s_store_task_handle, 1);
     ESP_LOGI(TAG, "TelemetryStore initialized (append-oriented, CRC32-validated, 288-slot RAM cache).");
     return ESP_OK;
 }

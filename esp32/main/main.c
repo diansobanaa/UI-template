@@ -4,6 +4,7 @@
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -450,8 +451,28 @@ static void diagnostics_task(void *arg) {
    * Diagnostics is non-critical — if it hangs, system should NOT restart.
    * Only safety-critical tasks (scheduler, safety_monitor, fertigation,
    * command_worker, telemetry) are WDT-registered. */
+  uint32_t cycle = 0;
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000)); /* 60 second interval */
+
+    /* MEM-AUDIT: per-task stack report on the 1st cycle, then every 5 min.
+     * hwm = bytes of stack NEVER touched since task start (lower = closer to
+     * overflow). INT = stack in internal RAM, PSRAM = stack in SPIRAM. */
+    if (cycle++ % 5 == 0) {
+      UBaseType_t n = uxTaskGetNumberOfTasks() + 4;
+      TaskStatus_t *ts = heap_caps_malloc(n * sizeof(TaskStatus_t),
+                                          MALLOC_CAP_SPIRAM);
+      if (ts) {
+        n = uxTaskGetSystemState(ts, n, NULL);
+        for (UBaseType_t i = 0; i < n; i++) {
+          ESP_LOGI(TAG, "[STACK] %-18s hwm=%5u B %s prio=%u", ts[i].pcTaskName,
+                   (unsigned)(ts[i].usStackHighWaterMark * sizeof(StackType_t)),
+                   esp_ptr_external_ram(ts[i].pxStackBase) ? "PSRAM" : "INT",
+                   (unsigned)ts[i].uxCurrentPriority);
+        }
+        heap_caps_free(ts);
+      }
+    }
 
     uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     uint32_t largest_internal =

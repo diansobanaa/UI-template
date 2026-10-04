@@ -2628,7 +2628,8 @@ esp_err_t fertigation_mgr_init(void) {
         "held for explicit operator disposition.",
         s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
         s_batch.configuration_version);
-  xTaskCreatePinnedToCore(task, "fert_mgr", 6144, NULL, 5, NULL, 1);
+  /* STACK-TUNING: measured peak used 1124 B. 3584 B provides 2460 B (>200%) margin, saving 2560 B internal DRAM. */
+  xTaskCreatePinnedToCore(task, "fert_mgr", 3584, NULL, 5, NULL, 1);
   return ESP_OK;
 }
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {

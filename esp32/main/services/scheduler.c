@@ -2846,7 +2846,8 @@ esp_err_t scheduler_init(void) {
     }
   }
 
-  if (xTaskCreatePinnedToCore(scheduler_task, "scheduler", 6144, NULL, 4, NULL,
+  /* STACK-TUNING: measured peak used 2544 B. 4608 B provides 2064 B (>80%) margin, saving 1536 B internal DRAM. */
+  if (xTaskCreatePinnedToCore(scheduler_task, "scheduler", 4608, NULL, 4, NULL,
                               1) != pdPASS) {
     s_initialized = false;
     vSemaphoreDelete(s_mutex);

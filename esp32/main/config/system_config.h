@@ -31,7 +31,8 @@ extern "C" {
 #define TASK_HTTP_SERVER_STACK 10240
 #define TASK_HTTP_SERVER_PRIO 5
 
-#define TASK_COMMAND_MGR_STACK 8192
+// STACK-TUNING: measured peak used 2192 B. 4608 B provides 2416 B (>100%) safety margin while saving 3584 B internal DRAM.
+#define TASK_COMMAND_MGR_STACK 4608
 #define TASK_COMMAND_MGR_PRIO 6
 
 // HEAP-FIX: Was 8192, reduced to 4096 caused stack overflow (telemetry_sampler
@@ -43,7 +44,8 @@ extern "C" {
 #define TASK_CROPCYCLE_STACK 4096
 #define TASK_CROPCYCLE_PRIO 3
 
-#define TASK_SAFETY_MONITOR_STACK 6144
+// STACK-TUNING: measured peak used 2780 B. 4608 B provides 1828 B (~65%) safety margin while saving 1536 B internal DRAM.
+#define TASK_SAFETY_MONITOR_STACK 4608
 #define TASK_SAFETY_MONITOR_PRIO 7
 
 /* FreeRTOS Queue Lengths */

@@ -133,7 +133,8 @@ esp_err_t well_pump_mgr_init(void)
 
     load_persisted_mode();
 
-    psram_task_create_pinned(well_pump_monitor_task, "well_pump_mon", 2048, NULL, 5, NULL, 1);
+    /* STACK-SAFETY: measured HWM was 72 B (used 1976 B). Increasing to 3072 B in PSRAM provides 1096 B safety margin (0 internal DRAM cost). */
+    psram_task_create_pinned(well_pump_monitor_task, "well_pump_mon", 3072, NULL, 5, NULL, 1);
     s_initialized = true;
     ESP_LOGI(TAG, "Well Pump Manager initialized (Mode: %s, Safe OFF).",
              s_mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");

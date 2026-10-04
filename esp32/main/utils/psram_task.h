@@ -31,6 +31,7 @@ extern "C" {
  *   - well_pump_mon        (well_pump_mgr.c)      3072 B
  *   - offline_sync         (offline_sync_mgr.c)   4096 B
  *   - panel_btn_worker     (panel_button_mgr.c)   8192 B
+ *   - alarm_task           (alarm_mgr.c)          3072 B
  * Deliberately NOT converted (they write NVS/SPIFFS in their core loop):
  *   telemetry_task (NVS sequence block), tele_persist_task (SPIFFS event log),
  *   safety_mon (NVS estop latch), scheduler + mk_persist (NVS), calib_mgr (NVS),

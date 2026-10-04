@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <errno.h>
 #include "esp_attr.h"
+#include "esp_memory_utils.h"
 
 static const char *TAG = "EVENT_MGR";
 
@@ -40,6 +41,8 @@ static size_t s_head = 0;
 static size_t s_count = 0;
 static uint64_t s_next_seq = 1;
 static uint64_t s_sequence_end = 0;
+/* Next sequence block pre-reserved by the persistence worker (0 = none). */
+static uint64_t s_spare_block_first = 0;
 static uint64_t s_last_persisted_seq = 0;
 static StaticSemaphore_t s_evt_mutex_buf;
 static SemaphoreHandle_t s_evt_mutex = NULL;
@@ -61,7 +64,19 @@ static uint64_t allocate_sequence_locked(void)
 {
     if (s_next_seq > s_sequence_end) {
         uint64_t first = 0;
-        if (storage_mgr_reserve_sequence_block("event_seq_end", EVENT_SEQUENCE_BLOCK, &first) == ESP_OK) {
+        /* PSRAM-STACK SAFETY: an NVS write from a task whose stack is in PSRAM
+         * aborts (IDF cache_utils.c asserts an internal stack while the cache
+         * is disabled; this build has no flash auto-suspend / PSRAM XIP).
+         * Use the block pre-reserved by the persistence worker; only touch NVS
+         * here when the caller's stack is internal RAM. */
+        if (s_spare_block_first) {
+            first = s_spare_block_first;
+            s_spare_block_first = 0;
+        } else if (!esp_ptr_internal(pxTaskGetStackStart(NULL)) ||
+                   storage_mgr_reserve_sequence_block("event_seq_end", EVENT_SEQUENCE_BLOCK, &first) != ESP_OK) {
+            first = 0;
+        }
+        if (first) {
             s_next_seq = first;
             s_sequence_end = first + EVENT_SEQUENCE_BLOCK - 1U;
         } else {
@@ -115,6 +130,19 @@ static esp_err_t persist_event(const system_event_t *e)
 esp_err_t event_mgr_flush_to_storage(void)
 {
     if (!s_evt_mutex) return ESP_ERR_INVALID_STATE;
+
+    /* Runs on tele_persist_task (internal stack): pre-reserve the next sequence
+     * block before the current one runs out, outside s_evt_mutex. */
+    if (s_spare_block_first == 0 && s_next_seq + EVENT_SEQUENCE_BLOCK / 4U > s_sequence_end) {
+        uint64_t first = 0;
+        if (storage_mgr_reserve_sequence_block("event_seq_end", EVENT_SEQUENCE_BLOCK, &first) == ESP_OK) {
+            if (xSemaphoreTake(s_evt_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                if (s_spare_block_first == 0) s_spare_block_first = first;
+                xSemaphoreGive(s_evt_mutex);
+            }
+        }
+    }
+
     if (xSemaphoreTake(s_evt_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     size_t count = s_count;
