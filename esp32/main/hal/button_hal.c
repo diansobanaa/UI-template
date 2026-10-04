@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "BUTTON_HAL";
 
@@ -28,9 +29,20 @@ static bool s_task_started = false;
 static void button_poll_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Button polling task active on Core %d (20ms interval).", xPortGetCoreID());
+    uint32_t cycle = 0;
     while (1) {
         button_hal_poll();
         vTaskDelay(pdMS_TO_TICKS(20));
+
+        /* HEAP-AUDIT: report stack high-water mark + internal heap watermarks every ~60s (3000 * 20ms) */
+        if (++cycle % 3000 == 0) {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGW(TAG, "MEM btn_poll_task stack_hwm=%u B free_int=%u largest=%u min_free=%u",
+                     (unsigned)(hwm * sizeof(StackType_t)),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        }
     }
 }
 
@@ -104,6 +116,8 @@ void button_hal_poll(void)
                     if (s_callback) {
                         s_callback((button_id_t)i, raw_level);
                     }
+                    UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+                    ESP_LOGI(TAG, "MEM btn_poll_task stack_hwm=%u B", (unsigned)(hwm * sizeof(StackType_t)));
                 }
             }
         } else {

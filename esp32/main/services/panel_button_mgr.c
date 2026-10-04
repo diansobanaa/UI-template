@@ -8,11 +8,15 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
+#include "freertos/queue.h"
+#include "utils/psram_task.h"
+#include "esp_heap_caps.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
 
 static const char *TAG = "PANEL_BTN_MGR";
 
+#define PANEL_BTN_QUEUE_LEN           16
 #define BUTTON4_QUICK_PRESS_MAX_MS    800
 #define BUTTON4_PRESS_WINDOW_MS       3000
 #define BUTTON4_REQUIRED_PRESSES      3
@@ -38,6 +42,14 @@ static const char *TAG = "PANEL_BTN_MGR";
 #define MODE_BTN_SOFTAP_HOLD_MS   3000  /* 3 second hold to toggle SoftAP */
 #define MODE_BTN_SHORT_PRESS_MAX  500   /* < 500ms = short press (TFT switch) */
 
+typedef struct {
+    button_id_t btn;
+    bool pressed;
+    uint32_t duration_ms;
+} panel_btn_event_t;
+
+static QueueHandle_t s_panel_btn_queue = NULL;
+static TaskHandle_t s_panel_worker_handle = NULL;
 static uint8_t s_button4_press_count = 0;
 static int64_t s_button4_window_start_us = 0;
 static TimerHandle_t s_button4_action_timer = NULL;
@@ -96,15 +108,18 @@ static void toggle_well_pump_manual(void)
     well_pump_toggle_physical();
 }
 
-static void on_panel_button_event(button_id_t btn, bool pressed)
+static void process_panel_button_event(const panel_btn_event_t *evt)
 {
+    button_id_t btn = evt->btn;
+    bool pressed = evt->pressed;
+    uint32_t duration_ms = evt->duration_ms;
+
     /* SOFTAP-BTN: BUTTON_RESERVED (Button 4) handler — disabled when PIN_BTN_RESERVED < 0.
      * Kept for backward compat; the code is unreachable when PIN=-1 because
      * button_hal skips GPIO config for negative pins and never generates events. */
     if (btn == BUTTON_RESERVED) {
         if (PIN_BTN_RESERVED < 0) return;  /* Button 4 disabled — DHT22 owns GPIO 41 */
         if (!pressed) {
-            uint32_t duration_ms = button_hal_get_last_press_duration_ms(btn);
             int64_t now_us = esp_timer_get_time();
             if (duration_ms > BUTTON4_QUICK_PRESS_MAX_MS) {
                 if (s_button4_action_timer) xTimerStop(s_button4_action_timer, 0);
@@ -154,7 +169,6 @@ static void on_panel_button_event(button_id_t btn, bool pressed)
                 /* Long-press already triggered SoftAP — suppress TFT switch */
                 ESP_LOGI(TAG, "MODE button released after long-press (SoftAP toggled).");
             } else {
-                uint32_t duration_ms = button_hal_get_last_press_duration_ms(btn);
                 if (duration_ms < MODE_BTN_SHORT_PRESS_MAX) {
                     /* Short press: TFT screen switch (existing behavior) */
                     ESP_LOGI(TAG, "Button 1 short press (%lu ms): Switching TFT display screen...", (unsigned long)duration_ms);
@@ -189,9 +203,63 @@ static void on_panel_button_event(button_id_t btn, bool pressed)
     }
 }
 
+static void panel_btn_worker_task(void *pvParameters)
+{
+    (void)pvParameters;
+    ESP_LOGI(TAG, "Panel button worker task started (Core 1, PSRAM stack).");
+    panel_btn_event_t evt;
+    while (1) {
+        if (xQueueReceive(s_panel_btn_queue, &evt, portMAX_DELAY) == pdTRUE) {
+            process_panel_button_event(&evt);
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            ESP_LOGI(TAG, "MEM panel_btn_worker stack_hwm=%u B",
+                     (unsigned)(hwm * sizeof(StackType_t)));
+        }
+    }
+}
+
+static void on_panel_button_event(button_id_t btn, bool pressed)
+{
+    panel_btn_event_t evt = {
+        .btn = btn,
+        .pressed = pressed,
+        .duration_ms = (!pressed) ? button_hal_get_last_press_duration_ms(btn) : 0,
+    };
+
+    if (s_panel_btn_queue) {
+        if (xQueueSend(s_panel_btn_queue, &evt, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "Panel button queue full; dropped event (btn=%d, pressed=%d)", (int)btn, (int)pressed);
+        }
+    }
+}
+
 esp_err_t panel_button_mgr_init(void)
 {
     ESP_LOGI(TAG, "Initializing Panel Button Manager...");
+
+    if (!s_panel_btn_queue) {
+        s_panel_btn_queue = xQueueCreate(PANEL_BTN_QUEUE_LEN, sizeof(panel_btn_event_t));
+        if (!s_panel_btn_queue) {
+            ESP_LOGE(TAG, "Failed to create panel button event queue");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    if (!s_panel_worker_handle) {
+        s_panel_worker_handle = psram_task_create_pinned(
+            panel_btn_worker_task,
+            "panel_btn_worker",
+            4096,
+            NULL,
+            5,
+            &s_panel_worker_handle,
+            1 /* Pin to Core 1 */
+        );
+        if (!s_panel_worker_handle) {
+            ESP_LOGE(TAG, "Failed to create panel button worker task");
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     s_button4_action_timer = xTimerCreate(
         "btn4_action",

@@ -105,7 +105,7 @@ Direct HAL calls remain in:
 - `transfer_mgr.c` — explicit resource transfer operation.
 - `calibration_mgr.c` — operator-controlled calibration procedure.
 - `manual_actuator_mgr.c` — explicitly human/manual path.
-- `panel_button_mgr.c` — physical local operator input path.
+- `panel_button_mgr.c` — physical local operator input path (decoupled via FreeRTOS queue `s_panel_btn_queue` to `panel_btn_worker` task with 4096-byte stack in PSRAM; `btn_poll_task` remains lightweight in internal RAM).
 - `api_device_handlers.c` — device/manual control surfaces protected by the same safety gates.
 - `safety_monitor.c` — emergency/safe-off action.
 

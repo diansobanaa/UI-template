@@ -4,7 +4,15 @@ import sys
 
 def monitor(port='COM3', baud=115200, duration=4, reset_chip=False):
     try:
-        ser = serial.Serial(port, baud, timeout=0.1)
+        ser = serial.Serial()
+        ser.port = port
+        ser.baudrate = baud
+        ser.timeout = 0.1
+        ser.setDTR(False)
+        ser.setRTS(False)
+        ser.dtr = False
+        ser.rts = False
+        ser.open()
     except Exception as e:
         print(f"Error opening {port}: {e}")
         return

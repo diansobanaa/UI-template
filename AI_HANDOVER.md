@@ -1,4 +1,41 @@
-# AI HANDOVER — SP-RAW-WATER-PUMP-POLARITY-001 (latest)
+# AI HANDOVER — SP-BTN-STACK-DECOUPLING-001 (latest)
+
+## Status — SP-BTN-STACK-DECOUPLING-001
+**Fixed btn_poll_task Stack Overflow via Asynchronous Event Dispatch Architecture**
+**Safe Point**: `SP-BTN-STACK-DECOUPLING-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis**:
+   - The user reported: `***ERROR*** A stack overflow in task btn_poll_task has been detected.` when pressing the Well Pump manual toggle button (Button 2 / GPIO 39).
+   - `btn_poll_task` was running with a 3,072-byte stack in internal RAM and was executing the entire synchronous call chain: `button_poll_task` $\to$ `button_hal_poll()` $\to$ `on_panel_button_event()` $\to$ `well_pump_toggle_physical()` $\to$ `well_pump_apply_relay()` $\to$ `actuator_hal_set_by_component_id()` $\to$ `event_mgr_log()` ($\approx 500$ B `system_event_t` struct on stack) $\to$ `telemetry_mgr_trigger_transition()` $\to$ multiple `ESP_LOGI` formatting calls.
+   - On the second transition trigger (`WELL_PUMP_PHYSICAL_ON`), the stack overflow canary was violated, triggering `vApplicationStackOverflowHook` and a panic reboot (`rst:0xc (RTC_SW_CPU_RST)`).
+2. **Architectural Decoupling**:
+   - Instead of simply bumping `btn_poll_task` stack size (which would consume scarce internal RAM where free internal heap is only $\approx 35$ KB), separated BUTTON INPUT from ACTUATOR EXECUTION.
+   - `esp32/main/services/panel_button_mgr.c`:
+     - Created FreeRTOS queue `s_panel_btn_queue` (16 items of 12-byte `panel_btn_event_t`).
+     - Spawned dedicated worker task `panel_btn_worker` with 4,096-byte stack in **PSRAM** via `psram_task_create_pinned` (zero internal DRAM stack cost).
+     - Reduced `on_panel_button_event()` to a non-blocking queue push (`xQueueSend(s_panel_btn_queue, &evt, 0)`), returning immediately to the 20ms polling loop.
+     - Moved actuator/safety execution and logging to `panel_btn_worker`.
+   - `esp32/main/hal/button_hal.c`:
+     - Added stack high-water mark logging upon button events and periodic heap/stack audits.
+   - `esp32/main/utils/psram_task.h`:
+     - Registered `panel_btn_worker` as verified safe PSRAM task.
+3. **Verification Results**:
+   - ESP-IDF build $\to$ PASS (`agrotech_esp32.bin` built cleanly).
+   - Pin audit test $\to$ PASS (100%).
+   - Flashed to physical ESP32-S3 on COM3 $\to$ PASS (1,616,320 bytes verified).
+   - Live hardware stack measurements:
+     - `btn_poll_task` stack high-water mark: `1072 B` free (healthy, zero overflow risk).
+     - `panel_btn_worker` stack: 4096 B in PSRAM (zero internal RAM allocated for stack).
+   - Live physical button testing:
+     - Well Pump toggled ON (`state: RUNNING`, `manualActive: true`, 900s runtime ceiling).
+     - Zero reboot, zero stack overflow, system uptime continuously advancing.
+
+---
+
+# AI HANDOVER — SP-RAW-WATER-PUMP-POLARITY-001 (previous)
 
 ## Status — SP-RAW-WATER-PUMP-POLARITY-001
 **Reconciled Raw Water Pump (GPIO 4) Active-HIGH MOSFET Runtime Polarity & Safe Default**
