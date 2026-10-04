@@ -1,4 +1,31 @@
-# AI HANDOVER — SP-PUMP-RELAY-STANDARDIZATION-001 (latest)
+# AI HANDOVER — SP-RAW-WATER-PUMP-POLARITY-001 (latest)
+
+## Status — SP-RAW-WATER-PUMP-POLARITY-001
+**Reconciled Raw Water Pump (GPIO 4) Active-HIGH MOSFET Runtime Polarity & Safe Default**
+**Safe Point**: `SP-RAW-WATER-PUMP-POLARITY-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause Analysis**:
+   - The user reported: *"raw water pump nyala terus. kayanya terbalik deh default nya"*.
+   - In a previous turn, an ad-hoc line was added to `resolve_active_level()` in `actuator_hal.c`:
+     `if (info->wiring.gpio == PIN_OUT_RAW_SUBMERSIBLE) return 0;` (forcing Active-LOW).
+   - Because GPIO 4 physically drives an N-Channel MOSFET Module (where Gate = 3.3V conducts/ON, and Gate = 0V isolates/OFF), forcing `active_level = 0` caused `actuator_hal_set_by_component_id` on state OFF (`false`) to drive `!active_level` = `!0` = `1` (3.3V / HIGH).
+   - As a result, during system standby and normal default/idle operation, GPIO 4 was held at 3.3V, causing the MOSFET to conduct and the raw water pump to run continuously.
+2. **Firmware Fix**:
+   - In `esp32/main/hal/actuator_hal.c`: Removed the erroneous Active-LOW override. Integrated `RAW_SUBMERSIBLE` and `PIN_OUT_RAW_SUBMERSIBLE` into the authoritative Active-HIGH MOSFET list (`MOSFET_ACTIVE_LEVEL = 1`).
+   - Now in standby/default: `!active_level` = `!1` = `0` (0V / LOW), keeping the MOSFET gate completely OFF and the pump safely stopped.
+3. **Verification**:
+   - ESP-IDF build $\to$ PASS (`agrotech_esp32.bin` built cleanly).
+   - `python scripts/test_m17_hardware_pin_audit.py` $\to$ PASS (100%).
+   - Flashed to physical ESP32-S3 on `COM3` at 460800 baud $\to$ Verified 100%.
+   - Live REST API verification on `http://192.168.0.101/api/v1/status`:
+     `pump_submersible` state = `false`, `rawSubmersible` = `false`, default physical output holds 0V (OFF).
+
+---
+
+# AI HANDOVER — SP-PUMP-RELAY-STANDARDIZATION-001 (previous)
 
 ## Status — SP-PUMP-RELAY-STANDARDIZATION-001
 **Reconciled & Standardized All Actuator Pin Mappings Across Firmware, UI & Canonical Docs**

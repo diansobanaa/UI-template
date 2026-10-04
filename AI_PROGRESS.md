@@ -1,3 +1,24 @@
+## SP-RAW-WATER-PUMP-POLARITY-001 — Reconciled Raw Water Pump (GPIO 4) Active-HIGH MOSFET Runtime Polarity
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Fix raw water pump running continuously when in default / idle / OFF state.
+  - Reconcile contradictory runtime active-level in `actuator_hal.c` to canonical Active-HIGH MOSFET specification.
+- **Root Cause**:
+  - In a previous turn, a localized line was added in `actuator_hal.c` forcing `resolve_active_level` to return `0` (Active-LOW) for `PIN_OUT_RAW_SUBMERSIBLE`.
+  - Because GPIO 4 physically controls an N-channel MOSFET module driving the 12V DC Raw Submersible Pump (Gate requires 3.3V to conduct/ON, 0V to isolate/OFF), setting `active_level = 0` caused `actuator_hal_set_by_component_id` on OFF (`false`) to calculate `!active_level` = `!0` = `1` (3.3V / HIGH).
+  - Consequently, whenever the pump was OFF (the normal default/idle state), GPIO 4 continuously output 3.3V, causing the MOSFET to conduct and the raw water pump to run constantly.
+- **Completed Work**:
+  - `esp32/main/hal/actuator_hal.c`:
+    - Removed erroneous `if (info->wiring.gpio == PIN_OUT_RAW_SUBMERSIBLE) return 0;` override.
+    - Added `RAW_SUBMERSIBLE`, `RAW_SUBMERSIBLE_PUMP_1`, and `PIN_OUT_RAW_SUBMERSIBLE` directly into the canonical Active-HIGH MOSFET normalization list alongside Dosing A/B, Cooling Fan, and Buzzer.
+    - Ensured `resolve_active_level()` consistently returns `MOSFET_ACTIVE_LEVEL` (`1` = Active-HIGH).
+- **Verification**:
+  - Python ESP-IDF build (`python scripts/run_idf.py build`): **PASS** (`agrotech_esp32.bin` generated, 0 errors).
+  - Pin audit test (`python scripts/test_m17_hardware_pin_audit.py`): **PASS** (100%).
+  - Live hardware flash (`python scripts/run_idf.py -p COM3 flash`): **PASS** (1,615,344 bytes written, verified, RTS reset complete).
+  - Live hardware query (`GET http://192.168.0.101/api/v1/status`): **PASS** (`pump_submersible` state = `false`, `rawSubmersible` = `false`, GPIO 4 holds 0V safe-OFF by default).
+
 ## SP-PUMP-RELAY-STANDARDIZATION-001 — Reconciled & Standardized All Actuator Pin Mappings Across Firmware, UI & Canonical Docs
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED (FIRMWARE BINARY BUILT & M17 PIN AUDIT PASSED)`

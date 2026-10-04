@@ -208,13 +208,15 @@ static esp_err_t resolve_configured_actuator(actuator_id_t id, hw_component_info
 static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fallback)
 {
     if (info) {
-        /* Physical hardware authority: Native MOSFET channels (GPIO 5, 6, 7, 18) are
+        /* Physical hardware authority: Native MOSFET channels (GPIO 4, 5, 6, 7, 18) are
          * physically N-channel MOSFET gate drivers and MUST operate Active-HIGH (1=ON, 0=OFF).
          * Even if legacy SPIFFS JSON or old config has ACTIVE_LOW, override to ACTIVE_HIGH
          * to prevent dangerous physical pump / fan / buzzer activation at boot. */
-        if (strcmp(info->role, "DOSING_A") == 0 || strcmp(info->role, "DOSING_B") == 0 ||
+        if (strcmp(info->role, "RAW_SUBMERSIBLE") == 0 || strcmp(info->role, "RAW_SUBMERSIBLE_PUMP_1") == 0 ||
+            strcmp(info->role, "DOSING_A") == 0 || strcmp(info->role, "DOSING_B") == 0 ||
             strcmp(info->role, "COOLING_FAN") == 0 || strcmp(info->role, "BUZZER") == 0 ||
             strcmp(info->role, "ALARM_BUZZER") == 0 ||
+            info->wiring.gpio == PIN_OUT_RAW_SUBMERSIBLE ||
             info->wiring.gpio == PIN_OUT_DOSING_A || info->wiring.gpio == PIN_OUT_DOSING_B ||
             info->wiring.gpio == PIN_OUT_COOLING_FAN || info->wiring.gpio == PIN_OUT_BUZZER) {
             return MOSFET_ACTIVE_LEVEL; /* 1 = Active-HIGH */
