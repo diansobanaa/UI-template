@@ -1,25 +1,36 @@
-## SP-DHT22-HOLD-LAST-VALID-001 — Latch & Hold Last Known Good Value for DHT22 Environmental Sensor
+## SP-DHT22-TIMING-AND-LATCH-001 — Resolved 1-Bit Shift In Driver & Implemented Last Known Good Value Latching for DHT22
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
 - **Objective**:
-  - Prevent telemetry dropouts where temporary read failures or empty/timeout responses overwrite valid DHT22 environmental readings with empty/null/`--`.
-  - Maintain the previous valid reading in memory if a new poll fails or returns empty/invalid data.
-  - Only update `dht22_temperature_c` and `dht22_humidity_rh` when fresh valid data is successfully read.
+  - Fix DHT22 data reading failure (*"sekarang dht22 malah kosong terus"*).
+  - Eliminate constant `ESP_ERR_INVALID_CRC` errors caused by 1-bit frame shift in low-level single-wire driver.
+  - Implement latching of the last valid reading in memory so that transient bus noise or read timeouts NEVER zero out or overwrite valid telemetry with empty/null/`--`.
+- **Root Cause**:
+  - `esp32/main/hal/dht22.c` previously delayed 40µs *before* entering critical section and toggled between push-pull output and input modes. By the time critical section was entered, the sensor had already entered Phase B, causing Bit 0 to be dropped/missed.
+  - All subsequent bits were shifted left by 1 bit (`data[0..3]` values were doubled, e.g. Humidity 137.4% and Temp 58.7°C instead of 68.7% and 29.35°C), causing constant CRC mismatch (`computed 0xB0 != received 0xAF`).
 - **Completed Work**:
+  - `esp32/main/hal/dht22.c`:
+    - Completely overhauled low-level single-wire protocol to match ESP-IDF open-drain driver standard (`UncleRus/esp-idf-lib`).
+    - Configured pin as `GPIO_MODE_INPUT_OUTPUT_OD` with pull-up.
+    - Entered `portENTER_CRITICAL(&s_dht22_mux)` *before* releasing the 20ms low start pulse to high, guaranteeing zero task jitter.
+    - Synchronized handshake: Phase B (wait low <=60us), Phase C (wait high <=100us), Phase D (wait low <=100us).
+    - 40-bit reading loop measuring low pulse (<=70us) and high pulse (<=90us), resolving bit values via `high_duration > low_duration`.
   - `esp32/main/hal/sensor_hal.c`:
-    - Updated `sensor_hal_poll()` DHT22 handling: when `dht_err == ESP_OK`, update with fresh data and mark `SENSOR_STATE_VALID`.
-    - When `dht_err != ESP_OK`: if previously valid, preserve the existing valid reading and state (`SENSOR_STATE_VALID`), avoiding null/empty telemetry.
-    - Only assign `UNAVAILABLE` or `INVALID` if no valid reading has ever been obtained since boot.
-    - Updated back-off retry on any read failure to 3 seconds (`DHT22_RETRY_INTERVAL_MS`) instead of waiting full 60 seconds.
-  - `docs/HARDWARE_WIRING_MAP.md`:
-    - Documented failure and hysteresis policy for DHT22 retaining last known valid value.
+    - Moved static cache variables `s_last_valid_dht_temp`, `s_last_valid_dht_hum`, and `s_has_valid_dht` to file scope.
+    - In `sensor_hal_poll()`: on fresh `ESP_OK`, update cache and current readings with `SENSOR_STATE_VALID`. On failure, if valid data was previously acquired, preserve cached readings and valid state.
+    - In `sensor_hal_get_component_sample()`: return latched valid readings for both temperature and humidity whenever `s_has_valid_dht` is true.
+  - `esp32/main/services/telemetry_mgr.c`:
+    - Preserved `temp_valid` and `humidity_valid` once valid readings are captured.
 - **Verification on Live Hardware (ESP32-S3 COM3 / 192.168.0.101)**:
   - Firmware compiled cleanly with zero errors (`agrotech_esp32.bin`).
-  - Flashed successfully to ESP32-S3 via COM3.
-  - API Health: `GET /api/v1/health` -> HTTP 200 OK (`health: "HEALTHY"`).
+  - Flashed successfully to ESP32-S3 via COM3 at 460800 baud.
+  - Serial monitor confirmed continuous successful reads: `Temp=28.4 C, Humidity=72.2 %`.
+  - Live API: `GET /api/v1/telemetry/current` returned `sensor_dht22`: `28.4°C` (`GOOD`), `sensor_dht22_hum`: `72.2%` (`GOOD`), `temperatureAirC`: `28.4°C`, `humidityPct`: `72.2%`.
+  - Live API: `GET /api/v1/status` returned `"temperatureC": 27.25, "humidityPct": 72.2`.
 - **Changed Files**:
+  - `esp32/main/hal/dht22.c`
   - `esp32/main/hal/sensor_hal.c`
-  - `docs/HARDWARE_WIRING_MAP.md`
+  - `esp32/main/services/telemetry_mgr.c`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
 

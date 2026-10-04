@@ -8,21 +8,21 @@
 
 static const char *TAG = "DHT22";
 
-/* DHT22-FIX: The previous "no critical section" approach caused DHT22 reads
- * to fail with ESP_ERR_TIMEOUT (Phase B) because FreeRTOS task scheduling
- * between the 20ms start signal and the data read phase disrupted the
- * microsecond-precision timing the DHT22 requires.
+/* DHT22 / AM2302 High-Precision Single-Wire Driver
+ * Timing specification:
+ * - Start signal: MCU pulls LOW for 20ms, then releases to HIGH.
+ * - Sensor response:
+ *   Phase B: DHT pulls signal LOW after 20-40us (detect response)
+ *   Phase C: DHT holds signal LOW for ~80us
+ *   Phase D: DHT lets signal float HIGH for ~80us
+ * - 40 Data Bits:
+ *   Each bit begins with 50us LOW.
+ *   Logic '0' is 26-28us HIGH.
+ *   Logic '1' is 70us HIGH.
  *
- * Solution: Use portENTER_CRITICAL ONLY for the ~5ms data read phase
- * (Phase B/C/D + 40-bit data). The 20ms start signal uses vTaskDelay
- * which is OUTSIDE the critical section (vTaskDelay inside critical
- * section is forbidden on FreeRTOS).
- *
- * This blocks ISRs on the calling core for ~5ms every 3 seconds. Flow
- * meter ISRs (ZJ-B1 GPIO 15, FS400A GPIO 16) may miss 1-2 pulses per
- * 3s cycle. At typical flow rates (5-25 L/min, ~6-30 pulses/sec), missing
- * 1-2 pulses per 3s is <1% error — acceptable for fertigation volume
- * measurement. The alternative (DHT22 not working at all) is worse.
+ * Critical Section:
+ * portENTER_CRITICAL is entered immediately BEFORE releasing the start signal to HIGH,
+ * guaranteeing zero task-scheduling jitter across the entire 40-bit transmission (~5ms total).
  */
 
 #define DHT_TIMER_INTERVAL 2
@@ -47,8 +47,7 @@ esp_err_t dht22_init(gpio_num_t gpio) {
     gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
     gpio_set_level(gpio, 1);
     ESP_LOGI(TAG,
-             "Initialized DHT22 pin on GPIO %d (Input/Output Open-Drain with "
-             "Pull-Up)",
+             "Initialized DHT22 pin on GPIO %d (Input/Output Open-Drain with Pull-Up)",
              gpio);
   }
   return err;
@@ -78,107 +77,54 @@ esp_err_t dht22_read(gpio_num_t gpio, float *out_temp_c,
   uint32_t low_duration = 0;
   uint32_t high_duration = 0;
 
-  int init_lvl = gpio_get_level(gpio);
-
-  /* 1. Host sends Start Signal: Pull line LOW for 20ms */
-  gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
+  /* 1. Host sends Start Signal: Pull line LOW for 20ms in Open-Drain mode */
+  gpio_set_direction(gpio, GPIO_MODE_INPUT_OUTPUT_OD);
   gpio_set_level(gpio, 0);
-  vTaskDelay(
-      pdMS_TO_TICKS(20)); // Yield to other FreeRTOS tasks during 20ms pulse
+  vTaskDelay(pdMS_TO_TICKS(20)); // Yield FreeRTOS during 20ms low pulse
 
-  /* Release the DATA line; DHT22 expects the host to stop driving HIGH and
-   * let the pull-up resistor return the line HIGH before the sensor response.
-   *
-   * DHT22-FIX: Enter critical section HERE — after vTaskDelay returns and
-   * before the microsecond-precision data phase begins. The critical section
-   * covers Phase B/C/D + 40-bit data read (~5ms total). This is REQUIRED
-   * because FreeRTOS task switching between vTaskDelay and the first
-   * gpio_get_level call causes DHT22 timing violation → no response.
-   *
-   * The 20ms start signal (vTaskDelay above) is OUTSIDE critical section
-   * because vTaskDelay inside portENTER_CRITICAL is forbidden on FreeRTOS.
-   */
-  gpio_set_direction(gpio, GPIO_MODE_INPUT);
-  gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
-
-  /* Small delay to let pull-up bring line HIGH before DHT22 responds */
-  esp_rom_delay_us(40);
-
+  /* 2. Enter critical section BEFORE releasing to HIGH to eliminate timing jitter */
   portENTER_CRITICAL(&s_dht22_mux);
 
-  /* 4. Sensor response:
-   * Phase B: DHT pulls LOW (wait up to 120us)
-   * Phase C: DHT pulls HIGH (wait up to 120us)
-   * Phase D: DHT pulls LOW (wait up to 120us, start of first data bit)
+  /* Release line to HIGH (open-drain pull-up) */
+  gpio_set_level(gpio, 1);
+
+  /* 3. Sensor Handshake:
+   * Phase B: MCU waits 20-40us for DHT to pull LOW
+   * Phase C: DHT holds LOW for ~80us
+   * Phase D: DHT holds HIGH for ~80us (ends when bit 0 LOW begins)
    */
-  if (dht_await_pin_state(gpio, 120, 0, NULL) != ESP_OK) {
+  if (dht_await_pin_state(gpio, 60, 0, NULL) != ESP_OK) {
     portEXIT_CRITICAL(&s_dht22_mux);
-    gpio_set_direction(gpio, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
-    ESP_LOGW(TAG, "DHT22 timeout Phase B (wait low). init_lvl=%d, cur_lvl=%d",
-             init_lvl, gpio_get_level(gpio));
+    gpio_set_level(gpio, 1);
+    ESP_LOGW(TAG, "DHT22 timeout Phase B (wait low). cur_lvl=%d", gpio_get_level(gpio));
     return ESP_ERR_TIMEOUT;
   }
-  if (dht_await_pin_state(gpio, 120, 1, NULL) != ESP_OK) {
+  if (dht_await_pin_state(gpio, 100, 1, NULL) != ESP_OK) {
     portEXIT_CRITICAL(&s_dht22_mux);
-    gpio_set_direction(gpio, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
-    ESP_LOGW(TAG, "DHT22 timeout Phase C (wait high). cur_lvl=%d",
-             gpio_get_level(gpio));
+    gpio_set_level(gpio, 1);
+    ESP_LOGW(TAG, "DHT22 timeout Phase C (wait high). cur_lvl=%d", gpio_get_level(gpio));
     return ESP_ERR_TIMEOUT;
   }
-  if (dht_await_pin_state(gpio, 120, 0, NULL) != ESP_OK) {
+  if (dht_await_pin_state(gpio, 100, 0, NULL) != ESP_OK) {
     portEXIT_CRITICAL(&s_dht22_mux);
-    gpio_set_direction(gpio, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
-    ESP_LOGW(TAG, "DHT22 timeout Phase D (wait data start). cur_lvl=%d",
-             gpio_get_level(gpio));
+    gpio_set_level(gpio, 1);
+    ESP_LOGW(TAG, "DHT22 timeout Phase D (wait data start). cur_lvl=%d", gpio_get_level(gpio));
     return ESP_ERR_TIMEOUT;
   }
 
-  /* 5. Read 40 data bits */
-  /* BIT39-FIX: some DHT22 sensor variants never drive the bus LOW after
-   * the final data bit -- they simply release it and the pull-up holds it
-   * HIGH. The previous code demanded a trailing HIGH->LOW edge for every
-   * bit including bit 39, so these sensors failed deterministically with
-   * "DHT22 timeout waiting for bit 39 high-to-low" even though all 40
-   * bits were actually received correctly (Phases B/C/D + bits 0..38 all
-   * passed, observed every ~4s on device a47b563-dirty).
-   *
-   * For the last bit only: if the trailing LOW never arrives, the HIGH
-   * pulse has already saturated the 100us measurement window, i.e.
-   * high_duration (>=100us) > low_duration (~50us), and the driver's own
-   * decision rule below yields bit = '1'. Accept it and let the checksum
-   * verification below remain the final arbiter of frame validity.
-   * Non-final bits keep the strict behavior: a missing edge mid-frame
-   * still means a broken frame and fails as before.
-   *
-   * NOTE: no ESP_LOG* may be called on this path -- we are still inside
-   * portENTER_CRITICAL (interrupts disabled) until after the bit loop,
-   * and ESP_LOG takes the stdout lock, which aborts the CPU. The notice
-   * is therefore deferred via bit39_saturated and logged after
-   * portEXIT_CRITICAL below.
-   */
-  bool bit39_saturated = false;
+  /* 4. Read 40 data bits */
   for (int i = 0; i < DHT_DATA_BITS; i++) {
-    if (dht_await_pin_state(gpio, 80, 1, &low_duration) != ESP_OK) {
+    if (dht_await_pin_state(gpio, 70, 1, &low_duration) != ESP_OK) {
       portEXIT_CRITICAL(&s_dht22_mux);
-      gpio_set_direction(gpio, GPIO_MODE_INPUT);
-      gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
+      gpio_set_level(gpio, 1);
       ESP_LOGW(TAG, "DHT22 timeout waiting for bit %d low-to-high", i);
       return ESP_ERR_TIMEOUT;
     }
-    bool is_last_bit = (i == DHT_DATA_BITS - 1);
-    if (dht_await_pin_state(gpio, 100, 0, &high_duration) != ESP_OK) {
-      if (!is_last_bit) {
-        portEXIT_CRITICAL(&s_dht22_mux);
-        gpio_set_direction(gpio, GPIO_MODE_INPUT);
-        gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
-        ESP_LOGW(TAG, "DHT22 timeout waiting for bit %d high-to-low", i);
-        return ESP_ERR_TIMEOUT;
-      }
-      bit39_saturated = true;
-      high_duration = 100; /* saturate: 100us > low_duration(~50us) -> '1' */
+    if (dht_await_pin_state(gpio, 90, 0, &high_duration) != ESP_OK) {
+      portEXIT_CRITICAL(&s_dht22_mux);
+      gpio_set_level(gpio, 1);
+      ESP_LOGW(TAG, "DHT22 timeout waiting for bit %d high-to-low", i);
+      return ESP_ERR_TIMEOUT;
     }
 
     uint8_t byte_idx = i / 8;
@@ -190,27 +136,15 @@ esp_err_t dht22_read(gpio_num_t gpio, float *out_temp_c,
 
   portEXIT_CRITICAL(&s_dht22_mux);
 
-  if (bit39_saturated) {
-    ESP_LOGD(TAG, "DHT22: bit39 saturated (sensor variant OK, checksum arbiter)");
-  }
-
-  /* Restore idle input with pull-up state */
-  gpio_set_direction(gpio, GPIO_MODE_INPUT);
-  gpio_set_pull_mode(gpio, GPIO_PULLUP_ONLY);
+  /* Restore idle open-drain HIGH state */
+  gpio_set_level(gpio, 1);
 
   /* 5. Verify Checksum: (byte0 + byte1 + byte2 + byte3) & 0xFF == byte4 */
   uint8_t checksum = (uint8_t)((data[0] + data[1] + data[2] + data[3]) & 0xFF);
   if (checksum != data[4]) {
-    /* bit39_saturated frames are a known noisy-variant artifact; downgrade to
-     * LOGD so they don't spam the monitor. Clean-frame CRC errors stay LOGW. */
-    if (bit39_saturated) {
-      ESP_LOGD(TAG, "DHT22 CRC err (bit39 variant): 0x%02X != 0x%02X", checksum, data[4]);
-    } else {
-      ESP_LOGW(TAG,
-               "DHT22 checksum error: computed 0x%02X != received 0x%02X (raw: "
-               "%02X %02X %02X %02X %02X)",
-               checksum, data[4], data[0], data[1], data[2], data[3], data[4]);
-    }
+    ESP_LOGW(TAG,
+             "DHT22 checksum error: computed 0x%02X != received 0x%02X (raw: %02X %02X %02X %02X %02X)",
+             checksum, data[4], data[0], data[1], data[2], data[3], data[4]);
     return ESP_ERR_INVALID_CRC;
   }
 
@@ -225,10 +159,9 @@ esp_err_t dht22_read(gpio_num_t gpio, float *out_temp_c,
     temp = -temp;
   }
 
-  /* 8. Range Validation (-40C to 80C, 0% to 100% RH; note: 0.0 is explicitly
-   * VALID) */
+  /* 8. Range Validation (-40C to 80C, 0% to 100% RH; note: 0.0 is explicitly VALID) */
   if (hum < 0.0f || hum > 100.0f || temp < -40.0f || temp > 80.0f) {
-    ESP_LOGD(TAG, "DHT22 range fail: temp=%.1fC, hum=%.1f%%", temp, hum);
+    ESP_LOGW(TAG, "DHT22 range fail: temp=%.1fC, hum=%.1f%%", temp, hum);
     return ESP_ERR_INVALID_RESPONSE;
   }
 

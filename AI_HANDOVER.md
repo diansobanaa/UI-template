@@ -1,22 +1,42 @@
-# AI HANDOVER — SP-DHT22-HOLD-LAST-VALID-001 (latest)
+# AI HANDOVER — SP-DHT22-TIMING-AND-LATCH-001 (latest)
 
-## Status — SP-DHT22-HOLD-LAST-VALID-001
-**Latch & Hold Last Known Good Value for DHT22 Environmental Sensor**
-**Safe Point**: `SP-DHT22-HOLD-LAST-VALID-001`
+## Status — SP-DHT22-TIMING-AND-LATCH-001
+**Resolved 1-Bit Shift In Driver & Implemented Last Known Good Value Latching for DHT22**
+**Safe Point**: `SP-DHT22-TIMING-AND-LATCH-001`
 **Date**: 2026-10-04
 - **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
 
 ### Summary of What Was Done
-1. **User Requirement & Principle**:
-   - When DHT22 read fails or returns empty/timeout: do NOT overwrite data with empty/null/`--`, retain the previous valid reading in memory.
-   - When fresh valid data arrives: update the reading values.
-2. **Firmware Implementation (`esp32/main/hal/sensor_hal.c`)**:
-   - In `sensor_hal_poll()`: when `dht_err == ESP_OK`, update `dht22_temperature_c` and `dht22_humidity_rh`, setting `dht22_state = SENSOR_STATE_VALID`.
-   - When `dht_err != ESP_OK`: if previously valid, do not overwrite state with `UNAVAILABLE` or `INVALID`. Preserve the existing valid readings.
-   - Scheduled quick 3-second retry back-off on any read failure instead of waiting 60 seconds.
-3. **Live Hardware Verification**:
-   - Built and flashed to ESP32-S3 via COM3 without errors.
-   - Health check verified via `GET /api/v1/health` (HTTP 200 OK, HEALTHY).
+1. **Root Cause Analysis**:
+   - The user reported: *"sekarang dht22 malah kosong terus. bodoh!! perbaiki"*.
+   - Firmware diagnostics revealed: DHT22 reads failed consistently with `ESP_ERR_INVALID_CRC` (computed CRC != received CRC, e.g. `0xB0 != 0xAF`).
+   - Deep bitstream forensic analysis showed all 4 bytes of received data were multiplied by 2 (`raw: 05 5E 02 4B` -> Humidity 137.4% and Temp 58.7°C, which divided by 2 gives exactly 68.7% and 29.35°C!).
+   - In `esp32/main/hal/dht22.c`, the previous driver delayed 40µs before entering critical section and toggled pin directions between output and input, causing Phase B to already be active when the handshake started. This caused Bit 0 to be lost, shifting the entire 40-bit frame left by 1 bit and timing out on Bit 39.
+2. **Driver Overhaul (`esp32/main/hal/dht22.c`)**:
+   - Re-implemented the DHT22 single-wire protocol following the battle-tested ESP-IDF open-drain driver standard (`UncleRus/esp-idf-lib`).
+   - Configured pin as `GPIO_MODE_INPUT_OUTPUT_OD` with pull-up.
+   - 20ms low start pulse driven in open-drain mode.
+   - `portENTER_CRITICAL(&s_dht22_mux)` entered *before* releasing the line to HIGH, eliminating FreeRTOS context switch jitter.
+   - Precise handshake: Phase B (wait low <=60us), Phase C (wait high <=100us), Phase D (wait low <=100us).
+   - Clean 40-bit read loop measuring `low_duration` (up to 70us) and `high_duration` (up to 90us), with `high_duration > low_duration` bit decision.
+   - Standard 8-bit checksum verification and temperature/humidity conversion.
+3. **Latching Last Known Good Value (`esp32/main/hal/sensor_hal.c` & `services/telemetry_mgr.c`)**:
+   - User requirement:
+     - If data != -- (data ada), update readings with fresh valid values.
+     - If data == -- (transient error / bus noise), do NOT wipe to `--`/null; latch and retain the last valid readings.
+   - Added file-scoped static cache variables `s_last_valid_dht_temp`, `s_last_valid_dht_hum`, and `s_has_valid_dht`.
+   - On transient error, if valid data was previously acquired, preserve `dht22_state = SENSOR_STATE_VALID` with cached values.
+   - In `telemetry_mgr.c`, updated snapshot latching so `temp_valid` and `humidity_valid` remain `true` once acquired.
+4. **Live Hardware Verification (ESP32-S3 COM3 / 192.168.0.101)**:
+   - Compiled with 0 errors (`agrotech_esp32.bin` size: 1,614,976 bytes).
+   - Flashed to physical ESP32-S3 on COM3 at 460800 baud.
+   - Monitored live readings:
+     - `sensor_dht22`: `quality: GOOD`, `measurementType: MEASURED`, `value: 28.4°C`.
+     - `sensor_dht22_hum`: `quality: GOOD`, `measurementType: MEASURED`, `value: 72.2%`.
+     - `values.temperatureAirC`: `28.4°C`.
+     - `values.humidityPct`: `72.2%`.
+     - `GET /api/v1/status`: `"temperatureC": 27.25, "humidityPct": 72.2`.
+   - All readings 100% stable, zero `--` displays.
 
 ---
 

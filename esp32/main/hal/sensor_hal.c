@@ -50,6 +50,11 @@ static int64_t s_last_flow_calc_us = 0;
 static sensor_readings_t s_current_readings = {0};
 static SemaphoreHandle_t s_sensor_lock = NULL;
 
+/* Cached last valid readings for DHT22 to latch through transient failures */
+static float s_last_valid_dht_temp = 0.0f;
+static float s_last_valid_dht_hum = 0.0f;
+static bool s_has_valid_dht = false;
+
 #define MAX_GENERIC_SENSOR_SAMPLES 32
 #define MAX_GENERIC_FLOW_SENSORS 8
 
@@ -720,7 +725,7 @@ esp_err_t sensor_hal_poll(void) {
       } else {
         /* On any read error/transient/timeout: schedule quick retry in 3 seconds instead of waiting full 60s */
         s_last_dht22_poll_ms = dht_now_ms - (DHT22_POLL_INTERVAL_MS - DHT22_RETRY_INTERVAL_MS);
-        ESP_LOGD(TAG, "DHT22 read attempt on GPIO %d: err=%d (%s) -> retrying in %d ms", dht_gpio,
+        ESP_LOGW(TAG, "DHT22 read attempt on GPIO %d: err=%d (%s) -> retrying in %d ms", dht_gpio,
                  dht_err, esp_err_to_name(dht_err), (int)DHT22_RETRY_INTERVAL_MS);
       }
     } else {
@@ -737,12 +742,19 @@ esp_err_t sensor_hal_poll(void) {
    * Hanya jika belum pernah ada data sejak boot, beri status UNAVAILABLE/INVALID. */
   if (should_poll_dht22) {
     if (dht_err == ESP_OK) {
+      s_last_valid_dht_temp = dht_temp;
+      s_last_valid_dht_hum = dht_hum;
+      s_has_valid_dht = true;
       s_current_readings.dht22_temperature_c = dht_temp;
       s_current_readings.dht22_humidity_rh = dht_hum;
       s_current_readings.dht22_state = SENSOR_STATE_VALID;
     } else {
       /* Biarkan data lama tetap tersimpan jika sudah pernah valid */
-      if (s_current_readings.dht22_state != SENSOR_STATE_VALID) {
+      if (s_has_valid_dht) {
+        s_current_readings.dht22_temperature_c = s_last_valid_dht_temp;
+        s_current_readings.dht22_humidity_rh = s_last_valid_dht_hum;
+        s_current_readings.dht22_state = SENSOR_STATE_VALID;
+      } else if (s_current_readings.dht22_state != SENSOR_STATE_VALID) {
         if (dht_err == ESP_ERR_TIMEOUT) {
           s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
         } else {
@@ -1144,13 +1156,14 @@ sensor_hal_get_component_sample(const char *sensor_id,
     if (strcasestr(info.supported_type_id, "dht22") ||
         strcasestr(info.role, "ENVIRONMENT") ||
         strcasestr(sensor_id, "dht22")) {
-      if (readings.dht22_state != SENSOR_STATE_VALID) {
-        out_sample->state = readings.dht22_state;
+      if (readings.dht22_state == SENSOR_STATE_VALID || s_has_valid_dht) {
+        out_sample->value = s_has_valid_dht ? s_last_valid_dht_temp : readings.dht22_temperature_c;
+        out_sample->has_value = true;
+        out_sample->state = SENSOR_STATE_VALID;
         return ESP_OK;
       }
-      out_sample->value = readings.dht22_temperature_c;
-      out_sample->has_value = true;
-      out_sample->state = SENSOR_STATE_VALID;
+      out_sample->state = readings.dht22_state;
+      return ESP_OK;
     } else {
       if (readings.temp_state != SENSOR_STATE_VALID) {
         out_sample->state = readings.temp_state;
@@ -1162,13 +1175,14 @@ sensor_hal_get_component_sample(const char *sensor_id,
     }
     break;
   case SENSOR_TYPE_HUMIDITY:
-    if (readings.dht22_state != SENSOR_STATE_VALID) {
-      out_sample->state = readings.dht22_state;
+    if (readings.dht22_state == SENSOR_STATE_VALID || s_has_valid_dht) {
+      out_sample->value = s_has_valid_dht ? s_last_valid_dht_hum : readings.dht22_humidity_rh;
+      out_sample->has_value = true;
+      out_sample->state = SENSOR_STATE_VALID;
       return ESP_OK;
     }
-    out_sample->value = readings.dht22_humidity_rh;
-    out_sample->has_value = true;
-    out_sample->state = SENSOR_STATE_VALID;
+    out_sample->state = readings.dht22_state;
+    return ESP_OK;
     break;
   case SENSOR_TYPE_FLOW:
     if (strcasestr(info.role, "RAW") || strcasestr(info.name, "RAW")) {

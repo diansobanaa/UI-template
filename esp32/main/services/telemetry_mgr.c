@@ -609,16 +609,14 @@ static void telemetry_sampler_task(void *pvParameters)
         s_snapshot.temp_water_valid = (sensors.temp_state == SENSOR_STATE_VALID);
         s_snapshot.temperature_water_c = sensors.temperature_c;
 
-        /* Air temperature & Humidity from DHT22 */
+        /* Air temperature & Humidity from DHT22: Latch last valid reading */
         if (sensors.dht22_state == SENSOR_STATE_VALID) {
             s_snapshot.temperature_c = sensors.dht22_temperature_c;
             s_snapshot.temp_valid = true;
             s_snapshot.humidity_pct = sensors.dht22_humidity_rh;
             s_snapshot.humidity_valid = true;
-        } else {
-            /* DHT22 not available: air temperature and humidity are both unavailable.
-             * Do NOT fall back to DS18B20 (water temperature) for temperatureAirC.
-             * temperatureWaterC is served independently from temperature_water_c. */
+        } else if (!s_snapshot.temp_valid) {
+            /* Only set invalid if we have never acquired a valid reading yet */
             s_snapshot.humidity_valid = false;
             s_snapshot.temp_valid = false;
         }
