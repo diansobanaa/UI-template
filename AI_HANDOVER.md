@@ -1,4 +1,47 @@
-# AI HANDOVER — SP-DHT22-TIMING-AND-LATCH-001 (latest)
+# AI HANDOVER — SP-PUMP-RELAY-STANDARDIZATION-001 (latest)
+
+## Status — SP-PUMP-RELAY-STANDARDIZATION-001
+**Reconciled & Standardized All Actuator Pin Mappings Across Firmware, UI & Canonical Docs**
+**Safe Point**: `SP-PUMP-RELAY-STANDARDIZATION-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED (FIRMWARE BINARY BUILT & M17 PIN AUDIT PASSED)`
+
+### Final Canonical Hardware Mapping
+| Output Channel | Device / Operational Role | Driver Type | ESP32 GPIO | Logic Level | Switched Load |
+|---|---|---|---|---|---|
+| **Relay Channel 1 (IN1)** | Well Pump | 4-Ch Relay Board | **GPIO 1** | Active-LOW (0=ON, 1=OFF) | 220V AC Deep Well Pump (Series Radar Switch, Max 15m) |
+| **Relay Channel 2 (IN2)** | Distribution Pump | 4-Ch Relay Board | **GPIO 2** | Active-LOW (0=ON, 1=OFF) | 220V AC Fertigation Booster Pump GH-1 (Float Gated) |
+| **Relay Channel 3 (IN3)** | Blower Fans | 4-Ch Relay Board | **GPIO 10** | Active-LOW (0=ON, 1=OFF) | 220V AC Greenhouse Dual Circulation Blowers via Contactor |
+| **Relay Channel 4 (IN4)** | Mixing Pond Pumps | 4-Ch Relay Board | **GPIO 40** | Active-LOW (0=ON, 1=OFF) | 220V AC Mixing & Homogenization Pond Pump |
+| **MOSFET Output 1** | Raw Submersible Pump 1 | N-Ch MOSFET Module #1 | **GPIO 4** | Active-HIGH (1=ON, 0=OFF) | 12V DC Raw Water Submersible Pump |
+| **MOSFET Output 2** | Dosing Pump A (Nutrient) | N-Ch MOSFET Module #2 | **GPIO 5** | Active-HIGH (1=ON, 0=OFF) | 12V DC Peristaltic Nutrient Dosing Pump A |
+| **MOSFET Output 3** | Dosing Pump B (pH/Buffer)| N-Ch MOSFET Module #3 | **GPIO 6** | Active-HIGH (1=ON, 0=OFF) | 12V DC Peristaltic Acid/Buffer Dosing Pump B |
+| **MOSFET Output 4** | Cabinet Cooling Fan | N-Ch MOSFET Module #4 | **GPIO 7** | Active-HIGH (1=ON, 0=OFF) | 12V DC Cabinet Ventilation Exhaust Fan |
+| **MOSFET Output 5** | Active Alarm Buzzer | N-Ch MOSFET Module #5 | **GPIO 18** | Active-HIGH (1=ON, 0=OFF) | 5V DC Acoustic Alarm Annunciator (~30mA isolated) |
+
+### Summary of What Was Done
+1. **Reconciliation & Alignment**:
+   - Reconciled historical contradictions between documentation and code where separate "Omron Relay #1/#2" modules were claimed and Relay IN2 was left unmapped/spare.
+   - Standardized 4-Channel Relay Board channels 1–4 to the 4 high-voltage AC loads: Well Pump (GPIO 1), Distribution Pump (GPIO 2), Blower Fans Contactor (GPIO 10), and Mixing Pond Pumps (GPIO 40).
+   - Reconciled the 12V DC Raw Submersible Pump to dedicated N-channel MOSFET Module #1 on GPIO 4 with Active-HIGH logic (`1` = ON, `0` = OFF, safe boot default = LOW).
+2. **Firmware Updates**:
+   - `esp32/main/config/pin_config.h`: Added `PIN_RELAY_CH1..CH4` macros, updated polarities (`RELAY_ACTIVE_LEVEL 0`, `MOSFET_ACTIVE_LEVEL 1`), linked all semantic macros.
+   - `esp32/main/hal/actuator_hal.c`: Updated `RAW_SUBMERSIBLE` descriptor active level to Active-HIGH; added aliases `RAW_SUBMERSIBLE_PUMP_1`, `RAW_SUBMERSIBLE_PUMP`, `MIXING_POND_PUMPS`, `MIXING_POND_PUMP`.
+   - `esp32/main/hal/hardware_registry.c`: Updated alias resolution and polarity fallback normalization for `RAW_SUBMERSIBLE`.
+   - `esp32/main/main.c`: Included all 9 mapped actuator channels in `safe_boot_actuators()`, locking them safe-off at boot.
+3. **UI / Data Layer Updates**:
+   - `src/lib/data/gpioPinMap.ts`: Updated GPIO 1 (Relay Ch 1 Well Pump), GPIO 2 (Relay Ch 2 Dist Pump), GPIO 4 (MOSFET Ch 1 Raw Submersible), GPIO 10 (Relay Ch 3 Blower Contactor), GPIO 40 (Relay Ch 4 Mixing Pond Pumps).
+   - `src/lib/data/canonicalHardwareBaseline.ts`: Updated `pump_submersible` polarity to `ACTIVE_HIGH`.
+4. **Canonical Documentation Alignment**:
+   - Updated `HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `HARDWARE_INVENTORY.md`, `ESP32_GPIO_PIN_MAP.md`, `ESP32_ASSEMBLY_GUIDE.md`, `POWER_MAP.md`, `HARDWARE_WIRING_CHECKLIST.md`, `ESP32_PERIPHERAL_VISUAL_MAP.md`, `MIXING_FERTIGATION_OPERATIONAL_MODEL.md`.
+5. **Verification**:
+   - `python scripts/test_m17_hardware_pin_audit.py` $\to$ **PASS** (W-01..W-29 parsed, 9-actuator safe boot verified, canonical pin policy verified).
+   - `npx tsc --noEmit` $\to$ **PASS** (0 errors).
+   - ESP-IDF build $\to$ **PASS** (`agrotech_esp32.bin` built cleanly).
+
+---
+
+# AI HANDOVER — SP-DHT22-TIMING-AND-LATCH-001 (previous)
 
 ## Status — SP-DHT22-TIMING-AND-LATCH-001
 **Resolved 1-Bit Shift In Driver & Implemented Last Known Good Value Latching for DHT22**

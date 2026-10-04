@@ -29,15 +29,15 @@
 | ID | ESP32 Pin | Header Pin | Component | Component Pin | Wire / Interface | Power Domain | Purpose | Direction | Active Level | Electrical / Interface Notes | Verification Status |
 |:---:|:---:|:---:|:---|:---:|:---|:---:|:---|:---:|:---:|:---|:---:|
 | **W-01** | **GPIO 0** | Right-14 | Mode Push Button | Pin 1 | Stranded Wire | 3.3V Logic | TFT Display Screen Switch (cycles screens) | Input | Active-LOW (0=Push) | Onboard BOOT button / Ext NO switch. Must be HIGH at boot. | **ACCEPTABLE CAVEAT** |
-| **W-02** | **GPIO 1** | Right-4 | Omron Relay #1 | Logic In / Driver | Digital Control | 3.3V Logic | Deep Well AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
-| **W-03** | **GPIO 2** | Right-5 | Omron Relay #2 | Logic In / Driver | Digital Control | 3.3V Logic | Dist Booster AC Pump Contactor Trigger | Output | Active-LOW (0=Run) | Triggers intermediate driver for Omron 220V AC relay. | **VERIFIED SAFE** |
-| **W-04** | **GPIO 4** | Left-4 | 4-Ch Relay Board | **IN1** | Digital Control | 5V Logic | Raw Water Submersible Pump Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 12V DC load on relay COM1/NO1. | **VERIFIED SAFE** |
+| **W-02** | **GPIO 1** | Right-4 | 4-Ch Relay Board | **IN1 (Relay Ch 1)** | Digital Control | 5V Logic | Well Pump AC Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 1 triggers 220V AC Deep Well Pump contactor/circuit. Clamped to 15-min max manual runtime. | **VERIFIED SAFE** |
+| **W-03** | **GPIO 2** | Right-5 | 4-Ch Relay Board | **IN2 (Relay Ch 2)** | Digital Control | 5V Logic | Dist Booster AC Pump Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 2 triggers 220V AC Fertigation Booster Pump GH-1. Gated by Lower Float switch. | **VERIFIED SAFE** |
+| **W-04** | **GPIO 4** | Left-4 | MOSFET Module (Raw Pump 1) | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Raw Submersible Pump 1 Trigger (12V DC) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC submersible pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC brushless fan via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
-| **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Drives Relay IN3 triggering external Omron relay / contactor for 2x 220V AC blower fans. | **VERIFIED SAFE** |
+| **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3 (Relay Ch 3)** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 3 triggers external contactor for 2x 220V AC greenhouse blower fans. | **VERIFIED SAFE** |
 | **W-11** | **GPIO 11** | Left-17 | TFT Display & MicroSD | **SCK / MICROSD_SCK** | Shared SPI Clock | 3.3V Logic | Master SPI Clock (SPI2_HOST) | Output | Mode 0 (Rising) | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
 | **W-12** | **GPIO 12** | Left-18 | TFT Display & MicroSD | **MOSI / MICROSD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
 | **W-13** | **GPIO 13** | Left-19 | MicroSD Card Module | **MICROSD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from MicroSD) | Input | Serial Data | Dedicated return line from MicroSD Card Module (EasyWare EP000094). | **UNVERIFIED** |
@@ -49,7 +49,7 @@
 | **W-19** | **GPIO 21** | Right-18 | TFT ST7735 Display| **A0 (DC)** | Control Line | 3.3V Logic | Display Command / Data Selector | Output | High=Data, Low=Cmd | Dedicated control line for ST7735. | **VERIFIED** |
 | **W-20** | **GPIO 38** | Right-10 | Lower Float Switch | Terminal A | Dry Contact | 3.3V Logic | **MANDATORY SAFETY DRY-RUN INTERLOCK** | Input | Active-LOW (0=DRY) | Internal pull-up to 3.3V. Dedicated clean safety pin. | **VERIFIED SAFE (SAFETY)**|
 | **W-21** | **GPIO 39** | Right-9 | Manual A Button | Pin 1 | Stranded Wire | 3.3V Logic | Manual Well Pump 5-Min Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. State 1: ON + 5-min timer; State 2: Immediate OFF. Dry-run interlocked. | **VERIFIED SAFE** |
-| **W-22** | **GPIO 40** | Right-8 | 4-Ch Relay Board | **IN4** | Digital Control | 5V Logic | Mixing Pump (220V AC Pond Pump) | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 220V AC load on relay COM4/NO4. | **VERIFIED SAFE** |
+| **W-22** | **GPIO 40** | Right-8 | 4-Ch Relay Board | **IN4 (Relay Ch 4)** | Digital Control | 5V Logic | Mixing Pond Pumps (220V AC Pond Pump) | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 220V AC load on relay COM4/NO4 for nutrient mixing/circulation. | **VERIFIED SAFE** |
 | **W-23** | **GPIO 41** | Right-7 | Sensor DHT22 / AM2302| **DATA** | Digital Single-Wire | 3.3V–5V Logic | Greenhouse Ambient Temp & Humidity Data | Bi-directional (In) | Single-Wire Bus | Measures ambient temperature (-40°C to +80°C) and RH (0–100%). Non-blocking 3s sample cadence. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
 | **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
@@ -256,41 +256,31 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 > Every control line must follow a verified three-tier chain:
 > `ESP32 GPIO` $\longrightarrow$ `Driver / Optocoupler` $\longrightarrow$ `Power Load Switching`
 
-### 4.1. High-Voltage Mains 220V AC Pumps (Well Pump & Distribution Booster)
-* **Well Pump AC:** GPIO 1 $\longrightarrow$ Intermediate Driver $\longrightarrow$ Omron Heavy-Duty Relay #1 $\longrightarrow$ [Series 220V Radar Tank-Full Switch] $\longrightarrow$ 220V AC Deep Well Pump (Max manual ON clamped to 15 minutes by firmware)
-* **Distribution Booster AC:** GPIO 2 $\longrightarrow$ Intermediate Driver $\longrightarrow$ Omron Heavy-Duty Relay #2 $\longrightarrow$ 220V AC Fertigation Booster Pump GH-1
+### 4.0. Canonical Actuator Summary Table
 
-```text
-ESP32 GPIO 1 / 2 (Active-LOW)
-      │
-      ▼
-┌───────────────────────────┐
-│ Intermediate Driver Stage │
-│ (Transistor / Opto Buffer)│
-└─────────────┬─────────────┘
-              │ Coil Energize (5V/12V)
-              ▼
-┌───────────────────────────>       220V AC Live (L) from MCB
-│  Omron Heavy-Duty Relay   │ ────────────────┐
-│  (Air-Gap 250VAC Contacts)│                 ▼
-└─────────────┬─────────────┘         ┌───────────────┐
-              └──────────────────────►│  COM     NO   ├───► [220V Radar Float Switch (Series Interlock)] ──► 220V AC Pump Motor Live
-                                      └───────┬───────┘
-                                              │
-220V AC Neutral (N) ──────────────────────────┴─────────────────────────────────────────────────────────────► Pump Motor Neutral
-AC Protective Earth (PE) ───────────────────────────────────────────────────────────────────────────────────► Metal Motor Chassis
-```
+| Output | Device | Type | GPIO | Logic Level | Switched Power Load |
+|---|---|---|---|---|---|
+| **Relay 1 (IN1)** | Well Pump | Relay | **GPIO 1** | Active-LOW (0=ON) | 220V AC Deep Well Pump (Series Radar Switch, Max 15m) |
+| **Relay 2 (IN2)** | Distribution Pump | Relay | **GPIO 2** | Active-LOW (0=ON) | 220V AC Fertigation Booster Pump GH-1 (Float Gated) |
+| **Relay 3 (IN3)** | Blower Fans | Relay | **GPIO 10** | Active-LOW (0=ON) | 220V AC Greenhouse Dual Circulation Blowers via Contactor |
+| **Relay 4 (IN4)** | Mixing Pond Pumps | Relay | **GPIO 40** | Active-LOW (0=ON) | 220V AC Mixing & Homogenization Pond Pump |
+| **MOSFET 1** | Raw Submersible Pump 1 | MOSFET | **GPIO 4** | Active-HIGH (1=ON) | 12V DC Raw Water Submersible Pump |
+| **MOSFET 2** | Dosing Pump A | MOSFET | **GPIO 5** | Active-HIGH (1=ON) | 12V DC Peristaltic Nutrient Dosing Pump A |
+| **MOSFET 3** | Dosing Pump B | MOSFET | **GPIO 6** | Active-HIGH (1=ON) | 12V DC Peristaltic Acid/Buffer Dosing Pump B |
+| **MOSFET 4** | Cabinet Cooling Fan | MOSFET | **GPIO 7** | Active-HIGH (1=ON) | 12V DC Cabinet Ventilation Exhaust Fan |
+| **MOSFET 5** | Active Alarm Buzzer | MOSFET | **GPIO 18** | Active-HIGH (1=ON) | 5V DC Acoustic Alarm Annunciator (~30mA isolated) |
 
 ---
 
-### 4.2. Loads via 4-Channel Optocoupled Relay Board
-* **Channel 1 (GPIO 4):** 12V DC Raw Water Submersible Pump (Relay IN1)
-* **Channel 2:** SPARE / UNCONNECTED (Relay IN2 is not wired to ESP32; Buzzer is driven by dedicated MOSFET Module #4)
-* **Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans via 4-Ch Relay IN3 triggering external Omron Relay / Contactor
-* **Channel 4 (GPIO 40):** 220V AC Pond Pump for Mixing Tank (Relay IN4)
+### 4.1. Loads via 4-Channel Optocoupled Relay Board
+The 4-Channel 5V Optocoupled Relay Board provides direct galvanic isolation for the four high-voltage and contactor loads:
+* **Relay Channel 1 (GPIO 1):** 220V AC Deep Well Pump (Relay IN1) $\longrightarrow$ Series 220V Radar Tank-Full Switch $\longrightarrow$ 220V AC Well Motor Live (clamped to 15-min max manual ON)
+* **Relay Channel 2 (GPIO 2):** 220V AC Distribution Booster Pump GH-1 (Relay IN2) $\longrightarrow$ 220V AC Booster Motor Live (software interlocked by Lower Float)
+* **Relay Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans (Relay IN3) $\longrightarrow$ Coil A1/A2 of Magnetic Contactor $\longrightarrow$ 2x 220V AC Blower Fans
+* **Relay Channel 4 (GPIO 40):** 220V AC Mixing Pond Pump (Relay IN4) $\longrightarrow$ 220V AC Pond Pump Motor Live
 
 ```text
-ESP32 GPIO 4 / 10 / 40 (Active-LOW: 0V = ON)
+ESP32 GPIO 1 / 2 / 10 / 40 (Active-LOW: 0V = ON)
       │ (Sinks optocoupler cathode)
       ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -298,30 +288,34 @@ ESP32 GPIO 4 / 10 / 40 (Active-LOW: 0V = ON)
 │                                                             │
 │   +5V Rail ───────► VCC  ──[ Jumper ]──► JD-VCC (Coil 5V)   │
 │   ESP32 GND ──────► GND (Common ground with ESP32)          │
-│   ESP32 GPIO ─────► INx (Optocoupler input: IN1, IN3, IN4)  │
+│   ESP32 GPIO ─────► IN1 (GPIO 1  - Well Pump)               │
+│   ESP32 GPIO ─────► IN2 (GPIO 2  - Dist Pump)               │
+│   ESP32 GPIO ─────► IN3 (GPIO 10 - Blower Fans Contactor)   │
+│   ESP32 GPIO ─────► IN4 (GPIO 40 - Mixing Pond Pump)        │
 └──────────────────────────────┬──────────────────────────────┘
                                │ Mechanical Contact Closure
                                ▼
                         ┌──────────────┐
-12V/220V Source ────────┤ COMx    NOx  ├───► Actuator Positive / Live
+220V AC Live Source ────┤ COMx    NOx  ├───► Actuator Live / Contactor Coil A1
                         └──────────────┘
-                                             Actuator Return / Neutral
-Return Conductor ───────────────────────────────────────────────────
+                                             Actuator Neutral / Return
+220V AC Neutral ─────────────────────────────────────────────────────────────
 ```
 
 ---
 
-### 4.3. DC Loads via 4x N-Channel MOSFET Driver Modules
-* **MOSFET #1 (GPIO 5):** 12V DC Peristaltic Dosing Pump A (Nutrient)
-* **MOSFET #2 (GPIO 6):** 12V DC Peristaltic Dosing Pump B (pH/Buffer)
-* **MOSFET #3 (GPIO 7):** 12V DC Cabinet Cooling Fan
-* **MOSFET #4 (GPIO 18):** 5V DC Active Alarm Buzzer (~30mA load safely driven via MOSFET gate stage)
-* *Note: Physical trigger terminals verified by operator: TRIG-PWM (Signal) and GND (Ground return).*
+### 4.2. DC Loads via High-Power N-Channel MOSFET Driver Modules
+* **MOSFET #1 (GPIO 4):** 12V DC Raw Submersible Pump 1 (`RAW_SUBMERSIBLE_PUMP_1` / `pump_submersible`)
+* **MOSFET #2 (GPIO 5):** 12V DC Peristaltic Dosing Pump A (Nutrient)
+* **MOSFET #3 (GPIO 6):** 12V DC Peristaltic Dosing Pump B (pH/Buffer)
+* **MOSFET #4 (GPIO 7):** 12V DC Cabinet Cooling Fan
+* **MOSFET #5 (GPIO 18):** 5V DC Active Alarm Buzzer (~30mA load safely driven via MOSFET gate stage)
+* *Note: Physical trigger terminals verified by operator: TRIG-PWM (Signal) and GND (Ground return). Active-HIGH (1=3.3V=ON, 0=0V=OFF).*
 
 ```text
-ESP32 GPIO 5 / 6 / 7 / 18     ESP32 Signal GND
-      │                              │
-      ▼                              ▼
+ESP32 GPIO 4 / 5 / 6 / 7 / 18     ESP32 Signal GND
+      │                                  │
+      ▼                                  ▼
 ┌────────────────────────────────────────────────────────┐
 │ High-Power MOSFET Module (15A / 400W)                  │
 │                                                        │
@@ -369,15 +363,15 @@ Switched Return (-) from OUT- ────────────────�
 | Connection ID | Signal Source | Destination Pin | Conflict Assessment | Electrical Consideration | Firmware Support | Verification Status |
 |:---:|:---|:---|:---|:---|:---|:---:|
 | **W-01** | Mode Button (TFT Switch) | ESP32 GPIO 0 | No conflict. Boot strap caveat. | Pull-up onboard; must be open during reset. Cycles ST7735 screen. | `PIN_BTN_MODE = 0` | **ACCEPTABLE CAVEAT** |
-| **W-02** | Omron Relay #1 | ESP32 GPIO 1 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_WELL_PUMP = 1` | **VERIFIED SAFE** |
-| **W-03** | Omron Relay #2 | ESP32 GPIO 2 | No conflict. Clean digital pin. | Active-LOW driver buffer required for 220V AC. | `PIN_OUT_DIST_PUMP = 2` | **VERIFIED SAFE** |
-| **W-04** | 4-Ch Relay IN1 | ESP32 GPIO 4 | No conflict. Clean digital pin. | Optocoupled 5V coil. Active-LOW logic. | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
-| **W-05** | MOSFET #1 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. | `PIN_OUT_DOSING_A = 5` | **VERIFIED SAFE** |
-| **W-06** | MOSFET #2 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. | `PIN_OUT_DOSING_B = 6` | **VERIFIED SAFE** |
-| **W-07** | MOSFET #3 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. | `PIN_OUT_COOLING_FAN = 7` | **VERIFIED SAFE** |
+| **W-02** | 4-Ch Relay IN1 | ESP32 GPIO 1 | No conflict. Clean digital pin. | Active-LOW 5V optocoupled relay for 220V AC Well Pump. | `PIN_OUT_WELL_PUMP = 1` | **VERIFIED SAFE** |
+| **W-03** | 4-Ch Relay IN2 | ESP32 GPIO 2 | No conflict. Clean digital pin. | Active-LOW 5V optocoupled relay for 220V AC Distribution Pump. | `PIN_OUT_DIST_PUMP = 2` | **VERIFIED SAFE** |
+| **W-04** | MOSFET #1 Gate | ESP32 GPIO 4 | No conflict. Clean digital pin. | Gate trigger for 12V Raw Submersible Pump 1. Active-HIGH (1=ON, 0=OFF). | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
+| **W-05** | MOSFET #2 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. Active-HIGH. | `PIN_OUT_DOSING_A = 5` | **VERIFIED SAFE** |
+| **W-06** | MOSFET #3 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. Active-HIGH. | `PIN_OUT_DOSING_B = 6` | **VERIFIED SAFE** |
+| **W-07** | MOSFET #4 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. Active-HIGH. | `PIN_OUT_COOLING_FAN = 7` | **VERIFIED SAFE** |
 | **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
 | **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
-| **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers external Omron relay / contactor for 2x Greenhouse Blower Fans. | `PIN_OUT_BLOWER_FAN = 10` | **VERIFIED SAFE** |
+| **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers contactor for 2x Greenhouse Blower Fans. Active-LOW. | `PIN_OUT_BLOWER_FAN = 10` | **VERIFIED SAFE** |
 | **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and MicroSD Card Module clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
 | **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and MicroSD Card Module MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
 | **W-13** | MicroSD MISO | ESP32 GPIO 13 | No conflict. Shared bus MISO. | Dedicated return data from MicroSD Card Module (EasyWare EP000094). | `PIN_SPI_MISO = 13` | **UNVERIFIED** |
@@ -385,11 +379,11 @@ Switched Return (-) from OUT- ────────────────�
 | **W-15** | Flow YF-B1 | ESP32 GPIO 15 | No conflict. Pulse input. | Scaled to 3.3V via 2.2kΩ/3.3kΩ divider. | `PIN_IN_FLOW_YFB1 = 15` | **VERIFIED** |
 | **W-16** | Flow FS400A | ESP32 GPIO 16 | No conflict. Pulse input. | Scaled to 3.3V via 2.2kΩ/3.3kΩ divider. | `PIN_IN_FLOW_FS400A = 16` | **VERIFIED** |
 | **W-17** | DS18B20 DAT | ESP32 GPIO 17 | No conflict. Dedicated 1-Wire. | Mandatory 4.7kΩ pull-up to 3.3V rail. | `PIN_IN_TEMP_DS18B20 = 17`| **VERIFIED** |
-| **W-18** | MOSFET Gate Driver | ESP32 GPIO 18 | No conflict. Clean digital pin. | Gate trigger for N-channel MOSFET module driving Active Alarm Buzzer (~30mA). | `PIN_OUT_BUZZER = 18` | **VERIFIED SAFE (MOSFET ISOLATED)** |
+| **W-18** | MOSFET #5 Gate | ESP32 GPIO 18 | No conflict. Clean digital pin. | Gate trigger for N-channel MOSFET module driving Active Alarm Buzzer (~30mA). Active-HIGH. | `PIN_OUT_BUZZER = 18` | **VERIFIED SAFE (MOSFET ISOLATED)** |
 | **W-19** | TFT DC / A0 | ESP32 GPIO 21 | No conflict. Dedicated control line.| High = Data, Low = Command for ST7735. | `PIN_TFT_DC = 21` | **VERIFIED** |
 | **W-20** | Lower Float | ESP32 GPIO 38 | No conflict. Dedicated clean GPIO.| Mandatory Safety Interlock. Internal pull-up to 3.3V. | `PIN_IN_FLOAT_LOWER = 38` | **VERIFIED SAFE (SAFETY)**|
 | **W-21** | Manual A (Well Pump)| ESP32 GPIO 39 | No conflict. Dedicated clean GPIO.| Active-LOW push button. 5-min auto-off timer & float interlock. | `PIN_BTN_MANUAL_A = 39` | **VERIFIED SAFE** |
-| **W-22** | Mixing Pump Relay IN4 | ESP32 GPIO 40 | Physical button 3 MUST be disconnected. | Relay Output. Active-LOW. | `PIN_OUT_MIXING_PUMP = 40` | **VERIFIED SAFE** |
+| **W-22** | 4-Ch Relay IN4 | ESP32 GPIO 40 | Physical button 3 MUST be disconnected. | 220V AC Mixing Pond Pump Relay Output. Active-LOW. | `PIN_OUT_MIXING_PUMP = 40` | **VERIFIED SAFE** |
 | **W-23** | DHT22 / AM2302 Sensor | ESP32 GPIO 41 | No conflict. Dedicated clean GPIO.| Single-wire digital environmental sensor (Temp & RH). | `PIN_IN_DHT22 = 41`| **VERIFIED SAFE** |
 | **W-24** | TFT RESET | ESP32 GPIO 42 | No conflict. Dedicated control line.| Active-LOW hardware reset for ST7735. | `PIN_TFT_RST = 42` | **VERIFIED** |
 | **W-25** | Anti-Theft Loop | ESP32 GPIO 47 | No conflict. Clean dedicated GPIO. | Closed loop to GND_LV. Internal pull-up. | `PIN_IN_TAMPER_LOOP = 47` | **VERIFIED SAFE (SECURITY)** |
@@ -404,15 +398,15 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | GPIO | Firmware Macro Symbol | Value in Firmware | Contract Role / Assignment | Match Status | Technical Evaluation & Next Action |
 |:---:|:---|:---:|:---|:---:|:---|
 | **0** | `PIN_BTN_MODE` | 0 | TFT Display Screen Switch | **MATCH** | 100% Consistent. Cycles ST7735 screen on press. |
-| **1** | `PIN_OUT_WELL_PUMP` | 1 | Well Pump AC (Omron #1) | **MATCH** | 100% Consistent. Active-LOW (0). |
-| **2** | `PIN_OUT_DIST_PUMP` | 2 | Dist Pump AC (Omron #2) | **MATCH** | 100% Consistent. Active-LOW (0). |
-| **4** | `PIN_OUT_RAW_SUBMERSIBLE` | 4 | Raw Submersible Pump (Relay IN1)| **MATCH** | 100% Consistent. Active-LOW (0). |
-| **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #1) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
-| **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #2) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
-| **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #3) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **1** | `PIN_OUT_WELL_PUMP` (`PIN_RELAY_CH1`) | 1 | Well Pump AC (4-Ch Relay IN1) | **MATCH** | 100% Consistent. Active-LOW (0=ON). |
+| **2** | `PIN_OUT_DIST_PUMP` (`PIN_RELAY_CH2`) | 2 | Dist Pump AC (4-Ch Relay IN2) | **MATCH** | 100% Consistent. Active-LOW (0=ON). |
+| **4** | `PIN_OUT_RAW_SUBMERSIBLE` (`PIN_MOSFET_RAW_SUBMERSIBLE_1`) | 4 | Raw Submersible Pump 1 (MOSFET #1)| **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #2) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #3) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #4) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
 | **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
 | **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
-| **10** | `PIN_OUT_BLOWER_FAN` | 10 | Greenhouse Dual Blower Fans (Relay IN3 -> Omron Relay) | **MATCH** | 100% Consistent. Active-LOW (0). Triggers external Omron relay / contactor. |
+| **10** | `PIN_OUT_BLOWER_FAN` (`PIN_RELAY_CH3`) | 10 | Greenhouse Dual Blower Fans (4-Ch Relay IN3 -> Contactor) | **MATCH** | 100% Consistent. Active-LOW (0=ON). Triggers external contactor. |
 | **11** | `PIN_SPI_SCK` / `PIN_MICROSD_SCK` | 11 | Shared SPI Clock (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
 | **12** | `PIN_SPI_MOSI` / `PIN_MICROSD_MOSI`| 12 | Shared SPI MOSI (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
 | **13** | `PIN_SPI_MISO` / `PIN_MICROSD_MISO`| 13 | Shared SPI MISO (MicroSD Card Module) | **MATCH** | 100% Consistent. Dedicated to MicroSD Card return. |
@@ -420,18 +414,18 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **15** | `PIN_IN_FLOW_YFB1` | 15 | Flow Meter YF-B1 Pulse In | **MATCH** | 100% Consistent. |
 | **16** | `PIN_IN_FLOW_FS400A` | 16 | Flow Meter FS400A Pulse In | **MATCH** | 100% Consistent. |
 | **17** | `PIN_IN_TEMP_DS18B20` | 17 | Temperature Sensor DS18B20 | **MATCH** | 100% Consistent. |
-| **18** | `PIN_OUT_BUZZER` | 18 | Active Alarm Buzzer (MOSFET Gate Driver Module) | **MATCH** | 100% Consistent. Active-HIGH (1). Safely isolates ~30mA load from ESP32 GPIO. |
+| **18** | `PIN_OUT_BUZZER` | 18 | Active Alarm Buzzer (MOSFET #5) | **MATCH** | 100% Consistent. Active-HIGH (1=ON). Safely isolates ~30mA load from ESP32 GPIO. |
 | **21** | `PIN_TFT_DC` | 21 | TFT Display Command/Data | **MATCH** | 100% Consistent. |
 | **38** | `PIN_IN_FLOAT_LOWER` | 38 | Lower Float Switch (Safety) | **MATCH** | 100% Consistent. Clean safety interlock. |
 | **39** | `PIN_BTN_MANUAL_A` | 39 | Manual Well Pump Button | **MATCH** | 100% Consistent. Active-LOW input. |
-| **40** | `PIN_OUT_MIXING_PUMP` | 40 | Mixing Pump (220V AC) | **MATCH** | 100% Consistent. Output to Relay IN4. |
+| **40** | `PIN_OUT_MIXING_PUMP` (`PIN_RELAY_CH4`) | 40 | Mixing Pond Pumps (4-Ch Relay IN4) | **MATCH** | 100% Consistent. Active-LOW (0=ON). |
 | **41** | `PIN_IN_DHT22` / `PIN_BTN_RESERVED` | 41 | Greenhouse Temp & Humidity Sensor DHT22 | **MATCH** | 100% Consistent. Single-wire digital bus (Temp & RH). |
 | **42** | `PIN_TFT_RST` | 42 | TFT Display Hardware Reset | **MATCH** | 100% Consistent. |
-| **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up (SP-HW-008). |
+| **47** | `PIN_IN_TAMPER_LOOP` | 47 | Anti-Theft Pump Security Tamper Loop | **MATCH** | 100% Consistent. Dedicated closed loop with internal pull-up. |
 | **48** | `PIN_MICROSD_CS` / `PIN_SD_CS` | 48 | Standalone MicroSD Card Module CS | **MATCH** | 100% Consistent. |
 
 ### Summary of Firmware Audit:
 - **26 out of 26 pins** match 100% identically between firmware (`pin_config.h`) and this hardware wiring contract.
 - **0 discrepancies or driver mismatches remain.**
-- DS3231 I2C driver integration and DS1302 retirement completed and verified in SP-HW-006.
-- Anti-Theft Tamper Loop on GPIO 47 completed and verified in SP-HW-008.
+- 4-Channel Relay Board: IN1 (GPIO 1, Well Pump), IN2 (GPIO 2, Dist Pump), IN3 (GPIO 10, Blower Fans), IN4 (GPIO 40, Mixing Pond Pumps) — all Active-LOW.
+- MOSFET Modules: #1 (GPIO 4, Raw Submersible Pump 1), #2 (GPIO 5, Dosing Pump A), #3 (GPIO 6, Dosing Pump B), #4 (GPIO 7, Cooling Fan), #5 (GPIO 18, Buzzer) — all Active-HIGH.

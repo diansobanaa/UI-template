@@ -15,16 +15,16 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | ESP32 Header | GPIO | Function | Component | Interface | Direction / Logic | Electrical Status | Notes & Constraints |
 |:---|:---:|:---|:---|:---|:---:|:---:|:---|
 | **Right-14** | **0** | TFT Display Switch | Push Button / BOOT | GPIO Digital In | Input (Active-LOW) | ACCEPTABLE WITH CAVEAT | Cycles ST7735 display screen. Strapping pin: must be HIGH (released) at boot. |
-| **Right-4** | **1** | Well Pump AC Trigger | Omron Relay #1 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Deep Well Pump. |
-| **Right-5** | **2** | Distribution Pump AC Trigger | Omron Relay #2 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Booster Pump GH-1. |
+| **Right-4** | **1** | Well Pump AC Trigger | 4-Ch Relay Board IN1 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Deep Well Pump via 4-Ch Relay Ch 1. |
+| **Right-5** | **2** | Distribution Pump AC Trigger | 4-Ch Relay Board IN2 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Booster Pump GH-1 via 4-Ch Relay Ch 2. |
 | **Left-13** | **3** | *RESERVED: JTAG / Boot* | SoC Internal | JTAG / Strapping | N/A | **DO NOT USE (STRAPPING)** | Strapping pin. Interferes with JTAG & boot if connected. |
-| **Left-4** | **4** | Raw Submersible Pump Trigger | 4-Ch Relay Board IN1 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Raw Submersible Pump. |
-| **Left-5** | **5** | Dosing Pump A Trigger | MOSFET Module #1 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump A (Nutrient) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
-| **Left-6** | **6** | Dosing Pump B Trigger | MOSFET Module #2 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump B (pH/Buffer) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
-| **Left-7** | **7** | Cooling Fan Trigger | MOSFET Module #3 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Cabinet Exhaust Fan via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
+| **Left-4** | **4** | Raw Submersible Pump 1 Trigger | MOSFET Module #1 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Raw Submersible Pump 1 via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
+| **Left-5** | **5** | Dosing Pump A Trigger | MOSFET Module #2 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump A (Nutrient) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
+| **Left-6** | **6** | Dosing Pump B Trigger | MOSFET Module #3 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump B (pH/Buffer) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
+| **Left-7** | **7** | Cooling Fan Trigger | MOSFET Module #4 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Cabinet Exhaust Fan via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
 | **Left-12** | **8** | I2C SDA (Data) | RTC DS3231 | I2C Bus | Bi-directional | VERIFIED SAFE | Dedicated I2C Data line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-15** | **9** | I2C SCL (Clock) | RTC DS3231 | I2C Bus | Output | VERIFIED SAFE | Dedicated I2C Clock line (+ 4.7kΩ pull-up to 3.3V). |
-| **Left-16** | **10** | Greenhouse Blower Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Drives 4-Ch Relay IN3 triggering external Omron relay / contactor for 2x 220V AC Greenhouse circulation blower fans. |
+| **Left-16** | **10** | Greenhouse Blower Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Drives 4-Ch Relay IN3 triggering contactor for 2x 220V AC Greenhouse circulation blower fans. |
 | **Left-17** | **11** | Shared SPI SCK | TFT ST7735 & MicroSD | SPI Clock | Output | VERIFIED SAFE | Shared SPI2_HOST clock for TFT display and MicroSD Card Module. |
 | **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & MicroSD | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and MicroSD Card Module. |
 | **Left-19** | **13** | Shared SPI MISO | MicroSD Card Module | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from MicroSD Card Module (EasyWare EP000094). |
@@ -32,7 +32,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-8** | **15** | Flow Pulse Raw Water | Sensor ZJ-B1 (DN15) | Pulse Counter | Input (Interrupt) | VERIFIED SAFE (CALIBRATION REQUIRED) | 5V Hall sensor signal level-shifted to 3.3V. Transfer line: Raw Water → Mixing Tank. Completion criterion. Calibration factor unverified. |
 | **Left-9** | **16** | Flow Pulse Fertigation | Sensor FS400A (G1") | Pulse Counter | Input (Interrupt) | VERIFIED SAFE | 5V Hall sensor signal level-shifted to 3.3V. Fertigation delivery loop. F=4.8*Q (288 pulses/L). Telemetry & delivery monitoring. |
 | **Left-10** | **17** | 1-Wire Temperature Data | Sensor DS18B20 | 1-Wire Bus | Bi-directional | VERIFIED SAFE | Dedicated 1-Wire bus with mandatory 4.7kΩ pull-up to 3.3V. |
-| **Left-11** | **18** | Active Alarm Buzzer Trigger | MOSFET Driver Stage | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE (MOSFET ISOLATED) | Standard clean GPIO. Gate trigger for N-channel MOSFET module driving 5V DC active buzzer (~30mA). Safely isolates ESP32 GPIO from load current. |
+| **Left-11** | **18** | Active Alarm Buzzer Trigger | MOSFET Module #5 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE (MOSFET ISOLATED) | Standard clean GPIO. Gate trigger for N-channel MOSFET module driving 5V DC active buzzer (~30mA). Safely isolates ESP32 GPIO from load current. |
 | **Right-20** | **19** | *RESERVED: Native USB D-* | USB-C "USB" Port | USB OTG / JTAG | N/A | **DO NOT USE (USB PHY)** | Hardwired to onboard native USB connector. |
 | **Right-19** | **20** | *RESERVED: Native USB D+* | USB-C "USB" Port | USB OTG / JTAG | N/A | **DO NOT USE (USB PHY)** | Hardwired to onboard native USB connector. |
 | **Right-18** | **21** | TFT Command / Data (DC) | TFT ST7735 Display | Control Signal | Output (H=Data, L=Cmd)| VERIFIED SAFE | Dedicated DC selector line for ST7735 display controller. |
@@ -43,7 +43,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-11** | **37** | *RESERVED: Octal PSRAM DQS*| Internal PSRAM | Octal Bus DQS | N/A | **FATAL (DO NOT TOUCH)** | Exposed on pin header, but touching crashes Octal PSRAM! |
 | **Right-10** | **38** | Lower Float Switch | Stainless Float Switch | Digital Input | Input (Active-LOW dry) | **VERIFIED SAFE (SAFETY)** | **SAFETY AUTHORITY:** Dedicated clean pin for dry-run protection. |
 | **Right-9** | **39** | Manual Well Pump Toggle | Push Button | Digital Input | Input (Active-LOW) | VERIFIED SAFE | Manual toggle for Well Pump with 5-minute auto-off timer & float switch interlock. |
-| **Right-8** | **40** | Mixing Pump AC Trigger | 4-Ch Relay Board IN4 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Pond Pump for Mixing. |
+| **Right-8** | **40** | Mixing Pond Pumps AC Trigger | 4-Ch Relay Board IN4 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Controls 220V AC Pond Pump for Mixing via 4-Ch Relay Ch 4. |
 | **Right-7** | **41** | Greenhouse Temp & Humidity Data | Sensor DHT22 / AM2302 | Single-Wire Bus | Bi-directional (Digital In) | VERIFIED SAFE | Ambient environmental sensor for Greenhouse. Measures air temp (-40°C to +80°C) and RH (0–100%). Non-blocking 3s sample cadence. |
 | **Right-6** | **42** | TFT Hardware Reset | TFT ST7735 Display | Control Signal | Output (Active-LOW) | VERIFIED SAFE | Dedicated reset line for ST7735 display controller. |
 | **Right-2** | **43** | *RESERVED: UART0 TXD* | USB-UART Bridge | Console UART | Output | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
@@ -62,14 +62,14 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 Pin 1 : 3V3 (Power Output)
 Pin 2 : 3V3 (Power Output)
 Pin 3 : RST / EN (Chip Reset)
-Pin 4 : GPIO4  -> Raw Submersible Pump (Relay IN1)
-Pin 5 : GPIO5  -> Dosing Pump A (MOSFET #1)
-Pin 6 : GPIO6  -> Dosing Pump B (MOSFET #2)
-Pin 7 : GPIO7  -> Cooling Fan Panel (MOSFET #3)
+Pin 4 : GPIO4  -> Raw Submersible Pump 1 (MOSFET #1)
+Pin 5 : GPIO5  -> Dosing Pump A (MOSFET #2)
+Pin 6 : GPIO6  -> Dosing Pump B (MOSFET #3)
+Pin 7 : GPIO7  -> Cooling Fan Panel (MOSFET #4)
 Pin 8 : GPIO15 -> Raw Water Flow Meter ZJ-B1 (Transfer to Mixing Tank)
 Pin 9 : GPIO16 -> Fertigation Flow Meter FS400A (G1" Delivery)
 Pin 10: GPIO17 -> Temperature Sensor DS18B20 (1-Wire)
-Pin 11: GPIO18 -> Active Alarm Buzzer (MOSFET Gate Driver)
+Pin 11: GPIO18 -> Active Alarm Buzzer (MOSFET #5)
 Pin 12: GPIO8  -> RTC DS3231 SDA (I2C Data)
 Pin 13: GPIO3  -> [FORBIDDEN: Strapping JTAG]
 Pin 14: GPIO46 -> [FORBIDDEN: Strapping ROM]
@@ -88,11 +88,11 @@ Pin 22: GND (Common Signal Ground)
 Pin 1 : GND (Common Signal Ground)
 Pin 2 : GPIO43 / TXD0 -> [RESERVED: UART0 Console TX]
 Pin 3 : GPIO44 / RXD0 -> [RESERVED: UART0 Console RX]
-Pin 4 : GPIO1  -> Well Pump AC Trigger (Omron #1)
-Pin 5 : GPIO2  -> Distribution Pump AC Trigger (Omron #2)
+Pin 4 : GPIO1  -> Well Pump AC Trigger (4-Ch Relay IN1)
+Pin 5 : GPIO2  -> Distribution Pump AC Trigger (4-Ch Relay IN2)
 Pin 6 : GPIO42 -> TFT Display RESET
 Pin 7 : GPIO41 -> DHT22 / AM2302 Temp & Humidity Sensor Data In
-Pin 8 : GPIO40 -> Mixing Pump AC Trigger (Relay IN4)
+Pin 8 : GPIO40 -> Mixing Pond Pumps AC Trigger (4-Ch Relay IN4)
 Pin 9 : GPIO39 -> Manual Well Pump Toggle (5-Min Auto-Shutoff)
 Pin 10: GPIO38 -> Lower Float Switch (Dry-Run Safety Interlock)
 Pin 11: GPIO37 -> [FATAL DO NOT TOUCH: Octal PSRAM DQS]

@@ -86,7 +86,7 @@ static int expected_gpio_for_component(const char *role, const char *type)
     const char *t = type ? type : "";
     if (strcmp(r, "WELL_PUMP") == 0 || strcmp(r, "WATER_PUMP") == 0) return PIN_OUT_WELL_PUMP;
     if (strcmp(r, "DIST_PUMP") == 0 || strcmp(r, "DISTRIBUTION_PUMP") == 0 || strcmp(r, "DELIVERY_PUMP") == 0 || strcmp(r, "FERTIGATION_PUMP") == 0) return PIN_OUT_DIST_PUMP;
-    if (strcmp(r, "RAW_SUBMERSIBLE") == 0 || strcmp(r, "RAW_WATER") == 0) return PIN_OUT_RAW_SUBMERSIBLE;
+    if (strcmp(r, "RAW_SUBMERSIBLE") == 0 || strcmp(r, "RAW_WATER") == 0 || strcmp(r, "RAW_SUBMERSIBLE_PUMP_1") == 0 || strcmp(r, "RAW_SUBMERSIBLE_PUMP") == 0 || strcmp(r, "PUMP_RAW") == 0) return PIN_OUT_RAW_SUBMERSIBLE;
     if (strcmp(r, "DOSING_A") == 0) return PIN_OUT_DOSING_A;
     if (strcmp(r, "DOSING_B") == 0) return PIN_OUT_DOSING_B;
     /* PRD §8.6 + DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md §3.5 Pathway B:
@@ -97,7 +97,7 @@ static int expected_gpio_for_component(const char *role, const char *type)
        the validator allows this when interface=I2C (see hardware_registry_validate_component_json). */
     if (strcmp(r, "COOLING_FAN") == 0 || (strcmp(r, "FAN") == 0 && strcmp(t, "cooling-fan") == 0)) return PIN_OUT_COOLING_FAN;
     if (strcmp(r, "BLOWER_FAN") == 0) return PIN_OUT_BLOWER_FAN;
-    if (strcmp(r, "MIXING_PUMP") == 0 || strcmp(r, "MIX_PUMP") == 0) return PIN_OUT_MIXING_PUMP;
+    if (strcmp(r, "MIXING_PUMP") == 0 || strcmp(r, "MIX_PUMP") == 0 || strcmp(r, "MIXING_POND_PUMP") == 0 || strcmp(r, "MIXING_POND_PUMPS") == 0) return PIN_OUT_MIXING_PUMP;
     if (strcmp(r, "ERROR_LAMP") == 0 || strcmp(r, "ALARM_LAMP") == 0 || strcmp(r, "ERROR_BEACON") == 0) return PIN_OUT_ERROR_LAMP;
     if (strcmp(r, "BUZZER") == 0 || strcmp(r, "ALARM_BUZZER") == 0 || strcmp(t, "active-buzzer") == 0) return PIN_OUT_BUZZER;
     if (strcmp(r, "TFT_SWITCH") == 0) return PIN_BTN_MODE;
@@ -483,9 +483,11 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
                 safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), j_pol->valuestring, NULL);
             }
             /* Hardware authority normalization: Native MOSFET channels are physically Active-HIGH */
-            if (strcmp(dst->role, "DOSING_A") == 0 || strcmp(dst->role, "DOSING_B") == 0 ||
+            if (strcmp(dst->role, "RAW_SUBMERSIBLE") == 0 || strcmp(dst->role, "RAW_SUBMERSIBLE_PUMP_1") == 0 ||
+                strcmp(dst->role, "DOSING_A") == 0 || strcmp(dst->role, "DOSING_B") == 0 ||
                 strcmp(dst->role, "COOLING_FAN") == 0 || strcmp(dst->role, "BUZZER") == 0 ||
                 strcmp(dst->role, "ALARM_BUZZER") == 0 ||
+                dst->wiring.gpio == PIN_OUT_RAW_SUBMERSIBLE ||
                 dst->wiring.gpio == PIN_OUT_DOSING_A || dst->wiring.gpio == PIN_OUT_DOSING_B ||
                 dst->wiring.gpio == PIN_OUT_COOLING_FAN || dst->wiring.gpio == PIN_OUT_BUZZER) {
                 safe_copy_str(dst->wiring.polarity, sizeof(dst->wiring.polarity), "ACTIVE_HIGH", NULL);
@@ -746,7 +748,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
         out_info->wiring.interface = HW_INTERFACE_GPIO;
         out_info->wiring.gpio = PIN_OUT_RAW_SUBMERSIBLE; // GPIO 4
-        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
         out_info->safety_params.max_runtime_sec = 900;
         out_info->safety_params.flow_timeout_sec = 30;

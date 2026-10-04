@@ -1,3 +1,94 @@
+## SP-PUMP-RELAY-STANDARDIZATION-001 — Reconciled & Standardized All Actuator Pin Mappings Across Firmware, UI & Canonical Docs
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED (FIRMWARE BINARY BUILT & M17 PIN AUDIT PASSED)`
+- **Objective**:
+  - Reconcile and standardize all pump and fan output pin definitions across the entire project (firmware, UI data layer, and canonical documentation in `docs/`).
+  - Eliminate historical contradictions where the 4-Channel Relay Board and Omron relays were incorrectly mapped or left with unmapped/spare channels.
+  - Implement explicit user-mandated canonical relay channel assignment:
+    - **Relay Channel 1 (IN1):** Well Pump $\to$ **ESP32 GPIO 1** (`Active-LOW: 0=ON, 1=OFF`)
+    - **Relay Channel 2 (IN2):** Distribution Pump $\to$ **ESP32 GPIO 2** (`Active-LOW: 0=ON, 1=OFF`)
+    - **Relay Channel 3 (IN3):** Blower Fans Contactor Trigger $\to$ **ESP32 GPIO 10** (`Active-LOW: 0=ON, 1=OFF`)
+    - **Relay Channel 4 (IN4):** Mixing Pond Pumps $\to$ **ESP32 GPIO 40** (`Active-LOW: 0=ON, 1=OFF`)
+  - Keep MOSFET DC outputs architecturally separate:
+    - **MOSFET Output 1:** Raw Submersible Pump 1 (`RAW_SUBMERSIBLE_PUMP_1` / `pump_submersible`) $\to$ **ESP32 GPIO 4** (`Active-HIGH: 1=ON, 0=OFF`)
+    - **MOSFET Output 2:** Dosing Pump A (Nutrient) $\to$ **ESP32 GPIO 5** (`Active-HIGH: 1=ON, 0=OFF`)
+    - **MOSFET Output 3:** Dosing Pump B (pH/Buffer) $\to$ **ESP32 GPIO 6** (`Active-HIGH: 1=ON, 0=OFF`)
+    - **MOSFET Output 4:** Cabinet Exhaust Cooling Fan $\to$ **ESP32 GPIO 7** (`Active-HIGH: 1=ON, 0=OFF`)
+    - **MOSFET Output 5:** Active Alarm Buzzer $\to$ **ESP32 GPIO 18** (`Active-HIGH: 1=ON, 0=OFF`)
+  - Eliminate all dead code, duplicate/conflicting pin definitions, and outdated comments.
+- **Root Cause & Conflict Resolution**:
+  - Historically, an agent had hallucinated separate "Omron Relay #1" and "Omron Relay #2" modules, mapped GPIO 4 to Relay IN1, and left Channel 2 as SPARE.
+  - The physical hardware has one 4-Channel Relay Board (5V optocoupled, Active-LOW) and multiple N-channel MOSFET modules (Active-HIGH).
+  - Reconciled: 4-Channel Relay Board channels 1–4 directly control the four high-voltage AC loads (Well Pump, Dist Pump, Blower Fans contactor, Mixing Pond Pumps).
+  - Reconciled: Raw submersible pump is a 12V DC load, now canonically driven by MOSFET Module #1 on GPIO 4 with Active-HIGH logic (`1` = ON, `0` = OFF, safe boot default = LOW).
+- **Completed Work**:
+  - `esp32/main/config/pin_config.h`:
+    - Defined semantic relay channel macros: `PIN_RELAY_CH1` (1), `PIN_RELAY_CH2` (2), `PIN_RELAY_CH3` (10), `PIN_RELAY_CH4` (40).
+    - Linked `PIN_OUT_WELL_PUMP` $\to$ `PIN_RELAY_CH1`, `PIN_OUT_DIST_PUMP` $\to$ `PIN_RELAY_CH2`, `PIN_OUT_BLOWER_FAN` $\to$ `PIN_RELAY_CH3`, `PIN_OUT_MIXING_PUMP` $\to$ `PIN_RELAY_CH4`.
+    - Defined `PIN_MOSFET_RAW_SUBMERSIBLE_1` (4), `PIN_OUT_RAW_SUBMERSIBLE` (4), `PIN_OUT_RAW_SUBMERSIBLE_1` (4).
+    - Defined polarities: `RELAY_ACTIVE_LEVEL = 0` (Active-LOW), `MOSFET_ACTIVE_LEVEL = 1` (Active-HIGH), `RAW_SUBMERSIBLE_ACTIVE_LEVEL = MOSFET_ACTIVE_LEVEL`.
+  - `esp32/main/hal/actuator_hal.c`:
+    - Configured `ACTUATOR_RAW_SUBMERSIBLE` descriptor `.active_level = RAW_SUBMERSIBLE_ACTIVE_LEVEL` (Active-HIGH).
+    - Added alias roles for `RAW_SUBMERSIBLE_PUMP_1`, `RAW_SUBMERSIBLE_PUMP`, `MIXING_POND_PUMPS`, `MIXING_POND_PUMP`.
+  - `esp32/main/main.c`:
+    - Updated `safe_boot_actuators()` to include all 9 mapped actuator channels (`PIN_OUT_WELL_PUMP`, `PIN_OUT_DIST_PUMP`, `PIN_OUT_RAW_SUBMERSIBLE`, `PIN_OUT_DOSING_A`, `PIN_OUT_DOSING_B`, `PIN_OUT_COOLING_FAN`, `PIN_OUT_BLOWER_FAN`, `PIN_OUT_MIXING_PUMP`, `PIN_OUT_BUZZER`), locking them in safe-off state at boot.
+  - `esp32/main/hal/hardware_registry.c`:
+    - Added alias matching for `RAW_SUBMERSIBLE_PUMP_1`, `RAW_SUBMERSIBLE_PUMP`, `MIXING_POND_PUMPS`, `MIXING_POND_PUMP`.
+    - Added `RAW_SUBMERSIBLE` to active-high MOSFET normalization list and fallback default.
+  - `src/lib/data/gpioPinMap.ts`:
+    - Updated GPIO 1 $\to$ Relay Ch 1 (Well Pump AC 220V, ACTIVE_LOW).
+    - Updated GPIO 2 $\to$ Relay Ch 2 (Distribution Pump AC 220V, ACTIVE_LOW).
+    - Updated GPIO 4 $\to$ MOSFET Output 1 (Raw Submersible Pump 1 12V, ACTIVE_HIGH).
+    - Updated GPIO 10 $\to$ Relay Ch 3 (Greenhouse Blower Contactor, ACTIVE_LOW).
+    - Updated GPIO 40 $\to$ Relay Ch 4 (Mixing Pond Pumps 220V, ACTIVE_LOW).
+  - `src/lib/data/canonicalHardwareBaseline.ts`:
+    - Set `pump_submersible` active level to `ACTIVE_HIGH`.
+  - `docs/HARDWARE_WIRING_MAP.md`:
+    - Updated Master Wiring Table (W-02, W-03, W-04, W-10, W-22).
+    - Overhauled Sections 4.0, 4.1, 4.2 to document 4-Channel Relay Board and 5x MOSFET Modules.
+    - Updated Section 6 Validation Matrix and Section 7 Consistency Audit.
+  - `docs/COMPONENT_PIN_MAP.md`:
+    - Updated Section 2.5 (4-Channel Relay Board: IN1 GPIO 1, IN2 GPIO 2, IN3 GPIO 10, IN4 GPIO 40).
+    - Updated Section 2.6 (5x High-Power MOSFET Modules: #1 GPIO 4, #2 GPIO 5, #3 GPIO 6, #4 GPIO 7, #5 GPIO 18).
+  - `docs/HARDWARE_INVENTORY.md`:
+    - Updated RELAY, MOSFET, PUMP 1, PUMP 2, PUMP 3 entries.
+  - `docs/ESP32_GPIO_PIN_MAP.md`:
+    - Updated complete GPIO 0–48 allocation table and physical header pinout diagram.
+  - `docs/ESP32_ASSEMBLY_GUIDE.md`:
+    - Updated Section 1 BOM, Section 2 Pin Map, and Section 4.2 Actuators Table.
+  - `docs/POWER_MAP.md`:
+    - Updated Domain 4 Mains and Power Rails tables, and Well Pump safety interlock section.
+  - `docs/HARDWARE_WIRING_CHECKLIST.md`:
+    - Updated checklist items for relay, MOSFET, and actuator mappings.
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`:
+    - Updated Mermaid architecture diagram and summary table.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`:
+    - Updated Section 34.2 calibration definitions for raw water submersible pump and well pump.
+  - `scripts/test_m17_hardware_pin_audit.py`:
+    - Updated expected macros and verified test passes 100%.
+- **Verification**:
+  - `python scripts/test_m17_hardware_pin_audit.py` $\to$ **PASS** (W-01..W-29 parsed, 9-actuator safe boot verified, canonical pin policy verified).
+  - `python scripts/test_no_production_simulation_surface.py` $\to$ **PASS**.
+  - `npx tsc --noEmit` $\to$ **PASS** (0 errors).
+  - ESP-IDF build: Clean compilation of `agrotech_esp32.bin`.
+- **Changed Files**:
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/main.c`
+  - `src/lib/data/gpioPinMap.ts`
+  - `src/lib/data/canonicalHardwareBaseline.ts`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md`
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/ESP32_ASSEMBLY_GUIDE.md`
+  - `docs/POWER_MAP.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `docs/ESP32_PERIPHERAL_VISUAL_MAP.md`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `scripts/test_m17_hardware_pin_audit.py`
+
 ## SP-DHT22-TIMING-AND-LATCH-001 — Resolved 1-Bit Shift In Driver & Implemented Last Known Good Value Latching for DHT22
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

@@ -27,7 +27,7 @@ typedef struct {
 static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
     [ACTUATOR_WELL_PUMP]       = { .name = "Well Pump",        .gpio = PIN_OUT_WELL_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
     [ACTUATOR_DIST_PUMP]       = { .name = "Dist Pump",        .gpio = PIN_OUT_DIST_PUMP,       .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
-    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_RAW_SUBMERSIBLE] = { .name = "Raw Submersible",  .gpio = PIN_OUT_RAW_SUBMERSIBLE, .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RAW_SUBMERSIBLE_ACTIVE_LEVEL },
     [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
     [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
     [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan",      .gpio = PIN_OUT_COOLING_FAN,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = COOLING_FAN_ACTIVE_LEVEL },
@@ -162,6 +162,8 @@ static bool actuator_role_matches(actuator_id_t id, const char *role)
     if (canonical && strcasecmp(role, canonical) == 0) return true;
     if (id == ACTUATOR_RAW_SUBMERSIBLE &&
         (strcasecmp(role, "RAW_SUBMERSIBLE") == 0 ||
+         strcasecmp(role, "RAW_SUBMERSIBLE_PUMP_1") == 0 ||
+         strcasecmp(role, "RAW_SUBMERSIBLE_PUMP") == 0 ||
          strcasecmp(role, "RAW_WATER") == 0 ||
          strcasecmp(role, "PUMP_SUBMERSIBLE") == 0 ||
          strcasecmp(role, "PUMP_RAW") == 0 ||
@@ -175,7 +177,7 @@ static bool actuator_role_matches(actuator_id_t id, const char *role)
          strcasecmp(role, "pump_dosing_b") == 0 ||
          strcasecmp(role, "dosingB") == 0)) return true;
     if (id == ACTUATOR_DIST_PUMP && (strcasecmp(role, "DIST_PUMP") == 0 || strcasecmp(role, "DISTRIBUTION_PUMP") == 0)) return true;
-    if (id == ACTUATOR_MIXING_PUMP && (strcasecmp(role, "MIX_PUMP") == 0 || strcasecmp(role, "MIXING_PUMP") == 0)) return true;
+    if (id == ACTUATOR_MIXING_PUMP && (strcasecmp(role, "MIX_PUMP") == 0 || strcasecmp(role, "MIXING_PUMP") == 0 || strcasecmp(role, "MIXING_POND_PUMPS") == 0 || strcasecmp(role, "MIXING_POND_PUMP") == 0)) return true;
     if (id == ACTUATOR_ERROR_LAMP && (strcasecmp(role, "ALARM_LAMP") == 0 || strcasecmp(role, "ERROR_BEACON") == 0 || strcasecmp(role, "ERROR_LAMP") == 0)) return true;
     if (id == ACTUATOR_BUZZER && (strcasecmp(role, "ALARM_BUZZER") == 0 || strcasecmp(role, "BUZZER") == 0)) return true;
     return false;

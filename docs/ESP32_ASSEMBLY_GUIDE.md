@@ -21,26 +21,24 @@
 | **LCD** | ST7735 SPI TFT Display 1.8" (128 × 160) | 1 | 3.3V DC / 5V VCC | SPI (CS: 14, DC: 21, RST: 42, SCK: 11, MOSI: 12) | **READY**: Local status & diagnostics screen (ST7735 128x160 SPI) |
 | **STORAGE** | MicroSD Card Adapter Module (EasyWare Part#: EP000094) | 1 | 5V DC (Onboard 3.3V LDO) | Shared SPI (CS: GPIO 48, SCK: 11, MOSI: 12, MISO: 13, VCC: 5V Rail) | **READY**: Standalone MicroSD breakout module with level shifter |
 | **FRAM** | Ferroelectric RAM | 0 | N/A | N/A | **NOT USED / NOT REQUIRED**: NVS & SPIFFS used for persistence |
-| **RELAY-4CH** | 4-Channel Optocoupled Relay Board (VCC-JDVCC jumper installed) | 1 | 5V Coil | Active-LOW (IN1: GPIO 4 Raw Water Pump, IN2: SPARE/NC, IN3: GPIO 10 Blower Trigger, IN4: GPIO 40 Mixing Pump) | **READY**: Galvanic isolation for intermediate loads |
-| **ACT-BLOWER**| Greenhouse Exhaust Blower Fans (Dual Unit) | 2 | 220V AC Mains | Switched via External Contactor / Omron (Relay IN3 / GPIO 10) | **DEFERRED**: Planned future greenhouse ventilation investment |
-| **RELAY-OMR1**| Omron Industrial Heavy-Duty Relay #1 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 1) | **READY**: Switches 220V AC Deep Well Pump |
-| **RELAY-OMR2**| Omron Industrial Heavy-Duty Relay #2 | 1 | 5V/12V Coil | High-voltage contacts (GPIO 2) | **READY**: Switches 220V AC GH-1 Distribution Booster Pump |
-| **MOSFET-15A**| High-Power N-Channel MOSFET Driver Modules 15A / 400W | 4 | 3.3V/5V Logic in, 12V/5V out | Active-HIGH: GPIO 5 (Dosing A), GPIO 6 (Dosing B), GPIO 7 (Fan), GPIO 18 (Active Buzzer) | **READY**: High-speed solid-state DC switching |
+| **RELAY-4CH** | 4-Channel Optocoupled Relay Board (VCC-JDVCC jumper installed) | 1 | 5V Coil | Active-LOW (IN1: GPIO 1 Well Pump, IN2: GPIO 2 Dist Pump, IN3: GPIO 10 Blower Trigger, IN4: GPIO 40 Mixing Pond Pumps) | **READY**: Galvanic isolation for intermediate loads |
+| **ACT-BLOWER**| Greenhouse Exhaust Blower Fans (Dual Unit) | 2 | 220V AC Mains | Switched via External Contactor triggered by 4-Ch Relay IN3 (GPIO 10) | **READY**: Greenhouse climate and humidity extraction |
+| **MOSFET-15A**| High-Power N-Channel MOSFET Driver Modules 15A / 400W | 5 | 3.3V/5V Logic in, 12V/5V out | Active-HIGH: GPIO 4 (Raw Submersible Pump 1), GPIO 5 (Dosing A), GPIO 6 (Dosing B), GPIO 7 (Fan), GPIO 18 (Active Buzzer) | **READY**: High-speed solid-state DC switching |
 | **FLOW 1** | ZJ-B1 Hall-Effect Water Flow Sensor | 1 | 5V DC (3.3V pulse after divider) | Pulse output (GPIO 15) | **BLOCKED** for physical identity/calibration until reconciled; canonical master table names ZJ-B1 |
 | **FLOW 2** | FS400A Hall-Effect Water Flow Sensor (G1") | 1 | 5V DC (3.3V signal pullup) | Pulse output (GPIO 16) | **READY**: Raw water source / supply flow meter |
 | **TEMP** | DS18B20 Waterproof Temperature Probe | 1 | 3.3V / 5V DC | 1-Wire bus (GPIO 17) | **READY**: Water tank temperature monitoring (4.7kΩ pullup) |
 | **FLOAT-LOW** | Stainless Steel Vertical Float Switch (Lower) | 1 | 3.3V signal (Dry Contact) | Digital input (GPIO 38) | **READY**: Mandatory safety STOP POINT for distribution/fertigation pump and feed pumps |
-| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 physical positions | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 41); GPIO 40 is actuator output | **PARTIAL**: Button 1 and Button 2 operational, Button 3 is RETIRED/disconnected, Button 4 reserved |
+| **BUTTONS** | Momentary Push Buttons + 10kΩ / 100nF Debounce | 4 physical positions | 3.3V (Internal pullup) | Digital input (GPIO 0, 39, 41); GPIO 40 is actuator output | **PARTIAL**: Button 1 and Button 2 operational, Button 3 is RETIRED/disconnected, Button 4 repurposed to DHT22 |
 | **PSU 1** | Switching Power Supply 12V 5A (60W) | 1 | 220V AC in, 12V DC out | DC Power | **READY**: Powers 12V DC pumps, fan, and buck converter |
 | **PSU 2** | LM2596 Step-down Buck Converter Module | 1 | 12V DC in, 5.05V DC out | DC Power (3A max) | **READY**: Powers ESP32 5V rail and logic modules |
 | **AC-IN** | 3-in-1 AC Power Inlet Socket with Fuse & Switch | 1 | 250V AC 10A | Mains Power Entry | **READY**: Master power disconnect and fuse protection |
-| **ACT-PUMP1** | Pompa Besar Sumur (Deep Well Submersible) | 1 | 220V AC Mains | Switched by Omron #1 | **READY**: Raw water replenishment into storage tank |
-| **ACT-PUMP2** | Pompa Besar Distribusi / Fertigasi GH-1 | 1 | 220V AC Mains | Switched by Omron #2 | **READY**: Greenhouse 1 nutrition irrigation loop |
-| **ACT-SUB12** | Submersible / Raw-Water Pump 12V DC | 1 | 12V DC | Switched by 4-Ch Relay IN1 (GPIO 4) | **READY**: Tank replenishment into central mixing tank |
-| **ACT-DOSE-A**| Dosing Pump A (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET #1 (GPIO 5) | **READY**: Concentrated nutrient solution A dosing |
-| **ACT-DOSE-B**| Dosing Pump B (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET #2 (GPIO 6) | **READY**: Concentrated nutrient B / pH buffer dosing |
-| **ACT-FAN** | Cooling / Exhaust Fan 12V DC | 1 | 12V DC | Switched by MOSFET #3 (GPIO 7) | **READY**: Cabinet ventilation / thermal control |
-| **ACT-BUZZ** | 5V Active Acoustic Alarm Sounder | 1 | 5V DC (~30mA) | Switched by MOSFET #4 (GPIO 18) | **READY**: Acoustic system error / alarm annunciator |
+| **ACT-PUMP1** | Pompa Besar Sumur (Deep Well Submersible) | 1 | 220V AC Mains | Switched by 4-Ch Relay IN1 (GPIO 1) | **READY**: Raw water replenishment into storage tank |
+| **ACT-PUMP2** | Pompa Besar Distribusi / Fertigasi GH-1 | 1 | 220V AC Mains | Switched by 4-Ch Relay IN2 (GPIO 2) | **READY**: Greenhouse 1 nutrition irrigation loop |
+| **ACT-SUB12** | Raw Submersible Pump 1 (12V DC) | 1 | 12V DC | Switched by MOSFET Module #1 (GPIO 4) | **READY**: Tank replenishment into central mixing tank |
+| **ACT-DOSE-A**| Dosing Pump A (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET Module #2 (GPIO 5) | **READY**: Concentrated nutrient solution A dosing |
+| **ACT-DOSE-B**| Dosing Pump B (Peristaltic 12V DC) | 1 | 12V DC | Switched by MOSFET Module #3 (GPIO 6) | **READY**: Concentrated nutrient B / pH buffer dosing |
+| **ACT-FAN** | Cooling / Exhaust Fan 12V DC | 1 | 12V DC | Switched by MOSFET Module #4 (GPIO 7) | **READY**: Cabinet ventilation / thermal control |
+| **ACT-BUZZ** | 5V Active Acoustic Alarm Sounder | 1 | 5V DC (~30mA) | Switched by MOSFET Module #5 (GPIO 18) | **READY**: Acoustic system error / alarm annunciator |
 | **DMM** | Digital Multimeter (DMM) with Probes | 1 | Battery | Test & Measurement | **READY**: Essential pre-power and bring-up verification tool |
 
 ---
@@ -51,15 +49,15 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 
 | GPIO Pin | Function / Target Module | Direction | Electrical Domain | Active State / Note |
 |---|---|---|---|---|
-| **GPIO 1** | Well Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
-| **GPIO 2** | Distribution Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
-| **GPIO 4** | Raw Submersible Pump Relay Trigger | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 1** | Well Pump Relay Trigger (4-Ch Relay IN1) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 2** | Distribution Pump Relay Trigger (4-Ch Relay IN2) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Run, 1 = Safe OFF) |
+| **GPIO 4** | Raw Submersible Pump 1 MOSFET Trigger | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Run, 0 = Safe OFF) |
 | **GPIO 5** | Dosing Pump A MOSFET Trigger | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Run, 0 = Safe OFF) |
 | **GPIO 6** | Dosing Pump B MOSFET Trigger | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Run, 0 = Safe OFF) |
 | **GPIO 7** | Cabinet Cooling Fan MOSFET Trigger | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Fan ON, 0 = Safe OFF) |
 | **GPIO 8** | I2C SDA (DS3231 RTC / Sensors) | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
 | **GPIO 9** | I2C SCL (DS3231 RTC / Sensors) | OUTPUT | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
-| **GPIO 10** | Greenhouse Blower Fans Contactor Trigger (Relay IN3) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Contactor ON, 1 = Safe OFF) Booked / Standby |
+| **GPIO 10** | Greenhouse Blower Fans Contactor Trigger (4-Ch Relay IN3) | OUTPUT | 3.3V Logic → Relay Opto | Active-LOW (0 = Contactor ON, 1 = Safe OFF) |
 | **GPIO 11** | SPI SCK (Shared SPI Clock) | OUTPUT | 3.3V Logic | TFT, MicroSD (W5500 not in canonical active map) |
 | **GPIO 12** | SPI MOSI (Master Out Slave In) | OUTPUT | 3.3V Logic | TFT, MicroSD (W5500 not in canonical active map) |
 | **GPIO 13** | SPI MISO (Master In Slave Out) | INPUT | 3.3V Logic | W5500, MicroSD |
@@ -67,13 +65,13 @@ This pin mapping is identical to `esp32/main/config/pin_config.h` and must not b
 | **GPIO 15** | ZJ-B1 Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 16** | FS400A Flow Sensor Pulse Input | INPUT | 3.3V Logic (Level shifted) | Interrupt on Rising Edge |
 | **GPIO 17** | DS18B20 1-Wire Temperature Data | BIDIR | 3.3V Logic | Pull-up 4.7kΩ to 3.3V |
-| **GPIO 18** | Active Alarm Buzzer (via MOSFET #4) | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Buzzer ON, 0 = Safe OFF) |
+| **GPIO 18** | Active Alarm Buzzer (via MOSFET #5) | OUTPUT | 3.3V Logic → MOSFET Gate | Active-HIGH (1 = Buzzer ON, 0 = Safe OFF) |
 | **GPIO 0** | Button 1: TFT Display Switch | INPUT | 3.3V Logic (Internal pullup) | Active-Low (Pressed = 0). Cycles ST7735 screen. Boot strap caveat. |
 | **GPIO 21** | TFT Display Data / Command (DC) | OUTPUT | 3.3V Logic | High = Data, Low = Command |
 | **GPIO 38** | Lower Float Switch (Dry-Run Protection) | INPUT | 3.3V Logic (Internal pullup) | Low = Dry (Trip), High = Normal (SAFETY AUTHORITY) |
 | **GPIO 39** | Button 2: Well Pump Manual Toggle | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). State 1: ON (5-min timer), State 2: OFF. Float interlocked. |
-| **GPIO 40** | Mixing Pump Relay IN4 | OUTPUT | 3.3V/5V control | Active-LOW (0=ON). Button 3 physical input RETIRED/disconnected. |
-| **GPIO 41** | Button 4: Reserved / TBD | INPUT | 3.3V Logic (Internal pullup) | Active-Low (0 = Pressed). Software debounced, no action assigned. |
+| **GPIO 40** | Mixing Pond Pumps Relay IN4 | OUTPUT | 3.3V/5V control | Active-LOW (0=ON). Button 3 physical input RETIRED/disconnected. |
+| **GPIO 41** | Greenhouse Temp & Humidity (DHT22) | BIDIR | 3.3V Logic | Single-wire digital bus (Temp & RH). |
 | **GPIO 42** | TFT Display Reset (RST) | OUTPUT | 3.3V Logic | Active-Low |
 | **GPIO 47** | Anti-Theft Tamper Loop (Pump Security) | INPUT | 3.3V Logic (Internal pullup) | Closed loop to GND = OK (0), Cut/Open = TAMPER TRIP (1) |
 | **GPIO 48** | MicroSD Card Slot Chip Select (CS) | OUTPUT | 3.3V Logic | Active-Low (Onboard RGB LED line caveat) |
@@ -94,17 +92,17 @@ The controller enclosure contains three strictly segregated power domains:
 │ ESP32-S3, W5500, DS3231, TFT Display, MicroSD, Pull-up resistors             │
 │ Ground: GND_LV (Isolated Clean Signal Ground)                                │
 └──────────────────────────────────────────────────────────────────────────────┘
-                               ▲
+                              ▲
                  [Optocouplers / Galvanic Barrier]
-                               ▼
+                              ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DOMAIN 2: AUXILIARY DC POWER (12V DC)                                        │
 │ Dosing Pump A, Dosing Pump B, Cabinet Cooling Fan, Relay Coils               │
 │ Ground: GND_12V (Power Ground — do NOT connect directly to ESP32 pins!)       │
 └──────────────────────────────────────────────────────────────────────────────┘
-                               ▲
+                              ▲
                  [Electromechanical Relay Air-Gap Contacts]
-                               ▼
+                              ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DOMAIN 3: MAINS HIGH-VOLTAGE (220V–240V AC 50Hz)                             │
 │ Deep Well Pump, Distribution Pump, Raw Water Submersible Pump                │
@@ -137,15 +135,15 @@ The controller enclosure contains three strictly segregated power domains:
 ### 4.2. Output Actuators (Relay Modules & MOSFET Drivers)
 | Channel | Output Pin | Driver Module | Contact / Power Wiring | Load Controlled | Load Type |
 |---|---|---|---|---|---|
-| **Ch 1** | GPIO 1 | Relay Omron #1 (Heavy Duty) | 220V AC Live (COM1) → NO1 → Well Pump L | Deep Well Submersible Pump | 220V AC Mains |
-| **Ch 2** | GPIO 2 | Relay Omron #2 (Heavy Duty) | 220V AC Live (COM2) → NO2 → Dist Pump L | Fertigation Booster Pump GH-1 | 220V AC Mains |
-| **Ch 3** | GPIO 4 | 4-Ch Relay Board Ch 1 (IN1) | 12V DC Pos (COM1) → NO1 → Submersible (+) | Raw Water Submersible Pump | 12V DC |
-| **Ch 4** | GPIO 5 | MOSFET Module #1 (15A) | 12V DC Pos → Drain/Source → Dosing A (+) | Peristaltic Dosing Pump A | 12V DC (Nutrient) |
-| **Ch 5** | GPIO 6 | MOSFET Module #2 (15A) | 12V DC Pos → Drain/Source → Dosing B (+) | Peristaltic Dosing Pump B | 12V DC (Acid/Nutrient) |
-| **Ch 6** | GPIO 7 | MOSFET Module #3 (15A) | 12V DC Pos → Drain/Source → Fan (+) | Cabinet / Exhaust Fan | 12V DC |
-| **Ch 7** | GPIO 18 | MOSFET Module #4 (15A) | 5V DC Pos → Drain/Source → Buzzer (+) | Active Alarm Buzzer | 5V DC (~30mA) |
-| **Ch 8** | GPIO 10 | 4-Ch Relay Board Ch 3 (IN3) | Kontaktor Koil A1/A2 | 2x Greenhouse Blower Fans | 220V AC |
-| **Ch 9** | GPIO 40 | 4-Ch Relay Board Ch 4 (IN4) | 220V AC Live (COM4) → NO4 → Mixing Pump L | Mixing Tank Pond Pump | 220V AC |
+| **Relay 1** | GPIO 1 | 4-Ch Relay Board Ch 1 (IN1) | 220V AC Live (COM1) → NO1 → Well Pump L | Deep Well Submersible Pump | 220V AC Mains |
+| **Relay 2** | GPIO 2 | 4-Ch Relay Board Ch 2 (IN2) | 220V AC Live (COM2) → NO2 → Dist Pump L | Fertigation Booster Pump GH-1 | 220V AC Mains |
+| **Relay 3** | GPIO 10 | 4-Ch Relay Board Ch 3 (IN3) | Kontaktor Koil A1/A2 | 2x Greenhouse Blower Fans | 220V AC |
+| **Relay 4** | GPIO 40 | 4-Ch Relay Board Ch 4 (IN4) | 220V AC Live (COM4) → NO4 → Mixing Pump L | Mixing Pond Pumps | 220V AC |
+| **MOSFET 1** | GPIO 4 | MOSFET Module #1 (15A) | 12V DC Pos → Drain/Source → Raw Submersible (+) | Raw Submersible Pump 1 | 12V DC |
+| **MOSFET 2** | GPIO 5 | MOSFET Module #2 (15A) | 12V DC Pos → Drain/Source → Dosing A (+) | Peristaltic Dosing Pump A | 12V DC (Nutrient) |
+| **MOSFET 3** | GPIO 6 | MOSFET Module #3 (15A) | 12V DC Pos → Drain/Source → Dosing B (+) | Peristaltic Dosing Pump B | 12V DC (Acid/Nutrient) |
+| **MOSFET 4** | GPIO 7 | MOSFET Module #4 (15A) | 12V DC Pos → Drain/Source → Fan (+) | Cabinet / Exhaust Fan | 12V DC |
+| **MOSFET 5** | GPIO 18 | MOSFET Module #5 (15A) | 5V DC Pos → Drain/Source → Buzzer (+) | Active Alarm Buzzer | 5V DC (~30mA) |
 
 *Note: All loads are wired to Normally Open (NO) terminals or active-high MOSFET gates so they remain strictly de-energized during power-off or boot safe clamp.*
 

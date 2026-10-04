@@ -39,7 +39,7 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
                                │
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DOMAIN 4: 220V–240V AC MAINS ELECTRICAL DOMAIN                               │
-│ Deep Well Pump AC (Omron #1), Dist Booster AC (Omron #2), 2x Blowers (Contactor)│
+│ Deep Well Pump AC (Relay Ch 1), Dist Booster AC (Relay Ch 2), Blowers (Relay Ch 3), Mixing (Relay Ch 4)│
 │ Conductors: Live (L), Neutral (N), Protective Earth (PE)                     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -50,7 +50,7 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
 
 | Power Rail | Voltage Rating | Source / Provider | Destination / Loads | Ground Reference | Purpose | Verification Status |
 |:---|:---:|:---|:---|:---|:---|:---:|
-| **220V AC Mains** | 220V–240V AC 50Hz | AC Power Inlet Socket via 2-Pole 10A MCB | 12V 5A PSU, Well Pump (via Omron #1), Dist Pump (via Omron #2), 2x Greenhouse Blowers (via Magnetic Contactor) | Protective Earth (AC-PE) | Primary grid power for heavy pumps and DC PSU | **VERIFIED ARCHITECTURE** |
+| **220V AC Mains** | 220V–240V AC 50Hz | AC Power Inlet Socket via 2-Pole 10A MCB | 12V 5A PSU, Well Pump (4-Ch Relay Ch 1), Dist Pump (4-Ch Relay Ch 2), 2x Blowers (4-Ch Relay Ch 3 via Contactor), Mixing Pond Pumps (4-Ch Relay Ch 4) | Protective Earth (AC-PE) | Primary grid power for heavy pumps and DC PSU | **VERIFIED ARCHITECTURE** |
 | **12V DC Rail** | +12.0V DC (±5%) | Switching Power Supply 12V 5A (60W) | LM2596 IN+, Dosing A (12V), Dosing B (12V), Fan (12V), Submersible (12V) | GND_12V (Power Ground) | DC actuator motive power and buck input | **VERIFIED RAIL** |
 | **5V DC Rail** | **5.05V DC** | LM2596 Buck Converter OUT+ | ESP32 5V (Vin), 4-Ch Relay Board (VCC & JD-VCC), Flow Meter VCC, Active Buzzer (~30mA via driver), MicroSD Adapter VCC (EasyWare EP000094, 4.5V~5.5V) | GND_LV / Common DC Ground | Microcontroller supply, acoustic alarm sounder, MicroSD adapter, and intermediate switching logic | **VERIFY WITH MULTIMETER** |
 | **3.3V DC Rail** | +3.30V DC (±2%) | ESP32 Onboard LDO Regulator (3V3 Pins) | DS3231 RTC, DS18B20, DHT22 (Air Temp & RH), ST7735 TFT (VCC & LED), Pull-up Resistors, Buttons | GND_LV (Clean Signal Ground) | Clean noise-free logic rail for sensors and peripherals | **VERIFIED RAIL** |
@@ -162,7 +162,7 @@ To detect power loss without requiring cloud dependencies or cellular modems:
 ## 8. Deep Well Pump Electrical & Mechanical Safety Interlocks
 
 ### 8.1. Autonomous 220V AC Physical Radar Interlock (Tank-Full Cutoff)
-The Deep Well Pump (Omron Relay #1, GPIO 1) incorporates an independent, non-software safety interlock:
+The Deep Well Pump (4-Channel Relay Ch 1, GPIO 1) incorporates an independent, non-software safety interlock:
 - **Physical Radar Switch:** An external mechanical 220V AC radar float switch installed inside the raw water storage tank is wired in direct series with the 220V AC live conductor feeding the well pump motor/contactor coil.
 - **Autonomous Mechanical Action:** When the raw water tank fills to capacity, the radar switch mechanically disconnects 220V power to the pump motor, completely independent of the ESP32.
 - **Firmware Authority:** The ESP32 does not monitor the radar switch state directly as electrical telemetry. Commanded ON state indicates that the relay contact is closed; physical motor rotation depends on the radar circuit remaining closed.

@@ -1353,11 +1353,11 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
 
 ## 34.2 Raw Water Pump 12V DC (`pump_submersible` / GPIO 4) — Field Calibration via Small Flow Sensor
 - **CRITICAL TERMINOLOGY & HARDWARE BOUNDARY:**
-  - **Raw Water Pump 12V DC (`pump_submersible` / GPIO 4 / 4-Ch Relay IN1 / PUMP 3):**
+  - **Raw Water Pump 12V DC (`pump_submersible` / GPIO 4 / MOSFET Module #1 / PUMP 3):**
     - Submersible 12V DC pump transferring water from the raw water storage reservoir into the central mixing tank.
     - **Pipe Line:** The water line from this pump passes through the **Small Raw Water Pulse Flow Meter (`flow_sensor_water` / ZJ-B1 on GPIO 15)**.
     - **Calibration Target:** THIS IS THE PUMP TO BE CALIBRATED.
-  - **Deep Well Pump 220V AC (`pump_well` / GPIO 1 / Omron Relay #1 / PUMP 1):**
+  - **Deep Well Pump 220V AC (`pump_well` / GPIO 1 / 4-Ch Relay IN1 / PUMP 1):**
     - High-voltage 220V AC submersible pump dedicated to deep ground well extraction to fill the raw water storage reservoir.
     - It is **NOT** the 12V raw water mixing feed pump and does **NOT** route through the small ZJ-B1 flow meter.
     - Never confuse or swap "Raw Water Pump 12V" with "Well Pump 220V".
@@ -1366,7 +1366,7 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
   - **Tank Low Float Exemption:** The Raw Water Pump (`pump_submersible` / `RAW_SUBMERSIBLE` on GPIO 4) transfers water from the raw reservoir into the mixing tank to fill it. It is strictly exempted from the mixing tank dry-run interlock (`float_lower_ok`), which applies only to delivery/distribution pumps.
   - **Calibration Ownership & Safety:** During calibration runs, the actuator is acquired under `ACTUATOR_OWNER_CALIBRATION` with `SAFETY_COMMAND_CALIBRATION` authorization. This prevents routine run-time flow-timeout tripping while preserving immediate hardware emergency-stop (`EMERGENCY_STOP`) and operator abort capabilities.
   - **Measurement Ingestion:** During a volumetric calibration run (`/api/v1/calibration` with `VOLUMETRIC` on `pump_submersible` for $T$ seconds):
-    1. ESP32 drives `pump_submersible` (GPIO 4 Active-LOW) while accumulating pulses from the small raw flow sensor (`flow_sensor_water` / ZJ-B1 on GPIO 15) via `sensor_hal`.
+    1. ESP32 drives `pump_submersible` (GPIO 4 Active-HIGH) while accumulating pulses from the small raw flow sensor (`flow_sensor_water` / ZJ-B1 on GPIO 15) via `sensor_hal`.
     2. ESP32 returns the delta volume in `/api/v1/calibration/status` (`measured_ml` and `measured_l`).
     3. If pulses are metered, the Web UI automatically ingests `measured_ml` directly from the sensor. If pulses are zero (e.g. initial dry bench testing or open discharge into an external measuring container), the run completes with state `COMPLETE` (`measured_ml = 0`), enabling manual beaker volume input in the UI.
     4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record for `pump_submersible` (`rateRawWaterPumpMlSec`).

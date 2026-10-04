@@ -65,31 +65,50 @@ extern "C" {
 #define I2C_FREQ_HZ                 100000
 
 /* ========================================================================== */
-/* OUTPUT ACTUATORS (RELAYS & SWITCHES)                                       */
-/* The canonical wiring contract defines every mapped actuator output as Active-LOW. */
-/* Do not invert polarity in software unless the authoritative wiring contract is changed. */
+/* OUTPUT ACTUATORS (RELAYS & MOSFET DRIVERS)                                 */
+/* Canonical Relay Channel Assignment (4-Channel Optocoupled Relay Board):    */
+/*   Relay Channel 1 (IN1): Well Pump (GPIO 1)                                */
+/*   Relay Channel 2 (IN2): Distribution Pump (GPIO 2)                        */
+/*   Relay Channel 3 (IN3): Blower Fans Contactor Trigger (GPIO 10)           */
+/*   Relay Channel 4 (IN4): Mixing Pond Pumps (GPIO 40)                       */
+/* Canonical MOSFET Driver Modules (High-Power N-Channel MOSFET Drivers):     */
+/*   MOSFET Output 1: Raw Submersible Pump 1 (GPIO 4)                         */
+/*   MOSFET Output 2: Peristaltic Dosing Pump A (GPIO 5)                      */
+/*   MOSFET Output 3: Peristaltic Dosing Pump B (GPIO 6)                      */
+/*   MOSFET Output 4: Cabinet Exhaust Cooling Fan (GPIO 7)                    */
+/*   MOSFET Output 5: Active Alarm Buzzer Sounder (GPIO 18)                   */
 /* ========================================================================== */
-#define PIN_OUT_WELL_PUMP           1
-#define PIN_OUT_DIST_PUMP           2
-#define PIN_OUT_RAW_SUBMERSIBLE     4
-#define PIN_OUT_DOSING_A            5
-#define PIN_OUT_DOSING_B            6
-#define PIN_OUT_COOLING_FAN         7
-#define PIN_OUT_BLOWER_FAN          10  /* 4-Ch Relay IN3 -> Triggers External Omron Relay / Contactor for 2x Blower Fans */
-#define PIN_OUT_BUZZER              18  /* MOSFET Gate Driver Stage -> 3V/5V Active Alarm Buzzer (~30mA current isolation) */
-#define PIN_OUT_MIXING_PUMP         40  /* 4-Ch Relay IN4 -> 220V AC Pond Pump */
+#define PIN_RELAY_CH1               1   /* Relay Channel 1: Well Pump */
+#define PIN_RELAY_CH2               2   /* Relay Channel 2: Distribution Pump */
+#define PIN_RELAY_CH3               10  /* Relay Channel 3: Greenhouse Blower Fans */
+#define PIN_RELAY_CH4               40  /* Relay Channel 4: Mixing Pond Pumps */
+
+#define PIN_OUT_WELL_PUMP           PIN_RELAY_CH1
+#define PIN_OUT_DIST_PUMP           PIN_RELAY_CH2
+#define PIN_OUT_BLOWER_FAN          PIN_RELAY_CH3
+#define PIN_OUT_MIXING_PUMP         PIN_RELAY_CH4
+
+#define PIN_MOSFET_RAW_SUBMERSIBLE_1 4  /* MOSFET Output 1: Raw Submersible Pump 1 (12V DC) */
+#define PIN_OUT_RAW_SUBMERSIBLE     PIN_MOSFET_RAW_SUBMERSIBLE_1
+#define PIN_OUT_RAW_SUBMERSIBLE_1   PIN_MOSFET_RAW_SUBMERSIBLE_1
+
+#define PIN_OUT_DOSING_A            5   /* MOSFET Output 2: Peristaltic Dosing Pump A (12V DC) */
+#define PIN_OUT_DOSING_B            6   /* MOSFET Output 3: Peristaltic Dosing Pump B (12V DC) */
+#define PIN_OUT_COOLING_FAN         7   /* MOSFET Output 4: Cabinet Exhaust Fan (12V DC) */
+#define PIN_OUT_BUZZER              18  /* MOSFET Output 5: Active Alarm Buzzer (5V DC, ~30mA) */
 #define PIN_OUT_ERROR_LAMP          -1  /* Error lamp unmapped; alarm annunciator handled by PIN_OUT_BUZZER (GPIO 18) */
 
-#define RELAY_ACTIVE_LEVEL          0   /* 0 = Active-LOW (standard optocoupled relay boards: Well, Dist, Raw, Blower, Mix) */
-#define MOSFET_ACTIVE_LEVEL         1   /* 1 = Active-HIGH (N-channel MOSFET modules: Dosing A/B, Fan, Buzzer) */
+#define RELAY_ACTIVE_LEVEL          0   /* 0 = Active-LOW (4-Channel Relay Board: Well Pump, Dist Pump, Blower Fans, Mixing Pump) */
+#define MOSFET_ACTIVE_LEVEL         1   /* 1 = Active-HIGH (N-channel MOSFET modules: Raw Submersible 1, Dosing A/B, Fan, Buzzer) */
 
 #define ACTUATOR_ACTIVE_LEVEL       RELAY_ACTIVE_LEVEL
 #define ACTUATOR_LEVEL_ON           (ACTUATOR_ACTIVE_LEVEL)
 #define ACTUATOR_LEVEL_OFF          (!ACTUATOR_ACTIVE_LEVEL)
 
-#define DOSING_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 5 & 6) */
-#define COOLING_FAN_ACTIVE_LEVEL    MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 7) */
-#define BUZZER_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 18) */
+#define RAW_SUBMERSIBLE_ACTIVE_LEVEL MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 4) */
+#define DOSING_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 5 & 6) */
+#define COOLING_FAN_ACTIVE_LEVEL    MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 7) */
+#define BUZZER_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 18) */
 
 /* ========================================================================== */
 /* INPUT SENSORS & FLOATS                                                     */

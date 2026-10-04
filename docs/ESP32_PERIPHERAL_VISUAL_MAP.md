@@ -42,53 +42,57 @@ flowchart TD
         ESP -->|3.3V Sensor Rail Left-1-2| VCC33
     end
 
-    subgraph ACT_AC ["Beban AC 220V High Voltage"]
-        RLY_AC1["Omron Relay Module 1<br/>Koil Driver 3.3V/5V"]:::ac
-        RLY_AC2["Omron Relay Module 2<br/>Koil Driver 3.3V/5V"]:::ac
+    subgraph ACT_AC ["Beban AC 220V via 4-Channel Relay Board"]
+        RLY_BOARD["4-Channel Relay Board Optocoupler 5V<br/>Active-LOW: 0V = ON"]:::ac
         PUMP_WELL["Pompa Celup Sumur Dalam<br/>Deep Well 220V AC"]:::ac
         PUMP_BOOST["Pompa Booster GH-1<br/>220V AC"]:::ac
+        CONTACTOR_BLOWER["Kontaktor Magnetik AC<br/>Blower Trigger"]:::ac
+        BLOWER_FANS["2x Kipas Blower Greenhouse<br/>220V AC Paralel"]:::ac
+        PUMP_MIX["Pompa Sirkulasi / Aduk<br/>Mixing Pond 220V AC"]:::ac
 
-        ESP -->|GPIO 1 Right-4 Active-LOW| RLY_AC1
-        RLY_AC1 --> PUMP_WELL
-        ESP -->|GPIO 2 Right-5 Active-LOW| RLY_AC2
-        RLY_AC2 --> PUMP_BOOST
-        AC_IN -.->|220V AC Power| RLY_AC1
-        AC_IN -.->|220V AC Power| RLY_AC2
+        ESP -->|GPIO 1 Right-4 IN1 Active-LOW| RLY_BOARD
+        ESP -->|GPIO 2 Right-5 IN2 Active-LOW| RLY_BOARD
+        ESP -->|GPIO 10 Left-16 IN3 Active-LOW| RLY_BOARD
+        ESP -->|GPIO 40 Right-8 IN4 Active-LOW| RLY_BOARD
+
+        RLY_BOARD -->|Relay Ch 1| PUMP_WELL
+        RLY_BOARD -->|Relay Ch 2| PUMP_BOOST
+        RLY_BOARD -.->|Relay Ch 3 Trigger Koil A1-A2| CONTACTOR_BLOWER
+        CONTACTOR_BLOWER --> BLOWER_FANS
+        RLY_BOARD -->|Relay Ch 4| PUMP_MIX
+
+        AC_IN -.->|220V AC Power| RLY_BOARD
     end
 
-    subgraph ACT_DC ["Aktuator DC 12V Relays and MOSFETs"]
-        RLY_BOARD["4-Channel Relay Board Optocoupler 5V"]:::dc
-        PUMP_RAW["Pompa Air Baku Celup<br/>Submersible 12V DC"]:::dc
+    subgraph ACT_DC ["Aktuator DC via 5x High-Power MOSFET Modules"]
+        MOS1["MOSFET Module 1 LR7843<br/>Raw Submersible Trigger"]:::dc
+        MOS2["MOSFET Module 2 LR7843<br/>Dosing A Trigger"]:::dc
+        MOS3["MOSFET Module 3 LR7843<br/>Dosing B Trigger"]:::dc
+        MOS4["MOSFET Module 4 LR7843<br/>Cooling Fan Trigger"]:::dc
+        MOS5["MOSFET Module 5 LR7843<br/>Buzzer Driver Stage"]:::dc
 
-        MOS1["MOSFET Module 1 LR7843<br/>Optocoupler Isolated"]:::dc
-        MOS2["MOSFET Module 2 LR7843<br/>Optocoupler Isolated"]:::dc
-        MOS3["MOSFET Module 3 LR7843<br/>Optocoupler Isolated"]:::dc
-        MOS4["MOSFET Module 4 LR7843<br/>Buzzer Driver Stage"]:::dc
+        PUMP_RAW["Pompa Air Baku Celup<br/>Raw Submersible 12V DC"]:::dc
         PUMP_DOS_A["Dosing Pump A Nutrisi<br/>Peristaltik 12V DC"]:::dc
         PUMP_DOS_B["Dosing Pump B Buffer<br/>Peristaltik 12V DC"]:::dc
         FAN_EXH["Kipas Panel Box<br/>Exhaust Fan 12V DC"]:::dc
         BUZZER_DEV["Buzzer Alarm Aktif 5V DC<br/>Acoustic Sounder"]:::dc
 
-        ESP -->|GPIO 4 Left-4 IN1 Active-LOW| RLY_BOARD
-        RLY_BOARD --> PUMP_RAW
-        ESP -->|GPIO 10 Left-16 IN3 Active-LOW| RLY_BOARD
-        RLY_BOARD -.->|Trigger Koil A1-A2| CONTACTOR_BLOWER["Kontaktor Magnetik AC<br/>Blower Trigger"]:::ac
-        CONTACTOR_BLOWER --> BLOWER_FANS["2x Kipas Blower Greenhouse<br/>220V AC Paralel"]:::ac
+        ESP -->|GPIO 4 Left-4 Gate Active-HIGH| MOS1
+        MOS1 --> PUMP_RAW
+        ESP -->|GPIO 5 Left-5 PWM Gate Active-HIGH| MOS2
+        MOS2 --> PUMP_DOS_A
+        ESP -->|GPIO 6 Left-6 PWM Gate Active-HIGH| MOS3
+        MOS3 --> PUMP_DOS_B
+        ESP -->|GPIO 7 Left-7 PWM Gate Active-HIGH| MOS4
+        MOS4 --> FAN_EXH
+        ESP -->|GPIO 18 Left-11 Gate Active-HIGH| MOS5
+        MOS5 --> BUZZER_DEV
 
-        ESP -->|GPIO 5 Left-5 PWM Gate Active-HIGH| MOS1
-        MOS1 --> PUMP_DOS_A
-        ESP -->|GPIO 6 Left-6 PWM Gate Active-HIGH| MOS2
-        MOS2 --> PUMP_DOS_B
-        ESP -->|GPIO 7 Left-7 PWM Gate Active-HIGH| MOS3
-        MOS3 --> FAN_EXH
-        ESP -->|GPIO 18 Left-11 Gate Active-HIGH| MOS4
-        MOS4 --> BUZZER_DEV
-
-        PSU -.->|12V Load Supply| RLY_BOARD
         PSU -.->|12V Load Supply| MOS1
         PSU -.->|12V Load Supply| MOS2
         PSU -.->|12V Load Supply| MOS3
-        LM2596 -.->|5V Load Supply| MOS4
+        PSU -.->|12V Load Supply| MOS4
+        BUCK -.->|5V Load Supply| MOS5
     end
 
     subgraph BUS_COMM ["Bus Komunikasi dan Sensor I2C and 1-Wire"]
@@ -166,16 +170,15 @@ flowchart TD
 |:---|:---|:---:|:---:|:---|:---|
 | **Daya (Power)** | LM2596 Step-Down | **5V (Vin)** | Left-21 | Input Daya Utama | Dikunci 5.05V DC dari PSU 12V |
 | **Daya (Power)** | Rel 3.3V Sensor | **3V3 Rail** | Left-1 / Left-2 | Output Daya Sensor | Maksimum 500mA untuk modul 3.3V |
-| **Beban AC 220V** | Omron Relay 1 | **GPIO 1** | Right-4 | Digital Output | Active-LOW (Pompa Sumur Dalam) |
-| **Beban AC 220V** | Omron Relay 2 | **GPIO 2** | Right-5 | Digital Output | Active-LOW (Pompa Booster Distribusi) |
-| **Beban DC 12V** | 4-Ch Relay IN1 | **GPIO 4** | Left-4 | Digital Output | Active-LOW (Pompa Air Baku Celup) |
-| **Relay Bebas** | 4-Ch Relay IN2 | *NC* | - | *NC* | Bebas / Tidak Terhubung (Buzzer memakai MOSFET 4) |
-| **Beban AC 220V** | 4-Ch Relay IN3 | **GPIO 10** | Left-16 | Digital Output | Active-LOW (Trigger Kontaktor Magnetik 2x Kipas Blower Greenhouse - Booked/Standby) |
-| **Beban AC 220V** | 4-Ch Relay IN4 | **GPIO 40** | Right-8 | Digital Output | Active-LOW (Pompa Sirkulasi / Aduk Tangki Nutrisi) |
-| **Beban DC 12V** | MOSFET Modul 1 | **GPIO 5** | Left-5 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump A Nutrisi) |
-| **Beban DC 12V** | MOSFET Modul 2 | **GPIO 6** | Left-6 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump B pH) |
-| **Beban DC 12V** | MOSFET Modul 3 | **GPIO 7** | Left-7 | PWM / Digital Out | Active-HIGH Gate (Kipas Exhaust Box) |
-| **Beban DC 5V** | MOSFET Modul 4 | **GPIO 18** | Left-11 | Digital Output | Active-HIGH Gate (Buzzer Alarm Aktif 5V) |
+| **Beban AC 220V** | Relay 4-Ch IN1 | **GPIO 1** | Right-4 | Digital Output | Active-LOW (Pompa Sumur Dalam 220V AC) |
+| **Beban AC 220V** | Relay 4-Ch IN2 | **GPIO 2** | Right-5 | Digital Output | Active-LOW (Pompa Booster Distribusi 220V AC) |
+| **Beban AC 220V** | Relay 4-Ch IN3 | **GPIO 10** | Left-16 | Digital Output | Active-LOW (Trigger Kontaktor Magnetik 2x Kipas Blower Greenhouse) |
+| **Beban AC 220V** | Relay 4-Ch IN4 | **GPIO 40** | Right-8 | Digital Output | Active-LOW (Pompa Sirkulasi / Aduk Tangki Nutrisi 220V AC) |
+| **Beban DC 12V** | MOSFET Modul 1 | **GPIO 4** | Left-4 | Digital Output | Active-HIGH Gate (Pompa Air Baku Celup Submersible 1 12V DC) |
+| **Beban DC 12V** | MOSFET Modul 2 | **GPIO 5** | Left-5 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump A Nutrisi 12V DC) |
+| **Beban DC 12V** | MOSFET Modul 3 | **GPIO 6** | Left-6 | PWM / Digital Out | Active-HIGH Gate (Dosing Pump B pH 12V DC) |
+| **Beban DC 12V** | MOSFET Modul 4 | **GPIO 7** | Left-7 | PWM / Digital Out | Active-HIGH Gate (Kipas Exhaust Box 12V DC) |
+| **Beban DC 5V** | MOSFET Modul 5 | **GPIO 18** | Left-11 | Digital Output | Active-HIGH Gate (Buzzer Alarm Aktif 5V DC) |
 | **Bus Komunikasi** | DS3231 RTC (SDA) | **GPIO 8** | Left-12 | I2C Data (SDA) | Bi-directional, wajib pull-up 4.7kΩ |
 | **Bus Komunikasi** | DS3231 RTC (SCL) | **GPIO 9** | Left-15 | I2C Clock (SCL) | Clock Out, wajib pull-up 4.7kΩ |
 | **Bus Komunikasi** | DS18B20 Temp | **GPIO 17** | Left-10 | 1-Wire Bus | Bi-directional, wajib pull-up 4.7kΩ ke 3.3V |
@@ -193,4 +196,4 @@ flowchart TD
 | **Tombol Panel** | Button 1 (TFT Switch) | **GPIO 0** | Right-14 | Digital Input | Active-LOW (Switch layar TFT, BOOT caveat) |
 | **Tombol Panel** | Button 2 (Well Pump)  | **GPIO 39** | Right-9 | Digital Input | Active-LOW (Toggle Pompa Sumur 5-menit timer & dry-run interlock) |
 | **Actuator** | Mixing Pump Relay IN4 | **GPIO 40** | Right-8 | Digital Output | Active-LOW (0=ON); Button 3 physical input RETIRED/disconnected |
-| **Tombol Panel** | Button 4 (Reserved)   | **GPIO 41** | Right-7 | Digital Input | Active-LOW output (0=ON); Button 3 physical input is RETIRED/disconnected |
+| **Sensor Lingkungan**| DHT22 / AM2302 Sensor | **GPIO 41** | Right-7 | Single-Wire Bus | Digital Sensor Suhu & Kelembaban Udara Greenhouse |

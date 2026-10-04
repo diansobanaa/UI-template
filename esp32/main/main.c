@@ -59,7 +59,7 @@ static void safe_boot_actuators(void) {
   } output_channels[] = {
       {PIN_OUT_WELL_PUMP, RELAY_ACTIVE_LEVEL},
       {PIN_OUT_DIST_PUMP, RELAY_ACTIVE_LEVEL},
-      {PIN_OUT_RAW_SUBMERSIBLE, RELAY_ACTIVE_LEVEL},
+      {PIN_OUT_RAW_SUBMERSIBLE, RAW_SUBMERSIBLE_ACTIVE_LEVEL},
       {PIN_OUT_DOSING_A, DOSING_ACTIVE_LEVEL},
       {PIN_OUT_DOSING_B, DOSING_ACTIVE_LEVEL},
       {PIN_OUT_COOLING_FAN, COOLING_FAN_ACTIVE_LEVEL},
@@ -98,7 +98,7 @@ static void safe_boot_actuators(void) {
     }
   }
 
-  ESP_LOGI(TAG, "Safe boot complete: mapped actuator channels locked in "
+  ESP_LOGI(TAG, "Safe boot complete: 9 mapped actuator channels locked in "
                 "safe-off state.");
 }
 
