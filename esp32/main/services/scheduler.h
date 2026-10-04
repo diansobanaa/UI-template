@@ -65,8 +65,32 @@ esp_err_t scheduler_evaluate_at(time_t now);
 /**
  * @brief Checks if any Well Pump schedule is currently active at epoch time 'now'.
  * If active, returns true and populates out_remaining_sec and out_schedule_id.
+ * Schedule condition: schedule_start <= now < schedule_end
  */
 bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len);
+
+/**
+ * @brief Checks if any Fan / Blower schedule is currently active at epoch time 'now'.
+ * If active, returns true and populates out_remaining_sec, out_schedule_id, and out_component_id.
+ * If target_component is non-NULL (e.g. "fan_cooling" or "fan_blower"), filters for that fan.
+ * Schedule condition: schedule_start <= now < schedule_end
+ */
+bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len, char *out_component_id, size_t comp_len);
+
+/**
+ * @brief Reconcile Fan / Blower physical actuator states against current active schedules.
+ */
+esp_err_t scheduler_reconcile_fan_schedule(time_t now);
+
+/**
+ * @brief Schedule one-shot deferred lazy_start recovery after boot is complete.
+ */
+esp_err_t scheduler_schedule_lazy_start(void);
+
+/**
+ * @brief Check if one-shot lazy_start recovery has completed.
+ */
+bool scheduler_is_lazy_start_done(void);
 
 /**
  * @brief Find the next scheduled start time for Well Pump.

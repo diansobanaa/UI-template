@@ -174,6 +174,21 @@ To prevent well motor overheating or dry-cavitation during unmonitored manual ov
 
 ---
 
+## 9. Power-Loss Recovery — Well Pump & Fan/Blower (Schedule-Driven)
+
+Scope: **Well Pump and Fan/Blower only.** Fertigation, dosing, mixing, raw-water, and other actuators are NOT covered by this model.
+
+- **Principle:** After reboot, no previous FreeRTOS task or elapsed runtime is restored. The existing schedule table + current wall-clock time is the sole source of truth.
+- **Condition (exact):** `schedule_start <= now < schedule_end`. Exact start → ON; exact end → OFF. DAILY/INTERVAL schedules are evaluated against the current day-of-week and seconds-of-day; ONCE schedules against epoch.
+- **`lazy_start`:** `app_main()` calls `scheduler_schedule_lazy_start()` as its last step. This spawns a one-shot, self-deleting task (`lazy_start_task` in `esp32/main/services/scheduler.c`, 3584 B stack) so reconciliation never runs on the boot call stack. It waits up to 10 s for a valid clock, reconciles Fan/Blower (`scheduler_reconcile_fan_schedule`), takes a fresh sensor sample (`sensor_hal_poll`), then reconciles Well Pump (`well_pump_reconcile_auto_schedule`), and sets `s_lazy_start_done`. If the clock never becomes valid, recovery is skipped and actuators stay OFF.
+- **Hand-off:** Until `lazy_start` completes, the 1 s scheduler tick does not reconcile these actuators; afterwards the same two reconcile functions run on the normal scheduler tick (no second scheduler, no extra timer).
+- **Boot marker handling:** Persisted `RUNNING` markers for Well Pump / Fan/Blower schedules are reset to `EMPTY` (not `RECOVERY_HOLD`) at hydration, because these actuators are window-driven.
+- **Safety precedence (unchanged):** ON requests go through `actuator_hal` / `well_pump_mgr` only. E-stop latch (persisted across reboot), safety-fault latch, safety-owner lock, sensor-stale protection, and max-runtime protection all still reject or force OFF. An active schedule never overrides them; after a validated operator RESUME, the next scheduler tick re-applies the window.
+- **Sensor seed:** `sensor_hal_init()` seeds `last_sample_timestamp` at init so the safety monitor does not trip `SAFETY_SENSOR_STALE` on a restored flow-protected pump before the first periodic poll.
+- **Verification:** `scripts/test_power_loss_recovery.py` (RTS hard reset on COM3).
+
+---
+
 ## Network Configuration and Runtime Isolation
 
 Network provisioning, reconnect, and temporary Direct Local/Network Change Mode are communication functions only. They must not be treated as authority to stop or reset physical loads. Entering or leaving temporary network mode does not intentionally interrupt the scheduler, safety monitoring, E-stop monitoring, sensor sampling, fertigation runtime, local event logging, or fail-safe actuator controls.

@@ -319,9 +319,9 @@ esp_err_t well_pump_reconcile_auto_schedule(time_t now)
 {
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
 
-    if (s_mode != WELL_PUMP_MODE_AUTO) {
+    if (s_mode != WELL_PUMP_MODE_AUTO || s_manual_session_active) {
         xSemaphoreGive(s_mutex);
-        return ESP_OK; /* MANUAL mode prevents schedule reconciliation */
+        return ESP_OK; /* MANUAL mode or manual session active prevents schedule reconciliation */
     }
 
     if (actuator_hal_is_emergency_stopped() || !safety_monitor_allows_commands()) {
@@ -344,7 +344,7 @@ esp_err_t well_pump_reconcile_auto_schedule(time_t now)
             telemetry_mgr_trigger_transition("WELL_PUMP_AUTO_ON");
         }
     } else {
-        if (currently_on) {
+        if (currently_on && !s_manual_session_active && s_active_schedule_id[0] != '\0') {
             well_pump_apply_relay(false, ACTUATOR_OWNER_SCHEDULER);
             s_active_schedule_id[0] = '\0';
             strncpy(s_stop_reason, "SCHEDULE_STOP", sizeof(s_stop_reason) - 1);

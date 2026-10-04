@@ -818,6 +818,40 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->safety_params.max_runtime_sec = 900;
         return ESP_OK;
     }
+    if (strcasecmp(component_id, "cooling_fan") == 0 || strcasecmp(component_id, "COOLING_FAN") == 0 ||
+        strcasecmp(component_id, "fan_cooling") == 0 || strcasecmp(component_id, "fan-cooling") == 0 ||
+        strcasecmp(component_id, "cabinet_fan") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "fan_cooling", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Cooling Fan", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "COOLING_FAN", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "cooling-fan", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_COOLING_FAN; // GPIO 7
+        strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 14400;
+        return ESP_OK;
+    }
+    if (strcasecmp(component_id, "blower_fan") == 0 || strcasecmp(component_id, "BLOWER_FAN") == 0 ||
+        strcasecmp(component_id, "fan_blower") == 0 || strcasecmp(component_id, "fan-blower") == 0 ||
+        strcasecmp(component_id, "blower") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "fan_blower", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Blower Fan", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "BLOWER_FAN", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "blower-fan", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_BLOWER_FAN; // GPIO 10 (Relay CH3)
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 14400;
+        return ESP_OK;
+    }
 
     return ESP_ERR_NOT_FOUND;
 }

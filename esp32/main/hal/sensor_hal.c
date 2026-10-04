@@ -654,6 +654,9 @@ esp_err_t sensor_hal_init(void) {
   dht22_init((gpio_num_t)PIN_IN_DHT22);
   s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
 
+  /* Seed initial sample timestamp at boot so safety monitor sees fresh readings before first periodic poll */
+  s_current_readings.last_sample_timestamp = esp_timer_get_time() / 1000ULL;
+
   ESP_LOGI(
       TAG,
       "Sensor HAL initialized: ZJ-B1 Raw (GPIO %d), FS400A Fert (GPIO %d), "

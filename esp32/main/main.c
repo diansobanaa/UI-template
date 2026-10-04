@@ -421,6 +421,10 @@ void app_main(void) {
   ESP_LOGI(TAG, "AgroTech ESP32-S3 Backend initialized. WiFi: %s",
            (wifi_err == ESP_OK) ? "ONLINE" : "OFFLINE MODE");
 
+  /* Trigger deferred power-loss recovery (lazy_start) for Well Pump & Fan/Blower.
+   * This executes asynchronously in its own safe context once boot stack unrolls. */
+  scheduler_schedule_lazy_start();
+
   /* RC-7: Spawn a lightweight diagnostics task that logs heap stats + stack
    * high-water marks every 60 seconds. This helps identify memory leaks,
    * heap fragmentation, and stack exhaustion patterns over time.

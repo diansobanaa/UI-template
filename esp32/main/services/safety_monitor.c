@@ -583,6 +583,7 @@ esp_err_t safety_monitor_request_recovery(char *out_reason_code, size_t reason_c
     s_fault_code[0] = '\0';
     s_fault_message[0] = '\0';
     s_maintenance_required = false;
+    (void)storage_mgr_set_estop(false);
     xSemaphoreGive(s_mutex);
 
     actuator_hal_resume();

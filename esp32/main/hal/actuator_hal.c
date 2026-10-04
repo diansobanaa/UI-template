@@ -541,11 +541,15 @@ esp_err_t actuator_hal_find_id_by_component_id(const char *component_id, actuato
         *out_id = ACTUATOR_DOSING_B;
         return ESP_OK;
     }
-    if (strcasecmp(component_id, "cooling_fan") == 0 || strcasecmp(component_id, "COOLING_FAN") == 0) {
+    if (strcasecmp(component_id, "cooling_fan") == 0 || strcasecmp(component_id, "COOLING_FAN") == 0 ||
+        strcasecmp(component_id, "fan_cooling") == 0 || strcasecmp(component_id, "fan-cooling") == 0 ||
+        strcasecmp(component_id, "cabinet_fan") == 0) {
         *out_id = ACTUATOR_COOLING_FAN;
         return ESP_OK;
     }
-    if (strcasecmp(component_id, "blower_fan") == 0 || strcasecmp(component_id, "BLOWER_FAN") == 0) {
+    if (strcasecmp(component_id, "blower_fan") == 0 || strcasecmp(component_id, "BLOWER_FAN") == 0 ||
+        strcasecmp(component_id, "fan_blower") == 0 || strcasecmp(component_id, "fan-blower") == 0 ||
+        strcasecmp(component_id, "blower") == 0) {
         *out_id = ACTUATOR_BLOWER_FAN;
         return ESP_OK;
     }
@@ -788,11 +792,8 @@ void actuator_hal_resume(void)
     if (!s_lock) return;
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool was_latched = s_emergency_stop_latched;
     s_emergency_stop_latched = false;
-    if (was_latched) {
-        storage_mgr_set_estop(false);
-    }
+    (void)storage_mgr_set_estop(false);
     
     /* Turn error lamp and buzzer OFF */
     if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT && s_actuators[ACTUATOR_ERROR_LAMP].gpio >= 0) {

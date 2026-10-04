@@ -1,4 +1,15 @@
-# AI HANDOVER — SP-SCHEDULER-STACK-RECOVERY-001 (latest)
+# AI HANDOVER — SP-POWER-LOSS-RECOVERY-001 (latest)
+
+## Status — SP-POWER-LOSS-RECOVERY-001
+**Schedule-driven power-loss recovery for Well Pump & Fan/Blower** — `COMPLETE, 6/6 hardware tests PASS`.
+- Model: after boot, `lazy_start_task` (scheduler.c, one-shot, self-deleting) reconciles Fan/Blower then Well Pump using `schedule_start <= now < schedule_end`; ON only via `actuator_hal` / `well_pump_mgr`; all safety latches still win. Normal 1 s scheduler tick takes over after `s_lazy_start_done`.
+- Details, changed files, verification: see `AI_PROGRESS.md` (SP-POWER-LOSS-RECOVERY-001) and `docs/POWER_MAP.md` §9.
+- Re-test: `python scripts/test_power_loss_recovery.py` (needs COM3 + 192.168.0.101).
+- Out of scope (unchanged): fertigation, dosing queue, mixing, raw-water, SD, telemetry.
+
+---
+
+# AI HANDOVER — SP-SCHEDULER-STACK-RECOVERY-001
 
 ## Status — SP-SCHEDULER-STACK-RECOVERY-001
 **Fixed FreeRTOS Mutex Assertion via Scheduler Stack Restoration & Event Manager Zero-Stack Struct Elimination**

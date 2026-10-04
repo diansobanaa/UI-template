@@ -1,3 +1,20 @@
+## SP-POWER-LOSS-RECOVERY-001 — Schedule-Driven Power-Loss Recovery (Well Pump & Fan/Blower)
+- **Date**: 2026-10-05
+- **Status**: `COMPLETE — VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**: After reboot, restore Well Pump / Fan/Blower ON iff `schedule_start <= now < schedule_end`, via deferred one-shot `lazy_start`, without bypassing safety.
+- **Changed files**:
+  - `esp32/main/services/scheduler.c/.h`: `is_fan_schedule`, `scheduler_is_fan_schedule_active`, `scheduler_reconcile_fan_schedule`, `lazy_start_task` + `scheduler_schedule_lazy_start` / `scheduler_is_lazy_start_done`; per-tick reconcile gated on `s_lazy_start_done`; RUNNING markers for well pump/fan reset to EMPTY on hydration; `sensor_hal_poll()` before well-pump restore.
+  - `esp32/main/main.c`: calls `scheduler_schedule_lazy_start()` at end of `app_main()`.
+  - `esp32/main/services/well_pump_mgr.c`: AUTO reconcile skips active manual sessions.
+  - `esp32/main/hal/sensor_hal.c`: seed `last_sample_timestamp` in init (prevents false `SAFETY_SENSOR_STALE` on restored pump).
+  - `esp32/main/hal/actuator_hal.c`, `hardware_registry.c`: fan/blower aliases + fallback entries; `actuator_hal_resume()` clears persisted E-stop.
+  - `esp32/main/services/safety_monitor.c`: validated recovery clears persisted E-stop.
+  - `scripts/test_power_loss_recovery.py`: 6-scenario RTS-reset hardware test.
+  - `docs/POWER_MAP.md` §9: recovery model documented.
+- **Verification**: build PASS; flash PASS; hardware test 6/6 PASS (fan active ON, well pump active ON, expired OFF, future OFF→ON at 08:00:02, exact start ON / exact end OFF, E-stop OFF + stays OFF across reboot + ON after RESUME); serial: `lazy_start` logged once, no WDT/assert/overflow.
+- **Known issues**: device holds many leftover test schedules from earlier sessions (not touched). Clock in tests is set via `/clock-sync`; SNTP may resync afterwards.
+- **Next action**: none required for this phase.
+
 ## SP-SCHEDULER-STACK-RECOVERY-001 — Fixed FreeRTOS Mutex Assertion via Scheduler Stack Restoration & Event Manager Zero-Stack Struct Elimination
 - **Date**: 2026-10-05
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

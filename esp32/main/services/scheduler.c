@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "hal/actuator_hal.h"
 #include "hal/hardware_registry.h"
+#include "hal/sensor_hal.h"
 #include "nvs.h"
 #include "services/command_mgr.h"
 #include "services/event_mgr.h"
@@ -477,11 +478,21 @@ static void hydrate_runtime_markers(void) {
     s_runtime[i].pending = s_runtime[i].pending_occurrence_timestamp > 0 &&
                            s_runtime[i].marker_state == MARKER_PENDING;
     if (s_runtime[i].marker_state == MARKER_RUNNING) {
-      /* The command manager cache is RAM-only. After reboot we deliberately do
-       * not replay an unknown in-flight physical command because that could
-       * duplicate a real operation. The occurrence is considered consumed and
-       * placed in a recovery hold until M14 reconciliation. */
-      s_runtime[i].marker_state = MARKER_RECOVERY_HOLD;
+      if (strcmp(s_runtime[i].action, "WATER_PUMP") == 0 ||
+          strcmp(s_runtime[i].action, "FAN_TOGGLE") == 0 ||
+          (s_runtime[i].component_count > 0 &&
+           (strcmp(s_runtime[i].component_ids[0], "pump_well") == 0 ||
+            strcasestr(s_runtime[i].component_ids[0], "fan") != NULL ||
+            strcasestr(s_runtime[i].component_ids[0], "blower") != NULL))) {
+        /* Well Pump and Fan/Blower are schedule-window driven; lazy_start reconciles them. */
+        s_runtime[i].marker_state = MARKER_EMPTY;
+      } else {
+        /* The command manager cache is RAM-only. After reboot we deliberately do
+         * not replay an unknown in-flight physical command because that could
+         * duplicate a real operation. The occurrence is considered consumed and
+         * placed in a recovery hold until M14 reconciliation. */
+        s_runtime[i].marker_state = MARKER_RECOVERY_HOLD;
+      }
       s_runtime[i].running = false;
       s_runtime[i].pending = false;
     }
@@ -2471,6 +2482,11 @@ static void check_distribution_completions(void) {
   }
 }
 
+/* Forward declarations for schedule-window reconciliation & lazy_start */
+static bool s_lazy_start_done = false;
+esp_err_t scheduler_reconcile_fan_schedule(time_t now);
+bool scheduler_is_lazy_start_done(void);
+
 esp_err_t scheduler_evaluate_at(time_t now) {
   if (!local_clock_valid(now))
     return ESP_ERR_INVALID_STATE;
@@ -2561,6 +2577,16 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     /* FERTIGATION schedules are governed by Today's Operational Schedule and Global Dosing Queue */
     if (strcmp(sched->action, "FERTIGATION") == 0)
       continue;
+
+    /* WATER_PUMP and FAN_TOGGLE are state-reconciled directly against the active schedule window */
+    if (strcmp(sched->action, "WATER_PUMP") == 0 ||
+        strcmp(sched->action, "FAN_TOGGLE") == 0 ||
+        (sched->component_count > 0 &&
+         (strcmp(sched->component_ids[0], "pump_well") == 0 ||
+          strcasestr(sched->component_ids[0], "fan") != NULL ||
+          strcasestr(sched->component_ids[0], "blower") != NULL))) {
+      continue;
+    }
 
     int64_t occurrence = 0;
     bool is_missed = false;
@@ -2697,6 +2723,13 @@ esp_err_t scheduler_evaluate_at(time_t now) {
   }
 
   xSemaphoreGive(s_mutex);
+
+  /* Reconcile Well Pump and Fan/Blower scheduled states outside s_mutex */
+  if (s_lazy_start_done) {
+    (void)scheduler_reconcile_fan_schedule(now);
+    (void)well_pump_reconcile_auto_schedule(now);
+  }
+
   return ESP_OK;
 }
 
@@ -2973,6 +3006,48 @@ esp_err_t scheduler_trigger_daily_now(void) {
   return ESP_OK;
 }
 
+static bool is_well_pump_schedule(const runtime_schedule_t *rs) {
+  if (!rs || !rs->valid) return false;
+  if (strcmp(rs->action, "WATER_PUMP") == 0) return true;
+  if (strcasestr(rs->action, "WELL") != NULL) return true;
+  if (rs->component_count > 0) {
+    if (strcasecmp(rs->component_ids[0], "pump_well") == 0 ||
+        strcasecmp(rs->component_ids[0], "well_pump") == 0 ||
+        strcasecmp(rs->component_ids[0], "wp-main") == 0 ||
+        strcasestr(rs->component_ids[0], "well") != NULL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_component) {
+  if (!rs || !rs->valid) return false;
+  bool is_fan_action = (strcmp(rs->action, "FAN_TOGGLE") == 0 ||
+                        strcasestr(rs->action, "FAN") != NULL ||
+                        strcasestr(rs->action, "BLOWER") != NULL);
+  bool is_fan_comp = (rs->component_count > 0 &&
+                      (strcasestr(rs->component_ids[0], "fan") != NULL ||
+                       strcasestr(rs->component_ids[0], "blower") != NULL));
+  if (!is_fan_action && !is_fan_comp) return false;
+
+  if (!target_component || !target_component[0]) return true;
+
+  const char *cid = (rs->component_count > 0 && rs->component_ids[0][0]) ? rs->component_ids[0] : NULL;
+  if (cid) {
+    if (strcasecmp(cid, target_component) == 0) return true;
+    if (strcasestr(target_component, "cooling") && strcasestr(cid, "cooling")) return true;
+    if (strcasestr(target_component, "blower") && strcasestr(cid, "blower")) return true;
+    return false;
+  }
+
+  if (rs->gh_id[0]) {
+    return (strcasestr(target_component, "blower") != NULL);
+  } else {
+    return (strcasestr(target_component, "cooling") != NULL);
+  }
+}
+
 bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len) {
   if (!s_mutex || !local_clock_valid(now)) return false;
   if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return false;
@@ -2986,10 +3061,7 @@ bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_
   for (size_t i = 0; i < s_runtime_count; ++i) {
     runtime_schedule_t *rs = &s_runtime[i];
     if (!rs->valid) continue;
-    if (strcmp(rs->action, "WATER_PUMP") != 0 &&
-        !(rs->component_count > 0 && strcmp(rs->component_ids[0], "pump_well") == 0)) {
-      continue;
-    }
+    if (!is_well_pump_schedule(rs)) continue;
 
     if (rs->type == SCHED_TYPE_DAILY || rs->type == SCHED_TYPE_INTERVAL) {
       if (!(rs->days_of_week & (1 << current_dow))) continue;
@@ -2997,6 +3069,7 @@ bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_
       int sched_start_sec = rs->hour * 3600 + rs->minute * 60;
       int sched_end_sec = sched_start_sec + rs->duration_sec;
 
+      // Exact condition: schedule_start <= now < schedule_end
       if (current_sec_of_day >= sched_start_sec && current_sec_of_day < sched_end_sec) {
         active = true;
         if (out_remaining_sec) *out_remaining_sec = (uint32_t)(sched_end_sec - current_sec_of_day);
@@ -3007,6 +3080,7 @@ bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_
         break;
       }
     } else if (rs->type == SCHED_TYPE_ONCE) {
+      // Exact condition: schedule_start <= now < schedule_end
       if (now >= rs->once_timestamp && now < (rs->once_timestamp + rs->duration_sec)) {
         active = true;
         if (out_remaining_sec) *out_remaining_sec = (uint32_t)((rs->once_timestamp + rs->duration_sec) - now);
@@ -3021,6 +3095,156 @@ bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_
 
   xSemaphoreGive(s_mutex);
   return active;
+}
+
+bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len, char *out_component_id, size_t comp_len) {
+  if (!s_mutex || !local_clock_valid(now)) return false;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return false;
+
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  int current_sec_of_day = tm_now.tm_hour * 3600 + tm_now.tm_min * 60 + tm_now.tm_sec;
+  int current_dow = tm_now.tm_wday; // 0 = Sunday
+
+  bool active = false;
+  for (size_t i = 0; i < s_runtime_count; ++i) {
+    runtime_schedule_t *rs = &s_runtime[i];
+    if (!rs->valid) continue;
+    if (!is_fan_schedule(rs, target_component)) continue;
+
+    if (rs->type == SCHED_TYPE_DAILY || rs->type == SCHED_TYPE_INTERVAL) {
+      if (!(rs->days_of_week & (1 << current_dow))) continue;
+
+      int sched_start_sec = rs->hour * 3600 + rs->minute * 60;
+      int sched_end_sec = sched_start_sec + rs->duration_sec;
+
+      // Exact condition: schedule_start <= now < schedule_end
+      if (current_sec_of_day >= sched_start_sec && current_sec_of_day < sched_end_sec) {
+        active = true;
+        if (out_remaining_sec) *out_remaining_sec = (uint32_t)(sched_end_sec - current_sec_of_day);
+        if (out_schedule_id && id_len > 0) {
+          strncpy(out_schedule_id, rs->schedule_id, id_len - 1);
+          out_schedule_id[id_len - 1] = '\0';
+        }
+        if (out_component_id && comp_len > 0) {
+          const char *resolved_comp = (rs->component_count > 0 && rs->component_ids[0][0])
+                                      ? rs->component_ids[0]
+                                      : (rs->gh_id[0] ? "fan_blower" : "fan_cooling");
+          strncpy(out_component_id, resolved_comp, comp_len - 1);
+          out_component_id[comp_len - 1] = '\0';
+        }
+        break;
+      }
+    } else if (rs->type == SCHED_TYPE_ONCE) {
+      // Exact condition: schedule_start <= now < schedule_end
+      if (now >= rs->once_timestamp && now < (rs->once_timestamp + rs->duration_sec)) {
+        active = true;
+        if (out_remaining_sec) *out_remaining_sec = (uint32_t)((rs->once_timestamp + rs->duration_sec) - now);
+        if (out_schedule_id && id_len > 0) {
+          strncpy(out_schedule_id, rs->schedule_id, id_len - 1);
+          out_schedule_id[id_len - 1] = '\0';
+        }
+        if (out_component_id && comp_len > 0) {
+          const char *resolved_comp = (rs->component_count > 0 && rs->component_ids[0][0])
+                                      ? rs->component_ids[0]
+                                      : (rs->gh_id[0] ? "fan_blower" : "fan_cooling");
+          strncpy(out_component_id, resolved_comp, comp_len - 1);
+          out_component_id[comp_len - 1] = '\0';
+        }
+        break;
+      }
+    }
+  }
+
+  xSemaphoreGive(s_mutex);
+  return active;
+}
+
+esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
+  if (!local_clock_valid(now)) return ESP_ERR_INVALID_STATE;
+
+  const char *fan_components[] = {"fan_cooling", "fan_blower"};
+  for (size_t f = 0; f < 2; f++) {
+    const char *comp_id = fan_components[f];
+    actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+    if (actuator_hal_find_id_by_component_id(comp_id, &act_id) != ESP_OK) continue;
+
+    bool safety_ok = !actuator_hal_is_emergency_stopped() && safety_monitor_allows_commands();
+
+    uint32_t rem_sec = 0;
+    char sched_id[40] = {0};
+    bool is_active = safety_ok && scheduler_is_fan_schedule_active(now, comp_id, &rem_sec, sched_id, sizeof(sched_id), NULL, 0);
+
+    bool currently_on = false;
+    actuator_owner_t owner = ACTUATOR_OWNER_NONE;
+    uint32_t runtime_sec = 0;
+    (void)actuator_hal_get_component_status(comp_id, &currently_on, &owner, &runtime_sec);
+
+    if (is_active) {
+      if (!currently_on) {
+        if (owner == ACTUATOR_OWNER_NONE || owner == ACTUATOR_OWNER_SCHEDULER) {
+          (void)actuator_hal_acquire_component(comp_id, ACTUATOR_OWNER_SCHEDULER);
+          esp_err_t set_err = actuator_hal_set_by_component_id(comp_id, true);
+          if (set_err == ESP_OK) {
+            ESP_LOGI(TAG, "AUTO Schedule activated: Fan '%s' ON (sched '%s', %u s remaining)",
+                     comp_id, sched_id, (unsigned)rem_sec);
+          }
+        }
+      }
+    } else {
+      if (currently_on && owner == ACTUATOR_OWNER_SCHEDULER) {
+        (void)actuator_hal_stop_component(comp_id, ACTUATOR_OWNER_SCHEDULER);
+        (void)actuator_hal_release_component(comp_id, ACTUATOR_OWNER_SCHEDULER);
+        ESP_LOGI(TAG, "AUTO Schedule window ended: Fan '%s' OFF", comp_id);
+      }
+    }
+  }
+  return ESP_OK;
+}
+
+static void lazy_start_task(void *pvParameters) {
+  (void)pvParameters;
+  ESP_LOGI(TAG, "lazy_start: deferred power-loss recovery check starting...");
+  time_t now;
+  time(&now);
+
+  int retries = 0;
+  while (!local_clock_valid(now) && retries < 20) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    time(&now);
+    retries++;
+  }
+
+  if (!local_clock_valid(now)) {
+    ESP_LOGW(TAG, "lazy_start: Clock not valid yet; skipping deferred reconciliation");
+    s_lazy_start_done = true;
+    vTaskDelete(NULL);
+    return;
+  }
+
+  /* 1. Reconcile Fan / Blower schedules */
+  (void)scheduler_reconcile_fan_schedule(now);
+
+  /* 2. Ensure safety sensor readings are polled and fresh before restoring well pump */
+  (void)sensor_hal_poll();
+
+  /* 3. Reconcile Well Pump schedules */
+  (void)well_pump_reconcile_auto_schedule(now);
+
+  s_lazy_start_done = true;
+  ESP_LOGI(TAG, "lazy_start: Power-loss schedule reconciliation complete (one-shot).");
+
+  vTaskDelete(NULL);
+}
+
+esp_err_t scheduler_schedule_lazy_start(void) {
+  if (s_lazy_start_done) return ESP_OK;
+  BaseType_t ret = xTaskCreatePinnedToCore(lazy_start_task, "lazy_start", 3584, NULL, 3, NULL, 1);
+  return (ret == pdPASS) ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+bool scheduler_is_lazy_start_done(void) {
+  return s_lazy_start_done;
 }
 
 bool scheduler_get_well_pump_next_schedule(time_t now, char *out_next_time, size_t len) {
