@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "hal/dht22.h"
 #include "hal/hardware_registry.h"
@@ -89,6 +90,7 @@ typedef enum {
 
 static ds18b20_state_t s_ds18b20_state = DS18B20_STATE_IDLE;
 static uint32_t s_ds18b20_start_tick = 0;
+static portMUX_TYPE s_ds18b20_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR zjb1_isr_handler(void *arg) { s_pulses_raw_zjb1++; }
 
@@ -96,39 +98,63 @@ static void IRAM_ATTR fs400a_isr_handler(void *arg) { s_pulses_fert_fs400a++; }
 
 #define yfb1_isr_handler zjb1_isr_handler
 
-/* Minimal 1-Wire DS18B20 Driver */
+/* Dallas 1-Wire 8-bit CRC (polynomial X^8 + X^5 + X^4 + 1, reflected 0x8C) */
+static uint8_t ds18b20_calc_crc8(const uint8_t *data, size_t len) {
+  uint8_t crc = 0;
+  for (size_t i = 0; i < len; i++) {
+    uint8_t inbyte = data[i];
+    for (int j = 0; j < 8; j++) {
+      uint8_t mix = (crc ^ inbyte) & 0x01;
+      crc >>= 1;
+      if (mix) {
+        crc ^= 0x8C;
+      }
+      inbyte >>= 1;
+    }
+  }
+  return crc;
+}
+
+/* Minimal 1-Wire DS18B20 Driver with Critical Section Protection */
 static esp_err_t ds18b20_reset(gpio_num_t pin) {
   gpio_set_direction(pin, GPIO_MODE_OUTPUT);
   gpio_set_level(pin, 0);
   ets_delay_us(480);
+  portENTER_CRITICAL(&s_ds18b20_mux);
   gpio_set_direction(pin, GPIO_MODE_INPUT);
   ets_delay_us(70);
   int presence = gpio_get_level(pin);
+  portEXIT_CRITICAL(&s_ds18b20_mux);
   ets_delay_us(410);
   return (presence == 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 static void ds18b20_write_bit(gpio_num_t pin, int bit) {
+  portENTER_CRITICAL(&s_ds18b20_mux);
   gpio_set_direction(pin, GPIO_MODE_OUTPUT);
   gpio_set_level(pin, 0);
   if (bit) {
     ets_delay_us(6);
     gpio_set_direction(pin, GPIO_MODE_INPUT);
+    portEXIT_CRITICAL(&s_ds18b20_mux);
     ets_delay_us(64);
   } else {
     ets_delay_us(60);
     gpio_set_direction(pin, GPIO_MODE_INPUT);
+    portEXIT_CRITICAL(&s_ds18b20_mux);
     ets_delay_us(10);
   }
 }
 
 static int ds18b20_read_bit(gpio_num_t pin) {
+  portENTER_CRITICAL(&s_ds18b20_mux);
   gpio_set_direction(pin, GPIO_MODE_OUTPUT);
   gpio_set_level(pin, 0);
   ets_delay_us(2);
   gpio_set_direction(pin, GPIO_MODE_INPUT);
   ets_delay_us(10);
   int bit = gpio_get_level(pin);
+  portEXIT_CRITICAL(&s_ds18b20_mux);
   ets_delay_us(55);
   return bit;
 }
@@ -158,22 +184,64 @@ static esp_err_t ds18b20_start_conversion(gpio_num_t pin) {
 }
 
 static sensor_state_t ds18b20_read_result(gpio_num_t pin, float *out_temp) {
-  if (ds18b20_reset(pin) != ESP_OK)
-    return SENSOR_STATE_DISCONNECTED;
-  ds18b20_write_byte(pin, 0xCC); /* Skip ROM */
-  ds18b20_write_byte(pin, 0xBE); /* Read Scratchpad */
+  /* Attempt up to 3 immediate scratchpad reads if CRC or timing glitch occurs.
+   * Converted temperature remains in DS18B20 SRAM scratchpad, so re-reading
+   * takes ~5ms without needing a new 750ms conversion cycle. */
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (ds18b20_reset(pin) != ESP_OK) {
+      if (attempt == 2) return SENSOR_STATE_DISCONNECTED;
+      ets_delay_us(1000);
+      continue;
+    }
+    ds18b20_write_byte(pin, 0xCC); /* Skip ROM */
+    ds18b20_write_byte(pin, 0xBE); /* Read Scratchpad */
 
-  uint8_t lsb = ds18b20_read_byte(pin);
-  uint8_t msb = ds18b20_read_byte(pin);
+    uint8_t scratchpad[9];
+    bool all_ones = true;
+    bool all_zeros = true;
+    for (int i = 0; i < 9; i++) {
+      scratchpad[i] = ds18b20_read_byte(pin);
+      if (scratchpad[i] != 0xFF) all_ones = false;
+      if (scratchpad[i] != 0x00) all_zeros = false;
+    }
 
-  int16_t raw = (int16_t)((msb << 8) | lsb);
-  *out_temp = (float)raw / 16.0f;
+    /* All 0xFF indicates floating line / disconnected probe */
+    if (all_ones) {
+      if (attempt == 2) return SENSOR_STATE_DISCONNECTED;
+      ets_delay_us(1000);
+      continue;
+    }
+    /* All 0x00 indicates line shorted to ground */
+    if (all_zeros) {
+      if (attempt == 2) return SENSOR_STATE_DISCONNECTED;
+      ets_delay_us(1000);
+      continue;
+    }
 
-  if (*out_temp <= -55.0f || *out_temp >= 125.0f) {
-    return SENSOR_STATE_OUT_OF_RANGE;
+    /* Verify Dallas CRC-8 (byte 8 must match CRC of bytes 0..7) */
+    uint8_t calc_crc = ds18b20_calc_crc8(scratchpad, 8);
+    if (calc_crc != scratchpad[8]) {
+      ESP_LOGW(TAG, "DS18B20 CRC error (attempt %d/3): calc 0x%02X != read 0x%02X",
+               attempt + 1, calc_crc, scratchpad[8]);
+      ets_delay_us(1000);
+      continue;
+    }
+
+    int16_t raw = (int16_t)((scratchpad[1] << 8) | scratchpad[0]);
+    float temp = (float)raw / 16.0f;
+
+    /* Physical range check (-55 C to +125 C) */
+    if (temp <= -55.0f || temp >= 125.0f) {
+      ESP_LOGW(TAG, "DS18B20 out of range (attempt %d/3): %.2f C", attempt + 1, temp);
+      ets_delay_us(1000);
+      continue;
+    }
+
+    *out_temp = temp;
+    return SENSOR_STATE_VALID;
   }
 
-  return SENSOR_STATE_VALID;
+  return SENSOR_STATE_OUT_OF_RANGE;
 }
 
 static int gpio_to_adc1_channel(int gpio) {
@@ -712,7 +780,8 @@ esp_err_t sensor_hal_poll(void) {
         s_ds18b20_start_tick = xTaskGetTickCount();
       } else {
         s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
-        s_last_ds18b20_poll_ms = ds_now_ms; /* back-off on error too */
+        /* Rapid retry in 2s on start failure instead of waiting full 20s */
+        s_last_ds18b20_poll_ms = ds_now_ms - DS18B20_POLL_INTERVAL_MS + 2000;
       }
     }
   } else if (s_ds18b20_state == DS18B20_STATE_WAIT_CONV) {
@@ -721,8 +790,11 @@ esp_err_t sensor_hal_poll(void) {
           ds18b20_read_result(PIN_IN_TEMP_DS18B20, &temp_val);
       if (s_current_readings.temp_state == SENSOR_STATE_VALID) {
         s_current_readings.temperature_c = temp_val;
+        s_last_ds18b20_poll_ms = ds_now_ms;
+      } else {
+        /* Rapid retry in 2s on read failure instead of waiting full 20s */
+        s_last_ds18b20_poll_ms = ds_now_ms - DS18B20_POLL_INTERVAL_MS + 2000;
       }
-      s_last_ds18b20_poll_ms = ds_now_ms;
       s_ds18b20_state = DS18B20_STATE_IDLE;
     }
   }

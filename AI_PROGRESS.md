@@ -1,3 +1,56 @@
+## SP-DS18B20-HARDENING-001 — DS18B20 1-Wire Critical Section Protection, Dallas CRC-8 Validation & Rapid Recovery
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Eliminate transient DS18B20 water temperature sensor reading corruption (`SENSOR_FAULT: Sensor 'temp_ds18b20' transitioned to state 5` [OUT_OF_RANGE]).
+  - Implement atomic critical section protection for microsecond 1-Wire bit read/write operations to prevent FreeRTOS scheduler preemption glitches.
+  - Implement full 9-byte scratchpad reading with Dallas CRC-8 checksum verification ($X^8 + X^5 + X^4 + 1$).
+  - Implement immediate multi-attempt retry (up to 3 reads) from DS18B20 SRAM scratchpad on CRC or timing mismatch.
+  - Add rapid back-off recovery (2-second retry instead of 20-second wait) on poll failure to prevent hysteresis streak latching in `telemetry_mgr`.
+- **Completed Work**:
+  - `esp32/main/hal/sensor_hal.c`:
+    - Added `static portMUX_TYPE s_ds18b20_mux = portMUX_INITIALIZER_UNLOCKED`.
+    - Added `ds18b20_calc_crc8()` implementing Dallas 1-Wire CRC-8 polynomial algorithm.
+    - Wrapped critical sampling windows in `ds18b20_reset()`, `ds18b20_write_bit()`, and `ds18b20_read_bit()` with `portENTER_CRITICAL(&s_ds18b20_mux)` and `portEXIT_CRITICAL(&s_ds18b20_mux)`.
+    - Rewrote `ds18b20_read_result()` to read all 9 scratchpad bytes, check for all-0xFF (floating line) and all-0x00 (grounded line), verify Dallas CRC-8, and perform up to 3 immediate retries before reporting error.
+    - Updated `sensor_hal_poll()` to schedule rapid retry in 2 seconds upon start or read failure, preventing streak count from hitting 3 in `telemetry_mgr`.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`:
+    - Updated Section 1 to document FreeRTOS critical sections, Dallas 9-byte CRC-8 validation, multi-attempt scratchpad reading, and rapid recovery back-off.
+- **Verification on Live Hardware (ESP32-S3 COM3 / 192.168.0.101)**:
+  - Firmware compiled cleanly with zero errors (`agrotech_esp32.bin`).
+  - Flashed successfully to ESP32-S3 via COM3.
+  - API Health: `GET /api/v1/health` -> HTTP 200 OK (`health: "HEALTHY"`).
+  - Telemetry Sampling: Multiple consecutive readings monitored over 25 seconds showed 100% stable `quality: GOOD`, `measurementType: MEASURED`, with accurate water temperature (`29.375°C - 29.4375°C`).
+  - Zero false SENSOR_FAULT latches observed.
+- **Changed Files**:
+  - `esp32/main/hal/sensor_hal.c`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+
+## SP-SCHEDULER-THROTTLE-ZERO-OCC-001 — Throttle Scheduler Materialize Trigger to 30 Minutes When Occurrences Count is Zero
+- **Date**: 2026-10-04
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Fix 1-second busy loop in `scheduler_evaluate_at()` where `Condition 3` (`s_today_occurrence_count == 0 && s_runtime_count > 0`) triggered `materialize_today_schedule()` and logged `Daily schedule trigger executed for yday 276 (schedules=21, occurrences=0)` every single second when all active runtime schedules are non-fertigation (`WATER_PUMP` / `FAN_TOGGLE`).
+  - Restrict the re-evaluation interval for missing occurrences to once every 30 minutes (1800 seconds) when occurrences count is 0.
+- **Root Cause**:
+  - `s_today_occurrences` is only populated by schedules with `action == "FERTIGATION"`.
+  - Non-fertigation schedules (`WATER_PUMP`, `FAN_TOGGLE`) execute via direct timer check and never populate `s_today_occurrences`.
+  - With 21 pump/fan schedules and 0 fertigation schedules, `s_today_occurrence_count` remained 0, causing Condition 3 to be evaluated as `true` on every 1-second tick.
+- **Completed Work**:
+  - `esp32/main/services/scheduler.c`:
+    - Updated Condition 3 with static timestamp `s_last_zero_occ_check_sec`.
+    - Only sets `daily_trigger_needed = true` if `s_last_zero_occ_check_sec == 0` (initial run) or `now - s_last_zero_occ_check_sec >= 1800` (every 30 minutes).
+    - Clears timestamp when occurrences count becomes greater than 0.
+- **Live Hardware Verification Results**:
+  - Build & Flash: Successfully compiled and flashed to ESP32-S3 over COM3.
+  - Live Boot Check: One initial trigger logged at boot (`I (4399) SCHEDULER: Daily schedule trigger executed for yday 276 (schedules=21, occurrences=0)`).
+  - Continuous Serial Sampling: Over subsequent monitoring intervals, zero duplicate trigger logs observed.
+  - API Health: `GET /api/v1/health` -> HTTP 200 OK (`health: "HEALTHY"`, `uptimeSec: 9+`).
+- **Changed Files**:
+  - `esp32/main/services/scheduler.c`
+
 ## SP-SDCARD-FORMAT-DIAG-001 — Resolve MicroSD FAT32 Format Verification Failure & Telemetry Persistence via LFN Heap Support & Pin Protection
 - **Date**: 2026-10-04
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

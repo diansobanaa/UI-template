@@ -2498,9 +2498,17 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     daily_trigger_needed = true;
   }
 
-  /* Condition 3: Missing occurrences recovery (e.g. schedules were loaded/synced after boot or power loss) */
+  /* Condition 3: Missing occurrences recovery (e.g. schedules were loaded/synced after boot or power loss)
+   * Throttled to every 30 minutes (1800s) when occurrences count is 0 to prevent 1-second busy loop
+   * when all active runtime schedules are non-fertigation (WATER_PUMP / FAN_TOGGLE). */
+  static time_t s_last_zero_occ_check_sec = 0;
   if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
-    daily_trigger_needed = true;
+    if (s_last_zero_occ_check_sec == 0 || (now - s_last_zero_occ_check_sec >= 1800)) {
+      s_last_zero_occ_check_sec = now;
+      daily_trigger_needed = true;
+    }
+  } else if (s_today_occurrence_count > 0) {
+    s_last_zero_occ_check_sec = 0;
   }
 
   /* Condition 4: Autonomous 2-Hour Periodic Guard (Every 7200 seconds / 2 hours) */

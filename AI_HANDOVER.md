@@ -1,4 +1,48 @@
-# AI HANDOVER — SP-SDCARD-FORMAT-DIAG-001 (latest)
+# AI HANDOVER — SP-DS18B20-HARDENING-001 (latest)
+
+## Status — SP-DS18B20-HARDENING-001
+**DS18B20 1-Wire Critical Section Protection, Dallas CRC-8 Validation & Rapid Recovery**
+**Safe Point**: `SP-DS18B20-HARDENING-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause**:
+   - `temp_ds18b20` (GPIO 17) transitioned to state 5 (`SENSOR_STATE_OUT_OF_RANGE`) due to FreeRTOS scheduler context switching during microsecond-critical 1-Wire bit read windows without critical section protection, and lack of Dallas CRC-8 checksum verification on scratchpad bytes.
+   - Polling interval of 20 seconds caused any single corrupted read to remain latched in memory across multiple 2-second evaluations in `telemetry_mgr`, hitting the 3-streak hysteresis threshold and generating `SENSOR_FAULT`.
+2. **Firmware Fixes (`esp32/main/hal/sensor_hal.c`)**:
+   - Protected 1-Wire microsecond bit timings in `ds18b20_reset`, `ds18b20_write_bit`, and `ds18b20_read_bit` with FreeRTOS spinlock (`portENTER_CRITICAL(&s_ds18b20_mux)`).
+   - Added full 9-byte Dallas CRC-8 validation ($X^8 + X^5 + X^4 + 1$).
+   - Implemented up to 3 immediate scratchpad re-reads from DS18B20 SRAM on CRC or range error, resolving transient line noise in <15ms without re-conversion.
+   - Added rapid 2-second retry back-off on poll failure in `sensor_hal_poll()`, preventing streaks from accumulating to 3 in `telemetry_mgr`.
+3. **Live Hardware Verification (ESP32-S3 COM3 / 192.168.0.101)**:
+   - Compiled with 0 errors and flashed via COM3.
+   - Monitored live telemetry via `GET /api/v1/telemetry/current` over 25 seconds: 100% stable `quality: GOOD`, `value: 29.375°C - 29.4375°C`, zero faults or recovery events.
+
+---
+
+# AI HANDOVER — SP-SCHEDULER-THROTTLE-ZERO-OCC-001 (previous)
+
+## Status — SP-SCHEDULER-THROTTLE-ZERO-OCC-001
+**Throttle Scheduler Materialize Trigger to 30 Minutes When Occurrences Count is Zero**
+**Safe Point**: `SP-SCHEDULER-THROTTLE-ZERO-OCC-001`
+**Date**: 2026-10-04
+- **Verdict**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+
+### Summary of What Was Done
+1. **Root Cause**:
+   - `s_today_occurrences` is only populated by schedules with `action == "FERTIGATION"`.
+   - When only non-fertigation schedules (`WATER_PUMP`, `FAN_TOGGLE`) are active, `s_today_occurrence_count` remains 0.
+   - `Condition 3` (`s_today_occurrence_count == 0 && s_runtime_count > 0`) previously triggered every single second, executing `materialize_today_schedule()` and writing `Daily schedule trigger executed for yday %d (schedules=%u, occurrences=%u)` to serial continuously.
+2. **Implementation**:
+   - In `esp32/main/services/scheduler.c`: Throttled Condition 3 using a static timestamp `s_last_zero_occ_check_sec` to 1,800 seconds (30 minutes).
+3. **Live Hardware Verification**:
+   - Built and flashed via COM3. Controller booted cleanly, executed the initial trigger once, and did not repeat the log every second.
+   - Verified system health via `GET /api/v1/health` (HTTP 200 OK, HEALTHY).
+
+---
+
+# AI HANDOVER — SP-SDCARD-FORMAT-DIAG-001 (previous)
 
 ## Status — SP-SDCARD-FORMAT-DIAG-001
 **Resolve MicroSD FAT32 Format Verification Failure & Telemetry Persistence via LFN Heap Support & Pin Protection**
