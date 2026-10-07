@@ -123,19 +123,6 @@ static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char
                strcasecmp(type, "well_pump_manual_stop") == 0) {
         cmd->type = CMD_TYPE_WELL_PUMP;
         cmd->param_on = false;
-    } else if (strcmp(type, "WELL_PUMP_SET_MODE") == 0 || strcmp(type, "SET_WELL_PUMP_MODE") == 0 ||
-               strcmp(type, "SET_MODE") == 0) {
-        cmd->type = CMD_TYPE_WELL_PUMP_MODE;
-        const char *m_str = json_string(payload, "mode");
-        if (!m_str) {
-            cJSON *p = cJSON_GetObjectItem(payload, "parameters");
-            if (p && cJSON_IsObject(p)) m_str = json_string(p, "mode");
-        }
-        if (m_str && strcasecmp(m_str, "MANUAL") == 0) {
-            strncpy(cmd->param_mode, "MANUAL", sizeof(cmd->param_mode) - 1);
-        } else {
-            strncpy(cmd->param_mode, "AUTO", sizeof(cmd->param_mode) - 1);
-        }
     } else if (strcmp(type, "DIST_PUMP_START") == 0) {
         cmd->type = CMD_TYPE_DIST_PUMP;
         cmd->param_on = true;

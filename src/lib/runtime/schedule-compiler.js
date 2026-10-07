@@ -352,9 +352,7 @@ function buildDependencyList(configuration, intent, topologyState, capabilitySta
     if (!level.length) blocked.push(issue("MISSING_LEVEL_SENSOR", `No level sensor is assigned to '${ghId}'.`, { ghId }));
   }
   if (intent.action === "WATER_PUMP") {
-    const flow = findComponentByRole(configuration, null, ["FLOW_METER", "FLOW_SENSOR"]);
     const level = findComponentByRole(configuration, null, ["LEVEL_SENSOR", "LEVEL", "RADAR", "FLOAT"]);
-    if (!flow.length) blocked.push(issue("MISSING_FLOW_SENSOR", "Raw-water pump requires an operational flow sensor for safety."));
     if (!level.length) blocked.push(issue("MISSING_LEVEL_SENSOR", "Raw-water pump requires an operational level sensor for overfill protection."));
   }
 

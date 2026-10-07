@@ -23,7 +23,6 @@ esp_err_t handler_get_clock(httpd_req_t *req);
 esp_err_t handler_post_clock_sync(httpd_req_t *req);
 esp_err_t handler_get_well_pump(httpd_req_t *req);
 esp_err_t handler_post_well_pump(httpd_req_t *req);
-esp_err_t handler_post_well_pump_mode(httpd_req_t *req);
 
 /* Configuration Handlers */
 esp_err_t handler_get_configuration(httpd_req_t *req);

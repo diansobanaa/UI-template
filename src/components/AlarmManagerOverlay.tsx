@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { isDirectEsp32Enabled } from "@/lib/api/backend-client";
+import { telemetryStreamManager } from "@/lib/api/telemetry-stream";
 import type { AlarmsResponse, AlarmItem, AlarmPriority } from "@/lib/api/contracts";
 import {
   AlertTriangle,
@@ -33,9 +34,9 @@ const HUMAN_MESSAGES: Record<string, { title: string; explanation: string; actio
     action: "Verifikasi kondisi fisik greenhouse sebelum melepas kunci darurat.",
   },
   TAMPER_LOOP_OPEN: {
-    title: "TAMPER LOOP TERPUTUS (KEAMANAN FISIK)",
-    explanation: "Sirkuit pengaman fisik / tamper interlock terbuka atau terputus.",
-    action: "Periksa saklar penutup panel, kabel loop pengaman, dan integritas fisik box controller.",
+    title: "⚠ TAMPER LOOP OPEN — PERIKSA POMPA",
+    explanation: "Sirkuit pengaman fisik / tamper loop interlock terbuka atau terputus. Sistem dan pompa tetap beroperasi normal.",
+    action: "PERIKSA POMPA dan sambungkan kembali kawat loop pengaman tamper ke ground (GND_LV).",
   },
   WATER_TEMP_HIGH: {
     title: "SUHU AIR TANGKI KRITIS (> 45.0 °C)",
@@ -84,12 +85,20 @@ export function AlarmManagerOverlay() {
 
   useEffect(() => {
     fetchAlarms();
-    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 2500 : 5000;
+    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 2000 : 4000;
     pollTimerRef.current = setInterval(fetchAlarms, intervalMs);
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [fetchAlarms, alarmData?.activeAlarms?.length]);
+
+  // Realtime WebSocket transition listener: immediately refresh alarms on state change
+  useEffect(() => {
+    const unsubscribe = telemetryStreamManager.subscribe(() => {
+      fetchAlarms();
+    });
+    return unsubscribe;
+  }, [fetchAlarms]);
 
   const handleAcknowledge = async (alarmId?: string) => {
     setIsActionLoading(true);
@@ -140,25 +149,50 @@ export function AlarmManagerOverlay() {
   const isSilenced = summary?.isSilenced || false;
   const buzzerAudible = summary?.buzzerAudible || false;
 
+  const hasTamperAlarm = activeAlarms.some((a) => a.code === "TAMPER_LOOP_OPEN");
+
   // Render minimized badge if user collapsed active alarms
   if (isMinimized && hasActiveAlarms) {
     const isCritical = summary?.criticalCount && summary.criticalCount > 0;
     return (
-      <div className="fixed bottom-5 right-5 z-[9990] flex items-center gap-3">
-        <button
-          onClick={() => setIsMinimized(false)}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-full shadow-2xl font-bold text-white text-sm transition-transform hover:scale-105 ${
-            isCritical ? "bg-red-600 animate-pulse" : "bg-amber-600"
-          }`}
-        >
-          <Bell className="w-4 h-4 animate-bounce" />
-          <span>
-            {activeAlarms.length} Alarm Aktif ({summary?.highestPriority})
-          </span>
-          {buzzerAudible && <Volume2 className="w-4 h-4 text-yellow-200" />}
-          {isSilenced && <VolumeX className="w-4 h-4 text-red-200" />}
-        </button>
-      </div>
+      <>
+        {hasTamperAlarm && (
+          <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
+              <span className="tracking-wide text-sm font-extrabold">
+                ⚠ TAMPER LOOP OPEN — PERIKSA POMPA
+              </span>
+              <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
+                Sirkuit loop terbuka. Sistem tetap berjalan, segera periksa kondisi pompa!
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setIsMinimized(false)}
+                className="text-xs bg-red-950/90 hover:bg-red-900 text-white font-semibold px-2.5 py-1 rounded border border-red-400/40 transition"
+              >
+                Lihat Detail Alarm
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="fixed bottom-5 right-5 z-[9990] flex items-center gap-3">
+          <button
+            onClick={() => setIsMinimized(false)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full shadow-2xl font-bold text-white text-sm transition-transform hover:scale-105 ${
+              isCritical ? "bg-red-600 animate-pulse" : "bg-amber-600"
+            }`}
+          >
+            <Bell className="w-4 h-4 animate-bounce" />
+            <span>
+              {activeAlarms.length} Alarm Aktif ({summary?.highestPriority})
+            </span>
+            {buzzerAudible && <Volume2 className="w-4 h-4 text-yellow-200" />}
+            {isSilenced && <VolumeX className="w-4 h-4 text-red-200" />}
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -171,7 +205,22 @@ export function AlarmManagerOverlay() {
   const safetyFaults = activeAlarms.filter((a) => a.priority !== "CRITICAL");
 
   return (
-    <div className="fixed bottom-5 right-5 z-[9990] w-full max-w-xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl text-slate-100 overflow-hidden font-sans">
+    <>
+      {/* Pinned Top-Screen Warning for Tamper Loop Open: Visible across all pages */}
+      {hasTamperAlarm && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
+            <span className="tracking-wide text-sm font-extrabold">
+              ⚠ TAMPER LOOP OPEN — PERIKSA POMPA
+            </span>
+            <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
+              Sirkuit loop terbuka. Sistem tetap berjalan, segera periksa kondisi pompa!
+            </span>
+          </div>
+        </div>
+      )}
+      <div className="fixed bottom-5 right-5 z-[9990] w-full max-w-xl max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl text-slate-100 overflow-hidden font-sans">
       {/* Top Banner: Status & Quick Controls */}
       <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
@@ -433,6 +482,7 @@ export function AlarmManagerOverlay() {
           Acknowledge Semua
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

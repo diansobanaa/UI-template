@@ -173,7 +173,7 @@ paths:
     get:
       tags: [Device]
       operationId: getWellPump
-      summary: Get authoritative Well Pump state, operating mode, and 15-minute countdown
+      summary: Get authoritative Well Pump state and bounded manual-run countdown
       responses:
         "200":
           description: Well Pump status details
@@ -181,32 +181,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WellPumpStatusResponse"
-
-  /api/v1/well-pump/mode:
-    post:
-      tags: [Device]
-      operationId: setWellPumpMode
-      summary: Set Well Pump operating mode (AUTO or MANUAL) with zero confirmation dialogs
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [mode]
-              properties:
-                mode:
-                  type: string
-                  enum: [AUTO, MANUAL]
-      responses:
-        "200":
-          description: Well Pump mode updated and schedule reconciled
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WellPumpStatusResponse"
-        "422":
-          $ref: "#/components/responses/ValidationError"
 
   /api/v1/status:
     get:
@@ -2278,8 +2252,15 @@ components:
                     flowFertFs400aLpm: { type: number }
                     totalLitersFertFs400a: { type: number }
                     floatLowerOk: { type: boolean }
+                    tamperLoopOk: { type: boolean, description: "Anti-theft tamper loop security status (true = closed/intact, false = open/cut)" }
                 storage: { type: object, additionalProperties: true }
-                safety: { type: object, additionalProperties: true }
+                safety:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    emergencyStopped: { type: boolean }
+                    tamperLoopOk: { type: boolean }
+                    tamperState: { type: string, enum: ["TAMPER OK", "TAMPER OPEN"] }
                 cropCycle:
                   nullable: true
                   $ref: "#/components/schemas/CropCycle"
@@ -3547,19 +3528,15 @@ components:
 
     WellPumpDetails:
       type: object
-      required: [mode, on, state, manualActive, maxRuntimeSec, elapsedSec, remainingSec, stopReason]
+      required: [on, state, manualActive, maxRuntimeSec, elapsedSec, remainingSec, stopReason]
       properties:
-        mode:
-          type: string
-          enum: [AUTO, MANUAL]
-          description: "Authoritative operating mode: AUTO (scheduler owns relay) or MANUAL (operator owns relay)"
         on:
           type: boolean
           description: "Confirmed relay state on GPIO 1 (true = ON / relay energized Active-LOW 0)"
         state:
           type: string
-          enum: [STOPPED, MANUAL_RUNNING, SCHEDULED_RUNNING]
-          description: "Granular operational runtime state"
+          enum: [STOPPED, RUNNING]
+          description: "Physical relay runtime state"
         manualActive:
           type: boolean
           description: "Whether a bounded 15-minute manual run session is actively ticking"
@@ -3578,10 +3555,8 @@ components:
         activeScheduleId:
           type: string
           nullable: true
-          description: "Currently executed schedule ID if running under AUTO mode"
+          description: "Currently active schedule ID, if any"
         nextSchedule:
           type: string
           nullable: true
           description: "Next scheduled start time today (HH:MM)"
-
-

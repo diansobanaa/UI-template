@@ -39,7 +39,6 @@ import type {
   AlarmSummary,
   AlarmItem,
   WellPumpDetails,
-  WellPumpMode,
 } from "./contracts";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
 import { getActiveBootstrapIp } from "../bootstrap-address";
@@ -685,28 +684,14 @@ export class Esp32Client {
       if (rawDetails) return rawDetails;
       const isPumpOn = Boolean(st?.actuators?.wellPump);
       return {
-        mode: "AUTO",
         on: isPumpOn,
-        state: isPumpOn ? "MANUAL_RUNNING" : "STOPPED",
+        state: isPumpOn ? "RUNNING" : "STOPPED",
         manualActive: isPumpOn,
         maxRuntimeSec: 900,
         elapsedSec: 0,
         remainingSec: isPumpOn ? 900 : 0,
         stopReason: "NONE",
       };
-    }
-  }
-
-  async setWellPumpMode(mode: WellPumpMode): Promise<WellPumpDetails> {
-    try {
-      return await this.postEnveloped<WellPumpDetails>("/api/v1/well-pump/mode", { mode });
-    } catch {
-      const cmdId = `wp-mode-${Date.now()}`;
-      await this.postCommand(cmdId, "WELL_PUMP_SET_MODE", {
-        parameters: { mode },
-        source: "MANUAL",
-      });
-      return this.getWellPump();
     }
   }
 
@@ -731,5 +716,3 @@ export class Esp32Client {
 }
 
 export const esp32Client = new Esp32Client(defaultConfig);
-
-

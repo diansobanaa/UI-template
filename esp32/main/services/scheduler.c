@@ -2727,7 +2727,7 @@ esp_err_t scheduler_evaluate_at(time_t now) {
   /* Reconcile Well Pump and Fan/Blower scheduled states outside s_mutex */
   if (s_lazy_start_done) {
     (void)scheduler_reconcile_fan_schedule(now);
-    (void)well_pump_reconcile_auto_schedule(now);
+    (void)well_pump_reconcile_schedule(now);
   }
 
   return ESP_OK;
@@ -3229,7 +3229,7 @@ static void lazy_start_task(void *pvParameters) {
   (void)sensor_hal_poll();
 
   /* 3. Reconcile Well Pump schedules */
-  (void)well_pump_reconcile_auto_schedule(now);
+  (void)well_pump_reconcile_schedule(now);
 
   s_lazy_start_done = true;
   ESP_LOGI(TAG, "lazy_start: Power-loss schedule reconciliation complete (one-shot).");

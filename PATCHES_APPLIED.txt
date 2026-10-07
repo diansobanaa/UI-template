@@ -1,0 +1,58 @@
+AgroTech ESP32 firmware — patched tree (v3, 2026-09-28)
+========================================================
+Patches applied IN ORDER (each verified with patch -p1 --dry-run and real
+apply on a clean tree). Sources: ~/workspace/agrotech-audit/patches/
+
+01. 01-dht22-bit39.patch (v2)
+    DHT22: accept frames whose 40th bit lacks the trailing LOW (this sensor's
+    quirk), keep checksum as the validity arbiter. v2 fix: NO logging inside
+    the portENTER_CRITICAL section (v1 caused abort in lock_acquire_generic).
+
+02. 02-anticrash-heap.patch
+    Move 3 large stack arrays to PSRAM heap, add heap guards on the event log
+    path, add MEM stack-HWM/heap instrumentation. Task stack SIZES unchanged.
+
+03. 03-tft-remove-linechart.patch
+    TFT: remove the temperature history line chart (draw_screen1_temp_trend +
+    t_series[60] + telemetry_mgr_get_temp_history call). Pure deletion.
+    Telemetry store, 288/256-slot history, sampling, HTTP/WS APIs untouched.
+
+04. 04-sd-tamper-psram.patch  (NEW)
+    A. SD card: quiet shared SPI2 bus (force TFT CS GPIO14 HIGH before probe)
+       + retry mount up to 3x with per-attempt error logging. Persistent 0x108
+       with a card inserted = hardware issue (seating/adapter/power/wiring).
+    B. Tamper loop: new FEATURE_TAMPER_LOOP_ENABLED flag (default 1 = supervised,
+       unchanged safe behavior). Set to 0 ONLY for bench/commissioning without
+       the physical loop wired -> tamper forced OK + loud boot warning.
+    C. Heap: new utils/psram_task.c helper moves 6 verified-safe task stacks to
+       PSRAM (tft_screen_task 5120, tele_stream_task 4096, diag_task 3072,
+       telem_store_tsk 4096, transfer_mgr 3072, manual_actuator 3072 = ~22.5 KB
+       internal heap freed). TCBs stay internal. Flash-writing tasks deliberately
+       NOT converted. Stack sizes unchanged.
+
+NOT verified: this tree was NOT compiled or flashed here (no ESP-IDF toolchain
+in this environment). Build with ESP-IDF v5.5 on your machine, then measure:
+ - .text/.bss sizes vs previous build
+ - boot log: "[HEAP] final: internal=..." (expect ~25 KB, was 4255 B)
+ - log line "PSRAM_TASK: task '...' ... stack -> PSRAM" for the 6 tasks
+ - "MEM ... stack_hwm=..." lines every 60 s (patch 02 instrumentation)
+ - SD mount attempts, DHT22 readings, no lock_acquire_generic abort
+
+To unblock actuators WITHOUT the tamper loop wired, edit BEFORE building:
+  esp32/main/config/system_config.h -> #define FEATURE_TAMPER_LOOP_ENABLED 0
+Re-enable (=1) and wire the loop for production.
+
+05-fix-all-round2.patch (2026-09-28, applied on top of 01v2+02+03+04):
+ - config/system_config.h: TASK_HTTP_SERVER_STACK 4096 -> 8192 (revert P1-FIX).
+   Bukti: boot 4229 LoadProhibited di dalam httpd_thread
+   (httpd_resp_send -> lwip_send -> pthread_getspecific, EXCVADDR 0xffff0208).
+ - hal/sensor_hal.c: seed s_current_readings.tamper_loop_ok di sensor_hal_init()
+   (dari pin asli bila loop enabled, true bila bypass) SEBELUM evaluasi pertama
+   safety monitor. Tanpa ini, zero-init membuat monitor me-latch TAMPER_LOOP_OPEN
+   (+E-STOP + maintenance flag) di tiap boot walau FEATURE_TAMPER_LOOP_ENABLED=0.
+ - hal/sdcard_hal.c: host.max_freq_khz 20000 -> 10000 (CMD0 OK tapi CMD8 0x108 =
+   indikasi signal integrity di shared SPI2 bus, bukan kartu mati).
+ - sdkconfig.defaults (DIAGNOSTIK SEMENTARA): CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+   (ganti DISABLED) + CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y untuk menamai
+   task penyebab scheduler LoadProhibited ~6.7s. Kembalikan setelah ketemu.
+   BELUM dicompile/diflash di sini — build dengan ESP-IDF v5.5.x di D:/agrochatgpt.

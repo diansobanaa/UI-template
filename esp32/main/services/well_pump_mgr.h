@@ -11,13 +11,7 @@ extern "C" {
 
 #define WELL_PUMP_MAX_MANUAL_RUNTIME_SEC 900U /* 15 minutes hard ceiling per spec */
 
-typedef enum {
-    WELL_PUMP_MODE_AUTO = 0,
-    WELL_PUMP_MODE_MANUAL = 1
-} well_pump_mode_t;
-
 typedef struct {
-    well_pump_mode_t mode;
     bool on;
     bool is_manual_session_active;
     uint32_t max_runtime_sec;
@@ -28,25 +22,12 @@ typedef struct {
 } well_pump_status_t;
 
 /**
- * @brief Initialize the Well Pump centralized manager, load persisted mode, and start monitoring.
+ * @brief Initialize the Well Pump manager and start monitoring.
  */
 esp_err_t well_pump_mgr_init(void);
 
 /**
- * @brief Get current authoritative operating mode.
- */
-well_pump_mode_t well_pump_get_mode(void);
-
-/**
- * @brief Change operating mode between AUTO and MANUAL.
- * When switching from MANUAL to AUTO, immediately evaluates current schedule state and applies
- * it to the relay without requiring confirmation.
- */
-esp_err_t well_pump_set_mode(well_pump_mode_t mode);
-
-/**
  * @brief Start manual ON operation with 15-minute runtime ceiling.
- * Rejects if in AUTO mode unless mode is changed first.
  * Repeated ON while already running does NOT extend the deadline.
  */
 esp_err_t well_pump_manual_start(uint32_t duration_sec);
@@ -69,9 +50,9 @@ void well_pump_toggle_physical(void);
 void well_pump_emergency_stop(void);
 
 /**
- * @brief Evaluate current schedule and apply to physical relay when in AUTO mode.
+ * @brief Evaluate the active schedule while honoring manual operator overrides.
  */
-esp_err_t well_pump_reconcile_auto_schedule(time_t now);
+esp_err_t well_pump_reconcile_schedule(time_t now);
 
 /**
  * @brief Query current authoritative status of Well Pump.

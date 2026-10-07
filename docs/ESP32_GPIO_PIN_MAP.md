@@ -50,7 +50,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-3** | **44** | *RESERVED: UART0 RXD* | USB-UART Bridge | Console UART | Input | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
 | **Right-15** | **45** | *RESERVED: Strapping VDD* | SoC Internal | Strapping (VDD_SPI)| N/A | **FATAL (DO NOT USE)** | Pulling HIGH drops Flash voltage to 1.8V, bricking boot. |
 | **Left-14** | **46** | *RESERVED: Strapping ROM* | SoC Internal | Strapping (ROM Log)| N/A | **HIGH RISK (DO NOT USE)** | Pulling HIGH alters ROM bootloader debug logging. |
-| **Right-17** | **47** | **Anti-Theft Tamper Loop** | Physical Pump Chassis / Cable Loop | Digital Input | Input (Active-HIGH trip) | **VERIFIED SAFE (SECURITY)** | Closed loop to GND through pump cable/chassis. Cut/open = 1, triggers Rule 4 Emergency Stop. |
+| **Right-17** | **47** | **Anti-Theft Tamper Loop** | Physical Pump Chassis / Cable Loop | Digital Input | Input (Active-HIGH trip) | **VERIFIED SAFE (SECURITY)** | Closed loop to GND through pump cable/chassis. Cut/open = 1, triggers Supervised Tamper Warning ("PERIKSA POMPA") + buzzer alert without global shutdown. Restores to TAMPER OK when closed. |
 | **Right-16** | **48** | MicroSD Chip Select | MicroSD Card Module (EasyWare EP000094) | SPI Chip Select | Output (Active-LOW) | ACCEPTABLE WITH CAVEAT | Dedicated MicroSD CS line. Caveat: Drives onboard WS2812 DIN line. Firmware explicitly clears WS2812 (RGB=0,0,0) at boot and after SPI mount probes to prevent persistent white illumination. |
 
 ---

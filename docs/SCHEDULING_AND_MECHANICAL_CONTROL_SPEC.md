@@ -133,10 +133,7 @@ Memindahkan air dari sumur ke raw-water tank.
 
 Trigger
 
-Well pump mempunyai mode eksekusi:
-
-1. Scheduled Mode — Berdasarkan waktu, hari tertentu, maupun interval pengisian berkala dengan batas target volume (L) dan durasi ON.
-2. Manual Mode — Dari tombol toggle fisik di controller utama atau tombol di web app.
+Well pump berjalan otomatis dari jadwal dan juga dapat dikendalikan langsung dari tombol fisik atau Web UI. Tidak ada operating mode AUTO/MANUAL yang harus dipilih operator.
 
 Format Pemicu Scheduled
 
@@ -176,13 +173,16 @@ Manual operation diperbolehkan melalui:
 
 Aturan authoritative manual ON & Autonomous Execution:
 - **Penyederhanaan Tanpa Mode Khusus (No Mode Friction):** Pilihan/tombol mode `AUTO` vs `MANUAL` ditiadakan. Operator tidak perlu memilih atau mengganti mode operasi terlebih dahulu. Tombol manual di UI dan fisik controller langsung memicu sesi pompa terikat batas waktu (bounded run).
-- **Manual ON Maksimal 15 Menit:** Durasi continuous manual ON dibatasi keras maksimal **15 menit (900 detik)** menggunakan monotonic hardware clock (`esp_timer_get_time()`). Timer ini tidak dipengaruhi oleh sinkronisasi wall-clock / RTC.
+- **Tanpa Mode Operasi:** Tidak ada mode AUTO/MANUAL. Jadwal dijalankan otonom, sementara perintah tombol/web tetap dapat mengendalikan pompa langsung.
+- **Manual ON Maksimal 15 Menit:** Durasi continuous manual ON dibatasi keras maksimal **15 menit (900 detik)** menggunakan monotonic hardware clock (`esp_timer_get_time()`). Timer ini tidak dipengaruhi oleh sinkronisasi wall-clock / RTC, kecuali jadwal dimulai saat sesi manual itu sedang berjalan; dalam kasus itu akhir jendela jadwal menjadi batas OFF.
 - **Pemberhentian Dini:** Operator dapat mematikan pompa setiap saat sebelum batas 15 menit tercapai melalui Web UI atau toggle fisik (reason: `OPERATOR_OFF`).
 - **Otomatis Berhenti pada 15 Menit:** Ketika 15 menit continuous run tercapai, firmware ESP32 otomatis mematikan relay output, membersihkan sesi manual, mencatat event `MANUAL_RUNTIME_LIMIT_REACHED`, dan memperbarui status telemetry.
 - **Idempoten (Repeated ON Tidak Mereset Timer):** Permintaan ON berulang atau klik tombol duplikat selama sesi aktif TIDAK memperpanjang batas deadline 15 menit. Deadline dihitung dari waktu perintah ON pertama diterima.
 - **Sesi Baru Bounded:** Sesi manual baru dengan batas 15 menit baru hanya dapat dimulai setelah sesi sebelumnya selesai atau dihentikan secara eksplisit.
-- **Jadwal Tidak Dihapus atau Dilewati:** Operasi manual tidak mengubah, menimpa, atau menghapus konfigurasi jadwal otomatis yang tersimpan di NVS. Jadwal otomatis tetap dievaluasi dan dijalankan secara otonom oleh scheduler ESP32 (`scheduler.c`) saat waktu jadwal tiba.
+- **Prioritas Manual:** Perintah manual berlaku segera. Jika pompa yang dinyalakan jadwal dimatikan manual, scheduler menahan pompa tetap OFF sampai semua jendela jadwal aktif berakhir. Jika pompa sudah ON secara manual sebelum jadwal dimulai, jadwal mengambil alih batas berhenti dan mematikannya pada akhir jendela jadwal, walaupun timer manual belum habis. Perintah manual ON yang baru tetap memulai sesi manual terbatas.
+- **Jadwal Tetap Tersimpan:** Operasi manual tidak mengubah atau menghapus konfigurasi jadwal otomatis yang tersimpan di NVS; jendela jadwal berikutnya tetap berjalan.
 - **Isolasi Peralatan (Well Pump vs Raw Submersible):** Domain Well Pump difokuskan secara eksklusif ke `pump_well` (Relay #1 / GPIO 1) untuk transfer air sumur ke tangki baku. Peralatan `pump_submersible` (Raw Submersible Pump) merupakan domain terpisah dan tidak dimasukkan ke dalam pilihan pompa Well Pump.
+- **Tidak Wajib Flow Sensor:** `pump_well` tidak memakai water-flow sensor sebagai syarat start, jadwal, atau watchdog runtime. Flow watchdog (`FLOW_TIMEOUT`) berlaku untuk raw submersible, distribusi, delivery, dan fertigation pump yang memang memiliki flow feedback.
 - **Prioritas Safety (Emergency Stop):** Kondisi Emergency Stop dan interlock keselamatan selalu beroperasi pada prioritas tertinggi, memaksa pompa OFF seketika dan memblokir perintah manual maupun terjadwal.
 - **Reboot Behavior:** Setelah ESP32 restart, output relay selalu diinisialisasi ke kondisi safe OFF (GPIO 1 HIGH, Relay de-energized Active-LOW). Sesi manual lama dibatalkan dan tidak pernah dilanjutkan secara otomatis. Evaluasi jadwal baru dilakukan setelah waktu tersinkronisasi.
 - **Enforcement Mandiri tanpa Web UI:** Firmware ESP32 menegakkan batas 15 menit secara otonom meskipun Web UI ditutup, browser tidak aktif, atau jaringan terputus.
@@ -195,7 +195,7 @@ Well Pump power/control
       │
       └── safety cutoff lewat radar 220V (Fisik / Eksternal)
 
-ESP32 tidak memotong jalur listrik radar sebagai interlock software, dan tidak memiliki dependensi float sensor tangki aduk untuk Well Pump.
+ESP32 tidak memotong jalur listrik radar sebagai interlock software, tidak memiliki dependensi flow meter, dan tidak memiliki dependensi float sensor tangki aduk untuk Well Pump.
 Keputusan pemutusan daya karena kondisi radar/full tank dilakukan oleh rangkaian radar 220V yang memutus koneksi pump secara fisik mandiri. Command relay=ON pada GPIO 1 hanya membuktikan relay ter-energize, bukan bukti aliran fisik air bergerak jika radar fisik sedang memutus sirkuit 220V.
 
 Penting: status radar 220V dan status aktual listrik pump belum menjadi telemetry ESP32 pada spesifikasi ini. Jangan menganggap commanded=ON berarti motor pasti sedang menerima daya.
@@ -210,7 +210,7 @@ tidak menjadi bagian dari batch mixing tertentu;
 
 merupakan supply operation berdiri sendiri;
 
-memiliki scheduled mode dan manual mode;
+menjalankan jadwal otonom dengan kontrol manual langsung;
 
 manual mode memiliki maximum ON duration 15 menit.
 

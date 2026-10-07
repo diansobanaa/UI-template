@@ -18,7 +18,6 @@ typedef enum {
     CMD_TYPE_EMERGENCY_STOP,
     CMD_TYPE_RESUME,
     CMD_TYPE_COMPONENT_TIMED,
-    CMD_TYPE_WELL_PUMP_MODE,
     CMD_TYPE_CUSTOM
 } cmd_type_t;
 
@@ -38,7 +37,6 @@ typedef struct {
     int32_t param_volume_ml;
     int32_t param_raw_volume_ml;
     bool param_on;
-    char param_mode[16];
     char component_id[40];
     char resource_id[40];
     char target_complex_id[40];

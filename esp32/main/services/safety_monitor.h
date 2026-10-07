@@ -42,6 +42,9 @@ safety_state_t safety_monitor_get_state(void);
 /** Current latched fault/reason code; empty when none. */
 const char *safety_monitor_get_fault_code(void);
 
+/** Whether physical tamper loop is currently open. */
+bool safety_monitor_is_tamper_open(void);
+
 /**
  * Authorize a physical command against local safety state, target component
  * state, runtime policy, low-level interlocks, and configured safety metadata.

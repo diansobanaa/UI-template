@@ -1,3 +1,41 @@
+## SP-TAMPER-LOOP-AUDIT-REPAIR-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**: Audit and repair Tamper Loop (TODO #1). Enable tamper loop supervision on GPIO 47, decouple it from global emergency shutdown, provide supervised warning ("⚠ TAMPER LOOP OPEN — PERIKSA POMPA"), persistent Web UI alert banner, and non-destructive auto-restore when closed.
+- **Implemented**:
+  - `esp32/main/config/system_config.h`: Enabled `FEATURE_TAMPER_LOOP_ENABLED 1` by default.
+  - `esp32/main/hal/sensor_hal.h` & `sensor_hal.c`: Implemented 2-sample consecutive debounce filter for physical tamper loop input on GPIO 47 (`sensor_hal_poll_tamper()`). Initialized boot seed from debounced pin level.
+  - `esp32/main/services/safety_monitor.c`: Decoupled tamper loop from global emergency shutdown (`actuator_hal_emergency_stop()`). Tamper OPEN now triggers an audible buzzer alert (`ALARM_PRIO_CRITICAL`) and logs a structured event without stopping actuators or aborting schedules. Implemented state-aware periodic repeat warning (every 30 seconds) while loop remains OPEN. Transition from OPEN to CLOSED restores state to `TAMPER OK`, resolves alarm via `alarm_mgr_resolve("TAMPER_LOOP_OPEN")`, and triggers live WebSocket transition without requiring a reboot. Removed tamper loop blocking from `safety_monitor_request_recovery()`.
+  - `esp32/main/http/api_device_handlers.c`: Added `sensors.tamperLoopOk`, `safety.tamperLoopOk`, and `safety.tamperState` (`"TAMPER OK"` / `"TAMPER OPEN"`) to `/api/v1/status`.
+  - `contracts/UI_ESP32_OPENAPI.yaml`: Added `tamperLoopOk` and `safety.tamperState` to OpenAPI contract.
+  - `src/lib/api/contracts.ts`: Added `tamperLoopOk` and `tamperState` to `StatusResponse` interface.
+  - `src/components/AlarmManagerOverlay.tsx`: Updated message to `"⚠ TAMPER LOOP OPEN — PERIKSA POMPA"`, added persistent pinned top warning banner visible across all pages, and subscribed to `telemetryStreamManager` for instant WebSocket state reaction.
+  - Canonical Documentation updated: `docs/HARDWARE_WIRING_MAP.md`, `docs/ESP32_GPIO_PIN_MAP.md`, `UI_ESP32_COMMUNICATION_SPEC.md`.
+- **Verification**:
+  - ESP-IDF build PASS (`scripts/build_esp32.ps1`): binary size `0x18bab0` (48% free).
+  - Flashed to physical ESP32-S3 on COM3 PASS: 100% hash verified, hard reset via RTS.
+  - Frontend TypeScript build PASS (`npx tsc --noEmit`): 0 errors.
+  - Live hardware test PASS (`scripts/test_tamper_loop_e2e.mjs`): 11/11 tests PASS.
+  - Live REST check on `http://192.168.0.101`:
+    - `emergencyStopped`: `false` (Actuators NOT shut down).
+    - `tamperState`: `"TAMPER OPEN"`.
+    - Active alarm: `id: alm-1`, `code: "TAMPER_LOOP_OPEN"`, `message: "⚠ TAMPER LOOP OPEN — PERIKSA POMPA"`, `priority: "CRITICAL"`.
+- **Known issues / next action**: None for TODO #1. Ready for TODO #2.
+- **Changed files**: `esp32/main/config/system_config.h`, `esp32/main/hal/sensor_hal.h`, `esp32/main/hal/sensor_hal.c`, `esp32/main/services/safety_monitor.h`, `esp32/main/services/safety_monitor.c`, `esp32/main/http/api_device_handlers.c`, `contracts/UI_ESP32_OPENAPI.yaml`, `src/lib/api/contracts.ts`, `src/components/AlarmManagerOverlay.tsx`, `docs/HARDWARE_WIRING_MAP.md`, `docs/ESP32_GPIO_PIN_MAP.md`, `UI_ESP32_COMMUNICATION_SPEC.md`, `scripts/test_tamper_loop_e2e.mjs`.
+
+## SP-WELL-PUMP-NO-MODE-MANUAL-PRECEDENCE-001
+- **Date**: 2026-10-05
+- **Status**: `BUILT & FLASHED — LIVE BOOT CHECK PASS; SCENARIO HARDWARE VERIFICATION PENDING`
+- **Objective**: Remove Well Pump AUTO/MANUAL operating mode while retaining autonomous schedules and direct manual control with manual precedence.
+- **Implemented**:
+  - Removed Well Pump mode state, setter command/API route, response field, and frontend client type/method.
+  - Schedule reconciliation now always runs. Manual OFF during an active schedule suppresses scheduled reactivation until the schedule window ends.
+  - A manual run that began before a schedule enters has its 15-minute timer yielded to the schedule end; a new manual ON during an active schedule remains a bounded manual session.
+  - Updated OpenAPI and canonical scheduling, power, and communication documentation.
+- **Verification**: Frontend TypeScript diagnostics PASS (0 errors). Static symbol scan PASS for removed mode API/type/function names. ESP-IDF firmware build PASS via `powershell -ExecutionPolicy Bypass -File scripts/build_esp32.ps1` (`agrotech_esp32.bin` size `0x18b850`, app partition 49% free). Flash PASS via `powershell -ExecutionPolicy Bypass -File scripts/flash_esp32.ps1` on ESP32-S3 COM3; bootloader, app, partition table, and OTA data hashes verified; hard reset via RTS completed. Live boot check PASS: `GET http://192.168.0.101/api/v1/status` returned success, `runtime.state=RUNNING`, `network.state=STA_CONNECTED`, `wellPumpDetails.state=STOPPED`, and no `wellPumpDetails.mode` field. Power-loss recovery source path remains present: `app_main()` calls `scheduler_schedule_lazy_start()`, and `lazy_start_task` still reconciles Fan/Blower then Well Pump by active schedule window before normal scheduler ticks take over.
+- **Known issues / next action**: Scenario hardware verification is still pending: scheduled ON → manual OFF stays OFF, manual run crosses schedule start → OFF at schedule end, manual ON within schedule stays bounded, safety stop remains dominant, and power-loss recovery active-window restore still passes after this no-mode change. Build produced existing unused-code warnings in unrelated modules plus `command_mgr.c:type_name` now unused after mode-command removal; no warning is configured as fatal. Confirm no pre-existing worktree changes before committing.
+- **Changed files**: `esp32/main/services/well_pump_mgr.c/.h`, `esp32/main/services/scheduler.c`, `esp32/main/http/api_device_handlers.c/.h`, `esp32/main/http/api_command_handlers.c`, `esp32/main/http/http_server.c`, `esp32/main/services/command_mgr.c/.h`, `src/lib/api/contracts.ts`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`, `src/components/WellPumpControlCard.tsx`, `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `docs/POWER_MAP.md`.
+
 ## SP-POWER-LOSS-RECOVERY-001 — Schedule-Driven Power-Loss Recovery (Well Pump & Fan/Blower)
 - **Date**: 2026-10-05
 - **Status**: `COMPLETE — VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

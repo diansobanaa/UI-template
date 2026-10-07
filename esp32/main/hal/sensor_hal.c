@@ -50,6 +50,37 @@ static int64_t s_last_flow_calc_us = 0;
 static sensor_readings_t s_current_readings = {0};
 static SemaphoreHandle_t s_sensor_lock = NULL;
 
+/* Tamper loop debouncing state */
+static bool s_tamper_debounced_state = true;
+static int s_tamper_last_raw = -1;
+static uint8_t s_tamper_stable_samples = 0;
+#define TAMPER_DEBOUNCE_CONSECUTIVE_SAMPLES 2
+
+bool sensor_hal_poll_tamper(void) {
+#if FEATURE_TAMPER_LOOP_ENABLED
+  int raw = gpio_get_level(PIN_IN_TAMPER_LOOP);
+  if (raw == s_tamper_last_raw) {
+    if (s_tamper_stable_samples < TAMPER_DEBOUNCE_CONSECUTIVE_SAMPLES) {
+      s_tamper_stable_samples++;
+    }
+    if (s_tamper_stable_samples >= TAMPER_DEBOUNCE_CONSECUTIVE_SAMPLES) {
+      s_tamper_debounced_state = (raw == TAMPER_LOOP_OK);
+    }
+  } else {
+    s_tamper_last_raw = raw;
+    s_tamper_stable_samples = 1;
+  }
+#else
+  s_tamper_debounced_state = true;
+#endif
+
+  if (s_sensor_lock && xSemaphoreTake(s_sensor_lock, pdMS_TO_TICKS(10)) == pdTRUE) {
+    s_current_readings.tamper_loop_ok = s_tamper_debounced_state;
+    xSemaphoreGive(s_sensor_lock);
+  }
+  return s_tamper_debounced_state;
+}
+
 /* Cached last valid readings for DHT22 to latch through transient failures */
 static float s_last_valid_dht_temp = 0.0f;
 static float s_last_valid_dht_hum = 0.0f;
@@ -644,9 +675,14 @@ esp_err_t sensor_hal_init(void) {
    * FEATURE_TAMPER_LOOP_ENABLED=0. With the loop enabled, seed from the real
    * pin level; with the bypass, seed true to match the poll() behavior. */
 #if FEATURE_TAMPER_LOOP_ENABLED
-  s_current_readings.tamper_loop_ok =
-      (gpio_get_level(PIN_IN_TAMPER_LOOP) == TAMPER_LOOP_OK);
+  s_tamper_last_raw = gpio_get_level(PIN_IN_TAMPER_LOOP);
+  s_tamper_stable_samples = TAMPER_DEBOUNCE_CONSECUTIVE_SAMPLES;
+  s_tamper_debounced_state = (s_tamper_last_raw == TAMPER_LOOP_OK);
+  s_current_readings.tamper_loop_ok = s_tamper_debounced_state;
 #else
+  s_tamper_last_raw = TAMPER_LOOP_OK;
+  s_tamper_stable_samples = TAMPER_DEBOUNCE_CONSECUTIVE_SAMPLES;
+  s_tamper_debounced_state = true;
   s_current_readings.tamper_loop_ok = true; /* matches poll() bypass */
 #endif
 
@@ -773,12 +809,7 @@ esp_err_t sensor_hal_poll(void) {
 
   /* Tamper Loop: Level 0 = OK (closed to GND), Level 1 = LOW (tampered/cut,
    * pulled high) */
-#if FEATURE_TAMPER_LOOP_ENABLED
-  s_current_readings.tamper_loop_ok =
-      (gpio_get_level(PIN_IN_TAMPER_LOOP) == TAMPER_LOOP_OK);
-#else
-  s_current_readings.tamper_loop_ok = true; /* commissioning bypass, see init */
-#endif
+  s_current_readings.tamper_loop_ok = sensor_hal_poll_tamper();
 
   /* DS18B20 Temperature Reading - Non Blocking */
   float temp_val = 0.0f;

@@ -45,31 +45,6 @@ static void copy_str(char *dst, size_t n, const char *src) {
   dst[n - 1] = '\0';
 }
 
-static const char *type_name(cmd_type_t type) {
-  switch (type) {
-  case CMD_TYPE_WELL_PUMP:
-    return "WELL_PUMP";
-  case CMD_TYPE_DIST_PUMP:
-    return "DIST_PUMP";
-  case CMD_TYPE_DOSING_RUN:
-    return "DOSING_RUN";
-  case CMD_TYPE_TANK_TRANSFER:
-    return "TANK_TRANSFER";
-  case CMD_TYPE_FERTIGATION_BATCH:
-    return "FERTIGATION_BATCH";
-  case CMD_TYPE_EMERGENCY_STOP:
-    return "EMERGENCY_STOP";
-  case CMD_TYPE_RESUME:
-    return "RESUME";
-  case CMD_TYPE_COMPONENT_TIMED:
-    return "COMPONENT_TIMED";
-  case CMD_TYPE_WELL_PUMP_MODE:
-    return "WELL_PUMP_MODE";
-  default:
-    return "CUSTOM";
-  }
-}
-
 static bool command_semantically_equal(const command_item_t *a,
                                        const command_item_t *b) {
   if (!a || !b)
@@ -205,8 +180,7 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
     cmd->submitted_at = esp_timer_get_time() / 1000LL;
 
   const bool lifecycle_control =
-      cmd->type == CMD_TYPE_EMERGENCY_STOP || cmd->type == CMD_TYPE_RESUME ||
-      cmd->type == CMD_TYPE_WELL_PUMP_MODE;
+      cmd->type == CMD_TYPE_EMERGENCY_STOP || cmd->type == CMD_TYPE_RESUME;
   const bool component_physical = cmd->type == CMD_TYPE_COMPONENT_TIMED ||
                                   cmd->type == CMD_TYPE_WELL_PUMP ||
                                   cmd->type == CMD_TYPE_DIST_PUMP ||
@@ -663,15 +637,12 @@ static void command_worker_task(void *pvParameters) {
         }
       } else {
         if (cmd->type == CMD_TYPE_WELL_PUMP) {
-          well_pump_manual_stop("OPERATOR_OFF");
+          err = well_pump_manual_stop("OPERATOR_OFF");
+        } else {
+          err = actuator_hal_stop_component(cmd->component_id,
+                                            owner_for_source(cmd));
         }
-        err = actuator_hal_stop_component(cmd->component_id,
-                                          owner_for_source(cmd));
       }
-    } else if (cmd->type == CMD_TYPE_WELL_PUMP_MODE) {
-      well_pump_mode_t m = (strcasecmp(cmd->param_mode, "MANUAL") == 0) ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
-      err = well_pump_set_mode(m);
-      result_message = err == ESP_OK ? "Well pump mode updated." : "Failed to set well pump mode.";
     } else if (cmd->type == CMD_TYPE_DIST_PUMP ||
                cmd->type == CMD_TYPE_DOSING_RUN ||
                cmd->type == CMD_TYPE_COMPONENT_TIMED) {

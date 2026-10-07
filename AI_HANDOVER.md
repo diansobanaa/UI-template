@@ -1,3 +1,37 @@
+# AI HANDOVER — SP-TAMPER-LOOP-AUDIT-REPAIR-001
+
+## Current status
+Tamper loop hardware audit and repair (TODO #1) is **COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)**.
+- Tamper loop on GPIO 47 is enabled (`FEATURE_TAMPER_LOOP_ENABLED 1`).
+- Physical tamper input is filtered with a 2-sample consecutive debounce check (`sensor_hal_poll_tamper()`).
+- Tamper OPEN is fully decoupled from global emergency shutdown: actuators remain running autonomously; schedules are not cancelled or blocked; no persistent E-Stop latch is set; no reboot or maintenance power-cycle is forced.
+- Tamper OPEN raises an authoritative audible buzzer alert (`ALARM_PRIO_CRITICAL`) and logs a structured event (`"⚠ TAMPER LOOP OPEN — PERIKSA POMPA"`).
+- Warning repeats every 30 seconds while the loop remains open without spamming the log.
+- Closing the tamper loop automatically resolves the alarm via `alarm_mgr_resolve("TAMPER_LOOP_OPEN")`, transitions status to `TAMPER OK`, and notifies Web UI in real-time via WebSocket without requiring a reboot.
+- Web UI (`AlarmManagerOverlay.tsx`) displays the required `"⚠ TAMPER LOOP OPEN — PERIKSA POMPA"` alert, has an all-pages pinned top banner, and subscribes to WebSocket telemetry transitions for sub-second reaction.
+- OpenAPI contract and TypeScript interfaces updated with `tamperLoopOk` and `safety.tamperState`.
+- Canonical documentation (`docs/HARDWARE_WIRING_MAP.md`, `docs/ESP32_GPIO_PIN_MAP.md`, `UI_ESP32_COMMUNICATION_SPEC.md`) updated.
+- Automated test suite (`scripts/test_tamper_loop_e2e.mjs`): 11/11 tests PASS.
+
+---
+
+# AI HANDOVER — SP-WELL-PUMP-NO-MODE-MANUAL-PRECEDENCE-001
+
+## Current status
+Well Pump operating mode removal and manual-priority behavior are implemented in source and documentation. Firmware build and flash are complete; targeted scenario hardware validation is still pending.
+
+- No AUTO/MANUAL mode is exposed or required. Schedules reconcile autonomously; Web/API and physical controls remain direct.
+- Manual OFF during an active schedule holds OFF until the active schedule window ends.
+- If manual ON was already active when a schedule starts, the schedule end becomes its stop boundary instead of the earlier 15-minute manual timeout. A fresh manual ON during an active schedule remains bounded by the 15-minute limit.
+- Safety interlocks/E-stop still stop or block the pump.
+- API `/api/v1/well-pump/mode`, mode command parsing, and response mode field were removed. OpenAPI and docs were updated.
+- Frontend TypeScript diagnostics pass with 0 errors. ESP-IDF build PASS via `scripts/build_esp32.ps1`; flash PASS via `scripts/flash_esp32.ps1` to ESP32-S3 on COM3 with verified hashes and RTS hard reset.
+- Live boot check after flash PASS at `http://192.168.0.101/api/v1/status`: API success, `runtime.state=RUNNING`, `network.state=STA_CONNECTED`, Well Pump stopped, and `wellPumpDetails.mode` is absent.
+- Power-loss recovery source path remains intact: `app_main()` still schedules `lazy_start`; `lazy_start_task` reconciles Fan/Blower then Well Pump by active schedule window before the normal 1 s scheduler reconciliation runs.
+- Next: validate scheduled ON -> manual OFF suppression, manual run crossing schedule start -> schedule-end stop, fresh manual ON during active schedule -> 15-minute bound, safety precedence, and active-window power-loss recovery on hardware. Do not commit until pre-existing worktree edits are identified.
+
+---
+
 # AI HANDOVER — SP-POWER-LOSS-RECOVERY-001 (latest)
 
 ## Status — SP-POWER-LOSS-RECOVERY-001

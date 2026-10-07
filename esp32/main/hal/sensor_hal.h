@@ -105,6 +105,12 @@ typedef struct {
 esp_err_t sensor_hal_init(void);
 
 /**
+ * @brief Poll and debounce the anti-theft tamper loop security pin (GPIO 47).
+ * @return true if loop is intact/closed to GND (TAMPER OK), false if open/cut.
+ */
+bool sensor_hal_poll_tamper(void);
+
+/**
  * @brief Poll and update all sensor readings.
  */
 esp_err_t sensor_hal_poll(void);

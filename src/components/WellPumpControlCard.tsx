@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Waves, Power, Clock, AlertTriangle, CheckCircle2, ShieldAlert, WifiOff } from "lucide-react";
 import { fertigationService, complexService } from "@/lib/services";
-import type { WellPumpDetails, WellPumpMode } from "@/lib/api/contracts";
+import type { WellPumpDetails } from "@/lib/api/contracts";
 
 interface WellPumpControlCardProps {
   complexId?: string;
@@ -188,8 +188,7 @@ export function WellPumpControlCard({
           </div>
         </div>
 
-        {/* Dynamic Context: Countdown in MANUAL or Schedule in AUTO */}
-        {/* Active Manual Run Countdown (if manually running) */}
+        {/* Active bounded manual-run countdown */}
         {isPumpOn && countdownSec > 0 && (
           <div className="space-y-3 rounded-xl border border-slate-700/20 bg-slate-800/10 p-4">
             <div className="space-y-2">
@@ -241,7 +240,7 @@ export function WellPumpControlCard({
           <div className="flex items-center justify-between">
             <span
               className="text-slate-400 font-medium cursor-default"
-              title="Schedules execute automatically on the ESP32. Manual start runs for up to 15 minutes without interfering with configured timetables."
+              title="Schedules execute on the ESP32. Manual controls can stop a scheduled run; a run already active when a schedule begins stops at the schedule end."
             >
               Automatic Schedule:
             </span>

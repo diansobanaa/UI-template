@@ -712,10 +712,16 @@ export interface StatusResponse {
     temperatureC?: number | null;
     humidityPct?: number | null;
     floatLowerOk?: boolean;
+    tamperLoopOk?: boolean;
     [key: string]: unknown;
   };
   storage: Record<string, unknown>;
-  safety: { emergencyStopped?: boolean; [key: string]: unknown };
+  safety: {
+    emergencyStopped?: boolean;
+    tamperLoopOk?: boolean;
+    tamperState?: "TAMPER OK" | "TAMPER OPEN";
+    [key: string]: unknown;
+  };
   cropCycle?: Record<string, unknown> | null;
   queue: Record<string, unknown>;
   sync: Record<string, unknown>;
@@ -1163,12 +1169,9 @@ export interface AlarmsResponse {
 
 /* -------------------- Well Pump Manager -------------------- */
 
-export type WellPumpMode = "AUTO" | "MANUAL";
-
 export interface WellPumpDetails {
-  mode: WellPumpMode;
   on: boolean;
-  state: "STOPPED" | "MANUAL_RUNNING" | "SCHEDULED_RUNNING";
+  state: "STOPPED" | "RUNNING";
   manualActive: boolean;
   maxRuntimeSec: number;
   elapsedSec: number;

@@ -72,14 +72,11 @@ extern "C" {
 #define FEATURE_SENSORS_ENABLED  1  /* 1 = Real HW (pulse ISR, 1-wire DS18B20, float, tamper) */
 #endif
 
-/* Tamper-loop supervision. Safe default is 1 (supervised): an open/cut loop
- * on GPIO 47 latches E-STOP and blocks actuators, by design.
- * Set to 0 ONLY for bench/commissioning when the physical anti-theft loop is
- * not wired yet: the tamper input is then treated as OK (with a loud boot
- * warning), so the E-STOP no longer trips on the unwired loop and actuators
- * are unblocked. Re-enable (1) and wire the loop for production. */
+/* Tamper-loop supervision. Enabled (1): physical anti-theft loop on GPIO 47.
+ * When open, triggers warning alarm, buzzer alert, and UI warning ("PERIKSA POMPA")
+ * without global actuator shutdown. Restores to TAMPER OK when closed. */
 #ifndef FEATURE_TAMPER_LOOP_ENABLED
-#define FEATURE_TAMPER_LOOP_ENABLED 0
+#define FEATURE_TAMPER_LOOP_ENABLED 1
 #endif
 
 #ifdef __cplusplus

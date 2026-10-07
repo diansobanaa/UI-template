@@ -52,7 +52,7 @@
 | **W-22** | **GPIO 40** | Right-8 | 4-Ch Relay Board | **IN4 (Relay Ch 4)** | Digital Control | 5V Logic | Mixing Pond Pumps (220V AC Pond Pump) | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Switched 220V AC load on relay COM4/NO4 for nutrient mixing/circulation. | **VERIFIED SAFE** |
 | **W-23** | **GPIO 41** | Right-7 | Sensor DHT22 / AM2302| **DATA** | Digital Single-Wire | 3.3V–5V Logic | Greenhouse Ambient Temp & Humidity Data | Bi-directional (In) | Single-Wire Bus | Measures ambient temperature (-40°C to +80°C) and RH (0–100%). Non-blocking 3s sample cadence. | **VERIFIED SAFE** |
 | **W-24** | **GPIO 42** | Right-6 | TFT ST7735 Display| **RESET** | Control Line | 3.3V Logic | Display Hardware Reset | Output | Active-LOW (0=Reset) | Dedicated hardware reset line for ST7735. | **VERIFIED** |
-| **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop trips Rule 4 Emergency Stop. | **VERIFIED SAFE (SECURITY)** |
+| **W-25** | **GPIO 47** | Right-17 | Anti-Theft Loop | **Tamper Loop In** | Closed Loop Wire | 3.3V Logic | **MANDATORY SECURITY & ANTI-THEFT INTERLOCK** | Input | Active-HIGH (0=OK, 1=Cut) | Closed loop to GND_LV through pump chassis/conduit. Internal pull-up to 3.3V. Cutting loop triggers supervised Tamper Warning ("PERIKSA POMPA") + buzzer alert without global shutdown. Restores to normal when closed. | **VERIFIED SAFE (SECURITY)** |
 | **W-26** | **GPIO 48** | Right-16 | MicroSD Card Module (EasyWare EP000094) | **MICROSD_CS** | Dedicated SPI CS | 3.3V Logic | Standalone MicroSD Card Module Chip Select | Output | Active-LOW (0=Select)| Controls EasyWare EP000094 CS. Shared SPI with TFT. VCC connects to 5V rail (onboard 3.3V LDO). | **VERIFIED READY** |
 | **W-27** | **5V (Vin)**| Left-21 | LM2596 Regulator | **OUT+** | Power Conductor | 5.05V DC | ESP32 Board Main DC Power Input | Power In | 5.05V DC Regulated | **MANDATORY:** Pre-calibrate trimpot with DMM before connecting! | **VERIFY DMM** |
 | **W-28** | **3V3 Rail**| Left-1 / 2 | Sensors & Display | **VCC / LED** | Power Conductor | 3.3V DC | 3.3V Sensor & Peripheral Supply Rail | Power Out | 3.30V DC Regulated | Supplies DS3231, DS18B20, ST7735 VCC/LED, pull-up resistors. | **VERIFIED RAIL** |
@@ -217,7 +217,7 @@ ESP32 GND (Signal GND_LV) ──────────────────
 ### 3.8. Anti-Theft Pump Security Tamper Loop (Physical Closed-Loop Interlock)
 The anti-theft loop physically runs through the pump chassis mounting bracket or inside the motor power cable conduit back to the control panel.
 The ESP32 internal pull-up holds GPIO 47 HIGH (3.3V) if the loop is severed. Under normal conditions, the continuous closed loop holds GPIO 47 at 0V (`GND_LV`).
-Cutting the wire or disconnecting the pump opens the circuit, immediately pulling GPIO 47 HIGH and tripping Rule 4 Emergency Stop (all pumps locked OFF, red beacon energized).
+Cutting the wire or disconnecting the pump opens the circuit, immediately pulling GPIO 47 HIGH and triggering a Supervised Security Alarm: physical buzzer alert + prominent Web UI warning (`⚠ TAMPER LOOP OPEN — PERIKSA POMPA`). It repeats every 30s as long as open. Actuators are NOT shut down globally. Closing the loop immediately restores status to `TAMPER OK` without requiring a reboot.
 
 ```text
 ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
@@ -233,7 +233,7 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 ```
 * **Logic:** Normal (Intact) = `0` (LOW), Tampered (Cut/Severed) = `1` (HIGH).
 * **Ground Isolation:** The return wire MUST terminate at DC Signal Ground (`GND_LV`), NEVER at AC Protective Earth (PE) or AC Neutral.
-* **Safety Authority Action:** Immediate Emergency Stop of all actuators + Red Alarm Beacon ON (`safety_monitor.c`).
+* **Safety Authority Action:** Supervised warning and audible buzzer alert (`safety_monitor.c`, `alarm_mgr.c`). Actuators remain under autonomous control, not stopped. Auto-recovers to `TAMPER OK` when circuit closed.
 
 ---
 

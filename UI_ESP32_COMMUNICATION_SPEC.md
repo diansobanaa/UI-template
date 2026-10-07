@@ -466,7 +466,7 @@ Centralized Alarm Manager managing the physical active buzzer on GPIO 18 (MOSFET
 
 | Priority | Level | Triggers | Cadence Pattern | Audible Behavior |
 |:---|:---|:---|:---|:---|
-| **CRITICAL** | Highest | Manual E-Stop, Tamper Loop Open, Water Temp > 45.0 °C, Latched E-Stop | Urgent repeating (200ms ON / 150ms OFF) | Sounds buzzer, pre-empts lower priority and existing silences. |
+| **CRITICAL** | Highest | Manual E-Stop, Tamper Loop Open, Water Temp > 45.0 °C, Latched E-Stop | Urgent repeating (200ms ON / 150ms OFF) | Sounds buzzer, pre-empts lower priority and existing silences. NOTE: Tamper Loop Open raises urgent audible & UI warning (`⚠ TAMPER LOOP OPEN — PERIKSA POMPA`) without global actuator shutdown, repeating every 30s until restored to TAMPER OK. |
 | **SAFETY_FAULT** | High | TANK_LOW, FLOW_TIMEOUT, ACTUATOR_MAX_RUNTIME, SAFETY_SENSOR_STALE | Intermittent warning (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF) | Sounds buzzer while applying local equipment shutdown (does NOT trigger global E-Stop). |
 | **TEST** | Lowest | Manual Buzzer Test (`/api/v1/alarms/test`) | Bounded pulse (800ms ON once) | Auditory validation. Fails with 409 Conflict if Critical/Safety fault is active. |
 | **NONE** | Inactive | Normal operation / All alarms resolved | OFF | Silent. |
@@ -645,28 +645,26 @@ Emergency stop state is device-owned.
 
 ---
 
-# 19A. Well Pump Control & Operating Mode API
+# 19A. Well Pump Control API
 
 ## Endpoints
 
 ```http
 GET  /api/v1/well-pump
 POST /api/v1/well-pump
-POST /api/v1/well-pump/mode
 POST /api/v1/commands (with type WELL_PUMP_START, WELL_PUMP_STOP, or ACTUATOR_SET)
 ```
 
 ### 1. GET /api/v1/well-pump
-Returns authoritative Well Pump operating mode (`AUTO` or `MANUAL`), confirmed physical relay state on GPIO 1 (Active-LOW), active manual session deadline, remaining monotonic seconds (out of 900s / 15-min limit), stop reason, and schedule metadata.
+Returns authoritative Well Pump relay state on GPIO 1 (Active-LOW), active manual-session deadline, remaining monotonic seconds (out of 900s / 15-min limit), stop reason, and schedule metadata. There is no AUTO/MANUAL operating mode.
 
 Response:
 ```json
 {
   "success": true,
   "data": {
-    "mode": "MANUAL",
     "on": true,
-    "state": "MANUAL_RUNNING",
+    "state": "RUNNING",
     "manualActive": true,
     "maxRuntimeSec": 900,
     "elapsedSec": 120,
@@ -679,25 +677,15 @@ Response:
 ```
 
 ### 2. POST /api/v1/well-pump
-Direct action and mode setter:
+Direct manual action:
 ```json
 {
   "on": true,
   "durationSeconds": 900
 }
 ```
-Accepts flat or enveloped (`payload: { ... }`) payloads. If `on: true`, automatically switches to `MANUAL` mode and energizes relay with 15-minute runtime ceiling. If `on: false`, de-energizes relay immediately.
-
-### 3. POST /api/v1/well-pump/mode
-Switches operating mode (`AUTO` or `MANUAL`) with zero confirmation dialogs:
-```json
-{
-  "mode": "AUTO"
-}
-```
-- **MANUAL Mode:** Operator has authoritative ON/OFF control through Web UI and physical toggle (Button 2 / GPIO 39). Manual ON enforces a mandatory 15-minute (900 seconds) continuous runtime limit on ESP32 (`MANUAL_RUNTIME_LIMIT_REACHED`). Repeated ON commands during an active session do not reset or extend the deadline. Scheduled ON/OFF commands do not override manual state.
-- **AUTO Mode:** Scheduler has control authority. Returning to AUTO immediately evaluates current schedule: turns ON if current time is within an active schedule interval, OFF if outside. Expired schedules are not replayed.
-- **Emergency Stop:** E-Stop trips force relay OFF immediately and lock out commands regardless of mode.
+Accepts flat or enveloped (`payload: { ... }`) payloads. If `on: true`, starts a bounded manual run with a 15-minute runtime ceiling. Repeated ON commands during an active manual session do not reset or extend the deadline. If `on: false`, de-energizes the relay immediately; while a schedule window is active, that manual OFF suppresses schedule reactivation until the window ends. A manual run already active when a schedule begins stops at the schedule end rather than its earlier manual timeout. Schedules otherwise execute autonomously without an operating-mode switch.
+- **Emergency Stop:** E-Stop trips force relay OFF immediately and lock out commands.
 - **220V Radar:** Physical radar cutoff remains independent of ESP32 software.
 
 ---
@@ -1585,4 +1573,3 @@ ACTIVE (NVS) -> COMPLETING -> ARCHIVE_TO_MICROSD -> VERIFY_ARCHIVE -> ARCHIVED -
 - `GET /api/v1/export/jobs/{exportId}/manifest`: Returns record count, total bytes, CRC32 checksum, and file list.
 - `GET /api/v1/export/jobs/{exportId}/data?chunkIndex=N`: Streams data in bounded chunks (<= 32 KB).
 - `POST /api/v1/export/jobs/{exportId}/ack`: Explicit backend acknowledgement. Purges only the exported historical records. Active operational data is never deleted. Idempotent on repeated calls.
-

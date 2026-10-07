@@ -14,7 +14,7 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, WellPumpMode } from "./api/contracts";
+import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
 import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
@@ -2768,26 +2768,13 @@ export const fertigationService = {
     }
   },
 
-  /** Retrieve authoritative Well Pump status, mode, and 15-minute runtime countdown from ESP32. */
+  /** Retrieve authoritative Well Pump status and bounded manual-run countdown from ESP32. */
   async getWellPumpDetails(): Promise<WellPumpDetails | null> {
     if (isDirectEsp32Enabled()) {
       try {
         return await esp32Client.getWellPump();
       } catch {
         return null;
-      }
-    }
-    return null;
-  },
-
-  /** Switch Well Pump operating mode (AUTO or MANUAL) with zero confirmation dialogs. */
-  async setWellPumpMode(complexId: string, mode: WellPumpMode): Promise<WellPumpDetails | null> {
-    if (isDirectEsp32Enabled()) {
-      try {
-        return await esp32Client.setWellPumpMode(mode);
-      } catch (err: unknown) {
-        const errorObj = err as { message?: string };
-        throw new ServiceError("VALIDATION_FAILED", errorObj?.message || "Failed to set Well Pump operating mode on ESP32.");
       }
     }
     return null;
@@ -2801,13 +2788,6 @@ export const fertigationService = {
     }
     if (isDirectEsp32Enabled()) {
       try {
-        if (on) {
-          try {
-            await esp32Client.setWellPumpMode("MANUAL");
-          } catch {
-            // Best effort mode switch
-          }
-        }
         const inventory = await esp32Client.getInventory();
         const wellPump = inventory.components?.find((c) =>
           /well|raw.*pump|submersible/i.test(`${c.role ?? ""} ${c.supportedTypeId ?? ""} ${c.name ?? ""}`),

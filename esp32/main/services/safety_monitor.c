@@ -8,6 +8,7 @@
 #include "hal/hardware_registry.h"
 #include "services/alarm_mgr.h"
 #include "storage/storage_mgr.h"
+#include "services/telemetry_mgr.h"
 #include "config/system_config.h"
 #include "esp_task_wdt.h"
 #include "esp_log.h"
@@ -46,6 +47,8 @@ static char s_fault_code[48] = {0};
 static char s_fault_message[128] = {0};
 static SemaphoreHandle_t s_mutex = NULL;
 static flow_watch_t s_flow_watch[MAX_FLOW_WATCH];
+static bool s_tamper_is_open = false;
+static int64_t s_tamper_last_repeat_log_ms = 0;
 
 static void copy_out(char *dst, size_t dst_len, const char *src)
 {
@@ -82,12 +85,10 @@ static bool is_valve_role(const hw_component_info_t *component)
 static bool role_needs_flow(const hw_component_info_t *component)
 {
     if (!component) return false;
-    return strcasestr(component->role, "WELL_PUMP") ||
-           strcasestr(component->role, "RAW_SUBMERSIBLE") ||
+    return strcasestr(component->role, "RAW_SUBMERSIBLE") ||
            strcasestr(component->role, "DISTRIBUTION_PUMP") ||
            strcasestr(component->role, "DELIVERY_PUMP") ||
            strcasestr(component->role, "FERTIGATION_PUMP") ||
-           strcasestr(component->supported_type_id, "WELL_PUMP") ||
            strcasestr(component->supported_type_id, "RAW_SUBMERSIBLE");
 }
 
@@ -250,9 +251,50 @@ static void safety_monitor_task(void *arg)
                     }
                 }
 
-                if (!sensors.tamper_loop_ok) {
-                    safety_set_fault("TAMPER_LOOP_OPEN", "Tamper loop is open; emergency stop engaged.", true, true);
+                /* Tamper Loop Supervision:
+                 * Supervised security warning and alarm indication.
+                 * NOTE: Tamper OPEN does NOT trigger global emergency stop or shutdown actuators.
+                 * It raises CRITICAL buzzer/visual alarm, notifies Web UI ("PERIKSA POMPA"),
+                 * and repeats warning periodically until the physical loop is CLOSED again (TAMPER OK). */
+#if FEATURE_TAMPER_LOOP_ENABLED
+                bool tamper_ok = sensor_hal_poll_tamper();
+                int64_t now_ms = esp_timer_get_time() / 1000LL;
+
+                if (!tamper_ok) {
+                    if (!s_tamper_is_open) {
+                        /* Transition CLOSED -> OPEN */
+                        s_tamper_is_open = true;
+                        s_tamper_last_repeat_log_ms = now_ms;
+                        ESP_LOGW(TAG, "Tamper loop opened: raising warning alarm (TAMPER OPEN)");
+                        (void)event_mgr_log(LOG_LEVEL_CRITICAL, "SAFETY", "TAMPER_LOOP_OPEN",
+                                            "⚠ TAMPER LOOP OPEN — PERIKSA POMPA", NULL);
+                        (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, "TAMPER_LOOP_OPEN",
+                                              "⚠ TAMPER LOOP OPEN — PERIKSA POMPA", NULL, NULL);
+                        telemetry_mgr_trigger_transition("TAMPER_OPEN");
+                    } else {
+                        /* Tamper remains OPEN: Repeat warning every 30 seconds */
+                        if ((now_ms - s_tamper_last_repeat_log_ms) >= 30000LL) {
+                            s_tamper_last_repeat_log_ms = now_ms;
+                            ESP_LOGW(TAG, "Tamper loop remains open: repeating warning (TAMPER OPEN)");
+                            (void)event_mgr_log(LOG_LEVEL_WARNING, "SAFETY", "TAMPER_LOOP_OPEN",
+                                                "⚠ TAMPER LOOP OPEN — PERIKSA POMPA", NULL);
+                            (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, "TAMPER_LOOP_OPEN",
+                                                  "⚠ TAMPER LOOP OPEN — PERIKSA POMPA", NULL, NULL);
+                        }
+                    }
+                } else {
+                    if (s_tamper_is_open) {
+                        /* Transition OPEN -> CLOSED */
+                        s_tamper_is_open = false;
+                        s_tamper_last_repeat_log_ms = 0;
+                        ESP_LOGI(TAG, "Tamper loop closed: restored to normal (TAMPER OK)");
+                        (void)alarm_mgr_resolve("TAMPER_LOOP_OPEN", NULL);
+                        (void)event_mgr_log(LOG_LEVEL_INFO, "SAFETY", "TAMPER_OK",
+                                            "Tamper loop restored to normal (TAMPER OK).", NULL);
+                        telemetry_mgr_trigger_transition("TAMPER_OK");
+                    }
                 }
+#endif
                 if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c > 45.0f) {
                     safety_set_fault("WATER_TEMP_HIGH", "Water temperature exceeded 45.0 C.", true, false);
                 }
@@ -369,6 +411,8 @@ esp_err_t safety_monitor_init(void)
     if (!s_mutex) return ESP_ERR_NO_MEM;
 
     memset(s_flow_watch, 0, sizeof(s_flow_watch));
+    s_tamper_is_open = false;
+    s_tamper_last_repeat_log_ms = 0;
     if (storage_mgr_get_estop()) {
         s_state = SAFETY_STATE_EMERGENCY_STOP;
         s_fault_latched = true;
@@ -421,6 +465,11 @@ safety_state_t safety_monitor_get_state(void)
 const char *safety_monitor_get_fault_code(void)
 {
     return s_fault_code;
+}
+
+bool safety_monitor_is_tamper_open(void)
+{
+    return s_tamper_is_open;
 }
 
 
@@ -553,11 +602,6 @@ esp_err_t safety_monitor_request_recovery(char *out_reason_code, size_t reason_c
     if (sensor_hal_get_readings(&sensors) != ESP_OK || !sensor_snapshot_fresh(&sensors)) {
         copy_out(out_reason_code, reason_code_len, "SAFETY_SENSOR_STALE");
         copy_out(out_reason, reason_len, "Safety sensors are not fresh enough for recovery.");
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!sensors.tamper_loop_ok) {
-        copy_out(out_reason_code, reason_code_len, "TAMPER_LOOP_OPEN");
-        copy_out(out_reason, reason_len, "Tamper loop remains open; maintenance/power-cycle is required.");
         return ESP_ERR_INVALID_STATE;
     }
     if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c > 45.0f) {

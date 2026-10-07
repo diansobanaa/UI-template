@@ -16,12 +16,11 @@
 #include <string.h>
 
 static const char *TAG = "WELL_PUMP_MGR";
-static const char *NVS_NAMESPACE = "agrotech";
-static const char *NVS_KEY_MODE = "wp_mode";
-
 static SemaphoreHandle_t s_mutex = NULL;
-static well_pump_mode_t s_mode = WELL_PUMP_MODE_AUTO;
 static bool s_manual_session_active = false;
+static bool s_manual_started_during_schedule = false;
+static bool s_manual_schedule_suppression = false;
+static bool s_schedule_inherited_manual_run = false;
 static int64_t s_manual_start_us = 0;
 static uint32_t s_max_runtime_sec = WELL_PUMP_MAX_MANUAL_RUNTIME_SEC;
 static char s_stop_reason[48] = {0};
@@ -29,16 +28,6 @@ static char s_active_schedule_id[40] = {0};
 static bool s_initialized = false;
 
 extern void telemetry_mgr_trigger_transition(const char *reason);
-
-static void load_persisted_mode(void)
-{
-    s_mode = WELL_PUMP_MODE_AUTO;
-}
-
-static void persist_mode(well_pump_mode_t mode)
-{
-    (void)mode;
-}
 
 static esp_err_t well_pump_apply_relay(bool on, actuator_owner_t owner)
 {
@@ -81,6 +70,7 @@ static void well_pump_monitor_task(void *pvParameters)
                 well_pump_apply_relay(false, ACTUATOR_OWNER_SAFETY);
                 if (s_manual_session_active) {
                     s_manual_session_active = false;
+                    s_manual_started_during_schedule = false;
                     strncpy(s_stop_reason, e_stopped ? "SAFETY_ESTOP" : "SAFETY_LOCK", sizeof(s_stop_reason) - 1);
                 }
                 s_active_schedule_id[0] = '\0';
@@ -93,6 +83,20 @@ static void well_pump_monitor_task(void *pvParameters)
 
         /* 15-Minute Monotonic Runtime Limit Enforcement (Priority 2) */
         if (s_manual_session_active) {
+            if (!s_manual_started_during_schedule) {
+                time_t wall_now;
+                time(&wall_now);
+                char schedule_id[40] = {0};
+                if (scheduler_is_well_pump_schedule_active(wall_now, NULL, schedule_id, sizeof(schedule_id))) {
+                    s_manual_session_active = false;
+                    s_schedule_inherited_manual_run = true;
+                    strncpy(s_active_schedule_id, schedule_id, sizeof(s_active_schedule_id) - 1);
+                    ESP_LOGI(TAG, "Active schedule took over the stop boundary for the existing manual pump run.");
+                }
+            }
+        }
+
+        if (s_manual_session_active) {
             int64_t now_us = esp_timer_get_time();
             int64_t elapsed_us = now_us - s_manual_start_us;
             uint32_t elapsed_sec = (uint32_t)(elapsed_us / 1000000LL);
@@ -101,6 +105,7 @@ static void well_pump_monitor_task(void *pvParameters)
                 /* Maximum continuous manual runtime reached */
                 well_pump_apply_relay(false, ACTUATOR_OWNER_MANUAL);
                 s_manual_session_active = false;
+                s_manual_started_during_schedule = false;
                 strncpy(s_stop_reason, "MANUAL_RUNTIME_LIMIT_REACHED", sizeof(s_stop_reason) - 1);
                 s_active_schedule_id[0] = '\0';
 
@@ -131,82 +136,19 @@ esp_err_t well_pump_mgr_init(void)
     s_stop_reason[0] = '\0';
     s_active_schedule_id[0] = '\0';
 
-    load_persisted_mode();
-
     /* STACK-SAFETY: measured HWM was 72 B (used 1976 B). Increasing to 3072 B in PSRAM provides 1096 B safety margin (0 internal DRAM cost). */
     psram_task_create_pinned(well_pump_monitor_task, "well_pump_mon", 3072, NULL, 5, NULL, 1);
     s_initialized = true;
-    ESP_LOGI(TAG, "Well Pump Manager initialized (Mode: %s, Safe OFF).",
-             s_mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
-    return ESP_OK;
-}
-
-well_pump_mode_t well_pump_get_mode(void)
-{
-    return s_manual_session_active ? WELL_PUMP_MODE_MANUAL : WELL_PUMP_MODE_AUTO;
-}
-
-esp_err_t well_pump_set_mode(well_pump_mode_t mode)
-{
-    if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
-
-    if (s_mode == mode) {
-        xSemaphoreGive(s_mutex);
-        return ESP_OK;
-    }
-
-    s_mode = mode;
-    persist_mode(s_mode);
-    ESP_LOGI(TAG, "Operating mode transitioned to %s", mode == WELL_PUMP_MODE_MANUAL ? "MANUAL" : "AUTO");
-
-    if (s_mode == WELL_PUMP_MODE_AUTO) {
-        /* Transitioning MANUAL -> AUTO:
-         * 1. Invalidate any active manual session.
-         * 2. Immediately evaluate current schedule state without confirmation.
-         * 3. Apply correct output state immediately. */
-        s_manual_session_active = false;
-        strncpy(s_stop_reason, "MODE_SWITCH_AUTO", sizeof(s_stop_reason) - 1);
-
-        time_t now;
-        time(&now);
-        uint32_t rem_sec = 0;
-        char sched_id[40] = {0};
-        bool is_active = scheduler_is_well_pump_schedule_active(now, &rem_sec, sched_id, sizeof(sched_id));
-
-        if (is_active) {
-            if (!actuator_hal_is_emergency_stopped() && safety_monitor_allows_commands()) {
-                well_pump_apply_relay(true, ACTUATOR_OWNER_SCHEDULER);
-                strncpy(s_active_schedule_id, sched_id, sizeof(s_active_schedule_id) - 1);
-                ESP_LOGI(TAG, "MANUAL -> AUTO: Active schedule '%s' detected (%u s remaining). Relay energizing ON immediately.",
-                         sched_id, (unsigned)rem_sec);
-            } else {
-                well_pump_apply_relay(false, ACTUATOR_OWNER_NONE);
-                s_active_schedule_id[0] = '\0';
-                ESP_LOGW(TAG, "MANUAL -> AUTO: Active schedule detected but blocked by safety.");
-            }
-        } else {
-            /* Outside active interval: turn pump OFF immediately */
-            well_pump_apply_relay(false, ACTUATOR_OWNER_NONE);
-            s_active_schedule_id[0] = '\0';
-            ESP_LOGI(TAG, "MANUAL -> AUTO: No active schedule currently due. Pump set to OFF.");
-        }
-        telemetry_mgr_trigger_transition("WELL_PUMP_MODE_AUTO");
-    } else {
-        /* Transitioning AUTO -> MANUAL:
-         * Authority transfers to manual control.
-         * Preserve current output state until explicit operator action. */
-        s_active_schedule_id[0] = '\0';
-        strncpy(s_stop_reason, "MODE_SWITCH_MANUAL", sizeof(s_stop_reason) - 1);
-        ESP_LOGI(TAG, "AUTO -> MANUAL: Operator authority active. Current output preserved.");
-        telemetry_mgr_trigger_transition("WELL_PUMP_MODE_MANUAL");
-    }
-
-    xSemaphoreGive(s_mutex);
+    ESP_LOGI(TAG, "Well Pump Manager initialized (Safe OFF).");
     return ESP_OK;
 }
 
 esp_err_t well_pump_manual_start(uint32_t duration_sec)
 {
+    time_t now;
+    time(&now);
+    char schedule_id[40] = {0};
+    bool schedule_active = scheduler_is_well_pump_schedule_active(now, NULL, schedule_id, sizeof(schedule_id));
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
 
     /* Validate safety protections */
@@ -232,10 +174,12 @@ esp_err_t well_pump_manual_start(uint32_t duration_sec)
     esp_err_t err = well_pump_apply_relay(true, ACTUATOR_OWNER_MANUAL);
     if (err == ESP_OK) {
         s_manual_session_active = true;
+        s_manual_started_during_schedule = schedule_active;
+        s_manual_schedule_suppression = false;
         s_manual_start_us = esp_timer_get_time();
         s_max_runtime_sec = duration_sec;
         s_stop_reason[0] = '\0';
-        s_active_schedule_id[0] = '\0';
+        strncpy(s_active_schedule_id, schedule_active ? schedule_id : "", sizeof(s_active_schedule_id) - 1);
         ESP_LOGI(TAG, "Manual Well Pump turned ON for up to %u seconds (deadline initialized).", (unsigned)duration_sec);
         telemetry_mgr_trigger_transition("WELL_PUMP_MANUAL_ON");
     } else {
@@ -250,9 +194,16 @@ esp_err_t well_pump_manual_stop(const char *reason)
 {
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
 
+    time_t now;
+    time(&now);
+    bool schedule_active = scheduler_is_well_pump_schedule_active(now, NULL, NULL, 0);
+
     /* Immediate relay de-energization */
     esp_err_t err = well_pump_apply_relay(false, ACTUATOR_OWNER_MANUAL);
     s_manual_session_active = false;
+    s_manual_started_during_schedule = false;
+    s_manual_schedule_suppression = schedule_active;
+    s_schedule_inherited_manual_run = false;
     s_active_schedule_id[0] = '\0';
     if (reason && reason[0]) {
         strncpy(s_stop_reason, reason, sizeof(s_stop_reason) - 1);
@@ -269,6 +220,10 @@ esp_err_t well_pump_manual_stop(const char *reason)
 
 void well_pump_toggle_physical(void)
 {
+    time_t now;
+    time(&now);
+    char schedule_id[40] = {0};
+    bool schedule_active = scheduler_is_well_pump_schedule_active(now, NULL, schedule_id, sizeof(schedule_id));
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return;
 
     if (actuator_hal_is_emergency_stopped()) {
@@ -283,10 +238,12 @@ void well_pump_toggle_physical(void)
         esp_err_t err = well_pump_apply_relay(true, ACTUATOR_OWNER_MANUAL);
         if (err == ESP_OK) {
             s_manual_session_active = true;
+            s_manual_started_during_schedule = schedule_active;
+            s_manual_schedule_suppression = false;
             s_manual_start_us = esp_timer_get_time();
             s_max_runtime_sec = WELL_PUMP_MAX_MANUAL_RUNTIME_SEC;
             s_stop_reason[0] = '\0';
-            s_active_schedule_id[0] = '\0';
+            strncpy(s_active_schedule_id, schedule_active ? schedule_id : "", sizeof(s_active_schedule_id) - 1);
             ESP_LOGI(TAG, "Physical Toggle -> ON: Started 15-minute manual session.");
             telemetry_mgr_trigger_transition("WELL_PUMP_PHYSICAL_ON");
         }
@@ -294,7 +251,10 @@ void well_pump_toggle_physical(void)
         /* Physical toggle turning OFF */
         well_pump_apply_relay(false, ACTUATOR_OWNER_MANUAL);
         s_manual_session_active = false;
-        s_active_schedule_id[0] = '\0';
+        s_manual_started_during_schedule = false;
+        s_manual_schedule_suppression = schedule_active;
+        s_schedule_inherited_manual_run = false;
+        if (!schedule_active) s_active_schedule_id[0] = '\0';
         strncpy(s_stop_reason, "PHYSICAL_TOGGLE_OFF", sizeof(s_stop_reason) - 1);
         ESP_LOGI(TAG, "Physical Toggle -> OFF: Stopped manually.");
         telemetry_mgr_trigger_transition("WELL_PUMP_PHYSICAL_OFF");
@@ -309,20 +269,18 @@ void well_pump_emergency_stop(void)
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
         well_pump_apply_relay(false, ACTUATOR_OWNER_SAFETY);
         s_manual_session_active = false;
+        s_manual_started_during_schedule = false;
+        s_manual_schedule_suppression = false;
+        s_schedule_inherited_manual_run = false;
         s_active_schedule_id[0] = '\0';
         strncpy(s_stop_reason, "SAFETY_ESTOP", sizeof(s_stop_reason) - 1);
         xSemaphoreGive(s_mutex);
     }
 }
 
-esp_err_t well_pump_reconcile_auto_schedule(time_t now)
+esp_err_t well_pump_reconcile_schedule(time_t now)
 {
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
-
-    if (s_mode != WELL_PUMP_MODE_AUTO || s_manual_session_active) {
-        xSemaphoreGive(s_mutex);
-        return ESP_OK; /* MANUAL mode or manual session active prevents schedule reconciliation */
-    }
 
     if (actuator_hal_is_emergency_stopped() || !safety_monitor_allows_commands()) {
         well_pump_apply_relay(false, ACTUATOR_OWNER_SAFETY);
@@ -337,19 +295,34 @@ esp_err_t well_pump_reconcile_auto_schedule(time_t now)
     bool currently_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
 
     if (is_active) {
+        if (s_manual_schedule_suppression) {
+            xSemaphoreGive(s_mutex);
+            return ESP_OK;
+        }
+        if (s_manual_session_active && !s_manual_started_during_schedule) {
+            /* A schedule that starts during a manual run owns the stop boundary. */
+            s_manual_session_active = false;
+            s_manual_started_during_schedule = false;
+            s_schedule_inherited_manual_run = true;
+        }
         if (!currently_on) {
             well_pump_apply_relay(true, ACTUATOR_OWNER_SCHEDULER);
-            strncpy(s_active_schedule_id, sched_id, sizeof(s_active_schedule_id) - 1);
-            ESP_LOGI(TAG, "AUTO Schedule activated: '%s' ON (%u s remaining).", sched_id, (unsigned)rem_sec);
+            ESP_LOGI(TAG, "Schedule activated: '%s' ON (%u s remaining).", sched_id, (unsigned)rem_sec);
             telemetry_mgr_trigger_transition("WELL_PUMP_AUTO_ON");
         }
+        strncpy(s_active_schedule_id, sched_id, sizeof(s_active_schedule_id) - 1);
     } else {
+        s_manual_schedule_suppression = false;
         if (currently_on && !s_manual_session_active && s_active_schedule_id[0] != '\0') {
-            well_pump_apply_relay(false, ACTUATOR_OWNER_SCHEDULER);
+            well_pump_apply_relay(false, s_schedule_inherited_manual_run ? ACTUATOR_OWNER_MANUAL : ACTUATOR_OWNER_SCHEDULER);
             s_active_schedule_id[0] = '\0';
+            s_schedule_inherited_manual_run = false;
             strncpy(s_stop_reason, "SCHEDULE_STOP", sizeof(s_stop_reason) - 1);
-            ESP_LOGI(TAG, "AUTO Schedule window ended: Well Pump OFF.");
+            ESP_LOGI(TAG, "Schedule window ended: Well Pump OFF.");
             telemetry_mgr_trigger_transition("WELL_PUMP_AUTO_OFF");
+        } else if (s_active_schedule_id[0] != '\0') {
+            s_active_schedule_id[0] = '\0';
+            s_schedule_inherited_manual_run = false;
         }
     }
 
@@ -362,7 +335,6 @@ esp_err_t well_pump_get_status(well_pump_status_t *out_status)
     if (!out_status) return ESP_ERR_INVALID_ARG;
     if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
 
-    out_status->mode = s_mode;
     out_status->on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
     out_status->is_manual_session_active = s_manual_session_active;
     out_status->max_runtime_sec = s_max_runtime_sec;
