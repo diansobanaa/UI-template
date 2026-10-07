@@ -1,3 +1,26 @@
+## SP-HEAP-OPT-BSS-PSRAM-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**: Execute TODO #2 — Internal RAM Optimization (Batch 1). Migrate large static `.bss` allocations verified as non-DMA, non-ISR from Internal DRAM (`0x3fc...`) to PSRAM (`0x3c...`) via `EXT_RAM_BSS_ATTR` without modifying system behavior, task logic, or API semantics.
+- **Implemented**:
+  - `esp32/main/services/fertigation_mgr.c`: `s_prep_slots` (32,704 B) -> `EXT_RAM_BSS_ATTR`.
+  - `esp32/main/services/telemetry_mgr.c`: `s_ring_buffer` (28,672 B) -> `EXT_RAM_BSS_ATTR`.
+  - `esp32/main/hal/hardware_registry.c`: `s_active_components` (22,144 B) -> `EXT_RAM_BSS_ATTR`.
+  - `esp32/main/storage/telemetry_store.c`: `s_daily_history` (11,552 B) -> `EXT_RAM_BSS_ATTR`.
+  - `esp32/main/hal/tft_hal.c`: `today_occs` (5,760 B), `q_entries` (2,624 B), `s_sched_entries` (1,920 B) -> `EXT_RAM_BSS_ATTR`. Total TFT: 10,304 B.
+  - `esp32/main/hal/sensor_hal.c`: `s_generic_samples` (6,144 B) -> `EXT_RAM_BSS_ATTR`.
+  - `esp32/main/services/alarm_mgr.c`: `s_alarms` (5,120 B) -> `EXT_RAM_BSS_ATTR`.
+  - Canonical documentation: `docs/INTERNAL_RAM_OPTIMIZATION_BATCH1.md`.
+- **Verification**:
+  - Linker map (`agrotech_esp32.map`): Internal `.dram0.bss` reduced from 172,040 B to 55,400 B (-116,640 B exact). PSRAM `.ext_ram.bss` increased by +116,640 B (502,848 B to 619,488 B).
+  - Flash PASS to physical ESP32-S3 (COM3).
+  - Boot `[HEAP] final`: Internal heap increased from 26,335 B to 142,835 B (+116,500 B reclaimed). Largest block increased from 18,432 B to 69,632 B.
+  - Steady-state runtime (`diagnostics_task` `[DIAG]`): Internal free heap increased from ~35,800 B to 150,983 B (+115,183 B reclaimed). Largest internal block increased from 18,432 B to 65,536 B (+255%).
+  - Integrity check: `OK`. `[DIAG] Internal heap LOW (<30KB)` warning eliminated.
+  - Functional tests: WiFi, RTC, MicroSD, DHT22, Button HAL, Scheduler, HTTP server, Telemetry, TFT, Fertigation Manager (`s_prep_slots`), Actuators, and Events all PASS.
+- **Known issues / next action**: Batch 1 complete. Do NOT proceed to Batch 2 per user mandate.
+- **Changed files**: `esp32/main/services/fertigation_mgr.c`, `esp32/main/services/telemetry_mgr.c`, `esp32/main/hal/hardware_registry.c`, `esp32/main/storage/telemetry_store.c`, `esp32/main/hal/tft_hal.c`, `esp32/main/hal/sensor_hal.c`, `esp32/main/services/alarm_mgr.c`, `docs/INTERNAL_RAM_OPTIMIZATION_BATCH1.md`.
+
 ## SP-TAMPER-LOOP-AUDIT-REPAIR-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

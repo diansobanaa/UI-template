@@ -6,6 +6,7 @@
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "actuator_hal.h"
 #include "event_mgr.h"
 #include "storage_mgr.h"
@@ -14,7 +15,7 @@
 static const char *TAG = "alarm_mgr";
 
 static SemaphoreHandle_t s_mutex = NULL;
-static alarm_record_t s_alarms[MAX_ACTIVE_ALARMS];
+static EXT_RAM_BSS_ATTR alarm_record_t s_alarms[MAX_ACTIVE_ALARMS];
 static uint32_t s_alarm_counter = 0;
 
 static bool s_silenced = false;

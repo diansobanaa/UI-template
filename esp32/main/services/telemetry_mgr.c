@@ -9,6 +9,7 @@
 #include "config/system_config.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -63,7 +64,7 @@ static sensor_fault_latch_t *get_sensor_latch(const char *sensor_id)
 }
 
 /* Bounded RAM Ring Buffer */
-static telemetry_snapshot_t s_ring_buffer[TELEMETRY_RING_CAPACITY];
+static EXT_RAM_BSS_ATTR telemetry_snapshot_t s_ring_buffer[TELEMETRY_RING_CAPACITY];
 static size_t s_ring_head = 0;
 static size_t s_ring_count = 0;
 static uint32_t s_dropped_samples = 0;

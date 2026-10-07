@@ -1,3 +1,30 @@
+# AI HANDOVER — SP-HEAP-OPT-BSS-PSRAM-001
+
+## Current status
+Internal RAM Optimization (Batch 1) is **COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)**.
+- 7 verified large static `.bss` allocations safely moved from Internal DRAM (`0x3fc...`) to PSRAM (`0x3c...`) using `EXT_RAM_BSS_ATTR`.
+- Candidates migrated:
+  1. `s_prep_slots` (32,704 B) in `esp32/main/services/fertigation_mgr.c`
+  2. `s_ring_buffer` (28,672 B) in `esp32/main/services/telemetry_mgr.c`
+  3. `s_active_components` (22,144 B) in `esp32/main/hal/hardware_registry.c`
+  4. `s_daily_history` (11,552 B) in `esp32/main/storage/telemetry_store.c`
+  5. TFT static buffers (`today_occs` 5,760 B, `q_entries` 2,624 B, `s_sched_entries` 1,920 B = 10,304 B) in `esp32/main/hal/tft_hal.c`
+  6. `s_generic_samples` (6,144 B) in `esp32/main/hal/sensor_hal.c`
+  7. `s_alarms` (5,120 B) in `esp32/main/services/alarm_mgr.c`
+- Total Reclaimed: **116,640 bytes (113.91 KB)**.
+- Linker Map verification (`agrotech_esp32.map`):
+  - `.dram0.bss`: reduced from 172,040 B to 55,400 B (-116,640 B exact).
+  - `.ext_ram.bss`: increased from 502,848 B to 619,488 B (+116,640 B exact).
+- Physical Hardware Runtime verification:
+  - Boot `[HEAP] final`: 142,835 B free (was 26,335 B, reclaimed +116,500 B). Largest block: 69,632 B (was 18,432 B).
+  - Steady-state runtime (`diagnostics_task` `[DIAG]`): 150,983 B free (was ~35,800 B, reclaimed +115,183 B). Largest block: 65,536 B (was 18,432 B, +255%).
+  - PSRAM: 7,652,820 B free. Integrity: OK.
+  - Zero crashes, zero reboots, all core subsystems active and passing.
+- Strictly untouched per instruction: `s_batch`, `s_delivery_slots`, `s_events`, `s_records`, task stack sizes, allocator configurations, logic/protocols.
+- Stop condition: Batch 1 finished. Do NOT continue to Batch 2.
+
+---
+
 # AI HANDOVER — SP-TAMPER-LOOP-AUDIT-REPAIR-001
 
 ## Current status

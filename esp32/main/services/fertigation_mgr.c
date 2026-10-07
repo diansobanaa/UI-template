@@ -25,6 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "esp_rom_crc.h"
+#include "esp_attr.h"
 
 
 static const char *TAG = "FERT_MGR";
@@ -75,7 +76,7 @@ typedef struct {
   bool dosing_mutex_held;
 } preparation_slot_t;
 
-static preparation_slot_t s_prep_slots[FERT_MAX_PREPARATION_SLOTS] = {0};
+static EXT_RAM_BSS_ATTR preparation_slot_t s_prep_slots[FERT_MAX_PREPARATION_SLOTS];
 static SemaphoreHandle_t s_dosing_mutex = NULL;
 static int64_t s_run_start_ms = 0, s_run_end_ms = 0;
 static int64_t s_phase_ts[10] = {0};

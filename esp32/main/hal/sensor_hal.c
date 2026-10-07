@@ -5,6 +5,7 @@
 #include "driver/adc.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -95,7 +96,7 @@ typedef struct {
   sensor_component_sample_t sample;
 } generic_sensor_sample_slot_t;
 
-static generic_sensor_sample_slot_t
+static EXT_RAM_BSS_ATTR generic_sensor_sample_slot_t
     s_generic_samples[MAX_GENERIC_SENSOR_SAMPLES];
 
 typedef struct {

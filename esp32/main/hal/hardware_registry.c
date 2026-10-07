@@ -4,6 +4,7 @@
 #include "config/pin_config.h"
 #include "esp_log.h"
 #include "driver/spi_master.h"
+#include "esp_attr.h"
 #include "cJSON.h"
 #include <string.h>
 #include <stdio.h>
@@ -12,7 +13,7 @@ static const char *TAG = "HW_REGISTRY";
 
 #define MAX_HW_COMPONENTS 32
 
-static hw_component_info_t s_active_components[MAX_HW_COMPONENTS];
+static EXT_RAM_BSS_ATTR hw_component_info_t s_active_components[MAX_HW_COMPONENTS];
 static size_t s_active_count = 0;
 
 static bool parse_lifecycle(const char *state, hw_lifecycle_state_t *out)

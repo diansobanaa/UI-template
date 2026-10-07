@@ -12,6 +12,7 @@
 #include "config/pin_config.h"
 #include "config/system_config.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "freertos/FreeRTOS.h"
@@ -449,7 +450,7 @@ static void get_complex_gh_ids(char *out_str, size_t out_len)
 
 static int s_prev_net_state = -1;
 static int s_prev_header_mday = -1;
-static schedule_entry_t s_sched_entries[16];
+static EXT_RAM_BSS_ATTR schedule_entry_t s_sched_entries[16];
 static int s_prev_timeline_marker_x = -1;
 static int s_prev_marker_min = -1;
 
@@ -863,7 +864,7 @@ static void draw_screen2_next_fert(const struct tm *ti, bool full)
 
 static void draw_screen2_timeline(const struct tm *ti, bool full)
 {
-    static today_occurrence_t today_occs[16];
+    static EXT_RAM_BSS_ATTR today_occurrence_t today_occs[16];
     size_t occ_count = 0;
     memset(today_occs, 0, sizeof(today_occs));
     scheduler_get_today_occurrences(today_occs, 16, &occ_count);
@@ -1093,7 +1094,7 @@ static void draw_screen3_queue_list(bool full)
         tft_draw_string(card_x + 13, card_y + 3, "ANTREAN (COMPLEX):", TFT_COLOR_WHITE, TFT_COLOR_CARD_BG, 1);
     }
 
-    static dosing_queue_entry_t q_entries[8];
+    static EXT_RAM_BSS_ATTR dosing_queue_entry_t q_entries[8];
     size_t q_count = 0;
     memset(q_entries, 0, sizeof(q_entries));
     scheduler_get_dosing_queue(q_entries, 8, &q_count);

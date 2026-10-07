@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "esp_rom_crc.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -39,7 +40,7 @@ static telemetry_record_t s_batch_buffer[BATCH_BUFFER_CAPACITY];
 static size_t s_batch_count = 0;
 
 /* Full 24-hour daily history in fast RAM */
-static telemetry_daily_history_t s_daily_history;
+static EXT_RAM_BSS_ATTR telemetry_daily_history_t s_daily_history;
 
 /* Subsystem status */
 static telemetry_store_status_t s_status = {
