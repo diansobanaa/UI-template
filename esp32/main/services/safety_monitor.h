@@ -67,6 +67,13 @@ esp_err_t safety_monitor_authorize_component(
 esp_err_t safety_monitor_request_recovery(char *out_reason_code, size_t reason_code_len,
                                           char *out_reason, size_t reason_len);
 
+/**
+ * Explicitly recover from a latched safety condition for a specific component.
+ */
+esp_err_t safety_monitor_recover_component(const char *component_id,
+                                           char *out_reason_code, size_t reason_code_len,
+                                           char *out_reason, size_t reason_len);
+
 /** Trigger an emergency stop condition latching all actuators OFF. */
 esp_err_t safety_monitor_trigger_emergency_stop(const char *reason_code, const char *reason);
 

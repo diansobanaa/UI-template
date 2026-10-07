@@ -467,7 +467,7 @@ Centralized Alarm Manager managing the physical active buzzer on GPIO 18 (MOSFET
 | Priority | Level | Triggers | Cadence Pattern | Audible Behavior |
 |:---|:---|:---|:---|:---|
 | **CRITICAL** | Highest | Manual E-Stop, Tamper Loop Open, Water Temp > 45.0 °C, Latched E-Stop | Urgent repeating (200ms ON / 150ms OFF) | Sounds buzzer, pre-empts lower priority and existing silences. NOTE: Tamper Loop Open raises urgent audible & UI warning (`⚠ TAMPER LOOP OPEN — PERIKSA POMPA`) without global actuator shutdown, repeating every 30s until restored to TAMPER OK. |
-| **SAFETY_FAULT** | High | TANK_LOW, FLOW_TIMEOUT, ACTUATOR_MAX_RUNTIME, SAFETY_SENSOR_STALE | Intermittent warning (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF) | Sounds buzzer while applying local equipment shutdown (does NOT trigger global E-Stop). |
+| **SAFETY_FAULT** | High | FLOW_TIMEOUT, ACTUATOR_MAX_RUNTIME, SAFETY_SENSOR_STALE | Intermittent warning (200ms ON / 150ms OFF / 200ms ON / 2000ms OFF) | Sounds buzzer while applying local equipment shutdown (does NOT trigger global E-Stop). NOTE: TANK_LOW activates local pump interlock without audible buzzer sound. |
 | **TEST** | Lowest | Manual Buzzer Test (`/api/v1/alarms/test`) | Bounded pulse (800ms ON once) | Auditory validation. Fails with 409 Conflict if Critical/Safety fault is active. |
 | **NONE** | Inactive | Normal operation / All alarms resolved | OFF | Silent. |
 

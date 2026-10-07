@@ -603,9 +603,16 @@ static void command_worker_task(void *pvParameters) {
       result_message = "Emergency stop latched; protected outputs forced OFF.";
     } else if (cmd->type == CMD_TYPE_RESUME) {
       char recovery_code[48], recovery_msg[128];
-      err =
-          safety_monitor_request_recovery(recovery_code, sizeof(recovery_code),
-                                          recovery_msg, sizeof(recovery_msg));
+      if (cmd->component_id[0] != '\0') {
+        err = safety_monitor_recover_component(
+            cmd->component_id,
+            recovery_code, sizeof(recovery_code),
+            recovery_msg, sizeof(recovery_msg));
+      } else {
+        err = safety_monitor_request_recovery(
+            recovery_code, sizeof(recovery_code),
+            recovery_msg, sizeof(recovery_msg));
+      }
       result_code = err == ESP_OK ? "RECOVERED" : recovery_code;
       result_message = err == ESP_OK
                            ? "Safety latch cleared after validated recovery."

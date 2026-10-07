@@ -1,3 +1,37 @@
+# AI HANDOVER - SP-BUZZER-LAZY-START-STACK-FIX-001
+
+## Current status
+Task to restart ESP32, inspect logs for 2-3 minutes, and fix any detected bug is **COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)**:
+1. **Root Cause Analysis**:
+   - Initial 2.5-minute serial capture revealed repeated resets caused by FreeRTOS stack overflow:
+     `***ERROR*** A stack overflow in task lazy_start has been detected.`
+   - `lazy_start` task had only 3584 bytes stack allocated in `scheduler.c`, which overflowed during deferred boot reconciliation when executing `scheduler_reconcile_fan_schedule()`, `sensor_hal_poll()`, and `well_pump_reconcile_schedule()`.
+2. **Surgical Fix**:
+   - In `esp32/main/services/scheduler.c`: Increased `lazy_start_task` stack allocation from 3584 bytes to 7168 bytes.
+3. **Verification**:
+   - Firmware built cleanly (`python scripts/run_idf.py build`, binary `0x18c060` bytes).
+   - Flashed to physical ESP32-S3 via COM3 at 460800 baud.
+   - Validation test suite (`scripts/test_task8_buzzer_surgical_audit.py`) passed 28/28 checks.
+   - 2.5-minute (150-second) serial monitor capture (`scripts/monitor_post_fix.log`):
+     - Zero crashes, zero panics, zero stack overflows across 150s of continuous runtime.
+     - `lazy_start` finished cleanly and deleted itself: `lazy_start: Power-loss schedule reconciliation complete (one-shot).`
+     - All task stack high-water marks and internal heap are completely healthy (`148,823 B free`).
+
+---
+
+# AI HANDOVER - SP-BUZZER-UNIFIED-OWNERSHIP-001
+
+## Current status
+TASK #8 (Surgical Buzzer / Alarm Fix) is **COMPLETE & FULLY VERIFIED**:
+1. **`TANK_LOW` Audible Removal**: `TANK_LOW` no longer calls `alarm_mgr_raise` or sounds the hardware buzzer. Underlying float switch dry-run protection, distribution pump shutoff, and telemetry reporting remain 100% active.
+2. **Single Authoritative Controller on GPIO 18**: `alarm_mgr` is now the ONLY runtime writer to GPIO 18. Removed direct `gpio_set_level` calls from `actuator_hal_emergency_stop()` and `actuator_hal_resume()`. Guarded `actuator_hal_set()`, `actuator_hal_set_by_component_id()`, `stop_component()`, and `force_off()` from directly toggling `PIN_OUT_BUZZER`.
+3. **`FLOW_TIMEOUT` & `ACTUATOR_MAX_RUNTIME` Resolution**: Added explicit `alarm_mgr_resolve` calls in `safety_monitor_request_recovery()` and implemented targeted component recovery in `safety_monitor_recover_component()`.
+4. **`buzzerAudible` Semantics**: Fixed `buzzerAudible` to reflect `(s_current_pattern != ALARM_PATTERN_OFF) && !s_silenced`, eliminating false negatives during the OFF phase of repeating alarm cadences.
+5. **Firmware Compilation**: Built with ESP-IDF v5.5.5 using `python scripts/run_idf.py build` (EXIT CODE 0, `agrotech_esp32.bin` binary size 0x18c060 bytes, 48% partition free).
+6. **Verification**: `python scripts/test_task8_buzzer_surgical_audit.py` passed 28/28 checks.
+
+---
+
 # AI HANDOVER - SP-UI-ALARM-SYNC-001
 
 ## Current status

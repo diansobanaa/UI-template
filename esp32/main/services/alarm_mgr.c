@@ -449,7 +449,7 @@ alarm_priority_t alarm_mgr_get_highest_priority(void) {
 bool alarm_mgr_is_audible(void) {
     if (!s_mutex) return false;
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
-    bool audible = s_buzzer_physical_on;
+    bool audible = (s_current_pattern != ALARM_PATTERN_OFF) && !s_silenced;
     xSemaphoreGive(s_mutex);
     return audible;
 }
@@ -480,7 +480,8 @@ cJSON *alarm_mgr_get_summary_json(void) {
                 if (s_alarms[i].priority > highest_prio) highest_prio = s_alarms[i].priority;
             }
         }
-        cJSON_AddBoolToObject(sum, "buzzerAudible", s_buzzer_physical_on);
+        bool audible = (s_current_pattern != ALARM_PATTERN_OFF) && !s_silenced;
+        cJSON_AddBoolToObject(sum, "buzzerAudible", audible);
         cJSON_AddBoolToObject(sum, "isSilenced", s_silenced);
         cJSON_AddStringToObject(sum, "activePattern", pattern_str(s_current_pattern));
         cJSON_AddStringToObject(sum, "highestPriority", priority_str(highest_prio));

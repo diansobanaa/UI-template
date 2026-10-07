@@ -3325,7 +3325,7 @@ static void lazy_start_task(void *pvParameters) {
 
 esp_err_t scheduler_schedule_lazy_start(void) {
   if (s_lazy_start_done) return ESP_OK;
-  BaseType_t ret = xTaskCreatePinnedToCore(lazy_start_task, "lazy_start", 3584, NULL, 3, NULL, 1);
+  BaseType_t ret = xTaskCreatePinnedToCore(lazy_start_task, "lazy_start", 7168, NULL, 3, NULL, 1);
   return (ret == pdPASS) ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

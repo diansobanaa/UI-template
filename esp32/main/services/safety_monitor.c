@@ -202,7 +202,9 @@ static void safety_set_fault(const char *code, const char *message, bool global_
     if (global_estop) {
         (void)alarm_mgr_raise(ALARM_PRIO_CRITICAL, fault_code, message ? message : "Critical safety trip", NULL, NULL);
     } else {
-        (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, fault_code, message ? message : "Safety operational fault", NULL, NULL);
+        if (strcmp(fault_code, "TANK_LOW") != 0) {
+            (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, fault_code, message ? message : "Safety operational fault", NULL, NULL);
+        }
     }
 
     if (new_fault) {
@@ -316,7 +318,6 @@ static void safety_monitor_task(void *arg)
                             (void)actuator_hal_force_off_component(info.component_id);
                             safety_set_fault("TANK_LOW", "Lower-level protection stopped an active distribution pump.", false, false);
                             (void)command_mgr_notify_component_safety_fault(info.component_id, "TANK_LOW", "Lower-level protection stopped the component.");
-                            (void)alarm_mgr_raise(ALARM_PRIO_SAFETY_FAULT, "TANK_LOW", "Lower-level float switch dry; affected water pump stopped.", info.component_id, info.assignment.gh_id);
                         }
                     }
                 } else {
@@ -637,10 +638,63 @@ esp_err_t safety_monitor_request_recovery(char *out_reason_code, size_t reason_c
     (void)alarm_mgr_resolve("TAMPER_LOOP_OPEN", NULL);
     (void)alarm_mgr_resolve("WATER_TEMP_HIGH", NULL);
     (void)alarm_mgr_resolve("TANK_LOW", NULL);
+    (void)alarm_mgr_resolve("FLOW_TIMEOUT", NULL);
+    (void)alarm_mgr_resolve("ACTUATOR_MAX_RUNTIME", NULL);
+    (void)alarm_mgr_resolve("SAFETY_SENSOR_STALE", NULL);
     (void)event_mgr_log(LOG_LEVEL_WARNING, "SAFETY", "EMERGENCY_STOP_RELEASED", "Safety latch cleared after validated operator recovery.", NULL);
 
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
         s_state = SAFETY_STATE_NORMAL;
+        xSemaphoreGive(s_mutex);
+    }
+    return ESP_OK;
+}
+
+esp_err_t safety_monitor_recover_component(const char *component_id,
+                                           char *out_reason_code, size_t reason_code_len,
+                                           char *out_reason, size_t reason_len)
+{
+    copy_out(out_reason_code, reason_code_len, "");
+    copy_out(out_reason, reason_len, "");
+
+    if (!component_id || !component_id[0]) {
+        copy_out(out_reason_code, reason_code_len, "COMPONENT_ID_REQUIRED");
+        copy_out(out_reason, reason_len, "Target component is required for component recovery.");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sensor_readings_t sensors;
+    (void)sensor_hal_poll();
+    if (sensor_hal_get_readings(&sensors) != ESP_OK || !sensor_snapshot_fresh(&sensors)) {
+        copy_out(out_reason_code, reason_code_len, "SAFETY_SENSOR_STALE");
+        copy_out(out_reason, reason_len, "Safety sensors are not fresh enough for recovery.");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (sensors.temp_state == SENSOR_STATE_VALID && sensors.temperature_c > 45.0f) {
+        copy_out(out_reason_code, reason_code_len, "WATER_TEMP_HIGH");
+        copy_out(out_reason, reason_len, "Water temperature remains above the safety threshold.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Release safety lock for this specific component only */
+    (void)actuator_hal_release_component(component_id, ACTUATOR_OWNER_SAFETY);
+
+    /* Component-specific alarm resolution */
+    (void)alarm_mgr_resolve("FLOW_TIMEOUT", component_id);
+    (void)alarm_mgr_resolve("ACTUATOR_MAX_RUNTIME", component_id);
+    (void)alarm_mgr_resolve("SAFETY_SENSOR_STALE", component_id);
+
+    (void)event_mgr_log(LOG_LEVEL_INFO, "SAFETY", "COMPONENT_RECOVERED",
+                        "Component safety lock cleared after validated operator recovery.", component_id);
+
+    /* If system is in FAULT state and not emergency-stopped, check if other faults remain */
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
+        if (s_state == SAFETY_STATE_FAULT && !actuator_hal_is_emergency_stopped()) {
+            s_state = SAFETY_STATE_NORMAL;
+            s_fault_latched = false;
+            s_fault_code[0] = '\0';
+            s_fault_message[0] = '\0';
+        }
         xSemaphoreGive(s_mutex);
     }
     return ESP_OK;

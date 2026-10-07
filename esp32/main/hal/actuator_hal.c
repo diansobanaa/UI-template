@@ -232,6 +232,10 @@ static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fal
 esp_err_t actuator_hal_set(actuator_id_t id, bool on)
 {
     if (id >= ACTUATOR_MAX_COUNT) return ESP_ERR_INVALID_ARG;
+    if (id == ACTUATOR_BUZZER) {
+        ESP_LOGW(TAG, "Direct actuator_hal_set for buzzer blocked: alarm_mgr is authoritative owner.");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (!s_lock) return ESP_ERR_INVALID_STATE;
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -392,6 +396,13 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
     if (gpio < 0) {
         xSemaphoreGive(s_lock);
         ESP_LOGW(TAG, "Component '%s' has invalid GPIO %d.", component_id, (int)gpio);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (gpio == PIN_OUT_BUZZER || fallback_act_id == ACTUATOR_BUZZER ||
+        (has_info && (strcasecmp(info.role, "ALARM_BUZZER") == 0 || strcasecmp(info.role, "BUZZER") == 0))) {
+        xSemaphoreGive(s_lock);
+        ESP_LOGW(TAG, "Direct buzzer control blocked for '%s': alarm_mgr is authoritative owner.", component_id);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -659,8 +670,10 @@ esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t
     }
     bool was_on = state ? state->on : false;
     if (info.wiring.interface == HW_INTERFACE_GPIO && info.wiring.gpio >= 0) {
-        const uint8_t active = resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL);
-        gpio_set_level((gpio_num_t)info.wiring.gpio, !active);
+        if (info.wiring.gpio != PIN_OUT_BUZZER) {
+            const uint8_t active = resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL);
+            gpio_set_level((gpio_num_t)info.wiring.gpio, !active);
+        }
     }
     runtime_set_locked(component_id, false, ACTUATOR_OWNER_NONE);
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
@@ -708,7 +721,9 @@ esp_err_t actuator_hal_force_off_component(const char *component_id)
     component_runtime_state_t *state = runtime_find_locked(component_id, false);
     const bool was_on = state ? state->on : false;
     const uint8_t active = resolve_active_level(&info, DEFAULT_ACTIVE_LEVEL);
-    gpio_set_level((gpio_num_t)info.wiring.gpio, !active);
+    if (info.wiring.gpio != PIN_OUT_BUZZER) {
+        gpio_set_level((gpio_num_t)info.wiring.gpio, !active);
+    }
     runtime_set_locked(component_id, false, ACTUATOR_OWNER_SAFETY);
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
         hw_component_info_t mapped;
@@ -757,6 +772,7 @@ void actuator_hal_emergency_stop(void)
     }
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {
+        if (i == ACTUATOR_BUZZER) continue;
         s_actuators[i].state = false;
         s_actuators[i].owner = ACTUATOR_OWNER_SAFETY; // Force lock ownership to safety
         if (s_actuators[i].gpio >= 0) {
@@ -770,14 +786,12 @@ void actuator_hal_emergency_stop(void)
         s_component_runtime[i].started_at_us = 0;
     }
 
-    /* Turn error lamp and buzzer ON upon emergency stop */
+    /* Turn error lamp ON upon emergency stop if mapped.
+     * Physical buzzer is NOT directly manipulated here; it is driven exclusively
+     * by alarm_mgr via alarm_mgr_raise(ALARM_PRIO_CRITICAL, "EMERGENCY_STOP_ACTIVE", ...). */
     if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT && s_actuators[ACTUATOR_ERROR_LAMP].gpio >= 0) {
         s_actuators[ACTUATOR_ERROR_LAMP].state = true;
         gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, s_actuators[ACTUATOR_ERROR_LAMP].active_level);
-    }
-    if (ACTUATOR_BUZZER < ACTUATOR_MAX_COUNT && s_actuators[ACTUATOR_BUZZER].gpio >= 0) {
-        s_actuators[ACTUATOR_BUZZER].state = true;
-        gpio_set_level(s_actuators[ACTUATOR_BUZZER].gpio, s_actuators[ACTUATOR_BUZZER].active_level);
     }
 
     ESP_LOGE(TAG, "EMERGENCY STOP EXECUTED: All actuators set to OFF state.");
@@ -795,14 +809,12 @@ void actuator_hal_resume(void)
     s_emergency_stop_latched = false;
     (void)storage_mgr_set_estop(false);
     
-    /* Turn error lamp and buzzer OFF */
+    /* Turn error lamp OFF if mapped.
+     * Physical buzzer is NOT directly manipulated here; alarm_mgr resolves
+     * E-Stop alarms and determines whether any other alarms remain active. */
     if (ACTUATOR_ERROR_LAMP < ACTUATOR_MAX_COUNT && s_actuators[ACTUATOR_ERROR_LAMP].gpio >= 0) {
         s_actuators[ACTUATOR_ERROR_LAMP].state = false;
         gpio_set_level(s_actuators[ACTUATOR_ERROR_LAMP].gpio, !s_actuators[ACTUATOR_ERROR_LAMP].active_level);
-    }
-    if (ACTUATOR_BUZZER < ACTUATOR_MAX_COUNT && s_actuators[ACTUATOR_BUZZER].gpio >= 0) {
-        s_actuators[ACTUATOR_BUZZER].state = false;
-        gpio_set_level(s_actuators[ACTUATOR_BUZZER].gpio, !s_actuators[ACTUATOR_BUZZER].active_level);
     }
 
     for (int i = 0; i < ACTUATOR_MAX_COUNT; ++i) {

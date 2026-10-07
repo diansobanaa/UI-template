@@ -1,3 +1,44 @@
+## SP-BUZZER-LAZY-START-STACK-FIX-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**: Identify root cause of intermittent bootloop / crash suspected by user ("saya rasa ada bug. restart lalu cek log 2-3 menit"). Monitor COM3 for 2.5 minutes, analyze boot and runtime logs, fix identified firmware bug, re-flash, and verify 2.5-minute steady-state serial stream.
+- **Forensic Findings from Log Capture**:
+  - In initial log capture (`scripts/monitor_3min.log`), the ESP32 repeatedly encountered:
+    `***ERROR*** A stack overflow in task lazy_start has been detected.`
+    triggered during boot when `lazy_start_task` ran `scheduler_reconcile_fan_schedule()`, `sensor_hal_poll()`, and `well_pump_reconcile_schedule()`.
+  - Cause: `lazy_start` task stack was configured to only 3584 bytes in `scheduler.c:3328`. Subsystem calls with `hw_component_info_t` stack allocation and `ESP_LOG` formatting exceeded the 3584-byte boundary.
+- **Implemented Fix**:
+  - `esp32/main/services/scheduler.c`: Increased `lazy_start_task` stack allocation from 3584 to 7168 bytes in `scheduler_schedule_lazy_start()`.
+- **Verification**:
+  - IDF compilation `python scripts/run_idf.py build`: PASS (binary size 0x18c060 bytes).
+  - Flashed to physical ESP32-S3 on COM3 via `python scripts/run_idf.py -p COM3 flash`: 100% hash verified, hard reset via RTS.
+  - Verification suite `python scripts/test_task8_buzzer_surgical_audit.py`: PASS (28/28 checks passed).
+  - Serial monitor capture for 150 seconds (2.5 minutes) via `scripts/monitor_post_fix.py`:
+    - Zero crashes, zero panics, zero stack overflows across 150s of continuous runtime.
+    - `lazy_start` completed cleanly: `lazy_start: Power-loss schedule reconciliation complete (one-shot).`
+    - Free internal heap healthy: `148,823 B free` (largest block 59,392 B), PSRAM `7,649,656 B free`.
+    - Stack high-water mark for all tasks healthy (e.g., `calib_mgr`: 1696 B, `fert_mgr`: 2448 B, `scheduler`: 2656 B, `safety_mon`: 1604 B, `alarm_task`: 1092 B).
+- **Changed Files**: `esp32/main/services/scheduler.c`, `scripts/monitor_post_fix.py`, `scripts/monitor_post_fix.log`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues / next action**: Firmware is completely stable on live hardware. Tamper loop is physically open generating normal supervised warning alerts.
+
+## SP-BUZZER-UNIFIED-OWNERSHIP-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED` - Firmware compile PASS (`agrotech_esp32.bin` 0x18c060 bytes), Validation suite PASS (28/28).
+- **Objective**: TASK #8 — Surgical Buzzer / Alarm Fix:
+  1. Remove `TANK_LOW` from audible hardware buzzer while preserving all underlying dry-run safety interlocks and telemetry.
+  2. Unify GPIO 18 ownership strictly under `alarm_mgr`: remove direct writes from `actuator_hal_emergency_stop()`, `actuator_hal_resume()`, `actuator_hal_set()`, `actuator_hal_set_by_component_id()`, `stop_component()`, and `force_off()`.
+  3. Fix `FLOW_TIMEOUT` and `ACTUATOR_MAX_RUNTIME` alarm resolution in `safety_monitor_request_recovery()` and implement targeted component recovery in `safety_monitor_recover_component()`.
+  4. Fix `buzzerAudible` semantics to reflect whether an active, unsilenced alarm pattern exists rather than the instantaneous 50ms PWM pin phase.
+- **Implemented**:
+  - `esp32/main/hal/actuator_hal.c`: Removed direct GPIO 18 manipulation from `actuator_hal_emergency_stop()` and `actuator_hal_resume()`. Added guards in `actuator_hal_set()`, `actuator_hal_set_by_component_id()`, `actuator_hal_stop_component()`, and `actuator_hal_force_off_component()` ensuring GPIO 18 can only be driven via `actuator_hal_buzzer_set_raw()`.
+  - `esp32/main/services/alarm_mgr.c`: `alarm_mgr_is_audible()` and `alarm_mgr_get_summary_json()` now report `(s_current_pattern != ALARM_PATTERN_OFF) && !s_silenced`.
+  - `esp32/main/services/safety_monitor.c` & `safety_monitor.h`: Excluded `TANK_LOW` from `alarm_mgr_raise`. Added `FLOW_TIMEOUT`, `ACTUATOR_MAX_RUNTIME`, and `SAFETY_SENSOR_STALE` resolutions to `safety_monitor_request_recovery()`. Implemented `safety_monitor_recover_component()`.
+  - `esp32/main/services/command_mgr.c`: Routed component-specific `RESUME` commands to `safety_monitor_recover_component()`.
+  - `UI_ESP32_COMMUNICATION_SPEC.md`: Updated Section 13B priority table documenting `TANK_LOW` as a local safety interlock without audible buzzer sound.
+- **Verification**: ESP-IDF build `python scripts/run_idf.py build` EXIT CODE 0 (`agrotech_esp32.bin` binary generated); `python scripts/test_task8_buzzer_surgical_audit.py` PASS (28/28 checks passed).
+- **Changed Files**: `esp32/main/hal/actuator_hal.c`, `esp32/main/services/alarm_mgr.c`, `esp32/main/services/command_mgr.c`, `esp32/main/services/safety_monitor.c`, `esp32/main/services/safety_monitor.h`, `UI_ESP32_COMMUNICATION_SPEC.md`, `scripts/test_task8_buzzer_surgical_audit.py`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Next Action**: Ready for live hardware flash and deployment.
+
 ## SP-UI-ALARM-SYNC-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & VERIFIED` - liveness test PASS, tamper e2e test PASS, `npm run build` PASS.
