@@ -4,7 +4,7 @@
 TASK: Fix Web UI alarm synchronization for TAMPER (`TAMPER_LOOP_OPEN`) and ESP32 Disconnect alarms is **COMPLETE & FULLY VERIFIED**.
 - **TAMPER ALARM**: Hardware buzzer on GPIO 18 operates according to existing firmware behavior. Web UI renders `#tamper-alarm-banner` with `⚠ TAMPER LOOP OPEN — PERIKSA POMPA`. Reactive via `useDbVersion()` and targets live controller endpoint. Auto-clears when tamper returns to normal.
 - **ESP32 DISCONNECTED ALARM**: `ConnectionMonitor.tsx` detects unreachable controller within 5s polling, 2.5s timeout, 2 consecutive failures. Renders persistent `#esp32-offline-banner`.
-- **AUDIBLE ALERT**: Eagerly initializes `AudioContext`. If browser autoplay policy suspends audio before user interaction, `pendingChime` latches the disconnect sound so that the chime immediately sounds upon any user interaction or tap on `#esp32-offline-banner`.
+- **CONTINUOUS BUZZER ALERT**: Plays continuous pulsing buzzer beeps (900 Hz square wave, 220ms on / 1200ms cycle) while offline so the operator immediately hears the alarm continuously. Includes a "Mute Buzzer" / "Bunyikan Buzzer" button directly on the banner. Immediately silences on reconnect (`OFFLINE -> ONLINE`).
 - **SETUP/UNHYDRATED RECOVERY**: `<ConnectionMonitor />` is rendered inside `OperationalHydrator.tsx` on `error`, `CONTROLLER_UNAVAILABLE`, and `BOOTSTRAP_FAILED` so unhydrated states never hide the offline warning banner or silence the audible alert.
 - **Verification**: `test_connection_liveness.mjs` PASS (14/14), `test_tamper_loop_e2e.mjs` PASS (11/11), `npm run build` PASS.
 

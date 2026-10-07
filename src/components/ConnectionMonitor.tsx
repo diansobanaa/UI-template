@@ -77,21 +77,27 @@ const CONNECTION_BUS = "agrotech_connection_bus";
 let audioCtx: AudioContext | null = null;
 let pendingChime = false;
 
+function getAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (!audioCtx) {
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (Ctor) audioCtx = new Ctor();
+  }
+  return audioCtx;
+}
+
 function unlockAudio(): void {
   try {
-    if (!audioCtx) {
-      const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return;
-      audioCtx = new Ctor();
-    }
-    if (audioCtx.state === "suspended") {
-      audioCtx.resume().then(() => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      ctx.resume().then(() => {
         if (pendingChime) {
           pendingChime = false;
           playDisconnectChime();
         }
       }).catch(() => {});
-    } else if (audioCtx.state === "running" && pendingChime) {
+    } else if (ctx.state === "running" && pendingChime) {
       pendingChime = false;
       playDisconnectChime();
     }
@@ -100,10 +106,13 @@ function unlockAudio(): void {
   }
 }
 
-/** Plays one authentic buzzer beep pulse (900 Hz square wave, 220ms). */
+/** Plays one authentic buzzer beep pulse (2400 Hz square wave, 280ms duration). */
 function playBuzzerBeep(): boolean {
-  const ctx = audioCtx;
+  const ctx = getAudioContext();
   if (!ctx || ctx.state !== "running") {
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
     pendingChime = true;
     return false;
   }
@@ -111,13 +120,15 @@ function playBuzzerBeep(): boolean {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "square";
-    osc.frequency.setValueAtTime(900, ctx.currentTime);
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+    // 2400 Hz: standard resonant frequency of active alarm buzzer (GPIO 18)
+    osc.frequency.setValueAtTime(2400, ctx.currentTime);
+    gain.gain.setValueAtTime(0.28, ctx.currentTime);
+    gain.gain.setValueAtTime(0.28, ctx.currentTime + 0.22);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.22);
+    osc.stop(ctx.currentTime + 0.28);
     pendingChime = false;
     return true;
   } catch {
@@ -127,7 +138,7 @@ function playBuzzerBeep(): boolean {
 
 /** Plays one short 880 Hz -> 440 Hz chime. Returns false if audio is not unlocked/available. */
 function playDisconnectChime(): boolean {
-  const ctx = audioCtx;
+  const ctx = getAudioContext();
   // Never schedule on a suspended context: it would play late, on some future click.
   if (!ctx || ctx.state !== "running") {
     pendingChime = true;
@@ -161,6 +172,7 @@ export function ConnectionMonitor() {
   const [isOffline, setIsOffline] = useState(false);
   const [isSilenced, setIsSilenced] = useState(false);
   const isOfflineRef = useRef(false); // previous global state, for edge-triggered transitions
+  const isSilencedRef = useRef(false);
   const consecutiveHealthFailures = useRef<Map<string, number>>(new Map());
   const healthRequestInFlight = useRef(false);
   const lastWsFrame = useRef<{ at: number; deviceId?: string }>({ at: 0 });
@@ -176,12 +188,22 @@ export function ConnectionMonitor() {
   // Audio unlock on any user gesture (cheap no-op once running; re-resumes if the browser suspends it).
   useEffect(() => {
     unlockAudio();
+    const handleGesture = () => {
+      unlockAudio();
+      if (isOfflineRef.current && !isSilencedRef.current) {
+        playBuzzerBeep();
+      }
+    };
     const opts = { capture: true, passive: true } as const;
-    window.addEventListener("pointerdown", unlockAudio, opts);
-    window.addEventListener("keydown", unlockAudio, opts);
+    window.addEventListener("pointerdown", handleGesture, opts);
+    window.addEventListener("click", handleGesture, opts);
+    window.addEventListener("touchstart", handleGesture, opts);
+    window.addEventListener("keydown", handleGesture, opts);
     return () => {
-      window.removeEventListener("pointerdown", unlockAudio, opts);
-      window.removeEventListener("keydown", unlockAudio, opts);
+      window.removeEventListener("pointerdown", handleGesture, opts);
+      window.removeEventListener("click", handleGesture, opts);
+      window.removeEventListener("touchstart", handleGesture, opts);
+      window.removeEventListener("keydown", handleGesture, opts);
     };
   }, []);
 
@@ -225,12 +247,15 @@ export function ConnectionMonitor() {
 
     playBuzzerBeep();
     buzzerTimerRef.current = setInterval(() => {
-      if (!isOfflineRef.current) {
-        if (buzzerTimerRef.current) clearInterval(buzzerTimerRef.current);
+      if (!isOfflineRef.current || isSilencedRef.current) {
+        if (buzzerTimerRef.current) {
+          clearInterval(buzzerTimerRef.current);
+          buzzerTimerRef.current = null;
+        }
         return;
       }
       playBuzzerBeep();
-    }, 1200);
+    }, 600);
 
     return () => {
       if (buzzerTimerRef.current) {
@@ -255,6 +280,7 @@ export function ConnectionMonitor() {
       if (!offline) {
         pendingChime = false;
         setIsSilenced(false);
+        isSilencedRef.current = false;
         if (buzzerTimerRef.current) {
           clearInterval(buzzerTimerRef.current);
           buzzerTimerRef.current = null;
@@ -397,7 +423,10 @@ export function ConnectionMonitor() {
       id="esp32-offline-banner"
       role="alert"
       aria-live="assertive"
-      onClick={unlockAudio}
+      onClick={() => {
+        unlockAudio();
+        if (!isSilencedRef.current) playBuzzerBeep();
+      }}
       className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl cursor-pointer"
     >
       <AlertTriangle className="h-6 w-6 shrink-0 text-yellow-300" />
@@ -412,7 +441,13 @@ export function ConnectionMonitor() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            setIsSilenced((prev) => !prev);
+            unlockAudio();
+            setIsSilenced((prev) => {
+              const next = !prev;
+              isSilencedRef.current = next;
+              if (!next) playBuzzerBeep();
+              return next;
+            });
           }}
           className="rounded border border-red-300/40 bg-red-900/90 hover:bg-red-800 px-2.5 py-1 text-xs font-semibold text-white transition shadow"
         >
