@@ -43,7 +43,7 @@ import type {
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, defaultConfig } from "./backend-client";
 import { getActiveBootstrapIp } from "../bootstrap-address";
 
-export const HEALTH_TIMEOUT_MS = 6000;
+export const HEALTH_TIMEOUT_MS = 2500;
 
 /** Direct REST port used when the UI reaches the ESP32 directly on the local WLAN/LAN. */
 export class Esp32Client {

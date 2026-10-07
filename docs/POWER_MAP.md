@@ -147,14 +147,18 @@ In greenhouse operations, malicious intruders or power sabotage often cut the ma
 ### 7.2. Autonomous Client-Side Heartbeat Watchdog (`ConnectionMonitor`)
 To detect power loss without requiring cloud dependencies or cellular modems:
 - The operator monitors the greenhouse via a mobile phone, tablet, or wall-mounted dashboard tablet (which has its own battery/UPS).
-- The web application executes a background watchdog timer (`src/components/ConnectionMonitor.tsx`) polling the controller's `/api/v1/health` endpoint every 5,000 ms with an isolated `HEALTH_TIMEOUT_MS = 2500` ms timeout.
-- **Single-Flight Concurrency:** The watchdog implements `healthRequestInFlight` locking to prevent request storms and overlapping HTTP probes on congested or dropping networks.
+- The web application executes a background watchdog timer (`src/components/ConnectionMonitor.tsx`) polling the controller's `/api/v1/health` endpoint every 3,000 ms (`POLL_INTERVAL_MS`) with an isolated `HEALTH_TIMEOUT_MS = 2500` ms timeout. One probe runs immediately on mount.
+- **Single-Flight Concurrency:** The watchdog implements `healthRequestInFlight` locking to prevent request storms and overlapping HTTP probes on congested or dropping networks. Multiple controllers are probed in parallel so one cycle is bounded by one timeout.
 - **Registration & Scoping Gate:** The watchdog timer groups complexes deterministically by controller identity (`deviceId` or `endpoint`). In multi-controller configurations, liveness failure on one controller only isolates and marks its owned Complex/Greenhouse resources offline without affecting independent controllers.
-- **Fail Threshold:** 2 consecutive missed responses (detecting complete power or connection severance in ~5–8 seconds). This filter guarantees that a single transient Wi-Fi packet drop does not trigger false alarms while promptly reporting power severance.
+- **Fail Threshold:** 2 consecutive failed probes (`OFFLINE_FAILURE_THRESHOLD`). Foreground detection: ~3–5.5 s typical, ≤ ~8.5 s worst case (power cut just after a successful probe, silently dropped packets). A single transient failure never marks the controller offline. Background tabs are subject to browser timer throttling (≥ 1 s, may be longer) and are not covered by this bound.
+- **WebSocket evidence:** A failed HTTP probe is overridden only if the telemetry WebSocket is open **and** delivered a frame from that controller within the last `POLL_INTERVAL_MS + HEALTH_TIMEOUT_MS` (5.5 s). A merely "open" socket is not evidence (a half-open socket after a power cut can appear connected for minutes).
+- **Python backend:** In direct-ESP32 mode the Python mirror is **not** used as liveness evidence (backend reachability ≠ controller reachability). It is only used when direct ESP32 access is disabled. `navigator.onLine` is not used.
 - **Audible & Visual Alarm:**
-  - When the threshold is breached, the client triggers a synthesized pulsing audio siren using the HTML5 Web Audio API (oscillator sweep: 880 Hz $\leftrightarrow$ 1760 Hz).
-  - Fires an operating-system level desktop/mobile push alert using the HTML5 Notification API.
-  - Displays a high-contrast modal alert banner: *"PERINGATAN: KONEKSI / LISTRIK ESP32 TERPUTUS!"*.
+  - On the ONLINE → OFFLINE transition only, the client plays **one** short Web Audio chime (880 Hz 150 ms → 440 Hz 250 ms). OFFLINE → OFFLINE is silent; OFFLINE → ONLINE produces no sound and cancels any pending chime. There is no repeating siren.
+  - The `AudioContext` is created/resumed only on a user gesture (`pointerdown`/`keydown`). If the operator has not interacted with the page yet, the browser blocks audio and only the visual warning is shown.
+  - Multi-tab: tabs coordinate over `BroadcastChannel("agrotech_connection_bus")` (`DISCONNECT_CHIME_PLAYED`); a tab stays silent if another tab chimed within 15 s. A tab only broadcasts if its chime was actually audible. Each tab still polls independently and shows its own banner.
+  - Fires one OS-level Notification (tag `agrotech-esp32-offline`, collapsed across tabs) if permission is granted.
+  - Displays a persistent, non-dismissible top banner *"⚠ ESP32 TIDAK TERHUBUNG — Periksa daya dan koneksi ESP32."* for the whole OFFLINE state; it disappears automatically on the first successful probe. Recovery does not reload the page or re-hydrate.
 - **Local Network Resilience:** This architecture operates entirely on the local WLAN router without requiring external internet or third-party cloud brokers, completely eliminating false alarms due to ISP/internet downtime.
 
 

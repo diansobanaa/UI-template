@@ -47,174 +47,232 @@ export function getControllerTargets(complexes: Complex[]): ControllerTarget[] {
   return Array.from(targetMap.values());
 }
 
+/** Liveness policy: probe every 3 s, OFFLINE after 2 consecutive failures (~5 s worst case in foreground). */
+export const POLL_INTERVAL_MS = 3000;
+export const OFFLINE_FAILURE_THRESHOLD = 2;
+/** A telemetry frame received within one probe cycle proves the controller is alive. A merely "open"
+ *  socket does not: after a power cut a half-open WebSocket can look connected for minutes. */
+const WS_FRESH_MS = POLL_INTERVAL_MS + HEALTH_TIMEOUT_MS;
+/** Another tab played the disconnect chime this recently -> stay silent. */
+const CHIME_SUPPRESS_MS = 15000;
+const CONNECTION_BUS = "agrotech_connection_bus";
+
+// One AudioContext per tab, created only inside a user gesture so autoplay policy never logs errors.
+let audioCtx: AudioContext | null = null;
+
+function unlockAudio(): void {
+  try {
+    if (!audioCtx) {
+      const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      audioCtx = new Ctor();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  } catch {
+    // Audio unavailable; the visual warning still works.
+  }
+}
+
+/** Plays one short 880 Hz -> 440 Hz chime. Returns false if audio is not unlocked/available. */
+function playDisconnectChime(): boolean {
+  const ctx = audioCtx;
+  // Never schedule on a suspended context: it would play late, on some future click.
+  if (!ctx || ctx.state !== "running") return false;
+  try {
+    const tone = (freq: number, start: number, dur: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.15, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + dur);
+    };
+    const t0 = ctx.currentTime;
+    tone(880, t0, 0.15);
+    tone(440, t0 + 0.17, 0.25);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function ConnectionMonitor() {
   useDbVersion();
   const [isOffline, setIsOffline] = useState(false);
+  const isOfflineRef = useRef(false); // previous global state, for edge-triggered transitions
   const consecutiveHealthFailures = useRef<Map<string, number>>(new Map());
   const healthRequestInFlight = useRef(false);
-  const audioAlertRef = useRef<any>(null);
+  const lastWsFrame = useRef<{ at: number; deviceId?: string }>({ at: 0 });
+  const busRef = useRef<BroadcastChannel | null>(null);
+  const lastRemoteChimeAt = useRef(0);
+  const chimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const operationalComplexes = getOperationalSnapshot().complexes;
   const targets = getControllerTargets(operationalComplexes);
   const hasBoundController = targets.length > 0;
 
-  // Initialize Web Audio synthesizer
+  // Audio unlock on any user gesture (cheap no-op once running; re-resumes if the browser suspends it).
   useEffect(() => {
-    class BrowserWebAudioAlert {
-      private ctx: AudioContext | null = null;
-      private timer: ReturnType<typeof setInterval> | null = null;
-      private isPlaying = false;
-
-      start() {
-        if (this.isPlaying) return;
-        try {
-          const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-          if (!AudioContextClass) return;
-          if (!this.ctx) this.ctx = new AudioContextClass();
-          if (this.ctx.state === "suspended") {
-            this.ctx.resume().catch(() => {});
-          }
-          this.isPlaying = true;
-
-          const playPulse = () => {
-            if (!this.isPlaying || !this.ctx) return;
-            try {
-              const osc = this.ctx.createOscillator();
-              const gain = this.ctx.createGain();
-              osc.type = "sine";
-              osc.frequency.setValueAtTime(880, this.ctx.currentTime); // 880Hz alert tone
-              gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
-              osc.connect(gain);
-              gain.connect(this.ctx.destination);
-              osc.start();
-              osc.stop(this.ctx.currentTime + 0.3);
-            } catch {}
-          };
-
-          playPulse();
-          this.timer = setInterval(playPulse, 1200);
-        } catch (e) {
-          console.warn("Browser Web Audio API unavailable:", e);
-        }
-      }
-
-      stop() {
-        this.isPlaying = false;
-        if (this.timer) {
-          clearInterval(this.timer);
-          this.timer = null;
-        }
-      }
-    }
-
-    audioAlertRef.current = new BrowserWebAudioAlert();
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener("pointerdown", unlockAudio, opts);
+    window.addEventListener("keydown", unlockAudio, opts);
     return () => {
-      if (audioAlertRef.current) {
-        audioAlertRef.current.stop();
-      }
+      window.removeEventListener("pointerdown", unlockAudio, opts);
+      window.removeEventListener("keydown", unlockAudio, opts);
     };
   }, []);
 
+  // Cross-tab chime coordination. Missing BroadcastChannel just means each tab may chime.
   useEffect(() => {
-    if (!hasBoundController) {
-      if (isOffline) setIsOffline(false);
-      consecutiveHealthFailures.current.clear();
-      if (audioAlertRef.current) {
-        audioAlertRef.current.stop();
+    if (typeof BroadcastChannel === "undefined") return;
+    let bus: BroadcastChannel;
+    try {
+      bus = new BroadcastChannel(CONNECTION_BUS);
+    } catch {
+      return;
+    }
+    bus.onmessage = (e: MessageEvent) => {
+      if (e.data?.type === "DISCONNECT_CHIME_PLAYED") lastRemoteChimeAt.current = Date.now();
+    };
+    busRef.current = bus;
+    return () => {
+      bus.close();
+      busRef.current = null;
+    };
+  }, []);
+
+  // Liveness evidence from the existing telemetry stream (read-only subscription).
+  useEffect(
+    () =>
+      telemetryStreamManager.subscribe((batch) => {
+        lastWsFrame.current = { at: Date.now(), deviceId: batch?.deviceId };
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    const cancelChime = () => {
+      if (chimeTimer.current) {
+        clearTimeout(chimeTimer.current);
+        chimeTimer.current = null;
       }
+    };
+
+    const setGlobalOffline = (offline: boolean) => {
+      if (offline === isOfflineRef.current) return; // OFFLINE->OFFLINE and ONLINE->ONLINE are silent
+      isOfflineRef.current = offline;
+      setIsOffline(offline);
+      if (!offline) {
+        cancelChime(); // OFFLINE->ONLINE: no recovery sound, drop any pending chime
+        return;
+      }
+      // ONLINE->OFFLINE. Small jitter (visible tab first) lets a sibling tab's broadcast arrive before we play.
+      const delay = (document.visibilityState === "visible" ? 0 : 400) + Math.random() * 200;
+      cancelChime();
+      chimeTimer.current = setTimeout(() => {
+        chimeTimer.current = null;
+        if (!isOfflineRef.current) return;
+        if (Date.now() - lastRemoteChimeAt.current < CHIME_SUPPRESS_MS) return;
+        // Only claim the chime if it was actually audible, otherwise a locked tab would silence the others.
+        if (playDisconnectChime()) {
+          try {
+            busRef.current?.postMessage({ type: "DISCONNECT_CHIME_PLAYED", timestamp: Date.now() });
+          } catch {}
+        }
+      }, delay);
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          new Notification("PERINGATAN KRITIS", {
+            body: "Koneksi ESP32 Terputus. Periksa Listrik/Jaringan!",
+            icon: "/favicon.ico",
+            tag: "agrotech-esp32-offline", // OS collapses duplicates from multiple tabs
+          });
+        } catch {}
+      }
+    };
+
+    if (!hasBoundController) {
+      consecutiveHealthFailures.current.clear();
+      setGlobalOffline(false);
       return;
     }
 
-    // Request notification permission
     if ("Notification" in window) {
       Notification.requestPermission().catch(() => {});
     }
 
-    const pollInterval = 5000;
-    const interval = setInterval(async () => {
-      // Single-flight guard: prevent overlapping health requests / request storm
-      if (healthRequestInFlight.current) {
-        return;
-      }
-      healthRequestInFlight.current = true;
+    const probeTarget = async (target: ControllerTarget) => {
+      let healthy = false;
+      let emergencyStopped: boolean | undefined;
 
+      if (isDirectEsp32Enabled()) {
+        // Primary: lightweight direct GET /api/v1/health.
+        try {
+          const healthRes = await esp32Client.getHealth({ endpoint: target.endpoint, timeoutMs: HEALTH_TIMEOUT_MS });
+          healthy = true;
+          if (healthRes?.runtimeState) emergencyStopped = healthRes.runtimeState === "EMERGENCY_STOP";
+        } catch {
+          // Secondary: a fresh telemetry frame from this controller overrides a transient HTTP failure.
+          const ws = lastWsFrame.current;
+          healthy =
+            telemetryStreamManager.getStatus().isConnected &&
+            Date.now() - ws.at < WS_FRESH_MS &&
+            (!target.deviceId || !ws.deviceId || ws.deviceId === target.deviceId);
+        }
+      } else if (isPythonBackendEnabled()) {
+        // Python mirror only when the UI is not talking to the ESP32 directly; in direct mode it would
+        // conflate backend reachability with controller reachability and add a 15 s default timeout.
+        try {
+          const ctx = await operationalPythonClient.getOperationalContext();
+          const matching =
+            ctx && Array.isArray(ctx.complexes)
+              ? ctx.complexes.find(
+                  (rc) => (target.deviceId && rc.esp32?.deviceId === target.deviceId) || target.complexIds.includes(rc.id),
+                )
+              : undefined;
+          if (matching?.esp32?.online) {
+            healthy = true;
+            if (matching.emergencyStopped !== undefined) emergencyStopped = matching.emergencyStopped;
+          }
+        } catch {
+          // Backend unreachable
+        }
+      }
+      return { target, healthy, emergencyStopped };
+    };
+
+    const tick = async () => {
+      // Single-flight guard: never overlap health requests.
+      if (healthRequestInFlight.current) return;
+      healthRequestInFlight.current = true;
       try {
-        const currentComplexes = getOperationalSnapshot().complexes;
-        const currentTargets = getControllerTargets(currentComplexes);
-        if (currentTargets.length === 0) {
-          consecutiveHealthFailures.current.clear();
-          if (isOffline) setIsOffline(false);
-          return;
+        const currentTargets = getControllerTargets(getOperationalSnapshot().complexes);
+        const failures = consecutiveHealthFailures.current;
+        for (const key of Array.from(failures.keys())) {
+          if (!currentTargets.some((t) => t.key === key)) failures.delete(key);
         }
 
+        // Parallel probes keep the cycle bounded by one timeout regardless of controller count.
+        const results = await Promise.all(currentTargets.map(probeTarget));
         let anyTargetOffline = false;
 
-        for (const target of currentTargets) {
-          let targetHealthy = false;
-          let targetEmergencyStopped: boolean | undefined = undefined;
-
-          // 1. Lightweight direct ESP32 health check with isolated timeout
-          if (isDirectEsp32Enabled()) {
-            try {
-              const healthRes = await esp32Client.getHealth({
-                endpoint: target.endpoint,
-                timeoutMs: HEALTH_TIMEOUT_MS,
-              });
-              targetHealthy = true;
-              if (healthRes?.runtimeState) {
-                targetEmergencyStopped = healthRes.runtimeState === "EMERGENCY_STOP";
-              }
-            } catch {
-              targetHealthy = false;
-            }
-          }
-
-          // 1b. Realtime telemetry stream fallback: if HTTP health check had transient timeout
-          // but the persistent WebSocket telemetry stream is actively connected, device is demonstrably online
-          if (!targetHealthy && isDirectEsp32Enabled()) {
-            if (telemetryStreamManager.getStatus().isConnected) {
-              targetHealthy = true;
-            }
-          }
-
-          // 2. Check via Python backend mirror if direct communication is disabled or unreachable
-          if (!targetHealthy && isPythonBackendEnabled()) {
-            try {
-              const ctx = await operationalPythonClient.getOperationalContext();
-              if (ctx && Array.isArray(ctx.complexes)) {
-                const matching = ctx.complexes.find((rc) => 
-                  (target.deviceId && rc.esp32?.deviceId === target.deviceId) ||
-                  target.complexIds.includes(rc.id)
-                );
-                if (matching?.esp32?.online) {
-                  targetHealthy = true;
-                  if (matching.emergencyStopped !== undefined) {
-                    targetEmergencyStopped = matching.emergencyStopped;
-                  }
-                }
-              }
-            } catch {
-              // Backend unreachable
-            }
-          }
-
-          const currentFailures = consecutiveHealthFailures.current.get(target.key) || 0;
-
-          if (targetHealthy) {
-            consecutiveHealthFailures.current.set(target.key, 0);
+        for (const { target, healthy, emergencyStopped } of results) {
+          if (healthy) {
+            failures.set(target.key, 0);
             for (const cId of target.complexIds) {
               updateComplexRuntime(cId, {
                 online: true,
-                ...(targetEmergencyStopped !== undefined ? { emergencyStopped: targetEmergencyStopped } : {}),
+                ...(emergencyStopped !== undefined ? { emergencyStopped } : {}),
               });
             }
           } else {
-            const nextFailures = currentFailures + 1;
-            consecutiveHealthFailures.current.set(target.key, nextFailures);
-
-            // Policy: mark offline on 3 consecutive failures (15s tolerance, prevents false alarms on transient Wi-Fi jitter)
-            if (nextFailures >= 3) {
+            const next = (failures.get(target.key) || 0) + 1;
+            failures.set(target.key, next);
+            if (next >= OFFLINE_FAILURE_THRESHOLD) {
               anyTargetOffline = true;
               for (const cId of target.complexIds) {
                 updateComplexRuntime(cId, { online: false });
@@ -223,68 +281,41 @@ export function ConnectionMonitor() {
           }
         }
 
-        // Manage global alarm/banner state
-        if (anyTargetOffline) {
-          if (!isOffline) {
-            setIsOffline(true);
-            triggerAlarm();
-          }
-        } else {
-          const anyStillFailing = Array.from(consecutiveHealthFailures.current.values()).some((f) => f >= 3);
-          if (!anyStillFailing && isOffline) {
-            setIsOffline(false);
-            if (audioAlertRef.current) {
-              audioAlertRef.current.stop();
-            }
-          }
-        }
+        setGlobalOffline(anyTargetOffline);
       } finally {
         healthRequestInFlight.current = false;
       }
-    }, pollInterval);
+    };
 
-    return () => clearInterval(interval);
-  }, [hasBoundController, isOffline]);
-
-  const triggerAlarm = () => {
-    if (!hasBoundController) return;
-    if (audioAlertRef.current) {
-      audioAlertRef.current.start();
-    }
-    
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("PERINGATAN KRITIS", {
-        body: "Koneksi ESP32 Terputus. Periksa Listrik/Jaringan!",
-        icon: "/favicon.ico",
-      });
-    }
-  };
-
-  const dismissAlarm = () => {
-    if (audioAlertRef.current) {
-      audioAlertRef.current.stop();
-    }
-    setIsOffline(false);
-  };
+    void tick();
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(interval);
+      cancelChime();
+    };
+  }, [hasBoundController]);
 
   if (!isOffline || !hasBoundController) return null;
 
+  // Persistent, non-dismissible: visibility is bound to the real connection state only.
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-red-600 text-white p-4 rounded-lg shadow-2xl flex items-center gap-4 animate-bounce max-w-lg">
-      <AlertTriangle className="w-8 h-8 text-yellow-300 shrink-0" />
-      <div>
-        <div className="flex items-center gap-2">
-          <h3 className="font-bold text-base">KONEKSI KONTROLER TERPUTUS</h3>
-          <span className="text-[10px] bg-red-800 text-red-200 px-1.5 py-0.5 rounded font-mono">Browser Alert</span>
+    <div
+      id="esp32-offline-banner"
+      role="alert"
+      aria-live="assertive"
+      className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl"
+    >
+      <AlertTriangle className="h-6 w-6 shrink-0 text-yellow-300" />
+      <div className="min-w-0">
+        <div className="text-sm font-extrabold tracking-wide">⚠ ESP32 TIDAK TERHUBUNG</div>
+        <div className="text-xs text-red-100">
+          Periksa daya dan koneksi ESP32. Data yang ditampilkan adalah snapshot terakhir.
         </div>
-        <p className="text-xs text-red-100 mt-0.5">ESP32 tidak merespon setelah toleransi 15 detik. Buzzer fisik ESP32 (GPIO 18) tetap beroperasi mandiri.</p>
       </div>
-      <button 
-        onClick={dismissAlarm}
-        className="ml-auto px-3 py-1.5 bg-white text-red-600 text-xs font-bold rounded hover:bg-gray-100 shrink-0 shadow"
-      >
-        TUTUP
-      </button>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] font-mono text-red-100">
+        <span className="h-2 w-2 rounded-full bg-yellow-300" />
+        Mencoba menghubungkan ulang…
+      </span>
     </div>
   );
 }

@@ -1,3 +1,24 @@
+## SP-UI-DISCONNECT-WARNING-001
+- **Date**: 2026-10-07
+- **Status**: `SOFTWARE COMPLETE` - liveness test PASS, `npm run build` (tsc -b + vite) PASS. Not yet observed in a live browser against a powered-off ESP32 (no hardware session in this task).
+- **Objective**: TASK #5 - fast ESP32 disconnect detection, persistent offline warning, one-shot audible alert, cross-tab chime dedup. UI-only; no firmware/telemetry/schedule/fertigation changes.
+- **Implemented**:
+  - `src/lib/api/esp32-client.ts`: `HEALTH_TIMEOUT_MS` 6000 -> 2500 (also the default for onboarding `getHealth()` calls).
+  - `src/components/ConnectionMonitor.tsx`:
+    - Poll 5000 -> 3000 ms (`POLL_INTERVAL_MS`), immediate first probe, offline threshold 3 -> 2 (`OFFLINE_FAILURE_THRESHOLD`), single-flight kept, targets probed in parallel.
+    - Interval effect no longer re-created on every `isOffline` change; previous state held in `isOfflineRef` for edge detection.
+    - WebSocket evidence now requires a frame from that controller within 5.5 s (via existing `telemetryStreamManager.subscribe`); an open-but-silent socket no longer masks OFFLINE. `telemetry-stream.ts` untouched.
+    - Python mirror fallback only used when direct ESP32 is disabled (previously consulted in direct mode with a 15 s default timeout, conflating backend and controller reachability).
+    - Repeating 1200 ms siren replaced by one 880 Hz/440 Hz chime on ONLINE->OFFLINE only; AudioContext created/resumed only on pointerdown/keydown; never scheduled on a suspended context.
+    - `BroadcastChannel("agrotech_connection_bus")` `DISCONNECT_CHIME_PLAYED`: tabs stay silent if another tab chimed within 15 s; only an audible tab broadcasts. Notification gets `tag` to collapse duplicates.
+    - Bouncing dismissible banner replaced by a stable, non-dismissible `#esp32-offline-banner` (fixed top, z-10000) bound to real state.
+  - `scripts/test_connection_liveness.mjs`: was FAILING before this task (expected 2500, code had 6000); added Test 11 (static gates) and Tests 12-14 (edge chime, WS freshness, multi-tab simulation).
+  - Docs: `docs/POWER_MAP.md` 7.2, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` connection policy.
+- **Detection timing (foreground)**: before ~11 s best / ~30 s typical silent-drop / 35-60 s worst; after ~3-5.5 s typical, <= ~8.5 s worst.
+- **Verification**: `node scripts/test_connection_liveness.mjs` PASS (all); `npm run build` PASS. Tests 12-14 are logic mirrors, not a mount of the React component.
+- **Known issues**: each tab still polls independently (3 tabs = 3 health req / 3 s); background tabs are throttled by the browser; AlarmManagerOverlay tamper banner (z-9999) can be covered by the offline banner (z-10000) - intended, offline is more fundamental.
+- **Changed Files**: `src/components/ConnectionMonitor.tsx`, `src/lib/api/esp32-client.ts`, `scripts/test_connection_liveness.mjs`, `docs/POWER_MAP.md`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`
+- **Next Action**: Manual browser check: open UI, click once, power off ESP32 -> banner + one chime within ~5 s; power on -> banner clears. Do not start TASK #6 without instruction.
 ## SP-SCHEDULER-AUDIT-LATE-ACT-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

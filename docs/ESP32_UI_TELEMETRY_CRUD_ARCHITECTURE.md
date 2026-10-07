@@ -44,8 +44,8 @@ The production target is:
 ### Connection Resilience & Health Monitoring Policy
 - The UI maintains a single persistent WebSocket stream (`/api/v1/telemetry/stream`).
 - ESP32 drains all client frame payloads (`httpd_ws_recv_frame`) to preserve HTTP server frame alignment and prevent abrupt 1006 connection drops.
-- `ConnectionMonitor` utilizes a 6000ms isolated timeout for direct HTTP health checks (`GET /api/v1/health`) and falls back to checking `telemetryStreamManager.getStatus().isConnected`. If the WebSocket is alive and receiving batches, the device is considered healthy, avoiding false disconnect alarms on transient Wi-Fi jitter.
-- The disconnect siren/alarm triggers only after 3 consecutive failed health intervals (>= 15 seconds of total communication loss).
+- `ConnectionMonitor` probes `GET /api/v1/health` every 3000 ms with an isolated 2500 ms timeout (single-flight). A failed probe is overridden only when the WebSocket is open **and** delivered a telemetry frame from that controller within the last 5.5 s; an open-but-silent socket is not liveness evidence. The WebSocket manager itself is unchanged (read-only `subscribe`).
+- The controller is marked OFFLINE after 2 consecutive failed probes (~3–5.5 s typical foreground, ≤ ~8.5 s worst case). One short two-tone chime plays on the ONLINE → OFFLINE edge only (cross-tab deduplicated); details in `docs/POWER_MAP.md` §7.2.
 
 For ordinary operational data:
 

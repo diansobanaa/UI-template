@@ -1,3 +1,16 @@
+# AI HANDOVER - SP-UI-DISCONNECT-WARNING-001
+
+## Current status
+TASK #5 (Web UI ESP32 disconnect warning + sound) is **SOFTWARE COMPLETE** (liveness test PASS, build PASS). Live browser/hardware power-off observation still pending.
+- `ConnectionMonitor.tsx`: 3 s poll, 2.5 s health timeout, OFFLINE after 2 consecutive failures, single-flight, parallel per-controller probes.
+- One-shot 880/440 Hz chime only on ONLINE->OFFLINE; AudioContext unlocked on first pointerdown/keydown; silent if locked (visual banner still shown).
+- Cross-tab dedup via `BroadcastChannel("agrotech_connection_bus")`.
+- Persistent non-dismissible `#esp32-offline-banner`; clears on first successful probe; no reload/hydration on recovery.
+- WS evidence requires a fresh (<= 5.5 s) frame; Python mirror not used in direct-ESP32 mode.
+- Firmware, telemetry-stream.ts, schedule and fertigation code untouched.
+- **Next Action / Scope Guard**: Manual power-off check in browser. Do NOT proceed to TASK #6 without instruction.
+
+---
 # AI HANDOVER — SP-SCHEDULER-AUDIT-LATE-ACT-001
 
 ## Current status

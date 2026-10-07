@@ -71,6 +71,21 @@ assert(
 );
 console.log("  ✓ Test 10 (Contract): UI footer and header render Offline/Stale cleanly without false Live labels.");
 
+// G. TASK #5: fast liveness + one-shot chime + persistent banner
+assert(connMonitorSrc.includes("export const POLL_INTERVAL_MS = 3000"), "FAIL: poll interval must be 3000 ms");
+assert(connMonitorSrc.includes("export const OFFLINE_FAILURE_THRESHOLD = 2"), "FAIL: offline threshold must be 2");
+assert(connMonitorSrc.includes("setInterval(tick, POLL_INTERVAL_MS)"), "FAIL: polling must use POLL_INTERVAL_MS");
+assert(!/setInterval\(\s*playPulse/.test(connMonitorSrc), "FAIL: continuous alarm loop must be removed");
+assert(!connMonitorSrc.includes("animate-bounce"), "FAIL: offline banner must not bounce");
+assert(!connMonitorSrc.includes("dismissAlarm") && !connMonitorSrc.includes("TUTUP"), "FAIL: offline banner must not be dismissible");
+assert(connMonitorSrc.includes("ESP32 TIDAK TERHUBUNG"), "FAIL: persistent offline banner text missing");
+assert(connMonitorSrc.includes('"agrotech_connection_bus"') && connMonitorSrc.includes('"DISCONNECT_CHIME_PLAYED"'), "FAIL: BroadcastChannel chime coordination missing");
+assert(connMonitorSrc.includes('ctx.state !== "running"'), "FAIL: chime must not be scheduled on a suspended AudioContext");
+assert(connMonitorSrc.includes("Date.now() - ws.at < WS_FRESH_MS"), "FAIL: WebSocket evidence must require a fresh frame");
+assert(!connMonitorSrc.includes("navigator.onLine"), "FAIL: navigator.onLine must not drive ESP32 state");
+assert(!connMonitorSrc.includes("hydrateOperationalState"), "FAIL: monitor must not trigger full hydration");
+console.log("  ✓ Test 11 (Contract): 3 s poll, 2-failure threshold, one-shot chime, non-dismissible banner, cross-tab bus, fresh-frame WS evidence.");
+
 // ----------------------------------------------------------------------------
 // 2. Behavioral Unit Simulation
 // ----------------------------------------------------------------------------
@@ -212,4 +227,70 @@ assert.strictEqual(overlapResult, "BLOCKED_IN_FLIGHT", "Second request while in-
 inFlight = false;
 console.log("  ✓ Test 7: Single-flight -> overlapping request prevented from starting");
 
-console.log("\n=== ALL 9 CONNECTION LIVENESS TEST CASES PASSED SUCCESSFULLY ===");
+// ----------------------------------------------------------------------------
+// 3. TASK #5: edge-triggered chime + multi-tab suppression (mirrors ConnectionMonitor logic)
+// ----------------------------------------------------------------------------
+console.log("\n[3/3] Simulating edge-triggered disconnect chime across tabs...");
+
+const THRESHOLD = 2;
+const SUPPRESS_MS = 15000;
+const WS_FRESH_MS = 3000 + 2500;
+const bus = [];
+function makeTab(name, audioUnlocked = true) {
+  const tab = { name, failures: 0, offline: false, chimes: 0, lastRemoteChimeAt: -Infinity, audioUnlocked };
+  bus.push(tab);
+  return tab;
+}
+function tabTick(tab, now, { httpOk, wsConnected = false, wsFrameAt = -Infinity }) {
+  const healthy = httpOk || (wsConnected && now - wsFrameAt < WS_FRESH_MS);
+  tab.failures = healthy ? 0 : tab.failures + 1;
+  const offline = tab.failures >= THRESHOLD;
+  if (offline === tab.offline) return; // silent on unchanged state
+  tab.offline = offline;
+  if (!offline) return; // recovery: no sound
+  if (now - tab.lastRemoteChimeAt < SUPPRESS_MS) return;
+  if (!tab.audioUnlocked) return; // visual only; does not claim the chime
+  tab.chimes += 1;
+  for (const other of bus) if (other !== tab) other.lastRemoteChimeAt = now;
+}
+
+const t1 = makeTab("A");
+let now = 0;
+// A. Normal online
+tabTick(t1, (now += 3000), { httpOk: true });
+assert.strictEqual(t1.offline, false); assert.strictEqual(t1.chimes, 0);
+// B. One failure -> still online, silent
+tabTick(t1, (now += 3000), { httpOk: false });
+assert.strictEqual(t1.offline, false); assert.strictEqual(t1.chimes, 0);
+// C. Second failure -> offline, exactly one chime
+tabTick(t1, (now += 3000), { httpOk: false });
+assert.strictEqual(t1.offline, true); assert.strictEqual(t1.chimes, 1);
+// D. More failures -> no extra chime
+for (let i = 0; i < 5; i++) tabTick(t1, (now += 3000), { httpOk: false });
+assert.strictEqual(t1.offline, true); assert.strictEqual(t1.chimes, 1);
+// E. Recovery -> online, no recovery chime
+tabTick(t1, (now += 3000), { httpOk: true });
+assert.strictEqual(t1.offline, false); assert.strictEqual(t1.failures, 0); assert.strictEqual(t1.chimes, 1);
+console.log("  ✓ Test 12: A-E online/1-fail/2-fail/repeat/recovery -> exactly one chime on ONLINE->OFFLINE");
+
+// H. WS fresh frame masks one HTTP failure; stale "connected" socket does not
+const tw = makeTab("WS");
+tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
+tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
+assert.strictEqual(tw.offline, false, "Fresh telemetry frames must prevent false OFFLINE");
+tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
+tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
+assert.strictEqual(tw.offline, true, "Half-open socket without fresh frames must not mask OFFLINE");
+console.log("  ✓ Test 13: H fresh WS frames prevent false OFFLINE; stale half-open socket does not mask it");
+
+// F/G. Multi-tab: three tabs, one audio-locked
+bus.length = 0;
+const tabs = [makeTab("T1", false), makeTab("T2"), makeTab("T3")];
+now += 60000;
+for (let i = 0; i < 2; i++) for (const t of tabs) tabTick(t, (now += 500), { httpOk: false });
+assert(tabs.every((t) => t.offline), "All tabs must show OFFLINE");
+assert.strictEqual(tabs.reduce((s, t) => s + t.chimes, 0), 1, "Exactly one audible chime across tabs");
+assert.strictEqual(tabs[0].chimes, 0, "Audio-locked tab stays visual-only and does not silence others");
+console.log("  ✓ Test 14: F/G multi-tab -> all tabs OFFLINE, one chime total, locked tab visual-only");
+
+console.log("\n=== ALL CONNECTION LIVENESS TEST CASES PASSED SUCCESSFULLY ===");
