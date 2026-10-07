@@ -100,6 +100,31 @@ function unlockAudio(): void {
   }
 }
 
+/** Plays one authentic buzzer beep pulse (900 Hz square wave, 220ms). */
+function playBuzzerBeep(): boolean {
+  const ctx = audioCtx;
+  if (!ctx || ctx.state !== "running") {
+    pendingChime = true;
+    return false;
+  }
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(900, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.22);
+    pendingChime = false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Plays one short 880 Hz -> 440 Hz chime. Returns false if audio is not unlocked/available. */
 function playDisconnectChime(): boolean {
   const ctx = audioCtx;
@@ -134,6 +159,7 @@ function playDisconnectChime(): boolean {
 export function ConnectionMonitor() {
   useDbVersion();
   const [isOffline, setIsOffline] = useState(false);
+  const [isSilenced, setIsSilenced] = useState(false);
   const isOfflineRef = useRef(false); // previous global state, for edge-triggered transitions
   const consecutiveHealthFailures = useRef<Map<string, number>>(new Map());
   const healthRequestInFlight = useRef(false);
@@ -141,6 +167,7 @@ export function ConnectionMonitor() {
   const busRef = useRef<BroadcastChannel | null>(null);
   const lastRemoteChimeAt = useRef(0);
   const chimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const buzzerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const operationalComplexes = getOperationalSnapshot().complexes;
   const targets = getControllerTargets(operationalComplexes);
@@ -186,6 +213,33 @@ export function ConnectionMonitor() {
     [],
   );
 
+  // Continuous audible buzzer loop while offline (beeps continuously like hardware buzzer)
+  useEffect(() => {
+    if (!isOffline || isSilenced) {
+      if (buzzerTimerRef.current) {
+        clearInterval(buzzerTimerRef.current);
+        buzzerTimerRef.current = null;
+      }
+      return;
+    }
+
+    playBuzzerBeep();
+    buzzerTimerRef.current = setInterval(() => {
+      if (!isOfflineRef.current) {
+        if (buzzerTimerRef.current) clearInterval(buzzerTimerRef.current);
+        return;
+      }
+      playBuzzerBeep();
+    }, 1200);
+
+    return () => {
+      if (buzzerTimerRef.current) {
+        clearInterval(buzzerTimerRef.current);
+        buzzerTimerRef.current = null;
+      }
+    };
+  }, [isOffline, isSilenced]);
+
   useEffect(() => {
     const cancelChime = () => {
       if (chimeTimer.current) {
@@ -199,6 +253,12 @@ export function ConnectionMonitor() {
       isOfflineRef.current = offline;
       setIsOffline(offline);
       if (!offline) {
+        pendingChime = false;
+        setIsSilenced(false);
+        if (buzzerTimerRef.current) {
+          clearInterval(buzzerTimerRef.current);
+          buzzerTimerRef.current = null;
+        }
         cancelChime(); // OFFLINE->ONLINE: no recovery sound, drop any pending chime
         return;
       }
@@ -347,10 +407,22 @@ export function ConnectionMonitor() {
           Periksa daya dan koneksi ESP32. Data yang ditampilkan adalah snapshot terakhir.
         </div>
       </div>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] font-mono text-red-100">
-        <span className="h-2 w-2 rounded-full bg-yellow-300" />
-        Mencoba menghubungkan ulang…
-      </span>
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsSilenced((prev) => !prev);
+          }}
+          className="rounded border border-red-300/40 bg-red-900/90 hover:bg-red-800 px-2.5 py-1 text-xs font-semibold text-white transition shadow"
+        >
+          {isSilenced ? "Bunyikan Buzzer" : "Mute Buzzer"}
+        </button>
+        <span className="flex items-center gap-1.5 text-[11px] font-mono text-red-100">
+          <span className="h-2 w-2 rounded-full bg-yellow-300" />
+          Mencoba menghubungkan ulang…
+        </span>
+      </div>
     </div>
   );
 }
