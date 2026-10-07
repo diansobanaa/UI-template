@@ -11,6 +11,7 @@ import {
   subscribeOperationalState,
 } from "@/lib/operational-state";
 import { OperationalSetupState } from "@/components/OperationalSetupState";
+import { ConnectionMonitor } from "@/components/ConnectionMonitor";
 
 export function OperationalHydrator({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -54,12 +55,15 @@ export function OperationalHydrator({ children }: { children: ReactNode }) {
 
   if (error) {
     return (
-      <OperationalSetupState
-        title="Controller Unavailable"
-        message="Could not discover topology from the controller. Enter an active ESP32 IP to connect directly, or start a new Complex setup."
-        actionLabel="Start Complex Setup"
-        actionHref="/onboarding/complex"
-      />
+      <>
+        <ConnectionMonitor />
+        <OperationalSetupState
+          title="Controller Unavailable"
+          message="Could not discover topology from the controller. Enter an active ESP32 IP to connect directly, or start a new Complex setup."
+          actionLabel="Start Complex Setup"
+          actionHref="/onboarding/complex"
+        />
+      </>
     );
   }
 
@@ -89,23 +93,29 @@ export function OperationalHydrator({ children }: { children: ReactNode }) {
   if (!isSetupRoute && snapshot.complexes.length === 0) {
     if (authState === "CONTROLLER_UNAVAILABLE") {
       return (
-        <OperationalSetupState
-          title="Controller Unavailable"
-          message="Could not establish communication with known ESP32 controller(s). Check power, network cabling, and verify the controller IP address."
-          actionLabel="Start Complex Setup"
-          actionHref="/onboarding/complex"
-        />
+        <>
+          <ConnectionMonitor />
+          <OperationalSetupState
+            title="Controller Unavailable"
+            message="Could not establish communication with known ESP32 controller(s). Check power, network cabling, and verify the controller IP address."
+            actionLabel="Start Complex Setup"
+            actionHref="/onboarding/complex"
+          />
+        </>
       );
     }
 
     if (authState === "BOOTSTRAP_FAILED") {
       return (
-        <OperationalSetupState
-          title="Connect to Controller"
-          message="No authoritative ESP32 controller is connected. Enter the controller's IP address to discover the System Topology Pool, or create the first Complex."
-          actionLabel="Start Complex Setup"
-          actionHref="/onboarding/complex"
-        />
+        <>
+          <ConnectionMonitor />
+          <OperationalSetupState
+            title="Connect to Controller"
+            message="No authoritative ESP32 controller is connected. Enter the controller's IP address to discover the System Topology Pool, or create the first Complex."
+            actionLabel="Start Complex Setup"
+            actionHref="/onboarding/complex"
+          />
+        </>
       );
     }
 

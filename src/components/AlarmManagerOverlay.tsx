@@ -2,8 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { esp32Client } from "@/lib/api/esp32-client";
-import { isDirectEsp32Enabled } from "@/lib/api/backend-client";
+import { isDirectEsp32Enabled, getActiveEsp32Endpoint } from "@/lib/api/backend-client";
 import { telemetryStreamManager } from "@/lib/api/telemetry-stream";
+import { useDbVersion } from "@/lib/useDb";
+import { getOperationalSnapshot } from "@/lib/operational-state";
+import { getControllerTargets } from "@/components/ConnectionMonitor";
 import type { AlarmsResponse, AlarmItem, AlarmPriority } from "@/lib/api/contracts";
 import {
   AlertTriangle,
@@ -66,6 +69,7 @@ const HUMAN_MESSAGES: Record<string, { title: string; explanation: string; actio
 };
 
 export function AlarmManagerOverlay() {
+  useDbVersion();
   const [alarmData, setAlarmData] = useState<AlarmsResponse | null>(null);
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
   const [testingBuzzer, setTestingBuzzer] = useState(false);
@@ -73,15 +77,27 @@ export function AlarmManagerOverlay() {
   const [isMinimized, setIsMinimized] = useState(false);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const operationalComplexes = getOperationalSnapshot().complexes;
+  const targets = getControllerTargets(operationalComplexes);
+  const endpoint = targets[0]?.endpoint || (isDirectEsp32Enabled() ? getActiveEsp32Endpoint() : undefined);
+  const isControllerOffline =
+    targets.length > 0 &&
+    targets.every((t) =>
+      t.complexIds.every((cId) => {
+        const c = operationalComplexes.find((x) => x.id === cId);
+        return c?.esp32?.online === false;
+      })
+    );
+
   const fetchAlarms = useCallback(async () => {
     if (!isDirectEsp32Enabled()) return;
     try {
-      const data = await esp32Client.getAlarms();
+      const data = await esp32Client.getAlarms({ endpoint, timeoutMs: 3000 });
       setAlarmData(data);
     } catch {
       // Suppress network polling errors; ConnectionMonitor handles offline detection
     }
-  }, []);
+  }, [endpoint]);
 
   useEffect(() => {
     fetchAlarms();
@@ -103,7 +119,7 @@ export function AlarmManagerOverlay() {
   const handleAcknowledge = async (alarmId?: string) => {
     setIsActionLoading(true);
     try {
-      await esp32Client.acknowledgeAlarm(alarmId);
+      await esp32Client.acknowledgeAlarm(alarmId, { endpoint });
       await fetchAlarms();
     } catch (e) {
       console.error("Failed to acknowledge alarm:", e);
@@ -115,7 +131,7 @@ export function AlarmManagerOverlay() {
   const handleSilence = async (silence: boolean) => {
     setIsActionLoading(true);
     try {
-      await esp32Client.silenceAlarm(silence);
+      await esp32Client.silenceAlarm(silence, { endpoint });
       await fetchAlarms();
     } catch (e) {
       console.error("Failed to silence buzzer:", e);
@@ -127,7 +143,7 @@ export function AlarmManagerOverlay() {
   const handleTestBuzzer = async () => {
     setTestingBuzzer(true);
     try {
-      await esp32Client.testBuzzer(800);
+      await esp32Client.testBuzzer(800, { endpoint });
       await fetchAlarms();
       setTimeout(async () => {
         await fetchAlarms();
@@ -156,8 +172,13 @@ export function AlarmManagerOverlay() {
     const isCritical = summary?.criticalCount && summary.criticalCount > 0;
     return (
       <>
-        {hasTamperAlarm && (
-          <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse">
+        {hasTamperAlarm && !isControllerOffline && (
+          <div
+            id="tamper-alarm-banner"
+            role="alert"
+            aria-live="assertive"
+            className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse"
+          >
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
               <span className="tracking-wide text-sm font-extrabold">
@@ -207,8 +228,13 @@ export function AlarmManagerOverlay() {
   return (
     <>
       {/* Pinned Top-Screen Warning for Tamper Loop Open: Visible across all pages */}
-      {hasTamperAlarm && (
-        <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse">
+      {hasTamperAlarm && !isControllerOffline && (
+        <div
+          id="tamper-alarm-banner"
+          role="alert"
+          aria-live="assertive"
+          className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse"
+        >
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
             <span className="tracking-wide text-sm font-extrabold">
@@ -216,6 +242,11 @@ export function AlarmManagerOverlay() {
             </span>
             <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
               Sirkuit loop terbuka. Sistem tetap berjalan, segera periksa kondisi pompa!
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[11px] font-mono bg-red-900/80 px-2 py-0.5 rounded text-red-100 border border-red-400/30">
+              HARDWARE BUZZER AKTIF
             </span>
           </div>
         </div>

@@ -83,9 +83,12 @@ export class Esp32Client {
     return res.data;
   }
 
-  private async postEnveloped<T>(path: string, body: unknown): Promise<T> {
+  private async postEnveloped<T>(path: string, body: unknown, options?: { timeoutMs?: number; endpoint?: string }): Promise<T> {
+    const targetUrl = options?.endpoint
+      ? `${options.endpoint.replace(/\/$/, "")}${path}`
+      : this.path(path);
     const envelopedBody = this.buildRequestEnvelope(body);
-    const res = await apiPost<{ data: T }>(this.path(path), envelopedBody, this.config);
+    const res = await apiPost<{ data: T }>(targetUrl, envelopedBody, this.config, options);
     return res.data;
   }
 
@@ -655,22 +658,24 @@ export class Esp32Client {
 
   /* ----------------------- Physical & Safety Alarms (GPIO 18) ----------------------- */
 
-  async getAlarms(): Promise<AlarmsResponse> {
-    return this.getEnveloped<AlarmsResponse>("/api/v1/alarms");
+  async getAlarms(options?: { timeoutMs?: number; endpoint?: string }): Promise<AlarmsResponse> {
+    return this.getEnveloped<AlarmsResponse>("/api/v1/alarms", options);
   }
 
-  async acknowledgeAlarm(alarmId?: string): Promise<{ acknowledged: boolean }> {
-    return this.postEnveloped<{ acknowledged: boolean }>("/api/v1/alarms/acknowledge", {
-      ...(alarmId ? { alarmId } : {}),
-    });
+  async acknowledgeAlarm(alarmId?: string, options?: { timeoutMs?: number; endpoint?: string }): Promise<{ acknowledged: boolean }> {
+    return this.postEnveloped<{ acknowledged: boolean }>(
+      "/api/v1/alarms/acknowledge",
+      alarmId ? { alarmId } : {},
+      options,
+    );
   }
 
-  async silenceAlarm(silence = true): Promise<{ silenced: boolean }> {
-    return this.postEnveloped<{ silenced: boolean }>("/api/v1/alarms/silence", { silence });
+  async silenceAlarm(silence = true, options?: { timeoutMs?: number; endpoint?: string }): Promise<{ silenced: boolean }> {
+    return this.postEnveloped<{ silenced: boolean }>("/api/v1/alarms/silence", { silence }, options);
   }
 
-  async testBuzzer(durationMs = 800): Promise<{ testActive: boolean; durationMs: number }> {
-    return this.postEnveloped<{ testActive: boolean; durationMs: number }>("/api/v1/alarms/test", { durationMs });
+  async testBuzzer(durationMs = 800, options?: { timeoutMs?: number; endpoint?: string }): Promise<{ testActive: boolean; durationMs: number }> {
+    return this.postEnveloped<{ testActive: boolean; durationMs: number }>("/api/v1/alarms/test", { durationMs }, options);
   }
 
   /* ----------------------- Well Pump Manager ----------------------- */

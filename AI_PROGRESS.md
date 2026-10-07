@@ -1,3 +1,16 @@
+## SP-UI-ALARM-SYNC-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & VERIFIED` - liveness test PASS, tamper e2e test PASS, `npm run build` PASS.
+- **Objective**: Fix Web UI alarm synchronization for TAMPER (`TAMPER_LOOP_OPEN`) and ESP32 Disconnected alarms. Ensure audible alert plays on disconnect, including when browser initially blocked autoplay before user interaction or during unhydrated/setup states.
+- **Implemented**:
+  - `src/lib/api/esp32-client.ts`: Added optional `{ timeoutMs?: number; endpoint?: string }` support to `postEnveloped`, `getAlarms`, `acknowledgeAlarm`, `silenceAlarm`, `testBuzzer`.
+  - `src/components/AlarmManagerOverlay.tsx`: Added `useDbVersion()`, resolved authoritative controller endpoint from `getControllerTargets`, added `id="tamper-alarm-banner"` with accessibility roles to the global tamper alert, and suppressed stale tamper banners when controller is offline to keep Source A and Source B cleanly separated.
+  - `src/components/ConnectionMonitor.tsx`: Added direct ESP32 endpoint fallback in `getControllerTargets` when complexes are unhydrated, rendered offline banner based on `!isOffline`, added `pendingChime` latch to play disconnect chime as soon as user interacts if initial autoplay was blocked by browser, eagerly called `unlockAudio()` on mount and bound click handler to `#esp32-offline-banner`.
+  - `src/components/OperationalHydrator.tsx`: Rendered `<ConnectionMonitor />` alongside `OperationalSetupState` on `error`, `CONTROLLER_UNAVAILABLE`, and `BOOTSTRAP_FAILED` so disconnect banner and audio alerts are never suppressed by unhydrated states.
+- **Verification**: `node scripts/test_connection_liveness.mjs` PASS (14/14); `node scripts/test_tamper_loop_e2e.mjs` PASS (11/11); `npm run build` PASS (tsc -b + vite singlefile).
+- **Changed Files**: `src/lib/api/esp32-client.ts`, `src/components/AlarmManagerOverlay.tsx`, `src/components/ConnectionMonitor.tsx`, `src/components/OperationalHydrator.tsx`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Next Action**: Ready for operational deployment.
+
 ## SP-UI-DISCONNECT-WARNING-001
 - **Date**: 2026-10-07
 - **Status**: `SOFTWARE COMPLETE` - liveness test PASS, `npm run build` (tsc -b + vite) PASS. Not yet observed in a live browser against a powered-off ESP32 (no hardware session in this task).

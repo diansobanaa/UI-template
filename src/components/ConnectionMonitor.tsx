@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { esp32Client, HEALTH_TIMEOUT_MS } from "@/lib/api/esp32-client";
-import { isDirectEsp32Enabled, isPythonBackendEnabled, getActiveEsp32Endpoint } from "@/lib/api/backend-client";
+import { isDirectEsp32Enabled, isPythonBackendEnabled, getActiveEsp32Endpoint, ESP32_API_BASE } from "@/lib/api/backend-client";
+import { getActiveBootstrapIp } from "@/lib/bootstrap-address";
 import { telemetryStreamManager } from "@/lib/api/telemetry-stream";
 import { getOperationalSnapshot, updateComplexRuntime } from "@/lib/operational-state";
 import { operationalPythonClient } from "@/lib/operational-state";
@@ -44,6 +45,21 @@ export function getControllerTargets(complexes: Complex[]): ControllerTarget[] {
       });
     }
   }
+
+  if (targetMap.size === 0 && isDirectEsp32Enabled()) {
+    const directEndpoint =
+      getActiveEsp32Endpoint() ||
+      (typeof window !== "undefined" ? getActiveBootstrapIp() || undefined : undefined) ||
+      ESP32_API_BASE;
+    if (directEndpoint) {
+      targetMap.set(directEndpoint, {
+        key: directEndpoint,
+        endpoint: directEndpoint,
+        complexIds: [],
+      });
+    }
+  }
+
   return Array.from(targetMap.values());
 }
 
@@ -59,6 +75,7 @@ const CONNECTION_BUS = "agrotech_connection_bus";
 
 // One AudioContext per tab, created only inside a user gesture so autoplay policy never logs errors.
 let audioCtx: AudioContext | null = null;
+let pendingChime = false;
 
 function unlockAudio(): void {
   try {
@@ -67,7 +84,17 @@ function unlockAudio(): void {
       if (!Ctor) return;
       audioCtx = new Ctor();
     }
-    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume().then(() => {
+        if (pendingChime) {
+          pendingChime = false;
+          playDisconnectChime();
+        }
+      }).catch(() => {});
+    } else if (audioCtx.state === "running" && pendingChime) {
+      pendingChime = false;
+      playDisconnectChime();
+    }
   } catch {
     // Audio unavailable; the visual warning still works.
   }
@@ -77,14 +104,17 @@ function unlockAudio(): void {
 function playDisconnectChime(): boolean {
   const ctx = audioCtx;
   // Never schedule on a suspended context: it would play late, on some future click.
-  if (!ctx || ctx.state !== "running") return false;
+  if (!ctx || ctx.state !== "running") {
+    pendingChime = true;
+    return false;
+  }
   try {
     const tone = (freq: number, start: number, dur: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = "sine";
       osc.frequency.setValueAtTime(freq, start);
-      gain.gain.setValueAtTime(0.15, start);
+      gain.gain.setValueAtTime(0.2, start);
       gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -94,6 +124,7 @@ function playDisconnectChime(): boolean {
     const t0 = ctx.currentTime;
     tone(880, t0, 0.15);
     tone(440, t0 + 0.17, 0.25);
+    pendingChime = false;
     return true;
   } catch {
     return false;
@@ -117,6 +148,7 @@ export function ConnectionMonitor() {
 
   // Audio unlock on any user gesture (cheap no-op once running; re-resumes if the browser suspends it).
   useEffect(() => {
+    unlockAudio();
     const opts = { capture: true, passive: true } as const;
     window.addEventListener("pointerdown", unlockAudio, opts);
     window.addEventListener("keydown", unlockAudio, opts);
@@ -182,6 +214,8 @@ export function ConnectionMonitor() {
           try {
             busRef.current?.postMessage({ type: "DISCONNECT_CHIME_PLAYED", timestamp: Date.now() });
           } catch {}
+        } else {
+          pendingChime = true;
         }
       }, delay);
       if ("Notification" in window && Notification.permission === "granted") {
@@ -295,7 +329,7 @@ export function ConnectionMonitor() {
     };
   }, [hasBoundController]);
 
-  if (!isOffline || !hasBoundController) return null;
+  if (!isOffline) return null;
 
   // Persistent, non-dismissible: visibility is bound to the real connection state only.
   return (
@@ -303,7 +337,8 @@ export function ConnectionMonitor() {
       id="esp32-offline-banner"
       role="alert"
       aria-live="assertive"
-      className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl"
+      onClick={unlockAudio}
+      className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl cursor-pointer"
     >
       <AlertTriangle className="h-6 w-6 shrink-0 text-yellow-300" />
       <div className="min-w-0">
