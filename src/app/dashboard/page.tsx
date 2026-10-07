@@ -47,6 +47,7 @@ import { WellPumpControlCard } from "@/components/WellPumpControlCard";
 import { complexRealtimeState, greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
+import { TodayScheduleTimeline } from "@/components/timeline";
 
 export default function ComplexDashboardPage() {
   return (
@@ -572,6 +573,11 @@ function ComplexDashboardContent() {
             ))}
           </div>
         </SectionCard>
+      </div>
+
+      {/* ---------------- Today's Schedule Timeline (COMPLEX mode) ---------------- */}
+      <div className="mb-5">
+        <TodayScheduleTimeline mode="complex" complexId={complex.id} />
       </div>
 
       {/* ---------------- Middle grid ---------------- */}

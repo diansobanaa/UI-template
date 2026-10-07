@@ -1,3 +1,32 @@
+## SP-SCHEDULE-TIMELINE-REDESIGN-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED (BUILD, TYPESCRIPT, & VISUAL PLAYWRIGHT VERIFIED)`
+- **Objective**: Execute TODO #3 — Redesign `Today's Schedule Timeline` on Web UI AgroTech. Implement multi-mode timeline renderer (Complex, Greenhouse, Schedule tabs) with collision-free lane packing, date navigation, RTC authority, and clean projection of Complex-level Well Pump schedules onto Greenhouse rows with zero duplicate schedule definitions.
+- **Implemented**:
+  - `src/components/timeline/TimelineEngine.ts`: Layout, recurrence evaluation, and greedy collision-free interval coloring. Evaluates recurrence from existing Add Schedule trigger/repeat model. Assigns overlapping occurrences into distinct lanes; non-overlapping occurrences share lanes. Computes duration-proportional widths (`(durationMin / 1440) * 100%`).
+  - `src/components/timeline/TodayScheduleTimeline.tsx`:
+    - Strict top-level schedule categories: `Fertigation Schedule` (Emerald), `Well Pump Schedule` (Cyan), `Fan Schedule` (Amber). Removed fake equipment sub-pipelines.
+    - Decoupled data scope from display scope: Well Pump Schedule is defined once at Complex level, but projected visually into every relevant GH row in Complex mode and as a shared resource row in GH mode (`isSharedResource: true`, `SHARED` badge). Zero duplicate schedule definitions or storage copies.
+    - Multi-mode support: `COMPLEX` mode (grouped by Greenhouse `GH-01`, `GH-02`, ...), `GH` mode (grouped by Schedule Type), and `SCHEDULE` mode (tab-driven).
+    - Date navigation: Default device clock (`useDeviceClock()`), with `[ Today ]`, `[ < ]` (prev), `[ > ]` (next), and date picker.
+    - Vertical `Now` line & badges strictly gated on `isToday === true`; hidden on tomorrow/future/past dates.
+    - Fan temperature mode (`mode === "temperature"`): Rendered as an ambient regulation badge (`⚡ Auto Fan: ON > 30°C / OFF < 28°C`) rather than artificial time cards on the grid.
+    - Inspection popover: Detailed parameters (recipe, target water, dosing volumes, radar state, recurrence rule, occurrence index).
+  - Integration:
+    - `src/app/schedule/page.tsx`: Integrated `TodayScheduleTimeline` across Tab 1 (Fertigasi), Tab 2 (Pompa Air Baku), Tab 3 (Fan), and Tab 5 (Semua).
+    - `src/app/complex/page.tsx`: Integrated `TodayScheduleTimeline` in `COMPLEX` mode.
+    - `src/app/dashboard/page.tsx`: Integrated `TodayScheduleTimeline` in `COMPLEX` mode.
+  - Canonical documentation: `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 62.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - Production build (`npm run build`): PASS (1768 modules transformed, built in 10.30s, `dist/index.html` singlefile bundle).
+  - Playwright visual tests (`scripts/test_timeline_screenshots.mjs` & `test_timeline_tomorrow.mjs`):
+    - Complex Overview: `timeline_complex_screenshot.png` confirms GH-oriented rows (`GH-01`, `GH-02`), projected Well Pump cards with `SHARED` badge across 3 collision-free lanes, amber Fan cards, and `Now` marker at 17:10.
+    - Date navigation & Now gating: `timeline_tomorrow_screenshot.png` confirms date advances to `Thursday, 8 Oct 2026`, and the `Now` marker is cleanly hidden.
+    - Schedule Page: `timeline_schedule_screenshot.png` confirms Schedule mode rendering.
+- **Known issues / next action**: TODO #3 is complete. Strictly halt and do NOT proceed to TODO #4–#9 per scope guard.
+- **Changed files**: `src/components/timeline/TimelineEngine.ts`, `src/components/timeline/TodayScheduleTimeline.tsx`, `src/components/timeline/index.ts`, `src/app/schedule/page.tsx`, `src/app/complex/page.tsx`, `src/app/dashboard/page.tsx`, `dist/index.html`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+
 ## SP-HEAP-OPT-BSS-PSRAM-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

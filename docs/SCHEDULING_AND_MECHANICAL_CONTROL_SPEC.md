@@ -3913,3 +3913,35 @@ PYTHON SAVE + ANALYSIS
      - `PENDING (index 0)`: "Antrean #1 · Siap Diracik Central" (Amber tone with clock icon)
      - `PENDING (index > 0)`: "Menunggu Giliran #N" (Slate tone)
    - **Elimination of `(Fail-Safe)` Copy**: Removed confusing `(Fail-Safe)` labels across `FertigationQueueDashboard.tsx`, `GreenhouseMixingTanks.tsx`, `ComplexFertigationOverview.tsx`, and `GreenhouseFertigationDetail.tsx`, replacing them with honest, clear schedule timing (e.g. `Terjadwal Pukul 06:00`).
+
+
+62. Schedule Timeline UI Architecture & Shared Well Pump Projection Model (SP-TIMELINE-COLLISION-FREE-001)
+
+1. **Source Scope vs. Display Scope Decoupling**
+   - **Data Source Authority (Complex Level)**: In the authoritative data model and ESP32 runtime, WellPumpSchedule is owned by the Complex (complexId, with no greenhouse assignment). There is exactly ONE definition per well pump schedule.
+   - **Display Scope (Greenhouse Level Projection)**: Because the Well Pump supplies raw water to every greenhouse across the complex, its schedule occurrences are operationally relevant to every greenhouse. The Schedule Timeline projects the Complex-level Well Pump occurrences visually onto every greenhouse row.
+   - **Zero Duplicate Definitions**: No duplicate schedule objects are created, persisted, or synced back to the backend. The projection is a pure UI mapping (isSharedResource: true, sourceScope: "complex") referencing the single authoritative occurrence calculation.
+
+2. **Top-Level Timeline Categories**
+   - The timeline groups schedules strictly by the 3 authoritative user schedule types:
+     1. Fertigation Schedule (Emerald tone)
+     2. Well Pump Schedule (Cyan tone with SHARED badge)
+     3. Fan Schedule (Amber tone)
+   - Equipment-level operational pipeline breakdown (Raw Water, Dosing A/B, Mixing Pump, Distribution) is strictly confined to popover inspection details and does not form top-level categories.
+
+3. **Multi-Mode Timeline Rendering**
+   - **COMPLEX Mode (mode="complex")**: Primary grouping by Greenhouse (GH-01, GH-02, ...). Each GH row displays its Fertigation, Fan, and projected Well Pump occurrences. Overlapping occurrences stack into separate collision-free lanes.
+   - **GH Detail Mode (mode="gh")**: Primary grouping by Schedule Type (Fertigation Schedule, Well Pump Schedule, Fan Schedule). Well Pump is displayed as a shared resource serving the greenhouse.
+   - **SCHEDULE Mode (mode="schedule")**: Follows active tab selection (pump, fan, fertigation, all).
+
+4. **Greedy Collision-Free Lane Packing**
+   - assignLanesToEvents() implements deterministic interval coloring. Overlapping events are placed on separate vertical lanes within the row. Sequential non-overlapping events share lanes to minimize vertical height.
+   - Horizontal card widths are proportional to actual duration ((durationMin / 1440) * 100%).
+
+5. **Date Navigation & Authoritative RTC Sync**
+   - Date selection defaults to device clock (clock.date synchronized with ESP32 DS3231 RTC).
+   - Navigation controls support [ Today ], [ < ] (prev), [ > ] (next), and date picker selector.
+   - The vertical Now marker and current time badge are strictly gated on isToday === true and disappear when viewing tomorrow, future, or past dates.
+
+6. **Fan Temperature-Mode Handling**
+   - Fan schedules operating in hysteresis temperature mode (mode === "temperature") have no deterministic start time (time: "--:--"). They are represented by an ambient regulation badge on the row header (⚡ Auto Fan: ON > 30°C / OFF < 28°C) rather than artificial time cards on the grid.

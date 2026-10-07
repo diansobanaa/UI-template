@@ -1,3 +1,18 @@
+# AI HANDOVER — SP-SCHEDULE-TIMELINE-REDESIGN-001
+
+## Current status
+Redesign of Today's Schedule Timeline (TODO #3) is **COMPLETE, TESTED, & FULLY VERIFIED (BUILD, TYPESCRIPT, & PLAYWRIGHT VISUAL TESTS PASS)**.
+- **Scope vs Display Scope Decoupling**: Well Pump Schedule is defined once at Complex level (`complexId`, no GH assignment). In the UI Timeline, it is projected onto every greenhouse row as a shared resource with zero duplicate schedule definitions and zero storage/persistence mutation.
+- **Top-Level Categories**: Strictly `Fertigation Schedule`, `Well Pump Schedule`, and `Fan Schedule`. Removed speculative equipment pipelines.
+- **Collision-Free Lane Packing**: Overlapping occurrences are assigned to separate lanes via greedy interval coloring (`assignLanesToEvents()`). Sequential non-overlapping occurrences share lanes. Horizontal card widths reflect actual schedule durations.
+- **Date Navigation & RTC Sync**: Device clock (`useDeviceClock()`) authoritative time. Navigation supported across `[ Today ]`, `[ < ]`, `[ > ]`, and date picker.
+- **Now Marker Gating**: The vertical dashed line and `Now` badge are strictly gated on `isToday === true` and disappear on tomorrow/future/past dates.
+- **Fan Temperature Mode**: Ambient regulation badge (`⚡ Auto Fan: ON > 30°C / OFF < 28°C`) displayed on row header without artificial grid cards.
+- **Verification**: `npx tsc --noEmit` PASS (0 errors), `npm run build` PASS (singlefile `dist/index.html` bundle), Playwright visual tests confirmed via screenshots `timeline_complex_screenshot.png`, `timeline_schedule_screenshot.png`, and `timeline_tomorrow_screenshot.png`.
+- **Next Action / Scope Guard**: Safe point achieved. Strictly do NOT proceed to TODO #4–#9.
+
+---
+
 # AI HANDOVER — SP-HEAP-OPT-BSS-PSRAM-001
 
 ## Current status

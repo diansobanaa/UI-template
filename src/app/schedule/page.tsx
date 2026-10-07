@@ -22,6 +22,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ComplexSwitcher } from "@/components/layout/bits";
 import { IconButton } from "@/components/ui/primitives";
 import { ConfirmDialog } from "@/components/ui/overlay";
+import { TodayScheduleTimeline } from "@/components/timeline";
 import { AddFertigationDrawer } from "@/components/schedule/AddFertigationDrawer";
 import { AddWellPumpDrawer } from "@/components/schedule/AddWellPumpDrawer";
 import { AddFanScheduleDrawer } from "@/components/schedule/AddFanScheduleDrawer";
@@ -536,9 +537,12 @@ export function ScheduleContent({
           />
 
           {/* Today's timeline */}
-          <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
-            <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
-          </DarkSectionCard>
+          <TodayScheduleTimeline
+            mode={scopedGhId ? "gh" : "complex"}
+            complexId={complex.id}
+            greenhouseId={gh?.id}
+            selectedCategory="fertigation"
+          />
 
           {waterTransfers.length > 0 && (
             <DarkSectionCard
@@ -577,7 +581,14 @@ export function ScheduleContent({
 
       {/* ---------------- Tab 2: Pompa Air Baku (Sumur) ---------------- */}
       {activeTab === "pump" && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="space-y-5">
+          <TodayScheduleTimeline
+            mode="schedule"
+            complexId={complex.id}
+            greenhouseId={gh?.id}
+            selectedCategory="pump"
+          />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="xl:col-span-2">
             <DarkSectionCard
               title={`Well Pump Schedule — ${complex.code}`}
@@ -618,11 +629,18 @@ export function ScheduleContent({
 
           <WellPumpControlCard complexId={complex.id} dark={true} />
         </div>
+        </div>
       )}
 
       {/* ---------------- Tab 3: Kipas Sirkulasi (Fan) ---------------- */}
       {activeTab === "fan" && (
-        <div>
+        <div className="space-y-5">
+          <TodayScheduleTimeline
+            mode="schedule"
+            complexId={complex.id}
+            greenhouseId={gh?.id}
+            selectedCategory="fan"
+          />
           <DarkSectionCard
             title={`Fan Schedules — ${complex.code}`}
             icon={Fan}
@@ -734,9 +752,12 @@ export function ScheduleContent({
           </div>
 
           {/* Today's timeline */}
-          <DarkSectionCard title="Today's Schedule Timeline" icon={Clock} iconTone="blue" subtitle={`${complex.code} • ${clock.dateStr}`}>
-            <ScheduleTimeline events={timelineEvents} nowPct={clock.dayFraction} greenhouseLanes={scheduleGreenhouses.map((g, idx) => ({ id: g.id, label: formatGreenhouseName(g, idx) }))} />
-          </DarkSectionCard>
+          <TodayScheduleTimeline
+            mode={scopedGhId ? "gh" : "complex"}
+            complexId={complex.id}
+            greenhouseId={gh?.id}
+            selectedCategory="all"
+          />
 
           {/* Fertigation & Transfer Schedules */}
           <DarkSectionCard
@@ -1053,87 +1074,7 @@ function DarkSectionCard({
   );
 }
 
-function ScheduleTimeline({ events, nowPct, greenhouseLanes }: { events: ScheduleTimelineEvent[]; nowPct: number; greenhouseLanes: Array<{ id: string; label: string }> }) {
-  const lanes = greenhouseLanes.length > 0
-    ? greenhouseLanes.map((g) => ({ id: g.id, label: g.label }))
-    : Array.from(new Set(events.filter((e) => e.greenhouse !== "Complex").map((e) => e.greenhouse))).map((label) => ({ id: label, label }));
-  const hasComplexEvents = events.some((e) => e.greenhouse === "Complex");
-  const allLanes = hasComplexEvents ? [...lanes, { id: "complex", label: "Complex" }] : lanes;
-  const palette = ["bg-blue-500", "bg-emerald-400", "bg-amber-400", "bg-violet-400", "bg-pink-400", "bg-cyan-400"];
-  const hourMarks = [0, 3, 6, 9, 12, 15, 18, 21, 24];
-  const normalizedFraction = nowPct > 1 ? nowPct / 100 : Math.max(0, Math.min(1, nowPct));
-  const nowMinutes = Math.min(1439, Math.max(0, Math.round(normalizedFraction * 1440)));
 
-  return (
-    <div className="overflow-x-auto scroll-thin">
-      <div className="min-w-[1120px]">
-        <div className="mb-3 grid grid-cols-[80px_1fr] items-center">
-          <div />
-          <div className="relative flex justify-between px-1 text-[10px] font-semibold text-slate-500">
-            {hourMarks.map((h) => <span key={h}>{String(h).padStart(2, "0")}:00</span>)}
-          </div>
-        </div>
-        <div className="relative rounded-xl border border-slate-800 bg-[#0b1625] p-2.5">
-          <div className="pointer-events-none absolute inset-y-2 left-[80px] right-2">
-            {hourMarks.map((h) => (
-              <span key={h} className="absolute inset-y-0 border-l border-slate-800/80" style={{ left: `${(h / 24) * 100}%` }} />
-            ))}
-          </div>
-          {allLanes.map((lane, laneIndex) => {
-            const laneEvents = events.filter((e) => e.greenhouse === lane.label || (lane.id === "complex" && e.greenhouse === "Complex"));
-            return (
-              <div key={lane.id} className="relative grid min-h-[58px] grid-cols-[80px_1fr] items-center border-b border-slate-800/70 last:border-b-0">
-                <div className="flex items-center gap-2 pl-1 text-[11px] font-semibold text-slate-400">
-                  <span className={`h-2.5 w-2.5 rounded-full ${palette[laneIndex % palette.length]}`} />
-                  {lane.label}
-                </div>
-                <div className="relative h-full min-h-[58px]">
-                  {laneEvents.map((e, idx) => {
-                    const start = parseClock(e.time);
-                    const left = (start / 1440) * 100;
-                    const width = Math.max(7.2, Math.min(12, ((e.durationMin || 45) / 1440) * 100 + 5));
-                    const stack = idx % 2;
-                    return (
-                      <div
-                        key={e.id}
-                        className={`absolute rounded-lg border px-2.5 py-1.5 shadow-[0_8px_25px_rgba(0,0,0,0.2)] ${statusAccent(e.status)}`}
-                        style={{ left: `${left}%`, width: `${width}%`, top: stack ? "6px" : "31px", minWidth: 96 }}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          {eventIcon(e.type)}
-                          <span className="text-[10px] font-bold text-slate-100">{e.time}</span>
-                          {e.status === "blocked" && (
-                            <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[8px] font-bold text-amber-300">
-                              BLOCKED
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 truncate text-[9px] font-semibold text-slate-300">
-                          {e.title}
-                          {e.occurrenceIndex != null && e.totalOccurrences != null && e.totalOccurrences > 1 && (
-                            <span className="ml-1 text-[8px] font-normal text-slate-400">({e.occurrenceIndex}/{e.totalOccurrences})</span>
-                          )}
-                        </div>
-                        <div className="text-[9px] text-slate-500">{e.sub}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          <div className="pointer-events-none absolute bottom-2 top-2" style={{ left: `calc(5.3% + ${normalizedFraction * 94.7}%)` }}>
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-md bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-[0_0_18px_rgba(59,130,246,0.35)]">
-              {String(Math.floor(nowMinutes / 60)).padStart(2, "0")}:{String(nowMinutes % 60).padStart(2, "0")}
-            </div>
-            <div className="h-full w-px bg-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.75)]" />
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white">Now</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ScheduleFrame({ embedded, complexId, children }: { embedded: boolean; complexId: string; children: ReactNode }) {
   const content = (

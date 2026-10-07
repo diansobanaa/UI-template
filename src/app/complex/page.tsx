@@ -34,6 +34,7 @@ import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { GreenhouseOverviewCard } from "@/components/ui/GreenhouseOverviewCard";
+import { TodayScheduleTimeline } from "@/components/timeline";
 import type { Complex, Greenhouse } from "@/lib/types";
 import type { ComplexDeletionPreview, DeletionJob } from "@/lib/api/contracts";
 
@@ -415,6 +416,10 @@ function ComplexOverviewContent() {
                   <span>Area: {ghs.reduce((sum, g) => sum + (g.areaM2 || 0), 0).toLocaleString("en-US")} m²</span>
                   <span className="h-3 w-px bg-slate-200" />
                   <span>Water today: {c.water.flowTodayL} L</span>
+                </div>
+
+                <div className="mb-5">
+                  <TodayScheduleTimeline mode="complex" complexId={c.id} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4">
