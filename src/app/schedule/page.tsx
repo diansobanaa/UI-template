@@ -541,7 +541,7 @@ export function ScheduleContent({
             mode={scopedGhId ? "gh" : "complex"}
             complexId={complex.id}
             greenhouseId={gh?.id}
-            selectedCategory="fertigation"
+            selectedCategory="all"
           />
 
           {waterTransfers.length > 0 && (

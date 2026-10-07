@@ -3919,19 +3919,19 @@ PYTHON SAVE + ANALYSIS
 
 1. **Source Scope vs. Display Scope Decoupling**
    - **Data Source Authority (Complex Level)**: In the authoritative data model and ESP32 runtime, WellPumpSchedule is owned by the Complex (complexId, with no greenhouse assignment). There is exactly ONE definition per well pump schedule.
-   - **Display Scope (Greenhouse Level Projection)**: Because the Well Pump supplies raw water to every greenhouse across the complex, its schedule occurrences are operationally relevant to every greenhouse. The Schedule Timeline projects the Complex-level Well Pump occurrences visually onto every greenhouse row.
+   - **Display Scope by Page**:
+     - **Complex Overview**: Greenhouse rows (GH-01, GH-02, ...) display only their own Fertigation and Fan schedules (Well Pump is NOT repeated inside every GH). Followed by exactly ONE shared Complex-level Well Pump row for the entire Complex.
+     - **GH Detail Page**: When viewing a specific GH, the timeline displays exactly 3 rows: Fertigation Schedule, Well Pump Schedule (the ONE shared Complex row projected), and Fan Schedule.
    - **Zero Duplicate Definitions**: No duplicate schedule objects are created, persisted, or synced back to the backend. The projection is a pure UI mapping (isSharedResource: true, sourceScope: "complex") referencing the single authoritative occurrence calculation.
 
-2. **Top-Level Timeline Categories**
-   - The timeline groups schedules strictly by the 3 authoritative user schedule types:
-     1. Fertigation Schedule (Emerald tone)
-     2. Well Pump Schedule (Cyan tone with SHARED badge)
-     3. Fan Schedule (Amber tone)
+2. **Top-Level Timeline Categories & Default Filter**
+   - The timeline default selection is **All Schedule**.
+   - Filter dropdown options: `All Schedule`, `Fertigation Schedule`, `Well Pump Schedule`, `Fan Schedule`.
    - Equipment-level operational pipeline breakdown (Raw Water, Dosing A/B, Mixing Pump, Distribution) is strictly confined to popover inspection details and does not form top-level categories.
 
 3. **Multi-Mode Timeline Rendering**
-   - **COMPLEX Mode (mode="complex")**: Primary grouping by Greenhouse (GH-01, GH-02, ...). Each GH row displays its Fertigation, Fan, and projected Well Pump occurrences. Overlapping occurrences stack into separate collision-free lanes.
-   - **GH Detail Mode (mode="gh")**: Primary grouping by Schedule Type (Fertigation Schedule, Well Pump Schedule, Fan Schedule). Well Pump is displayed as a shared resource serving the greenhouse.
+   - **COMPLEX Mode (mode="complex")**: Greenhouse rows (GH-01, GH-02, ...) showing Fertigation + Fan, followed by exactly ONE shared Complex-level Well Pump row. Overlapping occurrences stack into separate collision-free lanes.
+   - **GH Detail Mode (mode="gh")**: Primary grouping by Schedule Type (Fertigation Schedule, Well Pump Schedule, Fan Schedule). Well Pump is displayed as ONE row serving the greenhouse.
    - **SCHEDULE Mode (mode="schedule")**: Follows active tab selection (pump, fan, fertigation, all).
 
 4. **Greedy Collision-Free Lane Packing**

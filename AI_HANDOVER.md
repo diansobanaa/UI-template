@@ -2,13 +2,16 @@
 
 ## Current status
 Redesign of Today's Schedule Timeline (TODO #3) is **COMPLETE, TESTED, & FULLY VERIFIED (BUILD, TYPESCRIPT, & PLAYWRIGHT VISUAL TESTS PASS)**.
-- **Scope vs Display Scope Decoupling**: Well Pump Schedule is defined once at Complex level (`complexId`, no GH assignment). In the UI Timeline, it is projected onto every greenhouse row as a shared resource with zero duplicate schedule definitions and zero storage/persistence mutation.
-- **Top-Level Categories**: Strictly `Fertigation Schedule`, `Well Pump Schedule`, and `Fan Schedule`. Removed speculative equipment pipelines.
+- **Default Filter**: Automatically selects **`All Schedule`** on initial load. Filter dropdown options: `All Schedule`, `Fertigation Schedule`, `Well Pump Schedule`, `Fan Schedule`.
+- **Scope vs Display Scope Decoupling**: Well Pump Schedule is defined once at Complex level (`complexId`, no GH assignment).
+  - **Complex Overview**: Greenhouse rows (`GH-01`, `GH-02`, ...) display only their own Fertigation and Fan schedules (Well Pump is NOT repeated inside every GH). Exactly ONE shared Complex-level Well Pump row is rendered at the bottom for the Complex.
+  - **GH Detail Page**: When viewing one GH, the timeline displays exactly 3 rows: `Fertigation Schedule`, `Well Pump Schedule` (the ONE shared Complex row projected), and `Fan Schedule`.
+  - **Zero Duplicate Definitions**: Single underlying schedule definition; zero duplicate storage or state mutations.
 - **Collision-Free Lane Packing**: Overlapping occurrences are assigned to separate lanes via greedy interval coloring (`assignLanesToEvents()`). Sequential non-overlapping occurrences share lanes. Horizontal card widths reflect actual schedule durations.
 - **Date Navigation & RTC Sync**: Device clock (`useDeviceClock()`) authoritative time. Navigation supported across `[ Today ]`, `[ < ]`, `[ > ]`, and date picker.
 - **Now Marker Gating**: The vertical dashed line and `Now` badge are strictly gated on `isToday === true` and disappear on tomorrow/future/past dates.
 - **Fan Temperature Mode**: Ambient regulation badge (`⚡ Auto Fan: ON > 30°C / OFF < 28°C`) displayed on row header without artificial grid cards.
-- **Verification**: `npx tsc --noEmit` PASS (0 errors), `npm run build` PASS (singlefile `dist/index.html` bundle), Playwright visual tests confirmed via screenshots `timeline_complex_screenshot.png`, `timeline_schedule_screenshot.png`, and `timeline_tomorrow_screenshot.png`.
+- **Verification**: `npx tsc --noEmit` PASS (0 errors), `npm run build` PASS (singlefile `dist/index.html` bundle), Playwright visual tests confirmed via screenshots `timeline_complex_screenshot.png`, `timeline_schedule_screenshot.png`, `timeline_gh_screenshot.png`, and `timeline_tomorrow_screenshot.png`.
 - **Next Action / Scope Guard**: Safe point achieved. Strictly do NOT proceed to TODO #4–#9.
 
 ---

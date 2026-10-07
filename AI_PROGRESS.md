@@ -1,29 +1,32 @@
 ## SP-SCHEDULE-TIMELINE-REDESIGN-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED (BUILD, TYPESCRIPT, & VISUAL PLAYWRIGHT VERIFIED)`
-- **Objective**: Execute TODO #3 — Redesign `Today's Schedule Timeline` on Web UI AgroTech. Implement multi-mode timeline renderer (Complex, Greenhouse, Schedule tabs) with collision-free lane packing, date navigation, RTC authority, and clean projection of Complex-level Well Pump schedules onto Greenhouse rows with zero duplicate schedule definitions.
+- **Objective**: Execute TODO #3 — Redesign `Today's Schedule Timeline` on Web UI AgroTech. Implement multi-mode timeline renderer (Complex, Greenhouse, Schedule tabs) with collision-free lane packing, date navigation, RTC authority, default filter `All Schedule`, and exact Well Pump display: ONE shared Complex-level row on Complex Overview, and ONE projected row on GH Detail Page.
 - **Implemented**:
   - `src/components/timeline/TimelineEngine.ts`: Layout, recurrence evaluation, and greedy collision-free interval coloring. Evaluates recurrence from existing Add Schedule trigger/repeat model. Assigns overlapping occurrences into distinct lanes; non-overlapping occurrences share lanes. Computes duration-proportional widths (`(durationMin / 1440) * 100%`).
   - `src/components/timeline/TodayScheduleTimeline.tsx`:
-    - Strict top-level schedule categories: `Fertigation Schedule` (Emerald), `Well Pump Schedule` (Cyan), `Fan Schedule` (Amber). Removed fake equipment sub-pipelines.
-    - Decoupled data scope from display scope: Well Pump Schedule is defined once at Complex level, but projected visually into every relevant GH row in Complex mode and as a shared resource row in GH mode (`isSharedResource: true`, `SHARED` badge). Zero duplicate schedule definitions or storage copies.
-    - Multi-mode support: `COMPLEX` mode (grouped by Greenhouse `GH-01`, `GH-02`, ...), `GH` mode (grouped by Schedule Type), and `SCHEDULE` mode (tab-driven).
+    - Default filter: **`All Schedule`** automatically selected on initial load. Filter dropdown: `All Schedule`, `Fertigation Schedule`, `Well Pump Schedule`, `Fan Schedule`.
+    - Well Pump display:
+      - **Complex Overview**: Greenhouse rows (`GH-01`, `GH-02`, ...) display only Fertigation and Fan schedules (Well Pump is NOT repeated inside every GH). Exactly ONE shared Complex-level Well Pump row is rendered at the bottom for the entire Complex (`Well Pump Schedule`, `Shared Complex Resource • complex-01`).
+      - **GH Detail Page**: Displays exactly 3 rows: `Fertigation Schedule`, `Well Pump Schedule` (the ONE shared Complex row projected), and `Fan Schedule`.
+      - **Zero Duplicate Definitions**: No duplicate schedule objects or storage copies created; single occurrence calculation reused for visual projections.
     - Date navigation: Default device clock (`useDeviceClock()`), with `[ Today ]`, `[ < ]` (prev), `[ > ]` (next), and date picker.
     - Vertical `Now` line & badges strictly gated on `isToday === true`; hidden on tomorrow/future/past dates.
     - Fan temperature mode (`mode === "temperature"`): Rendered as an ambient regulation badge (`⚡ Auto Fan: ON > 30°C / OFF < 28°C`) rather than artificial time cards on the grid.
     - Inspection popover: Detailed parameters (recipe, target water, dosing volumes, radar state, recurrence rule, occurrence index).
   - Integration:
-    - `src/app/schedule/page.tsx`: Integrated `TodayScheduleTimeline` across Tab 1 (Fertigasi), Tab 2 (Pompa Air Baku), Tab 3 (Fan), and Tab 5 (Semua).
+    - `src/app/schedule/page.tsx`: Integrated `TodayScheduleTimeline` across Tab 1 (Fertigasi — default `all`), Tab 2 (Pompa Air Baku — `pump`), Tab 3 (Fan — `fan`), and Tab 5 (Semua — `all`).
     - `src/app/complex/page.tsx`: Integrated `TodayScheduleTimeline` in `COMPLEX` mode.
     - `src/app/dashboard/page.tsx`: Integrated `TodayScheduleTimeline` in `COMPLEX` mode.
   - Canonical documentation: `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 62.
 - **Verification**:
   - `npx tsc --noEmit`: PASS (0 errors).
-  - Production build (`npm run build`): PASS (1768 modules transformed, built in 10.30s, `dist/index.html` singlefile bundle).
-  - Playwright visual tests (`scripts/test_timeline_screenshots.mjs` & `test_timeline_tomorrow.mjs`):
-    - Complex Overview: `timeline_complex_screenshot.png` confirms GH-oriented rows (`GH-01`, `GH-02`), projected Well Pump cards with `SHARED` badge across 3 collision-free lanes, amber Fan cards, and `Now` marker at 17:10.
-    - Date navigation & Now gating: `timeline_tomorrow_screenshot.png` confirms date advances to `Thursday, 8 Oct 2026`, and the `Now` marker is cleanly hidden.
-    - Schedule Page: `timeline_schedule_screenshot.png` confirms Schedule mode rendering.
+  - Production build (`npm run build`): PASS (1768 modules transformed, singlefile `dist/index.html` bundle).
+  - Playwright visual tests (`scripts/test_timeline_screenshots.mjs`, `test_timeline_tomorrow.mjs`, and `test_timeline_gh.mjs`):
+    - Complex Overview (`timeline_complex_screenshot.png`): Confirms `All Schedule` filter, `GH-01` (Fan only), `GH-02` (empty), followed by ONE shared `Well Pump Schedule` row.
+    - Schedule Page (`timeline_schedule_screenshot.png`): Confirms `All Schedule` default and single shared Well Pump row.
+    - GH Detail Page (`timeline_gh_screenshot.png`): Confirms 3 rows (`Fertigation Schedule`, `Well Pump Schedule`, `Fan Schedule`).
+    - Date navigation & Now gating (`timeline_tomorrow_screenshot.png`): Confirms `Now` marker is hidden on tomorrow.
 - **Known issues / next action**: TODO #3 is complete. Strictly halt and do NOT proceed to TODO #4–#9 per scope guard.
 - **Changed files**: `src/components/timeline/TimelineEngine.ts`, `src/components/timeline/TodayScheduleTimeline.tsx`, `src/components/timeline/index.ts`, `src/app/schedule/page.tsx`, `src/app/complex/page.tsx`, `src/app/dashboard/page.tsx`, `dist/index.html`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
 

@@ -241,7 +241,7 @@ export function TodayScheduleTimeline({
 
     // Filter Options
     const filters: Array<{ id: string; label: string }> = [
-      { id: "all", label: "All Schedules" },
+      { id: "all", label: "All Schedule" },
       { id: "fertigation", label: "Fertigation Schedule" },
       { id: "pump", label: "Well Pump Schedule" },
       { id: "fan", label: "Fan Schedule" },
@@ -383,46 +383,58 @@ export function TodayScheduleTimeline({
     }
 
     // ---------------- MODE 1: COMPLEX OVERVIEW ----------------
-    // Primary Grouping: GREENHOUSE (GH-01, GH-02, GH-03...)
-    // Each GH row contains: Fertigation, Fan, and the projected Well Pump schedule
+    // Grouping: GREENHOUSE rows (Fertigation + Fan only) + ONE shared Complex Well Pump row
     if (mode === "complex") {
       const complexRows: TimelineRow[] = [];
 
-      ghs.forEach((gh, idx) => {
-        const ghFert = getGhFertOccurrences(gh.id, gh.code);
-        const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(gh.id, gh.code);
+      // 1. Greenhouse rows (Fertigation + Fan only, do NOT repeat Well Pump here)
+      if (activeFilter !== "pump") {
+        ghs.forEach((gh, idx) => {
+          const ghFert = getGhFertOccurrences(gh.id, gh.code);
+          const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(gh.id, gh.code);
 
-        // Project the authoritative Complex-level Well Pump occurrences into this GH row
-        const projectedWellPumps: TimelineRawEvent[] = authoritativeWellPumpOccurrences.map((p) => ({
-          ...p,
-          id: `gh-${gh.id}-proj-${p.id}`,
-          greenhouseId: gh.id,
-          greenhouseCode: gh.code,
-          isSharedResource: true,
-        }));
+          let combinedGhEvents: TimelineRawEvent[] = [];
+          if (activeFilter === "all") {
+            combinedGhEvents = [...ghFert, ...ghFan];
+          } else if (activeFilter === "fertigation") {
+            combinedGhEvents = ghFert;
+          } else if (activeFilter === "fan") {
+            combinedGhEvents = ghFan;
+          }
 
-        // Combine all schedules for this greenhouse
-        let combinedGhEvents: TimelineRawEvent[] = [...ghFert, ...ghFan, ...projectedWellPumps];
+          const { placed, laneCount } = assignLanesToEvents(combinedGhEvents);
 
-        // Apply active filter if specified
-        if (activeFilter !== "all") {
-          combinedGhEvents = combinedGhEvents.filter((e) => e.scheduleType === activeFilter);
-        }
-
-        const { placed, laneCount } = assignLanesToEvents(combinedGhEvents);
-
-        complexRows.push({
-          id: gh.id,
-          key: gh.id,
-          label: formatGreenhouseName(gh, idx),
-          subtitle: `${gh.crop || "Crops"} • Fertigation + Fan + Shared Well Pump`,
-          rowKind: "greenhouse",
-          colorTone: "emerald",
-          events: placed,
-          laneCount,
-          ambientBadge: ghAmbientBadge,
+          complexRows.push({
+            id: gh.id,
+            key: gh.id,
+            label: formatGreenhouseName(gh, idx),
+            subtitle: `${gh.crop || "Crops"} • Fertigation + Fan`,
+            rowKind: "greenhouse",
+            colorTone: "emerald",
+            events: placed,
+            laneCount,
+            ambientBadge: ghAmbientBadge,
+          });
         });
-      });
+      }
+
+      // 2. Exactly ONE shared Well Pump row for the entire Complex
+      if (activeFilter === "all" || activeFilter === "pump") {
+        const { placed: placedPump, laneCount: pumpLanes } = assignLanesToEvents(
+          authoritativeWellPumpOccurrences
+        );
+        complexRows.push({
+          id: `complex-shared-pump-${activeComplex.id}`,
+          key: "pump",
+          label: "Well Pump Schedule",
+          subtitle: `Shared Complex Resource • ${activeComplex.code}`,
+          rowKind: "scheduleType",
+          scheduleType: "pump",
+          colorTone: "cyan",
+          events: placedPump,
+          laneCount: pumpLanes,
+        });
+      }
 
       return { rows: complexRows, filterOptions: filters };
     }
@@ -436,15 +448,6 @@ export function TodayScheduleTimeline({
         activeGh.id,
         activeGh.code
       );
-
-      // Project Complex-level Well Pump into GH view as a shared resource row
-      const projectedWellPumps: TimelineRawEvent[] = authoritativeWellPumpOccurrences.map((p) => ({
-        ...p,
-        id: `gh-${activeGh.id}-proj-${p.id}`,
-        greenhouseId: activeGh.id,
-        greenhouseCode: activeGh.code,
-        isSharedResource: true,
-      }));
 
       // Row 1: Fertigation Schedule
       if (activeFilter === "all" || activeFilter === "fertigation") {
@@ -464,12 +467,12 @@ export function TodayScheduleTimeline({
 
       // Row 2: Well Pump Schedule (Shared Complex Resource projected to GH)
       if (activeFilter === "all" || activeFilter === "pump") {
-        const { placed, laneCount } = assignLanesToEvents(projectedWellPumps);
+        const { placed, laneCount } = assignLanesToEvents(authoritativeWellPumpOccurrences);
         ghRows.push({
           id: `gh-${activeGh.id}-row-pump`,
           key: "pump",
           label: "Well Pump Schedule",
-          subtitle: "Shared Complex Resource",
+          subtitle: `Shared Complex Resource • ${activeComplex.code}`,
           rowKind: "scheduleType",
           scheduleType: "pump",
           colorTone: "cyan",
@@ -536,7 +539,7 @@ export function TodayScheduleTimeline({
       });
     } else {
       // Fertigation tab or All Schedules tab:
-      // If scoped to a specific GH, show schedule types; if Complex-wide, show GH rows with projected Well Pump
+      // If scoped to a specific GH, show schedule types; if Complex-wide, show GH rows then ONE shared Well Pump row
       if (propGhId) {
         const ghFert = getGhFertOccurrences(activeGh.id, activeGh.code);
         const { placed, laneCount } = assignLanesToEvents(ghFert);
@@ -552,19 +555,14 @@ export function TodayScheduleTimeline({
           laneCount,
         });
 
-        const projectedWellPumps = authoritativeWellPumpOccurrences.map((p) => ({
-          ...p,
-          id: `gh-${activeGh.id}-proj-${p.id}`,
-          greenhouseId: activeGh.id,
-          greenhouseCode: activeGh.code,
-          isSharedResource: true,
-        }));
-        const { placed: placedPump, laneCount: pumpLanes } = assignLanesToEvents(projectedWellPumps);
+        const { placed: placedPump, laneCount: pumpLanes } = assignLanesToEvents(
+          authoritativeWellPumpOccurrences
+        );
         scheduleRows.push({
           id: `schedule-tab-pump-${activeGh.id}`,
           key: "pump",
           label: "Well Pump Schedule",
-          subtitle: "Shared Complex Resource",
+          subtitle: `Shared Complex Resource • ${activeComplex.code}`,
           rowKind: "scheduleType",
           scheduleType: "pump",
           colorTone: "cyan",
@@ -572,27 +570,45 @@ export function TodayScheduleTimeline({
           laneCount: pumpLanes,
         });
       } else {
-        ghs.forEach((gh, idx) => {
-          const ghFert = getGhFertOccurrences(gh.id, gh.code);
-          const projectedWellPumps = authoritativeWellPumpOccurrences.map((p) => ({
-            ...p,
-            id: `gh-${gh.id}-proj-${p.id}`,
-            greenhouseId: gh.id,
-            greenhouseCode: gh.code,
-            isSharedResource: true,
-          }));
-          const { placed, laneCount } = assignLanesToEvents([...ghFert, ...projectedWellPumps]);
-          scheduleRows.push({
-            id: `schedule-tab-gh-${gh.id}`,
-            key: gh.id,
-            label: formatGreenhouseName(gh, idx),
-            subtitle: `${gh.crop || "Crops"} • Fertigation + Shared Well Pump`,
-            rowKind: "greenhouse",
-            colorTone: "emerald",
-            events: placed,
-            laneCount,
+        if (activeFilter !== "pump") {
+          ghs.forEach((gh, idx) => {
+            const ghFert = getGhFertOccurrences(gh.id, gh.code);
+            const { events: ghFan } = getGhFanOccurrences(gh.id, gh.code);
+            let evs: TimelineRawEvent[] = [];
+            if (activeFilter === "all") evs = [...ghFert, ...ghFan];
+            else if (activeFilter === "fertigation") evs = ghFert;
+            else if (activeFilter === "fan") evs = ghFan;
+
+            const { placed, laneCount } = assignLanesToEvents(evs);
+            scheduleRows.push({
+              id: `schedule-tab-gh-${gh.id}`,
+              key: gh.id,
+              label: formatGreenhouseName(gh, idx),
+              subtitle: `${gh.crop || "Crops"} • Fertigation + Fan`,
+              rowKind: "greenhouse",
+              colorTone: "emerald",
+              events: placed,
+              laneCount,
+            });
           });
-        });
+        }
+
+        if (activeFilter === "all" || activeFilter === "pump") {
+          const { placed: placedPump, laneCount: pumpLanes } = assignLanesToEvents(
+            authoritativeWellPumpOccurrences
+          );
+          scheduleRows.push({
+            id: `schedule-tab-pump-${activeComplex.id}`,
+            key: "pump",
+            label: "Well Pump Schedule",
+            subtitle: `Shared Complex Resource • ${activeComplex.code}`,
+            rowKind: "scheduleType",
+            scheduleType: "pump",
+            colorTone: "cyan",
+            events: placedPump,
+            laneCount: pumpLanes,
+          });
+        }
       }
     }
 
