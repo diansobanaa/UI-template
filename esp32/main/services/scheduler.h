@@ -72,7 +72,7 @@ bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_
 /**
  * @brief Checks if any Fan / Blower schedule is currently active at epoch time 'now'.
  * If active, returns true and populates out_remaining_sec, out_schedule_id, and out_component_id.
- * If target_component is non-NULL (e.g. "fan_cooling" or "fan_blower"), filters for that fan.
+ * If target_component is non-NULL (e.g. "fan_blower"), filters for that fan.
  * Schedule condition: schedule_start <= now < schedule_end
  */
 bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len, char *out_component_id, size_t comp_len);

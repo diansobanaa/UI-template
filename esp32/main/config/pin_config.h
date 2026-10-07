@@ -94,7 +94,7 @@ extern "C" {
 
 #define PIN_OUT_DOSING_A            5   /* MOSFET Output 2: Peristaltic Dosing Pump A (12V DC) */
 #define PIN_OUT_DOSING_B            6   /* MOSFET Output 3: Peristaltic Dosing Pump B (12V DC) */
-#define PIN_OUT_COOLING_FAN         7   /* MOSFET Output 4: Cabinet Exhaust Fan (12V DC) */
+#define PIN_OUT_COOLING_FAN         -1  /* Cabinet Fan is powered directly from PSU +/- (no MCU GPIO control) */
 #define PIN_OUT_BUZZER              18  /* MOSFET Output 5: Active Alarm Buzzer (5V DC, ~30mA) */
 #define PIN_OUT_ERROR_LAMP          -1  /* Error lamp unmapped; alarm annunciator handled by PIN_OUT_BUZZER (GPIO 18) */
 

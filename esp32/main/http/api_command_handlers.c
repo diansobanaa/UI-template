@@ -87,9 +87,6 @@ static void parse_common_fields(cJSON *payload, command_item_t *cmd)
     if (cmd->component_id[0]) {
         if (strcasecmp(cmd->component_id, "wp-main") == 0 || strcasecmp(cmd->component_id, "well_pump") == 0) {
             strncpy(cmd->component_id, "pump_well", sizeof(cmd->component_id) - 1);
-        } else if (strcasecmp(cmd->component_id, "fan-cooling") == 0 || strcasecmp(cmd->component_id, "cooling_fan") == 0 ||
-                   strcasecmp(cmd->component_id, "cooling-fan") == 0 || strcasecmp(cmd->component_id, "cabinet_fan") == 0) {
-            strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
         } else if (strcasecmp(cmd->component_id, "fan-blower") == 0 || strcasecmp(cmd->component_id, "blower_fan") == 0 ||
                    strcasecmp(cmd->component_id, "blower-fan") == 0 || strcasecmp(cmd->component_id, "blower") == 0) {
             strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
@@ -186,15 +183,13 @@ static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char
         cmd->type = CMD_TYPE_COMPONENT_TIMED;
         cmd->param_on = true;
         if (!cmd->component_id[0]) {
-            if (cmd->target_gh_id[0]) strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
-            else strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
+            strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
         }
     } else if (strcmp(type, "FAN_STOP") == 0 || strcmp(type, "FAN_OFF") == 0) {
         cmd->type = CMD_TYPE_COMPONENT_TIMED;
         cmd->param_on = false;
         if (!cmd->component_id[0]) {
-            if (cmd->target_gh_id[0]) strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
-            else strncpy(cmd->component_id, "fan_cooling", sizeof(cmd->component_id) - 1);
+            strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
         }
     } else {
         snprintf(code, code_len, "UNSUPPORTED_COMMAND_TYPE");

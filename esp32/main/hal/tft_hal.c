@@ -710,7 +710,7 @@ static void draw_screen2_actuator_matrix(bool full)
     bool f_on = f_active || actuator_hal_get_state(ACTUATOR_DIST_PUMP);
     bool da_on = actuator_hal_get_state(ACTUATOR_DOSING_A);
     bool db_on = actuator_hal_get_state(ACTUATOR_DOSING_B);
-    bool fan_on = actuator_hal_get_state(ACTUATOR_COOLING_FAN) || actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
+    bool fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
     bool lamp_on = actuator_hal_get_state(ACTUATOR_ERROR_LAMP);
 
     sensor_readings_t sread;

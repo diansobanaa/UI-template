@@ -31,7 +31,7 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
                                │
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DOMAIN 3: 12V DC AUXILIARY POWER RAIL                                        │
-│ Dosing Pump A, Dosing Pump B, Cooling Fan, Raw Submersible Pump              │
+│ Dosing Pump A, Dosing Pump B, Cabinet Fan (Direct PSU +/-), Raw Submersible Pump│
 │ Ground: GND_12V (Heavy-Current Power Ground)                                 │
 └──────────────────────────────────────────────────────────────────────────────┘
                                ▲

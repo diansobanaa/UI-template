@@ -122,10 +122,10 @@ This document specifies the exact mapping from the physical pins of each discret
 | **MOSFET #3** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #3** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #3** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump B (pH/Buffer) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
-| **MOSFET #4** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE (Cabinet Fan 12V)** |
-| **MOSFET #4** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
-| **MOSFET #4** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
-| **MOSFET #4** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Cooling Fan | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
+| **MOSFET #4** | **TRIG-PWM** | Gate Trigger / PWM Input | **UNASSIGNED / RESERVED** (GPIO 7 disabled)| Digital Logic | None (MCU Control Disabled) | N/A | **UNASSIGNED / RESERVED** |
+| **MOSFET #4** | **GND** | Logic Ground Return | Disconnected | Ground Return | None | 0V Ground | **UNASSIGNED** |
+| **MOSFET #4** | **VIN+ / VIN-**| DC Power Input Terminals | Disconnected / Reserved | DC Power Rail | None | N/A | **RESERVED** |
+| **MOSFET #4** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Fan wired direct to PSU 1 (+/-)| Direct DC Power | Power Rail | Continuous 12V DC | **DIRECT PSU POWER (NOT MCU CONTROLLED)** |
 | **MOSFET #5** | **TRIG-PWM** | Gate Trigger Input | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE (Active Buzzer 5V)** |
 | **MOSFET #5** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #5** | **VIN+ / VIN-**| DC Power Input Terminals | 5V DC Rail (LM2596 OUT+) | DC Power Rail | Power Supply | 5V DC & GND_LV | **VERIFIED** |

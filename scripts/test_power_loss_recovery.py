@@ -161,7 +161,7 @@ def main():
     fan_intent = {
         "id": "test-fan-recovery",
         "ghId": "gh-muii7dtg",
-        "componentId": "fan_cooling",
+        "componentId": "fan_blower",
         "action": "FAN_TOGGLE",
         "type": "DAILY",
         "time": "06:00",
@@ -178,7 +178,7 @@ def main():
 
     reset_esp32_hardware()
 
-    fan_on = wait_actuator_state("fan_cooling", True, timeout=8)
+    fan_on = wait_actuator_state("fan_blower", True, timeout=8)
     print(f"  Fan state after reboot: {'ON' if fan_on else 'OFF'}")
     assert fan_on == True, "TEST 1 FAILED: Fan should be ON after recovery in active window!"
     print("  [PASS] TEST 1: Fan recovered to ON state.")

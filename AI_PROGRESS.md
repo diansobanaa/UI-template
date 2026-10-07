@@ -1,3 +1,30 @@
+## SP-GH-BLOWER-FAN-FIX-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` - Firmware compile PASS (`agrotech_esp32.bin` 0x18be40 bytes), Regression suite PASS (33/33).
+- **Objective**: TASK #9C — REMOVE CABINET FAN FROM ESP32 + FIX GH BLOWER FAN:
+  1. Remove cabinet/internal box fan (`fan_cooling`) from ESP32 control, scheduling, and reconciliation path (powered directly from PSU +/-). Set `PIN_OUT_COOLING_FAN = -1`.
+  2. Fix GH blower fan alias collision (`fan_blower`, `blower_fan`, `fan-blower`, `blower` resolving to `ACTUATOR_BLOWER_FAN` on GPIO 10).
+  3. Deduplicate fan reconciliation by resolved physical actuator ID (`ACTUATOR_BLOWER_FAN`), preventing the loop from processing GPIO 10 more than once per pass and fixing the premature turn-off bug.
+  4. Ensure GH blower remains active during the full 60-minute schedule window.
+  5. Synchronize canonical docs and add regression suite.
+- **Implemented**:
+  - `esp32/main/config/pin_config.h`: Set `PIN_OUT_COOLING_FAN = -1` (cabinet fan powered directly from PSU +/-; no MCU GPIO control).
+  - `esp32/main/hal/actuator_hal.c`: `[ACTUATOR_COOLING_FAN]` set to `gpio = -1`; `actuator_role_for_id(ACTUATOR_COOLING_FAN)` returns `NULL`; removed `cooling_fan`/`fan_cooling`/`cabinet_fan` from `actuator_hal_find_id_by_component_id`; added `fan_blower`, `blower_fan`, `fan-blower`, `blower` to `actuator_role_matches` for `ACTUATOR_BLOWER_FAN`.
+  - `esp32/main/hal/hardware_registry.c`: Removed `COOLING_FAN` from `default_gpio_for_role_and_type`; removed `fan_cooling`/`cooling_fan` fallback from `hardware_registry_find_by_id`.
+  - `esp32/main/services/scheduler.c`: Removed `fan_cooling` alias mapping; defaulted unspecified `FAN_TOGGLE` to canonical `fan_blower`; in `is_fan_schedule()` matched blower aliases via resolved physical actuator IDs (`cid_act == tgt_act == ACTUATOR_BLOWER_FAN`) and rejected cooling/cabinet fan components; in `scheduler_reconcile_fan_schedule()` deduplicated candidates using `seen_actuators` by resolved actuator ID, skipped `ACTUATOR_COOLING_FAN`, filtered cooling/cabinet components, and set fallback array to `{"fan_blower"}`.
+  - `esp32/main/http/api_command_handlers.c`: Removed `fan_cooling` alias mapping; defaulted all fan commands (`FAN_START`, `FAN_ON`, `FAN_TOGGLE`, `FAN_STOP`, `FAN_OFF`) to `fan_blower`.
+  - `esp32/main/http/api_device_handlers.c`: Reported `coolingFan: false` (uncontrolled by ESP32).
+  - `esp32/main/services/telemetry_mgr.c`: Monitored `ACTUATOR_BLOWER_FAN` for snapshot `fan_on`.
+  - `esp32/main/hal/tft_hal.c`: Updated TFT display `fan_on` state to monitor `ACTUATOR_BLOWER_FAN`.
+  - `src/lib/data/gpioPinMap.ts`: Marked GPIO 7 unassigned and unselectable (`disabledReason: Cabinet exhaust fan is powered directly from PSU +/- and is not controlled by ESP32`).
+  - `docs/`: Updated `ESP32_GPIO_PIN_MAP.md`, `HARDWARE_WIRING_MAP.md`, `COMPONENT_PIN_MAP.md`, `HARDWARE_INVENTORY.md`, `HARDWARE_WIRING_CHECKLIST.md`, `POWER_MAP.md`, `SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+- **Verification**:
+  - `python scripts/test_task9c_blower_fan.py`: PASS (33/33 checks).
+  - `python scripts/test_task8_buzzer_surgical_audit.py`: PASS (28/28 checks).
+  - ESP-IDF build `python scripts/run_idf.py build`: PASS (Exit Code 0, `agrotech_esp32.bin` 0x18be40 bytes).
+- **Changed Files**: `esp32/main/config/pin_config.h`, `esp32/main/hal/actuator_hal.c`, `esp32/main/hal/hardware_registry.c`, `esp32/main/hal/tft_hal.c`, `esp32/main/http/api_command_handlers.c`, `esp32/main/http/api_device_handlers.c`, `esp32/main/services/scheduler.c`, `esp32/main/services/scheduler.h`, `esp32/main/services/telemetry_mgr.c`, `src/lib/data/gpioPinMap.ts`, `scripts/test_power_loss_recovery.py`, `scripts/test_task9c_blower_fan.py`, canonical `docs/` files.
+- **Next Action**: Ready for flashing to physical hardware (COM3).
+
 ## SP-BUZZER-LAZY-START-STACK-FIX-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`

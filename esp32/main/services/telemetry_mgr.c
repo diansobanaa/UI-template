@@ -634,7 +634,7 @@ static void telemetry_sampler_task(void *pvParameters)
         s_snapshot.mixing_pump_on = actuator_hal_get_state(ACTUATOR_MIXING_PUMP);
         s_snapshot.dosing_a_on = actuator_hal_get_state(ACTUATOR_DOSING_A);
         s_snapshot.dosing_b_on = actuator_hal_get_state(ACTUATOR_DOSING_B);
-        s_snapshot.fan_on = actuator_hal_get_state(ACTUATOR_COOLING_FAN);
+        s_snapshot.fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
         s_snapshot.error_lamp_on = actuator_hal_get_state(ACTUATOR_ERROR_LAMP);
         s_snapshot.buzzer_on = actuator_hal_get_state(ACTUATOR_BUZZER);
         telemetry_snapshot_t copy_snap = s_snapshot;

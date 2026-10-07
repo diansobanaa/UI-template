@@ -34,7 +34,7 @@
 | **W-04** | **GPIO 4** | Left-4 | MOSFET Module (Raw Pump 1) | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Raw Submersible Pump 1 Trigger (12V DC) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC submersible pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
-| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #3 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Cabinet Exhaust Fan Trigger | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC brushless fan via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
+| **W-07** | **GPIO 7** | Left-7 | *UNASSIGNED* | Disconnected | Digital Control | 3.3V Logic | *Unassigned (Direct PSU Fan)* | None | N/A | Cabinet exhaust fan is powered directly from 12V PSU +/- (not MCU-controlled). GPIO 7 is unassigned (PIN_OUT_COOLING_FAN = -1). | **UNASSIGNED / RESERVED** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3 (Relay Ch 3)** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 3 triggers external contactor for 2x 220V AC greenhouse blower fans. | **VERIFIED SAFE** |
@@ -267,7 +267,7 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 | **MOSFET 1** | Raw Submersible Pump 1 | MOSFET | **GPIO 4** | Active-HIGH (1=ON) | 12V DC Raw Water Submersible Pump |
 | **MOSFET 2** | Dosing Pump A | MOSFET | **GPIO 5** | Active-HIGH (1=ON) | 12V DC Peristaltic Nutrient Dosing Pump A |
 | **MOSFET 3** | Dosing Pump B | MOSFET | **GPIO 6** | Active-HIGH (1=ON) | 12V DC Peristaltic Acid/Buffer Dosing Pump B |
-| **MOSFET 4** | Cabinet Cooling Fan | MOSFET | **GPIO 7** | Active-HIGH (1=ON) | 12V DC Cabinet Ventilation Exhaust Fan |
+| **MOSFET 4** | *UNASSIGNED (Cabinet Fan Direct PSU)* | None | **GPIO 7 (Disabled)**| None | Cabinet fan powered directly from PSU +/- (not MCU-controlled) |
 | **MOSFET 5** | Active Alarm Buzzer | MOSFET | **GPIO 18** | Active-HIGH (1=ON) | 5V DC Acoustic Alarm Annunciator (~30mA isolated) |
 
 ---
@@ -308,7 +308,7 @@ ESP32 GPIO 1 / 2 / 10 / 40 (Active-LOW: 0V = ON)
 * **MOSFET #1 (GPIO 4):** 12V DC Raw Submersible Pump 1 (`RAW_SUBMERSIBLE_PUMP_1` / `pump_submersible`)
 * **MOSFET #2 (GPIO 5):** 12V DC Peristaltic Dosing Pump A (Nutrient)
 * **MOSFET #3 (GPIO 6):** 12V DC Peristaltic Dosing Pump B (pH/Buffer)
-* **MOSFET #4 (GPIO 7):** 12V DC Cabinet Cooling Fan
+* **MOSFET #4 (GPIO 7 - Unassigned):** Cabinet cooling fan is wired directly to 12V DC PSU +/- (uncontrolled by ESP32)
 * **MOSFET #5 (GPIO 18):** 5V DC Active Alarm Buzzer (~30mA load safely driven via MOSFET gate stage)
 * *Note: Physical trigger terminals verified by operator: TRIG-PWM (Signal) and GND (Ground return). Active-HIGH (1=3.3V=ON, 0=0V=OFF).*
 
@@ -368,7 +368,7 @@ Switched Return (-) from OUT- ────────────────�
 | **W-04** | MOSFET #1 Gate | ESP32 GPIO 4 | No conflict. Clean digital pin. | Gate trigger for 12V Raw Submersible Pump 1. Active-HIGH (1=ON, 0=OFF). | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
 | **W-05** | MOSFET #2 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. Active-HIGH. | `PIN_OUT_DOSING_A = 5` | **VERIFIED SAFE** |
 | **W-06** | MOSFET #3 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. Active-HIGH. | `PIN_OUT_DOSING_B = 6` | **VERIFIED SAFE** |
-| **W-07** | MOSFET #4 Gate | ESP32 GPIO 7 | No conflict. Clean digital pin. | Gate trigger for 12V cabinet cooling fan. Active-HIGH. | `PIN_OUT_COOLING_FAN = 7` | **VERIFIED SAFE** |
+| **W-07** | *UNASSIGNED* | ESP32 GPIO 7 | No conflict. Unassigned pin. | Cabinet fan powered directly from PSU +/-; MCU control disabled. | `PIN_OUT_COOLING_FAN = -1` | **UNASSIGNED / RESERVED** |
 | **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
 | **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
 | **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers contactor for 2x Greenhouse Blower Fans. Active-LOW. | `PIN_OUT_BLOWER_FAN = 10` | **VERIFIED SAFE** |

@@ -1,3 +1,32 @@
+# AI HANDOVER - SP-GH-BLOWER-FAN-FIX-001
+
+## Current status
+TASK #9C (Remove Cabinet Fan from ESP32 + Fix GH Blower Fan) is **COMPLETE & FULLY VERIFIED**:
+1. **Cabinet Fan Removal**:
+   - Cabinet/internal box fan is powered directly from PSU +/- and is **NOT** controlled by ESP32.
+   - `PIN_OUT_COOLING_FAN` is set to `-1` in `pin_config.h`.
+   - `ACTUATOR_COOLING_FAN` has `gpio = -1` and role resolution returns `NULL`.
+   - Removed `cooling_fan` / `fan_cooling` / `cabinet_fan` from `actuator_hal_find_id_by_component_id` and `hardware_registry_find_by_id`.
+   - Removed `fan_cooling` from schedule compiling, normalization, command dispatch, and reconciliation.
+   - Telemetry and device handlers report `coolingFan: false` and monitor `ACTUATOR_BLOWER_FAN` for active fan operations.
+   - `src/lib/data/gpioPinMap.ts` marks GPIO 7 unassigned and unselectable (`disabledReason: Cabinet exhaust fan is powered directly from PSU +/- and is not controlled by ESP32`).
+2. **GH Blower Fan Alias Collision Fix**:
+   - Aliases (`fan_blower`, `blower_fan`, `fan-blower`, `blower`) resolve to `ACTUATOR_BLOWER_FAN` on GPIO 10 (4-Channel Relay Channel 3, Active-LOW).
+   - In `is_fan_schedule()`: matches schedules to target components using resolved physical actuator IDs (`actuator_hal_find_id_by_component_id`), so any alias match evaluates correctly without false negatives.
+   - In `scheduler_compile_from_json()`: all blower aliases normalize directly to canonical `fan_blower`.
+3. **Deduplication in Fan Reconciliation**:
+   - `scheduler_reconcile_fan_schedule()` tracks `seen_actuators` by resolved physical actuator ID (`ACTUATOR_BLOWER_FAN`), ensuring GPIO 10 is evaluated and actuated exactly once per reconciliation pass.
+   - Eliminates the previous bug where `fan_blower` turned ON GPIO 10 and a subsequent iteration on `blower_fan` stopped GPIO 10 after only a few seconds.
+   - GH blower now remains ON for the entire 60-minute schedule window.
+4. **Verification**:
+   - ESP-IDF build `python scripts/run_idf.py build`: PASS (Exit Code 0, `agrotech_esp32.bin` 0x18be40 bytes).
+   - Task 9C regression test `python scripts/test_task9c_blower_fan.py`: PASS (33/33 checks).
+   - Task 8 audit test `python scripts/test_task8_buzzer_surgical_audit.py`: PASS (28/28 checks).
+5. **Canonical Documentation**:
+   - Updated `docs/ESP32_GPIO_PIN_MAP.md`, `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/HARDWARE_INVENTORY.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`, `docs/POWER_MAP.md`, and `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`.
+
+---
+
 # AI HANDOVER - SP-BUZZER-LAZY-START-STACK-FIX-001
 
 ## Current status

@@ -21,7 +21,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-4** | **4** | Raw Submersible Pump 1 Trigger | MOSFET Module #1 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Raw Submersible Pump 1 via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
 | **Left-5** | **5** | Dosing Pump A Trigger | MOSFET Module #2 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump A (Nutrient) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
 | **Left-6** | **6** | Dosing Pump B Trigger | MOSFET Module #3 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump B (pH/Buffer) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
-| **Left-7** | **7** | Cooling Fan Trigger | MOSFET Module #4 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Cabinet Exhaust Fan via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
+| **Left-7** | **7** | *UNASSIGNED (DIRECT PSU FAN)* | Disconnected / Reserved | GPIO Digital Out | Unassigned (MCU Control Disabled) | **UNASSIGNED / RESERVED** | Cabinet/Internal Box Fan is powered directly from PSU +/- and is NOT controlled by ESP32 MCU. PIN_OUT_COOLING_FAN is set to -1 in firmware. |
 | **Left-12** | **8** | I2C SDA (Data) | RTC DS3231 | I2C Bus | Bi-directional | VERIFIED SAFE | Dedicated I2C Data line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-15** | **9** | I2C SCL (Clock) | RTC DS3231 | I2C Bus | Output | VERIFIED SAFE | Dedicated I2C Clock line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-16** | **10** | Greenhouse Blower Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Drives 4-Ch Relay IN3 triggering contactor for 2x 220V AC Greenhouse circulation blower fans. |
@@ -65,7 +65,7 @@ Pin 3 : RST / EN (Chip Reset)
 Pin 4 : GPIO4  -> Raw Submersible Pump 1 (MOSFET #1)
 Pin 5 : GPIO5  -> Dosing Pump A (MOSFET #2)
 Pin 6 : GPIO6  -> Dosing Pump B (MOSFET #3)
-Pin 7 : GPIO7  -> Cooling Fan Panel (MOSFET #4)
+Pin 7 : GPIO7  -> [UNASSIGNED: Cabinet Fan powered directly from PSU +/-]
 Pin 8 : GPIO15 -> Raw Water Flow Meter ZJ-B1 (Transfer to Mixing Tank)
 Pin 9 : GPIO16 -> Fertigation Flow Meter FS400A (G1" Delivery)
 Pin 10: GPIO17 -> Temperature Sensor DS18B20 (1-Wire)

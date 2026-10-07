@@ -1109,11 +1109,9 @@ static esp_err_t sync_intents_locked(void) {
     if (!comp_id || !comp_id[0]) comp_id = json_string(it, "fan");
     if (comp_id && (strcmp(comp_id, "wp-main") == 0 || strcasecmp(comp_id, "well_pump") == 0)) {
       comp_id = "pump_well";
-    } else if (comp_id && (strcasecmp(comp_id, "fan-cooling") == 0 || strcasecmp(comp_id, "cooling_fan") == 0 ||
-                           strcasecmp(comp_id, "cooling-fan") == 0 || strcasecmp(comp_id, "cabinet_fan") == 0)) {
-      comp_id = "fan_cooling";
     } else if (comp_id && (strcasecmp(comp_id, "fan-blower") == 0 || strcasecmp(comp_id, "blower_fan") == 0 ||
-                           strcasecmp(comp_id, "blower-fan") == 0 || strcasecmp(comp_id, "blower") == 0)) {
+                           strcasecmp(comp_id, "blower-fan") == 0 || strcasecmp(comp_id, "blower") == 0 ||
+                           strcasecmp(comp_id, "fan_blower") == 0)) {
       comp_id = "fan_blower";
     }
 
@@ -1154,11 +1152,7 @@ static esp_err_t sync_intents_locked(void) {
       copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "pump_well");
       rs->component_count = 1;
     } else if (strcmp(rs->action, "FAN_TOGGLE") == 0) {
-      if (rs->gh_id[0]) {
-        copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_blower");
-      } else {
-        copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_cooling");
-      }
+      copy_string(rs->component_ids[0], sizeof(rs->component_ids[0]), "fan_blower");
       rs->component_count = 1;
     }
 
@@ -3060,10 +3054,20 @@ static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_com
                        strcasestr(rs->component_ids[0], "blower") != NULL));
   if (!is_fan_action && !is_fan_comp) return false;
 
-  if (!target_component || !target_component[0]) return true;
+  /* Cabinet fan is powered directly from PSU +/- and is not controlled by ESP32 */
+  if (rs->component_count > 0 &&
+      (strcasestr(rs->component_ids[0], "cooling") != NULL ||
+       strcasestr(rs->component_ids[0], "cabinet") != NULL)) {
+    return false;
+  }
+  if (target_component &&
+      (strcasestr(target_component, "cooling") != NULL ||
+       strcasestr(target_component, "cabinet") != NULL)) {
+    return false;
+  }
 
   /* Check greenhouse scope if target component is registered with a greenhouse */
-  if (rs->gh_id[0]) {
+  if (rs->gh_id[0] && target_component && target_component[0]) {
     hw_component_info_t target_info;
     if (hardware_registry_find_by_id(target_component, &target_info) == ESP_OK) {
       if (target_info.assignment.gh_id[0] &&
@@ -3073,19 +3077,33 @@ static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_com
     }
   }
 
+  if (!target_component || !target_component[0]) return true;
+
   const char *cid = (rs->component_count > 0 && rs->component_ids[0][0]) ? rs->component_ids[0] : NULL;
   if (cid) {
     if (strcasecmp(cid, target_component) == 0) return true;
-    if (strcasestr(target_component, "cooling") && strcasestr(cid, "cooling")) return true;
-    if (strcasestr(target_component, "blower") && strcasestr(cid, "blower")) return true;
+
+    /* Resolve both component IDs to physical actuator IDs */
+    actuator_id_t cid_act = ACTUATOR_MAX_COUNT;
+    actuator_id_t tgt_act = ACTUATOR_MAX_COUNT;
+    bool cid_has_act = (actuator_hal_find_id_by_component_id(cid, &cid_act) == ESP_OK);
+    bool tgt_has_act = (actuator_hal_find_id_by_component_id(target_component, &tgt_act) == ESP_OK);
+
+    if (cid_has_act && tgt_has_act && cid_act == tgt_act && cid_act != ACTUATOR_MAX_COUNT) {
+      return true;
+    }
+
+    bool cid_is_blower = (strcasestr(cid, "blower") != NULL || strcasecmp(cid, "fan_blower") == 0);
+    bool tgt_is_blower = (strcasestr(target_component, "blower") != NULL || strcasecmp(target_component, "fan_blower") == 0);
+    if (cid_is_blower && tgt_is_blower) {
+      return true;
+    }
+
     return false;
   }
 
-  if (rs->gh_id[0]) {
-    return (strcasestr(target_component, "blower") != NULL);
-  } else {
-    return (strcasestr(target_component, "cooling") != NULL);
-  }
+  /* Schedule action is FAN/BLOWER without specific component -> targets canonical fan_blower */
+  return true;
 }
 
 bool scheduler_is_well_pump_schedule_active(time_t now, uint32_t *out_remaining_sec, char *out_schedule_id, size_t id_len) {
@@ -3169,7 +3187,7 @@ bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, 
         if (out_component_id && comp_len > 0) {
           const char *resolved_comp = (rs->component_count > 0 && rs->component_ids[0][0])
                                       ? rs->component_ids[0]
-                                      : (rs->gh_id[0] ? "fan_blower" : "fan_cooling");
+                                      : "fan_blower";
           strncpy(out_component_id, resolved_comp, comp_len - 1);
           out_component_id[comp_len - 1] = '\0';
         }
@@ -3187,7 +3205,7 @@ bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, 
         if (out_component_id && comp_len > 0) {
           const char *resolved_comp = (rs->component_count > 0 && rs->component_ids[0][0])
                                       ? rs->component_ids[0]
-                                      : (rs->gh_id[0] ? "fan_blower" : "fan_cooling");
+                                      : "fan_blower";
           strncpy(out_component_id, resolved_comp, comp_len - 1);
           out_component_id[comp_len - 1] = '\0';
         }
@@ -3204,6 +3222,7 @@ esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
   if (!local_clock_valid(now)) return ESP_ERR_INVALID_STATE;
 
   char fan_comp_list[MAX_RUNTIME_COMPONENTS][32];
+  actuator_id_t seen_actuators[MAX_RUNTIME_COMPONENTS];
   size_t fan_count = 0;
 
   size_t reg_count = hardware_registry_get_count();
@@ -3220,33 +3239,42 @@ esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
                    strcasestr(info.component_id, "blower") != NULL);
     if (!is_fan) continue;
 
+    /* Cabinet fan is directly powered from PSU +/- and must NOT participate in fan reconciliation */
+    if (strcasestr(info.role, "cooling") != NULL ||
+        strcasestr(info.component_id, "cooling") != NULL ||
+        strcasestr(info.component_id, "cabinet") != NULL) {
+      continue;
+    }
+
     actuator_id_t act_id = ACTUATOR_MAX_COUNT;
     if (actuator_hal_find_id_by_component_id(info.component_id, &act_id) != ESP_OK) continue;
+    if (act_id == ACTUATOR_COOLING_FAN) continue;
 
+    /* Deduplicate by resolved physical actuator ID */
     bool dup = false;
     for (size_t d = 0; d < fan_count; d++) {
-      if (strcmp(fan_comp_list[d], info.component_id) == 0) {
+      if (seen_actuators[d] == act_id) {
         dup = true;
         break;
       }
     }
     if (!dup) {
-      strncpy(fan_comp_list[fan_count], info.component_id, sizeof(fan_comp_list[fan_count]) - 1);
+      const char *canonical_comp = (act_id == ACTUATOR_BLOWER_FAN) ? "fan_blower" : info.component_id;
+      strncpy(fan_comp_list[fan_count], canonical_comp, sizeof(fan_comp_list[fan_count]) - 1);
       fan_comp_list[fan_count][sizeof(fan_comp_list[fan_count]) - 1] = '\0';
+      seen_actuators[fan_count] = act_id;
       fan_count++;
     }
   }
 
-  /* Safe fallback to legacy default fan components if none discovered in hardware registry */
+  /* Safe fallback to canonical blower fan if none discovered in hardware registry */
   if (fan_count == 0) {
-    const char *fallback_fans[] = {"fan_cooling", "fan_blower"};
-    for (size_t f = 0; f < 2 && fan_count < MAX_RUNTIME_COMPONENTS; f++) {
-      actuator_id_t act_id = ACTUATOR_MAX_COUNT;
-      if (actuator_hal_find_id_by_component_id(fallback_fans[f], &act_id) == ESP_OK) {
-        strncpy(fan_comp_list[fan_count], fallback_fans[f], sizeof(fan_comp_list[fan_count]) - 1);
-        fan_comp_list[fan_count][sizeof(fan_comp_list[fan_count]) - 1] = '\0';
-        fan_count++;
-      }
+    actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+    if (actuator_hal_find_id_by_component_id("fan_blower", &act_id) == ESP_OK) {
+      strncpy(fan_comp_list[0], "fan_blower", sizeof(fan_comp_list[0]) - 1);
+      fan_comp_list[0][sizeof(fan_comp_list[0]) - 1] = '\0';
+      seen_actuators[0] = act_id;
+      fan_count = 1;
     }
   }
 

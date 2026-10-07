@@ -3866,10 +3866,14 @@ PYTHON SAVE + ANALYSIS
    - **Root Cause**: `active_config_has_gh()` only inspected the `"greenhouses"` array in `storage_mgr_load_config()`. In setups where greenhouse peripherals are assigned via dynamic hardware registry, the configuration JSON's `"greenhouses"` array could be empty, causing valid greenhouse targets to fail validation.
    - **Resolution**: Enhanced `active_config_has_gh()` in `command_mgr.c` to iterate `hardware_registry` component assignments: if any registered, commissioned, or enabled component has `assignment.gh_id == gh_id`, the greenhouse target is validated as authoritative.
 
-4. **Schedule Intent Parsing and Hardware Binding**
-   - **Resolution**: Enhanced `sync_intents_locked()` in `scheduler.c`:
-     - Normalizes fan aliases (`fan_cooling`, `fan_blower`, `fan-cooling`, `blower-fan`, `cooling_fan`, `blower`).
-     - Intelligent target binding: `FAN_TOGGLE` schedules with a greenhouse ID automatically bind to `fan_blower` (greenhouse blower contactor on GPIO 10); facility/cabinet schedules without greenhouse ID bind to `fan_cooling` (cabinet exhaust fan on GPIO 7).
+4. **Schedule Intent Parsing and Hardware Binding (Task 9C Update)**
+   - **Cabinet Fan Architecture**: The cabinet/internal box fan is powered directly from PSU +/- and is **NOT** controlled by ESP32 MCU. It does not participate in fan scheduling, reconciliation, or command dispatch (`PIN_OUT_COOLING_FAN = -1`).
+   - **Greenhouse Blower Authority**: The ONLY fan controlled by ESP32 is the Greenhouse Blower (`fan_blower`, `ACTUATOR_BLOWER_FAN`, GPIO 10 / 4-Channel Relay Ch 3, Active-LOW, target GH: `gh-muii7dtg`).
+   - **Resolution & Deduplication in `scheduler.c`**:
+     - Normalizes all blower aliases (`fan_blower`, `blower_fan`, `fan-blower`, `blower`) to canonical `fan_blower`.
+     - In `scheduler_reconcile_fan_schedule()`: deduplicates candidates by resolved physical actuator ID (`ACTUATOR_BLOWER_FAN`), ensuring GPIO 10 is evaluated and actuated exactly once per reconciliation pass.
+     - In `is_fan_schedule()`: matches schedules to targets using resolved physical actuator IDs (`actuator_hal_find_id_by_component_id`), eliminating alias mismatch collisions where one alias turns ON and another immediately stops the actuator.
+     - All `FAN_TOGGLE` intents default to canonical `fan_blower`. Any legacy `fan_cooling` references are ignored by ESP32.
      - Flexible recurrence parsing: supports both ISO/UI `"time": "HH:MM"` string format and OpenAPI `"hour": HH, "minute": MM` integer properties.
 
 5. **Schedule Capacity & API Buffer Scaling**
