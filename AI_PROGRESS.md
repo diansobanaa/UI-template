@@ -1,3 +1,36 @@
+## SP-SCHEDULER-AUDIT-LATE-ACT-001
+- **Date**: 2026-10-07
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**: Execute TODO #4 — Implement smallest and safest scheduler adjustments based strictly on verified audit findings:
+  1. Fix misleading `occurrences=0` diagnostic log by breaking down total schedules into `fert`, `pump`, `fan`, and `fert_occurrences`.
+  2. Eliminate false 30-minute re-materialization in Condition 3 & 4 when zero fertigation schedules are loaded, while preserving missing-occurrence protection when fertigation schedules exist.
+  3. Replace hardcoded `{"fan_cooling", "fan_blower"}` in `scheduler_reconcile_fan_schedule()` with dynamic iteration over active fan components from `hardware_registry`.
+  4. Enforce greenhouse-scoped fan matching in `is_fan_schedule()` to prevent cross-greenhouse triggering.
+  5. Strictly preserve existing Well Pump and Fan late-activation timing (`schedule_start <= now < schedule_end`), remaining duration, and idempotency gating.
+- **Implemented**:
+  - `esp32/main/services/scheduler.c`:
+    - Forward declarations added for `is_well_pump_schedule`, `is_fan_schedule`, `has_fertigation_schedules`.
+    - Added helper `has_fertigation_schedules()` checking for active schedules with `action == "FERTIGATION"`.
+    - Condition 3 updated to evaluate `has_fert && s_today_occurrence_count == 0 && s_runtime_count > 0`. Bypasses 30-minute throttle when 0 fertigation schedules exist.
+    - Condition 4 updated to guard 2-hour re-trigger only when `has_fert && s_today_occurrence_count == 0`.
+    - Diagnostic log updated to: `Daily schedule trigger executed for yday %d (schedules=%u, fert=%u, pump=%u, fan=%u, fert_occurrences=%u)`.
+    - `scheduler_get_next_occurrence()` updated to gate re-materialization on `has_fertigation_schedules()`.
+    - `is_fan_schedule()` updated with greenhouse scope check via `hardware_registry_find_by_id(target_component, &target_info)` to prevent cross-GH fan activation.
+    - `scheduler_reconcile_fan_schedule()` updated to dynamically discover active fan/blower components from `hardware_registry` (`hardware_registry_get_count()` and `hardware_registry_get_by_index()`) with fallback to legacy defaults.
+  - Canonical documentation:
+    - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` Section 6 updated with fertigation-aware Condition 3 guard and diagnostic logging format.
+- **Verification on Physical ESP32-S3 Hardware (COM3 / 192.168.0.101)**:
+  - Clean compilation & link: `PASS` (zero errors, zero warnings, 48% flash headroom free).
+  - Flashed to physical ESP32-S3 via `scripts/flash_esp32.ps1`: `PASS`.
+  - Live boot log on hardware:
+    `I (5318) SCHEDULER: Daily schedule trigger executed for yday 279 (schedules=26, fert=0, pump=17, fan=9, fert_occurrences=0)`
+    Confirms exact diagnostic breakdown: 26 total schedules, 0 fertigation, 17 well pump, 9 fan, 0 fertigation occurrences.
+  - `lazy_start` power-loss recovery: `I (4848) SCHEDULER: lazy_start: Power-loss schedule reconciliation complete (one-shot).`
+  - REST API health: `GET /api/v1/health` -> HTTP 200 OK (`health: "HEALTHY"`, `uptimeSec: 12+`).
+  - REST API daily trigger: `POST /api/v1/schedules/trigger-today` -> HTTP 200 OK (`status: "TRIGGERED"`, `dailyTriggerExecuted: true`).
+- **Known issues / next action**: TODO #4 complete. Strictly halt and do NOT proceed to TODO #5–#9 per scope guard.
+- **Changed files**: `esp32/main/services/scheduler.c`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+
 ## SP-SCHEDULE-TIMELINE-REDESIGN-001
 - **Date**: 2026-10-07
 - **Status**: `COMPLETE & FULLY VERIFIED (BUILD, TYPESCRIPT, & VISUAL PLAYWRIGHT VERIFIED)`

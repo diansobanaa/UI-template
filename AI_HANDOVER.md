@@ -1,3 +1,23 @@
+# AI HANDOVER — SP-SCHEDULER-AUDIT-LATE-ACT-001
+
+## Current status
+TODO #4 (Scheduler Audit & Targeted Minimal Fix) is **COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)**.
+- **Diagnostic Logging**: `Daily schedule trigger executed for yday %d (schedules=%u, fert=%u, pump=%u, fan=%u, fert_occurrences=%u)` now clearly breaks down schedules into Fertigation, Well Pump, Fan, and Fertigation occurrences, eliminating the confusion where `occurrences=0` appeared to mean failure.
+- **Elimination of False 30-Minute Re-materialization**: Condition 3 and Condition 4 now verify `has_fert = has_fertigation_schedules()`. When only non-fertigation schedules (`WATER_PUMP`, `FAN_TOGGLE`) are loaded in `s_runtime[]`, the 30-minute missing-occurrence retry loop is bypassed. Missing-occurrence recovery is strictly preserved whenever at least one active Fertigation schedule exists.
+- **Dynamic Fan Discovery**: Replaced hardcoded `fan_components[] = {"fan_cooling", "fan_blower"}` with dynamic iteration over active components in `hardware_registry` (`hardware_registry_get_count()` and `hardware_registry_get_by_index()`), with automatic fallback to legacy defaults.
+- **Greenhouse Scoping**: `is_fan_schedule()` now verifies greenhouse matching using `hardware_registry_find_by_id()` if `rs->gh_id` is set, preventing cross-greenhouse fan triggering.
+- **Preserved Invariants**: Well Pump and Fan late-activation timing (`schedule_start <= now < schedule_end`), remaining duration calculation, power-loss recovery (`lazy_start`), and hardware-level idempotency gating (`!currently_on`) were strictly preserved without timing changes.
+- **Live Hardware Verification**:
+  - Firmware build: PASS (48% flash headroom free).
+  - Flashed to physical ESP32-S3 over COM3.
+  - Live boot log confirmed: `I (5318) SCHEDULER: Daily schedule trigger executed for yday 279 (schedules=26, fert=0, pump=17, fan=9, fert_occurrences=0)`.
+  - Power-loss recovery confirmed: `I (4848) SCHEDULER: lazy_start: Power-loss schedule reconciliation complete (one-shot).`
+  - REST API Health (`GET /api/v1/health`): 200 OK (`HEALTHY`, uptime 12+ s).
+  - REST API Trigger (`POST /api/v1/schedules/trigger-today`): 200 OK (`TRIGGERED`).
+- **Next Action / Scope Guard**: Safe point achieved. Strictly do NOT proceed to TODO #5–#9 per scope guard.
+
+---
+
 # AI HANDOVER — SP-SCHEDULE-TIMELINE-REDESIGN-001
 
 ## Current status

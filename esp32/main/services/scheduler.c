@@ -2486,6 +2486,9 @@ static void check_distribution_completions(void) {
 static bool s_lazy_start_done = false;
 esp_err_t scheduler_reconcile_fan_schedule(time_t now);
 bool scheduler_is_lazy_start_done(void);
+static bool is_well_pump_schedule(const runtime_schedule_t *rs);
+static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_component);
+static bool has_fertigation_schedules(void);
 
 esp_err_t scheduler_evaluate_at(time_t now) {
   if (!local_clock_valid(now))
@@ -2514,16 +2517,18 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     daily_trigger_needed = true;
   }
 
-  /* Condition 3: Missing occurrences recovery (e.g. schedules were loaded/synced after boot or power loss)
-   * Throttled to every 30 minutes (1800s) when occurrences count is 0 to prevent 1-second busy loop
-   * when all active runtime schedules are non-fertigation (WATER_PUMP / FAN_TOGGLE). */
+  /* Condition 3: Missing occurrences recovery (e.g. fertigation schedules loaded/synced after boot or power loss).
+   * Only triggers when at least one active FERTIGATION schedule exists in s_runtime[] but produced zero occurrences.
+   * Throttled to every 30 minutes (1800s). When all runtime schedules are non-fertigation (WATER_PUMP / FAN_TOGGLE),
+   * this path is bypassed to eliminate false 30-minute re-materialization. */
   static time_t s_last_zero_occ_check_sec = 0;
-  if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
+  bool has_fert = has_fertigation_schedules();
+  if (has_fert && s_today_occurrence_count == 0 && s_runtime_count > 0) {
     if (s_last_zero_occ_check_sec == 0 || (now - s_last_zero_occ_check_sec >= 1800)) {
       s_last_zero_occ_check_sec = now;
       daily_trigger_needed = true;
     }
-  } else if (s_today_occurrence_count > 0) {
+  } else if (s_today_occurrence_count > 0 || !has_fert) {
     s_last_zero_occ_check_sec = 0;
   }
 
@@ -2532,7 +2537,7 @@ esp_err_t scheduler_evaluate_at(time_t now) {
   if (now - s_last_periodic_check_sec >= 7200) {
     s_last_periodic_check_sec = now;
     if (s_runtime_count > 0) {
-      if (s_today_occurrence_count == 0) {
+      if (has_fert && s_today_occurrence_count == 0) {
         daily_trigger_needed = true;
       } else {
         try_enqueue_pending_preparations(now);
@@ -2546,8 +2551,23 @@ esp_err_t scheduler_evaluate_at(time_t now) {
     s_daily_trigger_completed_year = tm_now.tm_year;
     if (s_runtime_count > 0) {
       materialize_today_schedule(now);
-      ESP_LOGI(TAG, "Daily schedule trigger executed for yday %d (schedules=%u, occurrences=%u)",
-               tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)s_today_occurrence_count);
+      size_t fert_sched_count = 0;
+      size_t pump_sched_count = 0;
+      size_t fan_sched_count = 0;
+      for (size_t i = 0; i < s_runtime_count; i++) {
+        runtime_schedule_t *rs = &s_runtime[i];
+        if (!rs->valid) continue;
+        if (strcmp(rs->action, "FERTIGATION") == 0) {
+          fert_sched_count++;
+        } else if (is_well_pump_schedule(rs)) {
+          pump_sched_count++;
+        } else if (is_fan_schedule(rs, NULL)) {
+          fan_sched_count++;
+        }
+      }
+      ESP_LOGI(TAG, "Daily schedule trigger executed for yday %d (schedules=%u, fert=%u, pump=%u, fan=%u, fert_occurrences=%u)",
+               tm_now.tm_yday, (unsigned)s_runtime_count, (unsigned)fert_sched_count,
+               (unsigned)pump_sched_count, (unsigned)fan_sched_count, (unsigned)s_today_occurrence_count);
       try_enqueue_pending_preparations(now);
     }
   }
@@ -2937,7 +2957,7 @@ esp_err_t scheduler_get_next_occurrence(today_occurrence_t *out_occ) {
   bool clock_ok = local_clock_valid(now);
   if (clock_ok) {
     localtime_r(&now, &tm_now);
-    if (s_today_occurrence_count == 0 && s_runtime_count > 0) {
+    if (has_fertigation_schedules() && s_today_occurrence_count == 0 && s_runtime_count > 0) {
       materialize_today_schedule(now);
     }
   }
@@ -3006,6 +3026,15 @@ esp_err_t scheduler_trigger_daily_now(void) {
   return ESP_OK;
 }
 
+static bool has_fertigation_schedules(void) {
+  for (size_t i = 0; i < s_runtime_count; i++) {
+    if (s_runtime[i].valid && strcmp(s_runtime[i].action, "FERTIGATION") == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool is_well_pump_schedule(const runtime_schedule_t *rs) {
   if (!rs || !rs->valid) return false;
   if (strcmp(rs->action, "WATER_PUMP") == 0) return true;
@@ -3032,6 +3061,17 @@ static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_com
   if (!is_fan_action && !is_fan_comp) return false;
 
   if (!target_component || !target_component[0]) return true;
+
+  /* Check greenhouse scope if target component is registered with a greenhouse */
+  if (rs->gh_id[0]) {
+    hw_component_info_t target_info;
+    if (hardware_registry_find_by_id(target_component, &target_info) == ESP_OK) {
+      if (target_info.assignment.gh_id[0] &&
+          strcmp(rs->gh_id, target_info.assignment.gh_id) != 0) {
+        return false;
+      }
+    }
+  }
 
   const char *cid = (rs->component_count > 0 && rs->component_ids[0][0]) ? rs->component_ids[0] : NULL;
   if (cid) {
@@ -3163,9 +3203,55 @@ bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, 
 esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
   if (!local_clock_valid(now)) return ESP_ERR_INVALID_STATE;
 
-  const char *fan_components[] = {"fan_cooling", "fan_blower"};
-  for (size_t f = 0; f < 2; f++) {
-    const char *comp_id = fan_components[f];
+  char fan_comp_list[MAX_RUNTIME_COMPONENTS][32];
+  size_t fan_count = 0;
+
+  size_t reg_count = hardware_registry_get_count();
+  for (size_t i = 0; i < reg_count && fan_count < MAX_RUNTIME_COMPONENTS; i++) {
+    hw_component_info_t info;
+    if (hardware_registry_get_by_index(i, &info) != ESP_OK) continue;
+    if (!hardware_registry_is_operational(info.component_id)) continue;
+
+    bool is_fan = (strcasestr(info.role, "FAN") != NULL ||
+                   strcasestr(info.role, "BLOWER") != NULL ||
+                   strcasestr(info.supported_type_id, "fan") != NULL ||
+                   strcasestr(info.supported_type_id, "blower") != NULL ||
+                   strcasestr(info.component_id, "fan") != NULL ||
+                   strcasestr(info.component_id, "blower") != NULL);
+    if (!is_fan) continue;
+
+    actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+    if (actuator_hal_find_id_by_component_id(info.component_id, &act_id) != ESP_OK) continue;
+
+    bool dup = false;
+    for (size_t d = 0; d < fan_count; d++) {
+      if (strcmp(fan_comp_list[d], info.component_id) == 0) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      strncpy(fan_comp_list[fan_count], info.component_id, sizeof(fan_comp_list[fan_count]) - 1);
+      fan_comp_list[fan_count][sizeof(fan_comp_list[fan_count]) - 1] = '\0';
+      fan_count++;
+    }
+  }
+
+  /* Safe fallback to legacy default fan components if none discovered in hardware registry */
+  if (fan_count == 0) {
+    const char *fallback_fans[] = {"fan_cooling", "fan_blower"};
+    for (size_t f = 0; f < 2 && fan_count < MAX_RUNTIME_COMPONENTS; f++) {
+      actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+      if (actuator_hal_find_id_by_component_id(fallback_fans[f], &act_id) == ESP_OK) {
+        strncpy(fan_comp_list[fan_count], fallback_fans[f], sizeof(fan_comp_list[fan_count]) - 1);
+        fan_comp_list[fan_count][sizeof(fan_comp_list[fan_count]) - 1] = '\0';
+        fan_count++;
+      }
+    }
+  }
+
+  for (size_t f = 0; f < fan_count; f++) {
+    const char *comp_id = fan_comp_list[f];
     actuator_id_t act_id = ACTUATOR_MAX_COUNT;
     if (actuator_hal_find_id_by_component_id(comp_id, &act_id) != ESP_OK) continue;
 
