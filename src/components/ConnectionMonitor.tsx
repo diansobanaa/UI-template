@@ -47,8 +47,8 @@ export function getControllerTargets(complexes: Complex[]): ControllerTarget[] {
   return Array.from(targetMap.values());
 }
 
-/** Liveness policy: probe every 3 s, OFFLINE after 2 consecutive failures (~5 s worst case in foreground). */
-export const POLL_INTERVAL_MS = 3000;
+/** Liveness policy: probe every 5 s, OFFLINE after 2 consecutive failures. */
+export const POLL_INTERVAL_MS = 5000;
 export const OFFLINE_FAILURE_THRESHOLD = 2;
 /** A telemetry frame received within one probe cycle proves the controller is alive. A merely "open"
  *  socket does not: after a power cut a half-open WebSocket can look connected for minutes. */

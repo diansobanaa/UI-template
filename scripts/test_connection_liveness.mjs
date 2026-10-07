@@ -72,7 +72,7 @@ assert(
 console.log("  ✓ Test 10 (Contract): UI footer and header render Offline/Stale cleanly without false Live labels.");
 
 // G. TASK #5: fast liveness + one-shot chime + persistent banner
-assert(connMonitorSrc.includes("export const POLL_INTERVAL_MS = 3000"), "FAIL: poll interval must be 3000 ms");
+assert(connMonitorSrc.includes("export const POLL_INTERVAL_MS = 5000"), "FAIL: poll interval must be 5000 ms");
 assert(connMonitorSrc.includes("export const OFFLINE_FAILURE_THRESHOLD = 2"), "FAIL: offline threshold must be 2");
 assert(connMonitorSrc.includes("setInterval(tick, POLL_INTERVAL_MS)"), "FAIL: polling must use POLL_INTERVAL_MS");
 assert(!/setInterval\(\s*playPulse/.test(connMonitorSrc), "FAIL: continuous alarm loop must be removed");
@@ -84,7 +84,7 @@ assert(connMonitorSrc.includes('ctx.state !== "running"'), "FAIL: chime must not
 assert(connMonitorSrc.includes("Date.now() - ws.at < WS_FRESH_MS"), "FAIL: WebSocket evidence must require a fresh frame");
 assert(!connMonitorSrc.includes("navigator.onLine"), "FAIL: navigator.onLine must not drive ESP32 state");
 assert(!connMonitorSrc.includes("hydrateOperationalState"), "FAIL: monitor must not trigger full hydration");
-console.log("  ✓ Test 11 (Contract): 3 s poll, 2-failure threshold, one-shot chime, non-dismissible banner, cross-tab bus, fresh-frame WS evidence.");
+console.log("  ✓ Test 11 (Contract): 5 s poll, 2-failure threshold, one-shot chime, non-dismissible banner, cross-tab bus, fresh-frame WS evidence.");
 
 // ----------------------------------------------------------------------------
 // 2. Behavioral Unit Simulation
@@ -234,7 +234,7 @@ console.log("\n[3/3] Simulating edge-triggered disconnect chime across tabs...")
 
 const THRESHOLD = 2;
 const SUPPRESS_MS = 15000;
-const WS_FRESH_MS = 3000 + 2500;
+const WS_FRESH_MS = 5000 + 2500;
 const bus = [];
 function makeTab(name, audioUnlocked = true) {
   const tab = { name, failures: 0, offline: false, chimes: 0, lastRemoteChimeAt: -Infinity, audioUnlocked };
@@ -257,29 +257,29 @@ function tabTick(tab, now, { httpOk, wsConnected = false, wsFrameAt = -Infinity 
 const t1 = makeTab("A");
 let now = 0;
 // A. Normal online
-tabTick(t1, (now += 3000), { httpOk: true });
+tabTick(t1, (now += 5000), { httpOk: true });
 assert.strictEqual(t1.offline, false); assert.strictEqual(t1.chimes, 0);
 // B. One failure -> still online, silent
-tabTick(t1, (now += 3000), { httpOk: false });
+tabTick(t1, (now += 5000), { httpOk: false });
 assert.strictEqual(t1.offline, false); assert.strictEqual(t1.chimes, 0);
 // C. Second failure -> offline, exactly one chime
-tabTick(t1, (now += 3000), { httpOk: false });
+tabTick(t1, (now += 5000), { httpOk: false });
 assert.strictEqual(t1.offline, true); assert.strictEqual(t1.chimes, 1);
 // D. More failures -> no extra chime
-for (let i = 0; i < 5; i++) tabTick(t1, (now += 3000), { httpOk: false });
+for (let i = 0; i < 5; i++) tabTick(t1, (now += 5000), { httpOk: false });
 assert.strictEqual(t1.offline, true); assert.strictEqual(t1.chimes, 1);
 // E. Recovery -> online, no recovery chime
-tabTick(t1, (now += 3000), { httpOk: true });
+tabTick(t1, (now += 5000), { httpOk: true });
 assert.strictEqual(t1.offline, false); assert.strictEqual(t1.failures, 0); assert.strictEqual(t1.chimes, 1);
 console.log("  ✓ Test 12: A-E online/1-fail/2-fail/repeat/recovery -> exactly one chime on ONLINE->OFFLINE");
 
 // H. WS fresh frame masks one HTTP failure; stale "connected" socket does not
 const tw = makeTab("WS");
-tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
-tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
+tabTick(tw, (now += 5000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
+tabTick(tw, (now += 5000), { httpOk: false, wsConnected: true, wsFrameAt: now - 1000 });
 assert.strictEqual(tw.offline, false, "Fresh telemetry frames must prevent false OFFLINE");
-tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
-tabTick(tw, (now += 3000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
+tabTick(tw, (now += 5000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
+tabTick(tw, (now += 5000), { httpOk: false, wsConnected: true, wsFrameAt: now - 60000 });
 assert.strictEqual(tw.offline, true, "Half-open socket without fresh frames must not mask OFFLINE");
 console.log("  ✓ Test 13: H fresh WS frames prevent false OFFLINE; stale half-open socket does not mask it");
 
