@@ -51,9 +51,9 @@ static bool record_in_current_complex(const calibration_record_t *record)
 static bool calibration_type_supported(const char *type)
 {
     if (!type || !type[0]) return false;
-    return strcasecmp(type, "DOSING_RATE") == 0 || strcasecmp(type, "FLOW") == 0 ||
-           strcasecmp(type, "LEVEL") == 0 || strcasecmp(type, "PH") == 0 ||
-           strcasecmp(type, "EC") == 0;
+    return strcasecmp(type, "DOSING_RATE") == 0 || strcasecmp(type, "PUMP_RATE") == 0 ||
+           strcasecmp(type, "FLOW") == 0 || strcasecmp(type, "LEVEL") == 0 ||
+           strcasecmp(type, "PH") == 0 || strcasecmp(type, "EC") == 0;
 }
 
 static bool state_usable(calibration_record_state_t state)

@@ -1,3 +1,33 @@
+## SP-CORE-PROTOCOL-MIXING-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, TypeScript PASS, E2E Contracts PASS, Test Suite 10/10 PASS)
+- **Objective**: Implement Core Mixing and Dosing Protocol Orchestrator (`protocol_mixing`):
+  1. Standalone Core Module: Built `esp32/main/services/protocol_mixing.h` and `esp32/main/services/protocol_mixing.c` as a modular orchestrator for raw water filling, dynamic nutrient dosing, and mixing. Intentionally decoupled from schedulers, fertigation distribution queues, and UI integrations.
+  2. Raw Water Source of Truth: Actual raw water volume derived strictly from physical flow sensor pulses (`sensor_flow_raw` / ZJ-B1 on GPIO 15), never from timer approximations.
+  3. Dynamic Threshold Mechanism: Threshold volume computed as `(raw_water_target_ml * threshold_percent) / 100`. When measured flow reaches threshold, mixing pump and all active dosing pumps start concurrently. Raw water pump continues running until 100% target volume is achieved.
+  4. Dynamic Dosing Channels: Dynamically configured channels array (up to 8 pumps), avoiding hardcoded Pump A/B. Each channel runtime is calculated using its own calibrated flow rate.
+  5. Calibration Dependency Hardening & Anomaly Remediation:
+     - Enabled setting flow meter pulses per liter (`flowRawPulsesPerL`) in `POST /api/v1/calibration/rate`.
+     - Added baseline fallback for `sensor_flow_raw` (GPIO 15) and `mixing_pump` (GPIO 40) in `hardware_registry.c`.
+     - Supported `PUMP_RATE` record type across calibration manager and API handlers.
+  6. Rigorous Safety & Safe-Stop: Enforced safe-stop on emergency stop, no-flow (15s grace), flow sensor error, raw water timeout (expected runtime + margin), and dosing channel timeout (1.5x + 5s).
+- **Implemented**:
+  - `esp32/main/services/protocol_mixing.h`: Core protocol API, config, channel specs, and result structures.
+  - `esp32/main/services/protocol_mixing.c`: Core state machine, flow monitoring, dynamic dosing channels, timeout/no-flow supervision, and safe stop helper.
+  - `esp32/main/hal/hardware_registry.c`: Added baseline fallback for `mixing_pump` and `sensor_flow_raw`.
+  - `esp32/main/services/calibration_mgr.c`: Supported `PUMP_RATE` in `calibration_type_supported`.
+  - `esp32/main/http/api_calibration_handlers.c`: Handled `flowRawPulsesPerL`, `flowRateMlMin`, and `PUMP_RATE`.
+  - `esp32/main/CMakeLists.txt`: Added `services/protocol_mixing.c` to firmware compilation.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Documented Section 35 (Core Protocol Mixing Architecture).
+  - `scripts/test_protocol_mixing.mjs`: Test suite covering all 10 core lifecycle, calculation, and safety scenarios.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 firmware build PASS (`agrotech_esp32.bin` built and linked cleanly).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (10/10 tests).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+- **Changed Files**: `esp32/main/services/protocol_mixing.h`, `esp32/main/services/protocol_mixing.c`, `esp32/main/hal/hardware_registry.c`, `esp32/main/services/calibration_mgr.c`, `esp32/main/http/api_calibration_handlers.c`, `esp32/main/CMakeLists.txt`, `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`, `scripts/test_protocol_mixing.mjs`.
+- **Next Action**: Ready for operational integration review.
+
 ## SP-UI-AUDIO-ALARM-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Liveness test PASS, Tamper test PASS, Unit test PASS 9/9, Browser validation PASS)

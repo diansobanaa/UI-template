@@ -1,3 +1,39 @@
+# AI HANDOVER - SP-CORE-PROTOCOL-MIXING-001
+
+## Current status
+Core mixing and dosing protocol (`protocol_mixing`) orchestrator and calibration dependency hardening are **COMPLETE & FULLY VERIFIED**:
+1. **Core Protocol Mixing Architecture**:
+   - Built `esp32/main/services/protocol_mixing.h` and `esp32/main/services/protocol_mixing.c`.
+   - **Public API:** `mixing_result_t protocol_mixing(const mixing_protocol_config_t *config);`
+   - **Raw Water Source of Truth:** Direct accumulation from the physical pulse flow sensor (`sensor_flow_raw` / ZJ-B1 on GPIO 15), never timer-based.
+   - **Threshold Logic:** Dynamic `threshold_volume_ml = (target * threshold_percent) / 100`. At threshold, mixing pump and all active dosing pumps start concurrently. Raw water pump continues running uninterrupted until 100% target volume is measured.
+   - **Dynamic Dosing Channels:** Supports dynamic array of channels (up to 8 pumps), avoiding hardcoded Pump A/B. Each channel runtime is derived dynamically from its individual calibration rate.
+   - **Safety & Error Handling:** Explicit safe-stop helper `stop_mixing_protocol_actuators()` invoked on all exit points. Interlocks include immediate E-Stop check, 15s no-flow trip (`MIXING_RESULT_RAW_WATER_NO_FLOW`), sensor error trip (`MIXING_RESULT_RAW_WATER_SENSOR_ERROR`), raw water timeout (`MIXING_RESULT_RAW_WATER_TIMEOUT`), and dosing timeout (`MIXING_RESULT_DOSING_TIMEOUT`). No automatic retries.
+2. **Calibration Audit & Dependency Hardening**:
+   - **Flow Sensor Calibration API:** Enabled setting `flowRawPulsesPerL` and `flowFertPulsesPerL` in `POST /api/v1/calibration/rate`, and supported `flowRateMlMin` conversion.
+   - **Hardware Registry Fallback:** Added baseline fallbacks for `sensor_flow_raw` (role `FLOW_RAW`, GPIO 15) and `mixing_pump` (role `MIXING_PUMP`, GPIO 40) in `hardware_registry_find_by_id`.
+   - **Record Type Consistency:** Supported `PUMP_RATE` across `calibration_mgr.c` and `api_calibration_handlers.c`.
+3. **Verification**:
+   - Firmware Build: `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1` -> PASS (`agrotech_esp32.bin` linked).
+   - Test Suite: `node scripts/test_protocol_mixing.mjs` -> PASS (10/10 tests).
+   - TypeScript: `npx tsc --noEmit` -> PASS (0 errors).
+   - OpenAPI Contract: `npm test` -> PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+4. **Canonical Documentation**:
+   - Updated `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` (Section 35).
+5. **Changed Files**:
+   - `esp32/main/services/protocol_mixing.h`
+   - `esp32/main/services/protocol_mixing.c`
+   - `esp32/main/hal/hardware_registry.c`
+   - `esp32/main/services/calibration_mgr.c`
+   - `esp32/main/http/api_calibration_handlers.c`
+   - `esp32/main/CMakeLists.txt`
+   - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+   - `scripts/test_protocol_mixing.mjs`
+   - `AI_PROGRESS.md`
+   - `AI_HANDOVER.md`
+
+---
+
 # AI HANDOVER - SP-UI-AUDIO-ALARM-001
 
 ## Current status

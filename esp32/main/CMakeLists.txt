@@ -24,6 +24,7 @@ idf_component_register(
         "services/telemetry_mgr.c"
         "services/event_mgr.c"
         "services/fertigation_mgr.c"
+        "services/protocol_mixing.c"
         "services/offline_sync_mgr.c"
         "services/well_pump_mgr.c"
         "services/transfer_mgr.c"

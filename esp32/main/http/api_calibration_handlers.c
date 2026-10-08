@@ -24,8 +24,9 @@ static calibration_record_state_t parse_record_state(const char *s)
 static bool supported_record_type(const char *s)
 {
     if (!s) return false;
-    return strcasecmp(s, "DOSING_RATE") == 0 || strcasecmp(s, "FLOW") == 0 ||
-           strcasecmp(s, "LEVEL") == 0 || strcasecmp(s, "PH") == 0 || strcasecmp(s, "EC") == 0;
+    return strcasecmp(s, "DOSING_RATE") == 0 || strcasecmp(s, "PUMP_RATE") == 0 ||
+           strcasecmp(s, "FLOW") == 0 || strcasecmp(s, "LEVEL") == 0 ||
+           strcasecmp(s, "PH") == 0 || strcasecmp(s, "EC") == 0;
 }
 
 static bool complex_matches_device(cJSON *target)
@@ -150,9 +151,67 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     }
     cJSON *payload = cJSON_GetObjectItem(json, "payload");
     cJSON *target = payload ? payload : json;
+
+    // Check for direct flow meter pulse calibration fields
+    cJSON *j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulsesPerL");
+    if (!j_flow_raw) j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulses");
+    cJSON *j_flow_fert = cJSON_GetObjectItem(target, "flowFertPulsesPerL");
+    if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) {
+        (void)calibration_mgr_set_flow_raw_pulses_per_l((float)j_flow_raw->valuedouble);
+    }
+    if (j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) {
+        (void)calibration_mgr_set_flow_fert_pulses_per_l((float)j_flow_fert->valuedouble);
+    }
+
     cJSON *comp = cJSON_GetObjectItem(target, "componentId");
     cJSON *rate = cJSON_GetObjectItem(target, "rateMlPerSec");
     if (!rate) rate = cJSON_GetObjectItem(target, "rateValue");
+    bool from_flow_rate_min = false;
+    if (!rate) {
+        cJSON *frm = cJSON_GetObjectItem(target, "flowRateMlMin");
+        if (frm && cJSON_IsNumber(frm) && frm->valuedouble > 0) {
+            rate = frm;
+            from_flow_rate_min = true;
+        }
+    }
+    cJSON *ppl = cJSON_GetObjectItem(target, "pulsesPerLiter");
+
+    // If request was purely to set flow pulses and no componentId specified
+    if ((!comp || !cJSON_IsString(comp)) && (j_flow_raw || j_flow_fert)) {
+        cJSON_Delete(json);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "status", "APPLIED");
+        cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", calibration_mgr_get_flow_raw_pulses_per_l());
+        cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", calibration_mgr_get_flow_fert_pulses_per_l());
+        return http_send_enveloped_response(req, 200, NULL, resp);
+    }
+
+    // If target is raw water flow sensor
+    if (comp && cJSON_IsString(comp) &&
+        (strcasecmp(comp->valuestring, "sensor_flow_raw") == 0 ||
+         strcasecmp(comp->valuestring, "flow_raw") == 0 ||
+         strcasecmp(comp->valuestring, "RAW_FLOW") == 0 ||
+         strcasecmp(comp->valuestring, "flow-meter-zjb1") == 0)) {
+        double pval = 0;
+        if (ppl && cJSON_IsNumber(ppl) && ppl->valuedouble > 0) pval = ppl->valuedouble;
+        else if (rate && cJSON_IsNumber(rate) && rate->valuedouble > 0) pval = rate->valuedouble;
+        else if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) pval = j_flow_raw->valuedouble;
+        if (pval > 0) {
+            esp_err_t ferr = calibration_mgr_set_flow_raw_pulses_per_l((float)pval);
+            cJSON_Delete(json);
+            if (ferr != ESP_OK) {
+                http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Failed to save flow calibration.", NULL);
+                return ESP_FAIL;
+            }
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "status", "APPLIED");
+            cJSON_AddStringToObject(resp, "componentId", "sensor_flow_raw");
+            cJSON_AddNumberToObject(resp, "pulsesPerLiter", pval);
+            cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", pval);
+            return http_send_enveloped_response(req, 200, NULL, resp);
+        }
+    }
+
     cJSON *ver = cJSON_GetObjectItem(target, "version");
     cJSON *op = cJSON_GetObjectItem(target, "operator");
     cJSON *cid = cJSON_GetObjectItem(target, "calibrationId");
@@ -168,7 +227,7 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
 
     char saved_comp_id[32] = {0};
     strncpy(saved_comp_id, comp->valuestring, sizeof(saved_comp_id) - 1);
-    double saved_rate_val = rate->valuedouble;
+    double saved_rate_val = from_flow_rate_min ? (rate->valuedouble / 60.0) : rate->valuedouble;
     hw_component_info_t component_info;
     bool comp_ok = (hardware_registry_find_by_id(saved_comp_id, &component_info) == ESP_OK &&
                     (calibration_component_compatible(&component_info, "DOSING_RATE") ||
@@ -203,7 +262,8 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     calibration_record_t saved_rec;
     uint32_t eff_version = version > 0 ? version : 1;
     const char *eff_cal_id = cal_id ? cal_id : "device-cal";
-    if (calibration_mgr_get_record(saved_comp_id, "DOSING_RATE", &saved_rec) == ESP_OK) {
+    if (calibration_mgr_get_record(saved_comp_id, "DOSING_RATE", &saved_rec) == ESP_OK ||
+        calibration_mgr_get_record(saved_comp_id, "PUMP_RATE", &saved_rec) == ESP_OK) {
         eff_version = saved_rec.version;
         eff_cal_id = saved_rec.calibration_id;
     }
@@ -244,9 +304,9 @@ static esp_err_t api_calibration_record_handler(httpd_req_t *req)
     int64_t valid_until=0; cJSON *vu=cJSON_GetObjectItem(target,"validUntilMs"); if(vu&&cJSON_IsNumber(vu)&&vu->valuedouble>0)valid_until=(int64_t)vu->valuedouble;
     esp_err_t err=ESP_ERR_NOT_SUPPORTED; const char *ctype=type->valuestring; uint32_t version=(uint32_t)ver->valuedouble;
     cJSON *rate=cJSON_GetObjectItem(target,"rateMlPerSec"); cJSON *slope=cJSON_GetObjectItem(target,"slope"); cJSON *offset=cJSON_GetObjectItem(target,"offset"); cJSON *ppl=cJSON_GetObjectItem(target,"pulsesPerLiter");
-    if(strcasecmp(ctype,"DOSING_RATE")==0){
-        if(!rate||!cJSON_IsNumber(rate)||rate->valuedouble<=0){cJSON_Delete(json);http_send_error(req,422,"VALIDATION_FAILED","DOSING_RATE requires positive rateMlPerSec.",NULL);return ESP_FAIL;}
-        err=calibration_mgr_set_record_rate_or_linear(comp->valuestring,"DOSING_RATE",(float)rate->valuedouble,0,0,true,version,state,op,valid_until,cal_id);
+    if(strcasecmp(ctype,"DOSING_RATE")==0 || strcasecmp(ctype,"PUMP_RATE")==0){
+        if(!rate||!cJSON_IsNumber(rate)||rate->valuedouble<=0){cJSON_Delete(json);http_send_error(req,422,"VALIDATION_FAILED","DOSING_RATE/PUMP_RATE requires positive rateMlPerSec.",NULL);return ESP_FAIL;}
+        err=calibration_mgr_set_record_rate_or_linear(comp->valuestring,ctype,(float)rate->valuedouble,0,0,true,version,state,op,valid_until,cal_id);
     }else if(strcasecmp(ctype,"FLOW")==0 && ppl && cJSON_IsNumber(ppl) && ppl->valuedouble > 0){
         bool has_linear = slope && cJSON_IsNumber(slope) && offset && cJSON_IsNumber(offset);
         err=calibration_mgr_set_flow_pulses_calibration(comp->valuestring,(float)ppl->valuedouble,has_linear ? (float)slope->valuedouble : 0.0f,has_linear ? (float)offset->valuedouble : 0.0f,has_linear,version,state,op,valid_until,cal_id);

@@ -1372,6 +1372,66 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
     4. The resulting rate $\text{Rate} = \frac{\Delta V}{T}$ is saved to ESP32 calibration records (`/api/v1/calibration/rate`) as an authoritative `PUMP_RATE` / `DOSING_RATE` record for `pump_submersible` (`rateRawWaterPumpMlSec`).
   - **Fail-Safe Rule:** Emergency-stop and operator-stop terminations are reported as `EMERGENCY_STOP` and `STOPPED_BY_OPERATOR`.
 
+---
 
+# 35. Core Protocol Mixing & Dosing Orchestrator Architecture (`protocol_mixing`)
 
+## 35.1 Scope & Purpose
+The `protocol_mixing` module (`esp32/main/services/protocol_mixing.c` and `esp32/main/services/protocol_mixing.h`) is the dedicated, standalone orchestrator for the mixing and dosing lifecycle on the ESP32. It intentionally does NOT integrate with schedulers, fertigation distribution queues, or higher-level business logic, preserving strict modularity and high safety reliability.
 
+## 35.2 Public API & Configuration
+```c
+mixing_result_t protocol_mixing(const mixing_protocol_config_t *config);
+```
+
+- **Input Configuration (`mixing_protocol_config_t`):**
+  - `raw_water_target_ml`: Target volume of raw water in mL (must be > 0).
+  - `threshold_percent`: Threshold percent (0-100%) of raw water target to trigger simultaneous mixing and nutrient dosing.
+  - `mixing_duration_sec`: Required continuous runtime of the mixing pump in seconds.
+  - `channel_count`: Dynamic number of dosing pumps (0 to `MAX_MIXING_DOSING_CHANNELS` = 8).
+  - `channels[]`: Dynamic array of `mixing_dosing_channel_config_t` (`component_id`, `target_volume_ml`).
+  - `no_flow_grace_period_sec`: Grace period for flow sensor response (default: 15s).
+  - `timeout_safety_margin_sec`: Additional margin for raw water max runtime (default: 50% or min 30s).
+  - `poll_interval_ms`: Polling tick rate (default: 100ms).
+
+## 35.3 Execution Sequence & State Flow
+```text
+PRECHECK
+   ↓
+START RAW WATER PUMP (pump_submersible / GPIO 4)
+   ↓
+MONITOR FLOW SENSOR (ZJ-B1 / GPIO 15, Source of Truth)
+   ↓
+THRESHOLD REACHED (actual_raw_water_ml >= threshold_volume_ml)
+   ↓
+START MIXING PUMP (GPIO 40) + START DOSING PUMPS (concurrently)
+   ↓
+RAW WATER CONTINUES RUNNING (NEVER stops at threshold)
+   ↓
+RAW WATER TARGET REACHED (actual_raw_water_ml >= raw_water_target_ml)
+   ↓
+RAW WATER PUMP OFF
+   ↓
+DOSING COMPLETE (each dosing channel turns OFF as calibrated volume is met)
+   ↓
+MIXING DURATION COMPLETE (mixing pump satisfies mixing_duration_sec)
+   ↓
+MIXING PUMP OFF
+   ↓
+SUCCESS (MIXING_RESULT_SUCCESS)
+```
+
+## 35.4 Core Operational & Safety Rules
+1. **Flow Sensor as Source of Truth:**
+   - Raw water delivery is metered exclusively via the physical pulse flow meter (`sensor_flow_raw` / ZJ-B1 on GPIO 15).
+   - Raw water volume is NEVER estimated from a timer.
+2. **Calibration-Driven Runtime & Safety Timeout:**
+   - Expected runtime is computed from the calibrated flow rate: $T_{\text{expected}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal}}}$.
+   - Max runtime is bounded: $T_{\text{max}} = T_{\text{expected}} + T_{\text{margin}}$.
+   - If target volume is not achieved within $T_{\text{max}}$, the protocol trips `MIXING_RESULT_RAW_WATER_TIMEOUT`.
+3. **No-Flow Detection:**
+   - If raw water pump is active for more than `no_flow_grace_period_sec` (15s) with 0 mL measured flow, the protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW`.
+4. **Emergency Stop & Safe Stop Mandate:**
+   - If `actuator_hal_is_emergency_stopped()` is latched or abort is requested at ANY point, all actuators (raw water pump, mixing pump, all dosing pumps) are shut OFF immediately via `stop_mixing_protocol_actuators()` and the protocol returns `MIXING_RESULT_EMERGENCY_STOP`.
+   - Every error pathway executes `stop_mixing_protocol_actuators()` before returning.
+   - No automatic retry is executed on errors.
