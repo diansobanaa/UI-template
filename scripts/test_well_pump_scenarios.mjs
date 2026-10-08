@@ -20,7 +20,7 @@ class SimulatedWellPumpSystem {
     this.manualActive = false;
     this.manualStartUs = 0;
     this.manualDeadlineUs = 0;
-    this.maxRuntimeSec = 900;
+    this.maxRuntimeSec = 3600;
     this.stopReason = "NONE";
     this.eStop = false;
     this.simulatedTimeUs = 1000000000n; // Monotonic esp_timer simulated clock in microseconds
@@ -280,17 +280,17 @@ runTest("WP-M01", "Manual ON starts runtime limit and activates relay", () => {
   assert.equal(sys.pumpOn, true, "Relay must be energized (ON)");
   assert.equal(sys.relayLevel, 0, "Relay output must be Active-LOW 0");
   assert.equal(sys.manualActive, true);
-  assert.equal(sys.remainingSec, 900, "Initial remaining time must be exactly 900 seconds (15 min)");
+  assert.equal(sys.remainingSec, 3600, "Initial remaining time must be exactly 3600 seconds (60 min)");
 });
 
-runTest("WP-M02", "Manual OFF before 15 minutes stops pump immediately", () => {
+runTest("WP-M02", "Manual OFF before 60 minutes stops pump immediately", () => {
   const sys = new SimulatedWellPumpSystem();
   sys.setMode("MANUAL");
   sys.manualStart("WEB_UI");
-  sys.advanceSeconds(300); // 5 minutes elapsed
+  sys.advanceSeconds(600); // 10 minutes elapsed
 
   assert.equal(sys.pumpOn, true);
-  assert.equal(sys.remainingSec, 600);
+  assert.equal(sys.remainingSec, 3000);
 
   const res = sys.manualStop("WEB_UI");
   assert.equal(res.success, true);
@@ -301,17 +301,17 @@ runTest("WP-M02", "Manual OFF before 15 minutes stops pump immediately", () => {
   assert.equal(sys.stopReason, "OPERATOR_OFF");
 });
 
-runTest("WP-M03", "Automatic shutdown at 15 minutes", () => {
+runTest("WP-M03", "Automatic shutdown at 60 minutes", () => {
   const sys = new SimulatedWellPumpSystem();
   sys.setMode("MANUAL");
   sys.manualStart("WEB_UI");
 
-  sys.advanceSeconds(899);
-  assert.equal(sys.pumpOn, true, "Pump must still be ON at 14m59s");
+  sys.advanceSeconds(3599);
+  assert.equal(sys.pumpOn, true, "Pump must still be ON at 59m59s");
   assert.equal(sys.remainingSec, 1);
 
-  sys.advanceSeconds(1); // Exactly 900 seconds (15 minutes)
-  assert.equal(sys.pumpOn, false, "Pump must shut OFF automatically at 15 minutes");
+  sys.advanceSeconds(1); // Exactly 3600 seconds (60 minutes)
+  assert.equal(sys.pumpOn, false, "Pump must shut OFF automatically at 60 minutes");
   assert.equal(sys.manualActive, false);
   assert.equal(sys.stopReason, "MANUAL_RUNTIME_LIMIT_REACHED");
   assert.ok(sys.events.includes("MANUAL_RUNTIME_LIMIT_REACHED"));
@@ -323,37 +323,37 @@ runTest("WP-M04", "Repeated ON does not extend runtime", () => {
   sys.manualStart("WEB_UI");
   const initialDeadline = sys.manualDeadlineUs;
 
-  sys.advanceSeconds(300); // 5 minutes in
-  assert.equal(sys.remainingSec, 600);
+  sys.advanceSeconds(600); // 10 minutes in
+  assert.equal(sys.remainingSec, 3000);
 
   // Send repeated ON commands (spam / duplicate clicks)
   sys.manualStart("WEB_UI");
   sys.manualStart("WEB_UI");
 
   assert.equal(sys.manualDeadlineUs, initialDeadline, "Deadline must not be reset or extended");
-  assert.equal(sys.remainingSec, 600, "Remaining time must remain 10 minutes");
+  assert.equal(sys.remainingSec, 3000, "Remaining time must remain 50 minutes");
 
-  // Advance remaining 600 seconds
-  sys.advanceSeconds(600);
-  assert.equal(sys.pumpOn, false, "Pump must still shut off at original 15-minute mark");
+  // Advance remaining 3000 seconds
+  sys.advanceSeconds(3000);
+  assert.equal(sys.pumpOn, false, "Pump must still shut off at original 60-minute mark");
   assert.equal(sys.stopReason, "MANUAL_RUNTIME_LIMIT_REACHED");
 });
 
-runTest("WP-M05", "New explicit session receives fresh 15-minute limit", () => {
+runTest("WP-M05", "New explicit session receives fresh 60-minute limit", () => {
   const sys = new SimulatedWellPumpSystem();
   sys.setMode("MANUAL");
   sys.manualStart("WEB_UI");
-  sys.advanceSeconds(900); // Expires after 15 min
+  sys.advanceSeconds(3600); // Expires after 60 min
   assert.equal(sys.pumpOn, false);
 
   // Operator explicitly starts new session
   const res = sys.manualStart("WEB_UI");
   assert.equal(res.success, true);
   assert.equal(sys.pumpOn, true);
-  assert.equal(sys.remainingSec, 900, "New session must have fresh 15-minute limit");
+  assert.equal(sys.remainingSec, 3600, "New session must have fresh 60-minute limit");
 
-  sys.advanceSeconds(300);
-  assert.equal(sys.remainingSec, 600);
+  sys.advanceSeconds(600);
+  assert.equal(sys.remainingSec, 3000);
 });
 
 runTest("WP-M06", "Runtime enforcement independent of Web UI / network connection", () => {
@@ -362,7 +362,7 @@ runTest("WP-M06", "Runtime enforcement independent of Web UI / network connectio
   sys.manualStart("WEB_UI");
 
   // Web UI disconnects (no HTTP calls / telemetry poll)
-  sys.advanceSeconds(900);
+  sys.advanceSeconds(3600);
   assert.equal(sys.pumpOn, false, "ESP32 firmware FreeRTOS monitor shut off pump without Web UI");
   assert.equal(sys.stopReason, "MANUAL_RUNTIME_LIMIT_REACHED");
 });
@@ -489,7 +489,7 @@ runTest("WP-R01", "Physical toggle ON and OFF behaves consistently", () => {
   sys.physicalToggle();
   assert.equal(sys.mode, "MANUAL");
   assert.equal(sys.pumpOn, true);
-  assert.equal(sys.remainingSec, 900);
+  assert.equal(sys.remainingSec, 3600);
 
   // Press physical toggle again -> stops pump
   sys.physicalToggle();
@@ -562,12 +562,12 @@ runTest("WP-R06", "UI connection loss and recovery preserves controller authorit
 
   // UI state simulated:
   const controllerRemaining = sys.remainingSec;
-  assert.equal(controllerRemaining, 450);
+  assert.equal(controllerRemaining, 3150);
 
   // Connection dropped for 3 minutes, then recovers
   sys.advanceSeconds(180);
   const reconnectedRemaining = sys.remainingSec;
-  assert.equal(reconnectedRemaining, 270, "Controller timer maintained monotonic authority");
+  assert.equal(reconnectedRemaining, 2970, "Controller timer maintained monotonic authority");
 });
 
 // -----------------------------------------------------------------------------
@@ -619,9 +619,9 @@ runTest("WP-H04", "Independent 220V radar protection has no lower float dependen
   assert.equal(sys.pumpOn, true);
 });
 
-runTest("WP-H05", "Max manual runtime constant is exactly 900 seconds (15 minutes)", () => {
+runTest("WP-H05", "Max manual runtime constant is exactly 3600 seconds (60 minutes)", () => {
   const sys = new SimulatedWellPumpSystem();
-  assert.equal(sys.maxRuntimeSec, 900);
+  assert.equal(sys.maxRuntimeSec, 3600);
 });
 
 console.log("\n================================================================================");

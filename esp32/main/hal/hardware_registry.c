@@ -751,7 +751,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_RAW_SUBMERSIBLE; // GPIO 4
         strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 900;
+        out_info->safety_params.max_runtime_sec = 3600;
         out_info->safety_params.flow_timeout_sec = 30;
         return ESP_OK;
     }
@@ -769,7 +769,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_DOSING_A; // GPIO 5
         strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 300;
+        out_info->safety_params.max_runtime_sec = 3600;
         return ESP_OK;
     }
     if (strcasecmp(component_id, "pump_dosing_b") == 0 ||
@@ -786,7 +786,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_DOSING_B; // GPIO 6
         strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 300;
+        out_info->safety_params.max_runtime_sec = 3600;
         return ESP_OK;
     }
     if (strcasecmp(component_id, "pump_well") == 0 || strcasecmp(component_id, "WELL_PUMP") == 0) {
@@ -801,7 +801,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_WELL_PUMP; // GPIO 1
         strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 900;
+        out_info->safety_params.max_runtime_sec = 3600;
         return ESP_OK;
     }
     if (strcasecmp(component_id, "pump_dist") == 0 || strcasecmp(component_id, "DIST_PUMP") == 0 || strcasecmp(component_id, "DISTRIBUTION_PUMP") == 0) {
@@ -816,7 +816,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_DIST_PUMP; // GPIO 2
         strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 900;
+        out_info->safety_params.max_runtime_sec = 3600;
         return ESP_OK;
     }
 
@@ -834,7 +834,7 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->wiring.gpio = PIN_OUT_BLOWER_FAN; // GPIO 10 (Relay CH3)
         strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
-        out_info->safety_params.max_runtime_sec = 14400;
+        out_info->safety_params.max_runtime_sec = 28800;
         return ESP_OK;
     }
 

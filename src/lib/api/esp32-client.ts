@@ -692,9 +692,9 @@ export class Esp32Client {
         on: isPumpOn,
         state: isPumpOn ? "RUNNING" : "STOPPED",
         manualActive: isPumpOn,
-        maxRuntimeSec: 900,
+        maxRuntimeSec: 3600,
         elapsedSec: 0,
-        remainingSec: isPumpOn ? 900 : 0,
+        remainingSec: isPumpOn ? 3600 : 0,
         stopReason: "NONE",
       };
     }
@@ -704,8 +704,8 @@ export class Esp32Client {
     const cmdId = `wp-start-${Date.now()}`;
     return this.postCommand(cmdId, "WELL_PUMP_START", {
       componentId: "pump_well",
-      durationSeconds: 900,
-      maxRuntimeSec: 900,
+      durationSeconds: 3600,
+      maxRuntimeSec: 3600,
       source: "MANUAL",
     });
   }

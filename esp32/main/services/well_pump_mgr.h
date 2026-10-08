@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define WELL_PUMP_MAX_MANUAL_RUNTIME_SEC 900U /* 15 minutes hard ceiling per spec */
+#define WELL_PUMP_MAX_MANUAL_RUNTIME_SEC 3600U /* 60 minutes hard ceiling per spec */
 
 typedef struct {
     bool on;
@@ -27,20 +27,20 @@ typedef struct {
 esp_err_t well_pump_mgr_init(void);
 
 /**
- * @brief Start manual ON operation with 15-minute runtime ceiling.
+ * @brief Start manual ON operation with 60-minute runtime ceiling.
  * Repeated ON while already running does NOT extend the deadline.
  */
 esp_err_t well_pump_manual_start(uint32_t duration_sec);
 
 /**
  * @brief Stop manual operation immediately.
- * Cancels active 15-minute timer and clears manual session.
+ * Cancels active 60-minute timer and clears manual session.
  */
 esp_err_t well_pump_manual_stop(const char *reason);
 
 /**
  * @brief Handle physical panel toggle (GPIO 39 / Button 2).
- * Toggles Well Pump output with 15-minute ceiling on start.
+ * Toggles Well Pump output with 60-minute ceiling on start.
  */
 void well_pump_toggle_physical(void);
 

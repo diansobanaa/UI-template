@@ -25,10 +25,10 @@
 static const char *TAG = "SAFETY_MONITOR";
 #define SAFETY_SENSOR_STALE_MS          15000ULL
 #define SAFETY_DEFAULT_FLOW_TIMEOUT_SEC 30U
-#define SAFETY_DEFAULT_PUMP_MAX_SEC     900U
-#define SAFETY_DEFAULT_FAN_MAX_SEC      14400U
-#define SAFETY_DEFAULT_DOSING_MAX_SEC   300U
-#define SAFETY_DEFAULT_VALVE_MAX_SEC    300U
+#define SAFETY_DEFAULT_PUMP_MAX_SEC     3600U  /* 60 minutes (Pompa Air / Distribusi / Sumur) */
+#define SAFETY_DEFAULT_FAN_MAX_SEC      28800U /* 8 hours (Exhaust Fan / Blower) */
+#define SAFETY_DEFAULT_DOSING_MAX_SEC   3600U  /* 60 minutes (Pompa Dosing Nutrisi / Asam) */
+#define SAFETY_DEFAULT_VALVE_MAX_SEC    3600U  /* 60 minutes (Katup Solenoid) */
 #define MAX_FLOW_WATCH 64
 
 typedef struct {

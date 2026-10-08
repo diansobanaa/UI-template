@@ -1,3 +1,29 @@
+# AI HANDOVER - SP-SAFETY-MAX-RUNTIME-001
+
+## Current status
+Updating actuator safety continuous runtime maximum limits (ACTUATOR_MAX_RUNTIME protection) is **COMPLETE & FULLY VERIFIED**:
+1. **Actuator Safety Continuous Runtime Limits**:
+   - **Pompa Air / Distribusi / Sumur** (`PUMP`, `RAW_SUBMERSIBLE`, `WELL_PUMP`, `DISTRIBUTION_PUMP`): **60 Menit** (3600 detik).
+   - **Pompa Dosing Nutrisi / Asam** (`DOSING`, `DOSING_A`, `DOSING_B`): **60 Menit** (3600 detik).
+   - **Katup Solenoid** (`VALVE`, `SOLENOID`): **60 Menit** (3600 detik).
+   - **Exhaust Fan / Blower** (`FAN`, `BLOWER`, `BLOWER_FAN`): **8 Jam** (28.800 detik).
+2. **Firmware & Registry Synchronization**:
+   - `esp32/main/services/safety_monitor.c`: Updated default safety macros (`SAFETY_DEFAULT_PUMP_MAX_SEC = 3600U`, `SAFETY_DEFAULT_DOSING_MAX_SEC = 3600U`, `SAFETY_DEFAULT_VALVE_MAX_SEC = 3600U`, `SAFETY_DEFAULT_FAN_MAX_SEC = 28800U`).
+   - `esp32/main/services/well_pump_mgr.h` & `well_pump_mgr.c`: `WELL_PUMP_MAX_MANUAL_RUNTIME_SEC` updated to 3600U.
+   - `esp32/main/services/command_mgr.c`: Manual duration clamp updated to 3600s.
+   - `esp32/main/http/api_device_handlers.c`: Fallback duration updated to 3600s.
+   - `esp32/main/hal/hardware_registry.c`: Fallback component profile safety parameters aligned.
+3. **Frontend & Contracts**:
+   - `WellPumpControlCard.tsx`: Dynamically displays limit based on `details?.maxRuntimeSec || 3600` (e.g. "60 minutes") with matching progress bar.
+   - `esp32-client.ts` & `services.ts`: Default manual durations set to 3600s.
+   - `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/POWER_MAP.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Synchronized to 60 minutes / 8 hours.
+4. **Verification**:
+   - `node scripts/test_well_pump_scenarios.mjs`: 24/24 PASS.
+   - `npm test`: PASS.
+   - `npx tsc --noEmit`: PASS.
+
+---
+
 # AI HANDOVER - SP-GH-BLOWER-FAN-FIX-001
 
 ## Current status

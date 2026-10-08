@@ -1,3 +1,32 @@
+## SP-SAFETY-MAX-RUNTIME-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED`
+- **Objective**: Update actuator safety continuous runtime maximum limits (ACTUATOR_MAX_RUNTIME protection):
+  1. Pompa Air / Distribusi / Sumur (`PUMP`, `RAW_SUBMERSIBLE`, `WELL_PUMP`, `DISTRIBUTION_PUMP`): Increased default from 15 minutes (900s) to 60 minutes (3600s).
+  2. Pompa Dosing Nutrisi / Asam (`DOSING`, `DOSING_A`, `DOSING_B`): Increased default from 5 minutes (300s) to 60 minutes (3600s).
+  3. Katup Solenoid (`VALVE`, `SOLENOID`): Increased default from 5 minutes (300s) to 60 minutes (3600s).
+  4. Exhaust Fan / Blower (`FAN`, `BLOWER`, `BLOWER_FAN`): Increased default from 4 hours (14400s) to 8 hours (28800s).
+- **Implemented**:
+  - `esp32/main/services/safety_monitor.c`: Updated `SAFETY_DEFAULT_PUMP_MAX_SEC = 3600U`, `SAFETY_DEFAULT_DOSING_MAX_SEC = 3600U`, `SAFETY_DEFAULT_VALVE_MAX_SEC = 3600U`, and `SAFETY_DEFAULT_FAN_MAX_SEC = 28800U`.
+  - `esp32/main/services/well_pump_mgr.h` & `well_pump_mgr.c`: Updated `WELL_PUMP_MAX_MANUAL_RUNTIME_SEC` to 3600U (60 minutes hard safety ceiling per spec).
+  - `esp32/main/services/command_mgr.c`: Updated well pump manual duration clamp to 3600s.
+  - `esp32/main/http/api_device_handlers.c`: Updated default well pump manual start duration to 3600s.
+  - `esp32/main/hal/hardware_registry.c`: Updated fallback component profile safety runtimes (`pump_submersible`: 3600s, `pump_dosing_a`: 3600s, `pump_dosing_b`: 3600s, `pump_well`: 3600s, `pump_dist`: 3600s, `fan_blower`: 28800s).
+  - `src/components/WellPumpControlCard.tsx`: Made manual runtime limit label, elapsed, and progress bar dynamically adapt with 3600s fallback (`details?.maxRuntimeSec || 3600`).
+  - `src/lib/api/esp32-client.ts`: Updated manual well pump fallbacks to 3600s.
+  - `src/lib/services.ts`: Updated well pump duration parameter to 3600s.
+  - `contracts/UI_ESP32_OPENAPI.yaml`: Updated WellPump manual limit descriptions to 3600s (60 minutes).
+  - `UI_ESP32_COMMUNICATION_SPEC.md`: Updated Section 1 and 2 to 3600s / 60 minutes.
+  - `docs/POWER_MAP.md`: Updated Section 8.2 and Section 9 to 60 minutes (3600 seconds).
+  - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Added Section 62 documenting all 4 actuator group runtime limits.
+  - `scripts/test_well_pump_scenarios.mjs`: Updated all 24 verification test scenarios to 3600s.
+- **Verification**:
+  - `node scripts/test_well_pump_scenarios.mjs`: PASS (24/24 passed).
+  - `npm test`: PASS (28/28 endpoints, 26 C handlers, mock REST E2E passed).
+  - `npx tsc --noEmit`: PASS (Zero TypeScript errors).
+- **Changed Files**: `esp32/main/services/safety_monitor.c`, `esp32/main/services/well_pump_mgr.h`, `esp32/main/services/well_pump_mgr.c`, `esp32/main/services/command_mgr.c`, `esp32/main/http/api_device_handlers.c`, `esp32/main/hal/hardware_registry.c`, `src/components/WellPumpControlCard.tsx`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`, `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/POWER_MAP.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `scripts/test_well_pump_scenarios.mjs`.
+- **Next Action**: Flash updated firmware to physical hardware when ready.
+
 ## SP-GH-BLOWER-FAN-FIX-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` - Firmware compile PASS (`agrotech_esp32.bin` 0x18be40 bytes), Regression suite PASS (33/33).

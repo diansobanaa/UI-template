@@ -172,10 +172,10 @@ The Deep Well Pump (4-Channel Relay Ch 1, GPIO 1) incorporates an independent, n
 - **Firmware Authority:** The ESP32 does not monitor the radar switch state directly as electrical telemetry. Commanded ON state indicates that the relay contact is closed; physical motor rotation depends on the radar circuit remaining closed.
 - **No flow-meter dependency:** Deep Well Pump (`pump_well`, Relay Ch 1 / GPIO 1) does not require a water-flow sensor for manual start, schedule start, or runtime watchdog. `FLOW_TIMEOUT` protection applies to flow-feedback pumps such as raw submersible, distribution/delivery, and fertigation pumps.
 
-### 8.2. Firmware 15-Minute Hard Manual Safety Clamp
+### 8.2. Firmware 60-Minute Hard Manual Safety Clamp
 To prevent well motor overheating or dry-cavitation during unmonitored manual overrides:
-- Both physical manual button presses (Button A / GPIO 39) and Web UI manual toggle commands are clamped by ESP32 firmware to a strict **maximum runtime of 15 minutes (900 seconds)** (`manual_actuator_mgr.c` and `command_mgr.c`).
-- When the 900s timeout expires, the ESP32 automatically releases the relay and halts well pump operation.
+- Both physical manual button presses (Button A / GPIO 39) and Web UI manual toggle commands are clamped by ESP32 firmware to a strict **maximum runtime of 60 minutes (3600 seconds)** (`well_pump_mgr.c` and `command_mgr.c`).
+- When the 3600s timeout expires, the ESP32 automatically releases the relay and halts well pump operation.
 
 ---
 
@@ -186,7 +186,7 @@ Scope: **Well Pump and Fan/Blower only.** Fertigation, dosing, mixing, raw-water
 - **Principle:** After reboot, no previous FreeRTOS task or elapsed runtime is restored. The existing schedule table + current wall-clock time is the sole source of truth.
 - **Condition (exact):** `schedule_start <= now < schedule_end`. Exact start → ON; exact end → OFF. DAILY/INTERVAL schedules are evaluated against the current day-of-week and seconds-of-day; ONCE schedules against epoch.
 - **`lazy_start`:** `app_main()` calls `scheduler_schedule_lazy_start()` as its last step. This spawns a one-shot, self-deleting task (`lazy_start_task` in `esp32/main/services/scheduler.c`, 3584 B stack) so reconciliation never runs on the boot call stack. It waits up to 10 s for a valid clock, reconciles Fan/Blower (`scheduler_reconcile_fan_schedule`), takes a fresh sensor sample (`sensor_hal_poll`), then reconciles Well Pump (`well_pump_reconcile_schedule`), and sets `s_lazy_start_done`. If the clock never becomes valid, recovery is skipped and actuators stay OFF.
-- **Manual precedence:** There is no Well Pump AUTO/MANUAL mode. Manual OFF during an active schedule suppresses schedule reactivation until its window ends. If an existing manual ON session crosses into a schedule window, the schedule end stops it instead of the earlier manual timeout. A new manual ON remains bounded by the 15-minute limit.
+- **Manual precedence:** There is no Well Pump AUTO/MANUAL mode. Manual OFF during an active schedule suppresses schedule reactivation until its window ends. If an existing manual ON session crosses into a schedule window, the schedule end stops it instead of the earlier manual timeout. A new manual ON remains bounded by the 60-minute limit.
 - **Hand-off:** Until `lazy_start` completes, the 1 s scheduler tick does not reconcile these actuators; afterwards the same two reconcile functions run on the normal scheduler tick (no second scheduler, no extra timer).
 - **Boot marker handling:** Persisted `RUNNING` markers for Well Pump / Fan/Blower schedules are reset to `EMPTY` (not `RECOVERY_HOLD`) at hydration, because these actuators are window-driven.
 - **Safety precedence (unchanged):** ON requests go through `actuator_hal` / `well_pump_mgr` only. E-stop latch (persisted across reboot), safety-fault latch, safety-owner lock, and max-runtime protection all still reject or force OFF. An active schedule never overrides them; after a validated operator RESUME, the next scheduler tick re-applies the window.

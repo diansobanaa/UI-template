@@ -3949,3 +3949,17 @@ PYTHON SAVE + ANALYSIS
 
 6. **Fan Temperature-Mode Handling**
    - Fan schedules operating in hysteresis temperature mode (mode === "temperature") have no deterministic start time (time: "--:--"). They are represented by an ambient regulation badge on the row header (⚡ Auto Fan: ON > 30°C / OFF < 28°C) rather than artificial time cards on the grid.
+
+62. Actuator Safety Maximum Continuous Runtime Policies & Hardware Ceilings
+
+To protect equipment motors, peristaltic pump heads, solenoid coils, and electrical contacts from overheating or continuous dry operations, ESP32 firmware enforces authoritative maximum runtime guardrails:
+
+| Actuator Group | Component Roles | Hard Ceiling | Default Macro | Overriding Config |
+| :--- | :--- | :--- | :--- | :--- |
+| **Water / Well / Booster Pumps** | `RAW_SUBMERSIBLE`, `WELL_PUMP`, `DISTRIBUTION_PUMP`, `PUMP` | **60 Minutes (3600s)** | `SAFETY_DEFAULT_PUMP_MAX_SEC = 3600U` | `"safety": { "maxRuntimeSec": N }` |
+| **Fertilizer / Acid Dosing Pumps**| `DOSING_A`, `DOSING_B`, `DOSING` | **60 Minutes (3600s)** | `SAFETY_DEFAULT_DOSING_MAX_SEC = 3600U` | `"safety": { "maxRuntimeSec": N }` |
+| **Solenoid Valves** | `VALVE`, `SOLENOID` | **60 Minutes (3600s)** | `SAFETY_DEFAULT_VALVE_MAX_SEC = 3600U` | `"safety": { "maxRuntimeSec": N }` |
+| **Greenhouse Exhaust Fan / Blower** | `BLOWER_FAN`, `FAN`, `BLOWER` | **8 Hours (28800s)** | `SAFETY_DEFAULT_FAN_MAX_SEC = 28800U` | `"safety": { "maxRuntimeSec": N }` |
+
+- **Tripping Behavior**: If continuous runtime exceeds the assigned limit, `safety_monitor.c` automatically forces the component OFF (`actuator_hal_force_off_component`), enters fault status `ACTUATOR_MAX_RUNTIME`, sounds an intermittent warning buzzer, and emits an alarm event.
+- **Manual Clamp**: Well Pump manual runs through physical panel button or Web UI are clamped to a strict 60-minute session ceiling (`WELL_PUMP_MAX_MANUAL_RUNTIME_SEC = 3600U`).

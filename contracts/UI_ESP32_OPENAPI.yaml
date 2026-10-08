@@ -3539,10 +3539,10 @@ components:
           description: "Physical relay runtime state"
         manualActive:
           type: boolean
-          description: "Whether a bounded 15-minute manual run session is actively ticking"
+          description: "Whether a bounded 60-minute manual run session is actively ticking"
         maxRuntimeSec:
           type: integer
-          description: "Mandatory maximum continuous manual runtime ceiling (900 seconds / 15 minutes)"
+          description: "Mandatory maximum continuous manual runtime ceiling (3600 seconds / 60 minutes)"
         elapsedSec:
           type: integer
           description: "Elapsed seconds since accepted manual start command"

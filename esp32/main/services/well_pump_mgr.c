@@ -109,10 +109,10 @@ static void well_pump_monitor_task(void *pvParameters)
                 strncpy(s_stop_reason, "MANUAL_RUNTIME_LIMIT_REACHED", sizeof(s_stop_reason) - 1);
                 s_active_schedule_id[0] = '\0';
 
-                ESP_LOGW(TAG, "MANUAL_RUNTIME_LIMIT_REACHED: Well Pump automatically stopped after %u seconds (15-min limit).",
+                ESP_LOGW(TAG, "MANUAL_RUNTIME_LIMIT_REACHED: Well Pump automatically stopped after %u seconds (60-min limit).",
                          (unsigned)s_max_runtime_sec);
                 (void)event_mgr_log(LOG_LEVEL_WARNING, "ACTUATOR", "MANUAL_RUNTIME_LIMIT_REACHED",
-                                    "Well pump stopped: maximum manual runtime of 15 minutes reached.", "pump_well");
+                                    "Well pump stopped: maximum manual runtime of 60 minutes reached.", "pump_well");
                 telemetry_mgr_trigger_transition("WELL_PUMP_TIMEOUT");
             }
         }

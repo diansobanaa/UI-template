@@ -196,12 +196,12 @@ export function WellPumpControlCard({
                 <span className="text-slate-400 flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-amber-400" /> Manual Limit:
                 </span>
-                <span className="font-semibold">15 minutes</span>
+                <span className="font-semibold">{Math.round((details?.maxRuntimeSec || 3600) / 60)} minutes</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Elapsed:</span>
                 <span className="font-mono text-slate-300">
-                  {formatTime((details?.maxRuntimeSec || 900) - countdownSec)}
+                  {formatTime((details?.maxRuntimeSec || 3600) - countdownSec)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
@@ -216,7 +216,7 @@ export function WellPumpControlCard({
                 <div
                   className="h-full bg-amber-500 transition-all duration-1000 ease-linear"
                   style={{
-                    width: `${Math.min(100, Math.max(0, (countdownSec / 900) * 100))}%`,
+                    width: `${Math.min(100, Math.max(0, (countdownSec / (details?.maxRuntimeSec || 3600)) * 100))}%`,
                   }}
                 />
               </div>
@@ -224,14 +224,14 @@ export function WellPumpControlCard({
           </div>
         )}
 
-        {/* Reason notice if auto-stopped after 15m */}
+        {/* Reason notice if auto-stopped after reaching limit */}
         {details?.stopReason === "MANUAL_RUNTIME_LIMIT_REACHED" && !isPumpOn && (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">
             <div className="font-semibold flex items-center gap-1.5">
               <AlertTriangle className="h-4 w-4 text-amber-400" />
               Notice:
             </div>
-            <div className="mt-1">Maximum manual runtime reached (15 minutes). Automatic shutoff enforced.</div>
+            <div className="mt-1">Maximum manual runtime reached ({Math.round((details?.maxRuntimeSec || 3600) / 60)} minutes). Automatic shutoff enforced.</div>
           </div>
         )}
 

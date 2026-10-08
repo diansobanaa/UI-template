@@ -394,13 +394,13 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
     safety_class = SAFETY_COMMAND_NORMAL;
 
   if (cmd->type == CMD_TYPE_WELL_PUMP || (cmd->component_id[0] && strcasestr(cmd->component_id, "well"))) {
-    // Hard manual safety cutoff per SCHEDULING_AND_MECHANICAL_CONTROL_SPEC §3.1: max 15 minutes (900 seconds)
+    // Hard manual safety cutoff per SCHEDULING_AND_MECHANICAL_CONTROL_SPEC §3.1: max 60 minutes (3600 seconds)
     if (cmd->param_on && strcasecmp(cmd->source, "SCHEDULER") != 0) {
-      if (cmd->param_duration_sec <= 0 || cmd->param_duration_sec > 900) {
-        cmd->param_duration_sec = 900;
+      if (cmd->param_duration_sec <= 0 || cmd->param_duration_sec > 3600) {
+        cmd->param_duration_sec = 3600;
       }
-      if (cmd->max_runtime_sec <= 0 || cmd->max_runtime_sec > 900) {
-        cmd->max_runtime_sec = 900;
+      if (cmd->max_runtime_sec <= 0 || cmd->max_runtime_sec > 3600) {
+        cmd->max_runtime_sec = 3600;
       }
     }
   }

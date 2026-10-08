@@ -806,14 +806,14 @@ esp_err_t handler_post_well_pump(httpd_req_t *req)
     if (on_item && cJSON_IsBool(on_item)) {
         if (cJSON_IsTrue(on_item)) {
             cJSON *dur_item = cJSON_GetObjectItem(target, "durationSeconds");
-            uint32_t dur = (dur_item && cJSON_IsNumber(dur_item)) ? (uint32_t)dur_item->valuedouble : 900;
+            uint32_t dur = (dur_item && cJSON_IsNumber(dur_item)) ? (uint32_t)dur_item->valuedouble : 3600;
             well_pump_manual_start(dur);
         } else {
             well_pump_manual_stop("OPERATOR_OFF");
         }
     } else if (action_str) {
         if (strcasecmp(action_str, "START") == 0 || strcasecmp(action_str, "ON") == 0) {
-            well_pump_manual_start(900);
+            well_pump_manual_start(3600);
         } else if (strcasecmp(action_str, "STOP") == 0 || strcasecmp(action_str, "OFF") == 0) {
             well_pump_manual_stop("OPERATOR_OFF");
         }

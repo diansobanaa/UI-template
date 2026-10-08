@@ -656,7 +656,7 @@ POST /api/v1/commands (with type WELL_PUMP_START, WELL_PUMP_STOP, or ACTUATOR_SE
 ```
 
 ### 1. GET /api/v1/well-pump
-Returns authoritative Well Pump relay state on GPIO 1 (Active-LOW), active manual-session deadline, remaining monotonic seconds (out of 900s / 15-min limit), stop reason, and schedule metadata. There is no AUTO/MANUAL operating mode.
+Returns authoritative Well Pump relay state on GPIO 1 (Active-LOW), active manual-session deadline, remaining monotonic seconds (out of 3600s / 60-min limit), stop reason, and schedule metadata. There is no AUTO/MANUAL operating mode.
 
 Response:
 ```json
@@ -666,9 +666,9 @@ Response:
     "on": true,
     "state": "RUNNING",
     "manualActive": true,
-    "maxRuntimeSec": 900,
+    "maxRuntimeSec": 3600,
     "elapsedSec": 120,
-    "remainingSec": 780,
+    "remainingSec": 3480,
     "stopReason": "NONE",
     "activeScheduleId": null,
     "nextSchedule": "14:00"
@@ -681,10 +681,10 @@ Direct manual action:
 ```json
 {
   "on": true,
-  "durationSeconds": 900
+  "durationSeconds": 3600
 }
 ```
-Accepts flat or enveloped (`payload: { ... }`) payloads. If `on: true`, starts a bounded manual run with a 15-minute runtime ceiling. Repeated ON commands during an active manual session do not reset or extend the deadline. If `on: false`, de-energizes the relay immediately; while a schedule window is active, that manual OFF suppresses schedule reactivation until the window ends. A manual run already active when a schedule begins stops at the schedule end rather than its earlier manual timeout. Schedules otherwise execute autonomously without an operating-mode switch.
+Accepts flat or enveloped (`payload: { ... }`) payloads. If `on: true`, starts a bounded manual run with a 60-minute runtime ceiling. Repeated ON commands during an active manual session do not reset or extend the deadline. If `on: false`, de-energizes the relay immediately; while a schedule window is active, that manual OFF suppresses schedule reactivation until the window ends. A manual run already active when a schedule begins stops at the schedule end rather than its earlier manual timeout. Schedules otherwise execute autonomously without an operating-mode switch.
 - **Emergency Stop:** E-Stop trips force relay OFF immediately and lock out commands.
 - **220V Radar:** Physical radar cutoff remains independent of ESP32 software.
 

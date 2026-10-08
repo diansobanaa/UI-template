@@ -2799,7 +2799,7 @@ export const fertigationService = {
           targetComplexId: complexId,
           targetGhId: wellPump?.assignment?.ghId ?? undefined,
           resourceId: wellPump?.resourceId ?? undefined,
-          durationSeconds: on ? 900 : 0,
+          durationSeconds: on ? 3600 : 0,
           source: "MANUAL",
         });
       } catch (err: unknown) {
@@ -2824,7 +2824,7 @@ export const fertigationService = {
           resourceId: wellPump?.resourceId,
           configurationVersion: undefined,
           source: "MANUAL",
-          durationSeconds: on ? 900 : 0,
+          durationSeconds: on ? 3600 : 0,
         });
       } catch (err: unknown) {
         const errorObj = err as { message?: string };
