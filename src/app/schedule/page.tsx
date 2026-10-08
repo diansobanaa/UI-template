@@ -32,7 +32,6 @@ import { complexService, fertigationService, greenhouseService, scheduleService 
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { SYSTEM_NOW, formatGreenhouseName } from "@/lib/format";
-import { useDeviceClock } from "@/lib/device-clock";
 import type { FanSchedule, FertigationSchedule, ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
 import { complexRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
@@ -94,7 +93,19 @@ export function ScheduleContent({
     setEditFan(null); setFanOpen(true);
   };
 
-  const clock = useDeviceClock();
+  // Minute-aligned clock reference (avoids 1000ms re-render churn in ScheduleContent)
+  const [currentMinutes, setCurrentMinutes] = useState(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  });
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      setCurrentMinutes(now.getHours() * 60 + now.getMinutes());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const [activeTab, setActiveTab] = useState<"fertigation" | "pump" | "fan" | "hardware" | "all">("fertigation");
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
@@ -249,92 +260,6 @@ export function ScheduleContent({
     return [createEvent(schedule.time, 1, 1)];
   }
 
-  const toTimelineStatus = (st: ScheduleStatus): ScheduleTimelineEvent["status"] => {
-    if (st === "completed") return "completed";
-    if (st === "running") return "running";
-    if (st === "missed") return "missed";
-    if (st === "blocked") return "blocked";
-    return "scheduled";
-  };
-
-  const currentMinutes = Math.floor(clock.secondsSinceMidnight / 60);
-
-  const timelineEvents: ScheduleTimelineEvent[] = [
-    ...fertSchedules.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => {
-        const ghObj = greenhouseService.get(s.ghId);
-        const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
-        const [h, m] = (occurrenceTime || "00:00").split(":").map(Number);
-        const evMin = (h || 0) * 60 + (m || 0);
-        const isPast = evMin < currentMinutes;
-        const isMissed = isPast && (!s.lastRun || !s.lastRun.includes("Today"));
-
-        return {
-          id: `fert-${s.id}-${idx}`,
-          time: occurrenceTime,
-          greenhouse: ghName,
-          type: "fertigation" as const,
-          title: total > 1 ? `Fertigation (${idx}/${total})` : "Fertigation",
-          sub: `${s.targetWaterL} L`,
-          durationMin: 45,
-          status: isMissed ? "missed" : toTimelineStatus(s.status),
-          occurrenceIndex: idx,
-          totalOccurrences: total,
-        };
-      })
-    ),
-    ...fanSchedules.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => {
-        const ghObj = greenhouseService.get(s.ghId);
-        const ghName = formatGreenhouseName(ghObj, scheduleGreenhouses.findIndex((g) => g.id === s.ghId));
-        return {
-          id: `fan-${s.id}-${idx}`,
-          time: occurrenceTime,
-          greenhouse: ghName,
-          type: "fan" as const,
-          title: total > 1 ? `Fan (${idx}/${total})` : "Fan",
-          sub: `${s.durationMin} min`,
-          durationMin: s.durationMin,
-          status: toTimelineStatus(s.status),
-          occurrenceIndex: idx,
-          totalOccurrences: total,
-        };
-      })
-    ),
-    ...waterTransfers.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => ({
-        id: `wt-${s.id}-${idx}`,
-        time: occurrenceTime,
-        greenhouse: "Complex",
-        type: "water-transfer" as const,
-        title: total > 1 ? `Water Transfer (${idx}/${total})` : "Water Transfer",
-        sub: `${s.durationMin} min`,
-        durationMin: s.durationMin,
-        status: toTimelineStatus(s.status),
-        occurrenceIndex: idx,
-        totalOccurrences: total,
-      }))
-    ),
-    ...wellPumps.flatMap((s) =>
-      expandScheduleOccurrences(s, (occurrenceTime, idx, total) => ({
-        id: `pump-${s.id}-${idx}`,
-        time: occurrenceTime,
-        greenhouse: "Complex",
-        type: "pump" as const,
-        title: total > 1 ? `Well Pump (${idx}/${total})` : "Well Pump",
-        sub: s.durationSec
-          ? (s.durationSec < 60 ? `${s.durationSec}s run` : `${Math.round(s.durationSec / 60)} min run`)
-          : (s.durationMin < 1 ? `${Math.round(s.durationMin * 60)}s run` : `${s.durationMin} min run`),
-        durationMin: s.durationMin,
-        status: toTimelineStatus(s.status),
-        occurrenceIndex: idx,
-        totalOccurrences: total,
-      }))
-    ),
-  ]
-    .filter((e) => e.time && e.time !== "--:--")
-    .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
-
   /* ---------------------------- mutations ---------------------------- */
 
   const handleFertSubmit = async (input: Omit<FertigationSchedule, "id">, initial: FertigationSchedule | null) => {
@@ -390,19 +315,20 @@ export function ScheduleContent({
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    const target = deleteTarget;
+    if (!target) return;
     setDeleting(true);
     try {
-      if (deleteTarget.kind === "fert") await scheduleService.deleteFertigation(deleteTarget.id);
-      if (deleteTarget.kind === "pump") await scheduleService.deleteWellPump(deleteTarget.id);
-      if (deleteTarget.kind === "fan") await scheduleService.deleteFan(deleteTarget.id);
-      toast(`Schedule "${deleteTarget.name}" deleted`, "info");
+      if (target.kind === "fert") await scheduleService.deleteFertigation(target.id);
+      if (target.kind === "pump") await scheduleService.deleteWellPump(target.id);
+      if (target.kind === "fan") await scheduleService.deleteFan(target.id);
+      toast(`Schedule "${target.name}" deleted`, "info");
+      setDeleteTarget(null);
     } catch (e) {
       // nothing was removed — the schedule stays in the table
       toast(errorMessage(e), "error");
     } finally {
       setDeleting(false);
-      setDeleteTarget(null);
     }
   };
 
@@ -980,11 +906,12 @@ export function ScheduleContent({
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => { if (!deleting) setDeleteTarget(null); }}
         onConfirm={handleDelete}
+        loading={deleting}
         title="Delete schedule"
         message={`Are you sure you want to delete "${deleteTarget?.name}"? This cannot be undone.`}
-        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        confirmLabel="Delete"
         danger
       />
     </ScheduleFrame>

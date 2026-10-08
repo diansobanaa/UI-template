@@ -1928,11 +1928,13 @@ export const scheduleService = {
       });
     }
 
-    // 3. Recompile and redeploy remaining schedules
-    try {
-      await deployCompiledScheduleSet(existing.complexId, { wellPump: remaining });
-    } catch (err) {
-      console.warn("[scheduleService] Well pump delete redeployment warning:", err);
+    // 3. Python backend mode only: ESP32-direct mode is handled inside the firmware.
+    if (!isDirectEsp32Enabled()) {
+      try {
+        await deployCompiledScheduleSet(existing.complexId, { wellPump: remaining });
+      } catch (err) {
+        console.warn("[scheduleService] Well pump delete redeployment warning:", err);
+      }
     }
   },
 
@@ -2035,11 +2037,13 @@ export const scheduleService = {
       fanSchedules: remaining,
     });
 
-    // 3. Recompile and redeploy remaining schedules
-    try {
-      await deployCompiledScheduleSet(gh.complexId, { fan: remaining });
-    } catch (err) {
-      console.warn("[scheduleService] Fan delete redeployment warning:", err);
+    // 3. Python backend mode only: ESP32-direct mode is handled inside the firmware.
+    if (!isDirectEsp32Enabled()) {
+      try {
+        await deployCompiledScheduleSet(gh.complexId, { fan: remaining });
+      } catch (err) {
+        console.warn("[scheduleService] Fan delete redeployment warning:", err);
+      }
     }
   },
 

@@ -1,3 +1,24 @@
+## SP-UI-SCHEDULE-DELETE-OPT-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Playwright test PASS)
+- **Objective**: Resolve sluggishness / lag when deleting schedules in Web UI ("berat saat mau hapus jadwal"):
+  1. Eliminate redundant backend redeployment roundtrips in direct ESP32 mode: In `src/lib/services.ts`, `deleteWellPump` and `deleteFan` unconditionally invoked `deployCompiledScheduleSet`, issuing 4 sequential HTTP calls (`GET /configuration`, `POST /schedules`, `POST /trigger-today`) to the ESP32 even though ESP32 C firmware automatically saves to NVS and triggers evaluation (`scheduler_sync_intents()`, `scheduler_trigger_daily_now()`). Gated behind `if (!isDirectEsp32Enabled())`, mirroring `deleteFertigation`.
+  2. Eliminate 1-second full-page re-render storm in `ScheduleContent`: `src/app/schedule/page.tsx` called `useDeviceClock()` to drive an unused 75-line dead-code `timelineEvents` array every 1000ms. Removed dead code and switched to a lightweight 30s minute-ticker `currentMinutes`, eliminating 60 re-renders/minute.
+  3. Fix `ConfirmDialog` premature dismissal & missing feedback: `ConfirmDialog` in `src/components/ui/overlay.tsx` was closing immediately when "Delete" was clicked before async deletion finished, leaving users without visual feedback and setting target to null prematurely. Added `loading?: boolean` prop, displaying "Menghapus…" with disabled buttons until the operation completes.
+- **Implemented**:
+  - `src/lib/services.ts`: Gated `deployCompiledScheduleSet` in `deleteWellPump` and `deleteFan` behind `if (!isDirectEsp32Enabled())`.
+  - `src/components/ui/overlay.tsx`: Added `loading` prop and button disabled state to `ConfirmDialog`.
+  - `src/app/schedule/page.tsx`: Removed `useDeviceClock()` and dead `timelineEvents` computation; bound delete flow with `loading={deleting}` and properly scoped target cleanup.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`: Documented Schedule Deletion Lifecycle & Direct ESP32 Bypass.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+  - Playwright delete latency benchmark: Modal opens in 265ms (down from several seconds of UI stutter).
+  - Production build `npm run build`: PASS (singlefile `dist/index.html` 1,275 kB).
+- **Changed Files**: `src/lib/services.ts`, `src/components/ui/overlay.tsx`, `src/app/schedule/page.tsx`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `dist/index.html`.
+- **Next Action**: Monitor schedule deletion flow during operational testing.
+
 ## SP-UI-PERF-OPTIMIZATION-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Playwright profiling PASS)

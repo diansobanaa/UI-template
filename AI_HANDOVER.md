@@ -1,3 +1,22 @@
+# AI HANDOVER - SP-UI-SCHEDULE-DELETE-OPT-001
+
+## Current status
+Resolving sluggishness / lag when deleting schedules in Web UI ("berat saat mau hapus jadwal") is **COMPLETE & FULLY VERIFIED**:
+1. **Root Causes Identified & Eliminated**:
+   - **Direct ESP32 Redundant Redeployment Calls**: `scheduleService.deleteWellPump` and `deleteFan` were unconditionally calling `deployCompiledScheduleSet`, which triggered 4 sequential HTTP requests (`GET /configuration`, `compileScheduleSet`, `POST /schedules`, `POST /trigger-today`) to the ESP32 for every delete action. In direct ESP32 mode, `DELETE /api/v1/schedule-intents/:id` on the ESP32 already updates NVS and triggers evaluation (`scheduler_sync_intents()`, `scheduler_trigger_daily_now()`). The extra roundtrips caused 5-8 second freezes. Gated behind `if (!isDirectEsp32Enabled())`, mirroring `deleteFertigation`.
+   - **1-Second Full-Page Re-render Storm**: `src/app/schedule/page.tsx` was calling `useDeviceClock()` solely to derive `currentMinutes` for an unused 75-line dead-code `timelineEvents` array on every single 1000ms clock tick. The entire schedule page (tables, cards, modal state) re-rendered 60 times/minute. Removed the dead code and replaced with a lightweight 30-second interval timer.
+   - **ConfirmDialog Premature Dismissal & Missing Loading Indicator**: `ConfirmDialog` previously ran `onClose()` synchronously alongside `onConfirm()`, closing the modal immediately while the asynchronous network call was still in flight and setting `deleteTarget` to null. Added `loading?: boolean` prop that prevents closing, disables action buttons, and displays `"Menghapus…"` until the deletion finishes.
+2. **Verification & Performance Metrics**:
+   - Playwright latency test confirmed modal dialog opens cleanly in ~265ms (down from several seconds of UI freeze).
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (28 endpoints, 26 C handlers, REST mock server E2E).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+   - `npm run build`: PASS (singlefile `dist/index.html` 1,275 kB).
+3. **Canonical Documentation**:
+   - Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` with Schedule Deletion Lifecycle & Direct ESP32 Bypass.
+
+---
+
 # AI HANDOVER - SP-UI-PERF-OPTIMIZATION-001
 
 ## Current status

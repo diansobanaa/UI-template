@@ -127,6 +127,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   danger = false,
+  loading = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -135,25 +136,26 @@ export function ConfirmDialog({
   message: React.ReactNode;
   confirmLabel?: string;
   danger?: boolean;
+  loading?: boolean;
 }) {
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={loading ? () => {} : onClose}
       title={title}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
           <Button
             variant={danger ? "danger" : "primary"}
+            disabled={loading}
             onClick={() => {
               onConfirm();
-              onClose();
             }}
           >
-            {confirmLabel}
+            {loading ? "Menghapus…" : confirmLabel}
           </Button>
         </>
       }

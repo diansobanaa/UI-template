@@ -52,6 +52,7 @@ The production target is:
 - **Timeline Engine Recalculation Gating (`TodayScheduleTimeline`)**: Selected date resolution is bound to `clock.dateStr` and `offsetDays`, and `ghs` is memoized. Re-running the heavy collision detection and lane packing engine is gated on minute rollover (`currentMinutes`) and date/filter navigation, rather than 1000 ms clock ticks.
 - **WebSocket Hook Stability (`useTelemetryStream`)**: Uses a stable `useRef` for caller callbacks to prevent tearing and re-subscribing on inline callback instances.
 - **Alarm Polling Hygiene (`AlarmManagerOverlay`)**: Decoupled from incoming sensor telemetry batches to prevent rapid-fire HTTP GET spam against the ESP32. Unchanged alarm summaries preserve state reference equality, and AudioContext unlocking is strictly deferred to genuine user gestures.
+- **Schedule Deletion Lifecycle & Direct ESP32 Bypass (`scheduleService`)**: When running in Direct ESP32 mode (`isDirectEsp32Enabled()`), `DELETE /api/v1/schedule-intents/:id` on the ESP32 immediately updates NVS storage, calls `scheduler_sync_intents()`, and executes `scheduler_trigger_daily_now()`. The frontend avoids re-compiling and re-deploying schedule sets (`deployCompiledScheduleSet`) via redundant HTTP calls, reducing schedule deletion latency from ~5-8s to <300ms. In addition, `ScheduleContent` avoids 1000ms clock re-renders and dead-code timeline loops, and `ConfirmDialog` provides asynchronous `loading` state to prevent premature modal dismissal while deletion is in flight.
 
 For ordinary operational data:
 
