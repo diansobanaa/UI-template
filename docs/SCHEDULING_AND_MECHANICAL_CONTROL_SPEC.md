@@ -3963,3 +3963,23 @@ To protect equipment motors, peristaltic pump heads, solenoid coils, and electri
 
 - **Tripping Behavior**: If continuous runtime exceeds the assigned limit, `safety_monitor.c` automatically forces the component OFF (`actuator_hal_force_off_component`), enters fault status `ACTUATOR_MAX_RUNTIME`, sounds an intermittent warning buzzer, and emits an alarm event.
 - **Manual Clamp**: Well Pump manual runs through physical panel button or Web UI are clamped to a strict 60-minute session ceiling (`WELL_PUMP_MAX_MANUAL_RUNTIME_SEC = 3600U`).
+
+63. Schedule Timeline & Table Parity: 'Once' Schedule Date Inference & Midnight Invariants (SP-SCHEDULE-TIMELINE-PARITY-001)
+
+1. **Parity Requirement & Problem Statement**:
+   - In previous versions, Schedule Table displayed all valid configured schedules (e.g. 3 schedules: 00:00 Every Day, 21:54 Every Day, 23:45 Once), while Schedule Timeline only displayed 2 schedules (00:00 and 21:54), silently dropping the third schedule.
+   - **Root Cause**: `isScheduleActiveOnDate()` in `TimelineEngine.ts` evaluated `repeat === "once"` by strictly checking `Boolean(item.date && item.date === targetIso)`. However, `FanSchedule` and `WellPumpSchedule` schemas have no explicit `date` property (and `FertigationSchedule` only captures `date` under `trigger === "specific-date"`). When a schedule was configured with `repeat === "Once"`, `item.date` was `undefined`, causing `isScheduleActiveOnDate()` to unconditionally return `false` on all dates including Today, omitting the schedule from the timeline.
+
+2. **Authoritative Date Resolution for 'Once' Schedules**:
+   - In `isScheduleActiveOnDate()`:
+     1. If `item.date` is explicitly defined, strictly evaluate `item.date === targetIso`.
+     2. If `item.date` is absent or undefined, resolve the intended target date from `item.nextRun`:
+        - If `nextRun` contains `"Today"` or `"Hari ini"`, it matches `targetIso === todayIso`.
+        - If `nextRun` contains `"Tomorrow"` or `"Besok"`, it matches `targetIso === tomorrowIso`.
+        - If `nextRun` contains an ISO date (`YYYY-MM-DD`), it matches that exact date.
+     3. Fallback: An active `repeat: "Once"` schedule without an explicit date defaults to `Today` (`todayIso`), matching user intent at creation time (`nextRun: "Today ${time}"`).
+
+3. **Midnight Crossover Invariant (e.g. 23:45 → 00:15)**:
+   - For schedules crossing midnight, start time is placed at `startMinutes` (e.g. 1425 for 23:45). End time wraps across midnight to `formatMinutesToClock(startMinutes + duration)` (e.g. 00:15). Visual duration is capped to remaining day minutes (`Math.min(1440, startMinutes + duration)`) for lane packing, while the popover and card title preserve true run duration (e.g. 30 min).
+   - Zero-deduplication invariant: Unique `sourceScheduleId` is preserved end-to-end. Events on the same greenhouse or with the same action never overwrite or merge each other.
+

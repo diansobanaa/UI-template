@@ -1,3 +1,31 @@
+## SP-SCHEDULE-TIMELINE-PARITY-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (Schedule Timeline 3/3 PASS, Table 3/3 PASS, verify_timeline_engine 26/26 PASS, npm test PASS, npx tsc PASS, npm run build PASS)
+- **Objective**: Full Audit and Resolution of Schedule Table (3) vs Schedule Timeline (2) Discrepancy:
+  1. Identified root cause in `isScheduleActiveOnDate()` (`src/components/timeline/TimelineEngine.ts`): for `repeat === "once"`, it checked `Boolean(item.date && item.date === targetIso)`. However, `FanSchedule` and `WellPumpSchedule` have no `date` property, and `FertigationSchedule` only sets `date` when created under `trigger === "specific-date"`. This caused `item.date` to be `undefined`, silently dropping any schedule configured with `Once` from the timeline.
+  2. Implemented authoritative target date resolution:
+     - If `item.date` is present and non-empty, strictly match against `targetIso`.
+     - If `item.date` is absent, inspect `item.nextRun` for `"Today"`, `"Tomorrow"`, or ISO date substring.
+     - Default fallback for `repeat === "once"` without an explicit date is `Today` (`todayIso`), matching drawer submission behavior (`nextRun: "Today ${time}"`).
+  3. Passed `clock.date` as reference date from `TodayScheduleTimeline.tsx` callers (well pump, fertigation, fan occurrences).
+  4. Preserved midnight crossover invariants (`23:45 -> 00:15`) where `startMinutes = 1425` and `endTime = 00:15`.
+  5. Added regression test Test 7 to `scripts/verify_timeline_engine.mjs` asserting identical schedule identities (`tableScheduleIds === timelineScheduleIds`) across 3 real production schedules.
+  6. Updated documentation in `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` (Section 63).
+- **Implemented**:
+  - `src/components/timeline/TimelineEngine.ts`: Updated `isScheduleActiveOnDate()` to resolve `repeat === "once"` via `nextRun` / `referenceDate`.
+  - `src/components/timeline/TodayScheduleTimeline.tsx`: Forwarded `clock.date` as `referenceDate` in well pump, fertigation, and fan occurrence generators.
+  - `scripts/verify_timeline_engine.mjs`: Added Test 7 for 3-schedule identity parity and midnight crossover validation.
+  - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Added Section 63 documenting date inference and midnight crossover invariants.
+- **Verification**:
+  - Live Browser Inspection (`msedge` via Playwright): Schedule Table (3 rows) == Schedule Timeline (3 events) with visual layout verified.
+  - `node scripts/verify_timeline_engine.mjs`: PASS (26/26 tests passed).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (`dist/index.html` built cleanly).
+- **Changed Files**: `src/components/timeline/TimelineEngine.ts`, `src/components/timeline/TodayScheduleTimeline.tsx`, `scripts/verify_timeline_engine.mjs`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Git Commit**: `65c5c966ca0b299e578c772c99db1c5dc718790c`
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-CANONICAL-PROTOCOL-MIXING-002
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing 14/14 PASS, Mixing Fertigation Execution 6/6 PASS, Parallel Distribution 13/13 PASS, Scenarios A-T 21/21 PASS, Production Path Gate 17/17 PASS, Dosing Checkpoint Recovery 20/20 PASS, npm test PASS, npx tsc PASS)

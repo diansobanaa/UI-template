@@ -1,3 +1,25 @@
+# AI HANDOVER - SP-SCHEDULE-TIMELINE-PARITY-001
+
+## Current status
+Schedule Table and Schedule Timeline parity audit and resolution complete:
+1. **Audit & Root Cause**:
+   - In `isScheduleActiveOnDate()` (`TimelineEngine.ts`), `repeat === "once"` was evaluated strictly via `Boolean(item.date && item.date === targetIso)`.
+   - `FanSchedule` and `WellPumpSchedule` have no `date` property in their schema/drawers; `FertigationSchedule` only sets `date` under `trigger === "specific-date"`.
+   - When a schedule was configured with `repeat === "Once"`, `item.date` was `undefined`, causing it to be silently dropped from the timeline.
+2. **Resolution**:
+   - `isScheduleActiveOnDate()` now checks `item.date` if present; if absent, inspects `item.nextRun` (`"Today"`, `"Tomorrow"`, or ISO date), defaulting to `Today` (`todayIso`) for active `Once` schedules created with `nextRun: "Today ${time}"`.
+   - `TodayScheduleTimeline.tsx` forwards `clock.date` as reference date.
+   - Midnight crossovers (`23:45 -> 00:15`) are placed cleanly at `1425` minutes with true duration preserved.
+3. **Verifications**:
+   - Live Browser Playwright inspection: Table (3 rows) == Timeline (3 events).
+   - Automated Timeline Engine tests (`scripts/verify_timeline_engine.mjs`): 26/26 PASS.
+   - Frontend Contract & Mock E2E (`npm test`): PASS.
+   - TypeScript Static Typecheck (`npx tsc --noEmit`): PASS.
+   - Production Build (`npm run build`): PASS.
+4. **Git Commit**: `65c5c966ca0b299e578c772c99db1c5dc718790c`
+
+---
+
 # AI HANDOVER - SP-CANONICAL-PROTOCOL-MIXING-002
 
 ## Current status

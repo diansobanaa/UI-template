@@ -115,8 +115,10 @@ export function isScheduleActiveOnDate(
     repeat?: string | RepeatMode;
     date?: string;
     days?: string[];
+    nextRun?: string | null;
   },
-  targetDate: Date
+  targetDate: Date,
+  referenceDate: Date = new Date()
 ): boolean {
   if (item.enabled === false) return false;
 
@@ -126,7 +128,28 @@ export function isScheduleActiveOnDate(
 
   // 1. Specific Date / Once trigger
   if (trigger.includes("specific-date") || repeat === "once") {
-    return Boolean(item.date && item.date === targetIso);
+    if (item.date && item.date.trim()) {
+      return item.date.trim() === targetIso;
+    }
+    // If no explicit date is provided (Fan/WellPump schedules or specific-time + Once),
+    // resolve scheduled date via nextRun or default to referenceDate (Today).
+    const todayIso = toIsoDate(referenceDate);
+    if (item.nextRun) {
+      const nr = item.nextRun.toLowerCase();
+      if (nr.includes("today") || nr.includes("hari ini")) {
+        return targetIso === todayIso;
+      }
+      if (nr.includes("tomorrow") || nr.includes("besok")) {
+        const tomorrow = new Date(referenceDate);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return targetIso === toIsoDate(tomorrow);
+      }
+      const dateMatch = item.nextRun.match(/\d{4}-\d{2}-\d{2}/);
+      if (dateMatch) {
+        return targetIso === dateMatch[0];
+      }
+    }
+    return targetIso === todayIso;
   }
 
   // 2. Day of Week bitmask evaluation

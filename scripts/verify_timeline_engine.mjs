@@ -19,6 +19,8 @@ import {
   formatMinutesToClock,
   assignLanesToEvents,
   expandIntervalTimes,
+  isScheduleActiveOnDate,
+  toIsoDate,
 } from "../src/components/timeline/TimelineEngine.ts";
 
 let passCount = 0;
@@ -129,6 +131,115 @@ assert(parseClockToMinutes("12:30") === 750, "12:30 -> 750 min");
 assert(parseClockToMinutes("23:59") === 1439, "23:59 -> 1439 min");
 assert(formatMinutesToClock(750) === "12:30", "750 min -> 12:30");
 assert(formatMinutesToClock(0) === "00:00", "0 min -> 00:00");
+
+// --- TEST 7: 3 Schedules Table vs Timeline Identity Equivalence Regression ---
+console.log("\n--- Test 7: 3 Schedules Table vs Timeline Identity Equivalence Regression ---");
+// Real production schedule fixtures representing the reproduction scenario:
+// Schedule A: GH-01, Every Day, 00:00, duration 60 min
+// Schedule B: GH-01, Every Day, 21:54, duration 60 min
+// Schedule C: GH-01, Once (no explicit date, crosses midnight 23:45 -> 00:15), duration 30 min
+const rawSchedules = [
+  {
+    id: "fan-1791480153734",
+    ghId: "gh-muii7dtg",
+    mode: "time",
+    time: "00:00",
+    durationMin: 60,
+    repeat: "Every Day",
+    enabled: true,
+    status: "scheduled",
+    nextRun: "Today 00:00",
+    kind: "fan",
+    complexId: "complex-01",
+  },
+  {
+    id: "fan-1790952771279",
+    ghId: "gh-muii7dtg",
+    mode: "time",
+    time: "21:54",
+    durationMin: 60,
+    repeat: "Every Day",
+    enabled: true,
+    status: "scheduled",
+    nextRun: "Today 21:54",
+    kind: "fan",
+    complexId: "complex-01",
+  },
+  {
+    id: "fan-1790495391437",
+    ghId: "gh-muii7dtg",
+    mode: "time",
+    time: "23:45",
+    durationMin: 30,
+    repeat: "Once",
+    enabled: true,
+    status: "scheduled",
+    nextRun: "Today 23:45",
+    kind: "fan",
+    complexId: "complex-01",
+  },
+];
+
+// Table pipeline:
+// Input -> Query filter -> Status filter -> Sort
+const tableRows = rawSchedules
+  .filter((r) => r.enabled)
+  .sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
+const tableScheduleIds = tableRows.map((r) => r.id);
+assert(tableScheduleIds.length === 3, `Table must display exactly 3 schedules, got ${tableScheduleIds.length}`);
+
+// Timeline pipeline:
+// Input -> isScheduleActiveOnDate -> Occurrence Generation -> Lane Packing
+const referenceDate = new Date();
+const targetDate = new Date(referenceDate);
+
+const activeSchedules = rawSchedules.filter((s) => isScheduleActiveOnDate(s, targetDate, referenceDate));
+assert(activeSchedules.length === 3, `Timeline active filter must retain all 3 schedules including 'Once' without explicit date, got ${activeSchedules.length}`);
+
+const timelineEvents = [];
+activeSchedules.forEach((s) => {
+  const occTimes = expandIntervalTimes(s.time, undefined, undefined);
+  occTimes.forEach((occTime, oIdx) => {
+    const startMin = parseClockToMinutes(occTime);
+    const duration = s.durationMin || 60;
+    const endMin = startMin + duration;
+    timelineEvents.push({
+      id: `fan-${s.ghId}-${s.id}-${oIdx}`,
+      sourceScheduleId: s.id,
+      scheduleType: "fan",
+      sourceScope: "greenhouse",
+      greenhouseId: s.ghId,
+      greenhouseCode: "GH-01",
+      time: occTime,
+      endTime: formatMinutesToClock(endMin),
+      durationMin: duration,
+      title: "Fan Circulation",
+      status: "scheduled",
+    });
+  });
+});
+
+assert(timelineEvents.length === 3, `Occurrence generation must yield 3 events for 3 schedules, got ${timelineEvents.length}`);
+
+const { placed: placedEvents, laneCount } = assignLanesToEvents(timelineEvents);
+assert(placedEvents.length === 3, `Lane assignment must preserve all 3 events without dropping, got ${placedEvents.length}`);
+
+// Primary regression assertion:
+const timelineScheduleIds = placedEvents.map((e) => e.sourceScheduleId);
+assert(timelineScheduleIds.length === 3, `timelineScheduleIds.length must be 3, got ${timelineScheduleIds.length}`);
+const tableSet = new Set(tableScheduleIds);
+const timelineSet = new Set(timelineScheduleIds);
+assert(tableSet.size === 3 && timelineSet.size === 3, `Both sets must have 3 distinct IDs`);
+assert(
+  [...tableSet].every((id) => timelineSet.has(id)) && [...timelineSet].every((id) => tableSet.has(id)),
+  "Set(tableScheduleIds) === Set(timelineScheduleIds) identity equivalence verified"
+);
+
+// Verify midnight crossover event
+const midnightEvent = placedEvents.find((e) => e.sourceScheduleId === "fan-1790495391437");
+assert(midnightEvent != null, "Midnight crossover schedule fan-1790495391437 exists in placed events");
+assert(midnightEvent.time === "23:45" && midnightEvent.endTime === "00:15", `Midnight crossover format verified (23:45 -> 00:15), got ${midnightEvent.time} -> ${midnightEvent.endTime}`);
+assert(midnightEvent.displayDurationMin === 30, `Duration is 30m, got ${midnightEvent.displayDurationMin}`);
 
 console.log(`\n=== SUMMARY: ${passCount} PASSED, ${failCount} FAILED ===`);
 if (failCount > 0) {

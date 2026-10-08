@@ -199,7 +199,7 @@ function TodayScheduleTimelineComponent({
     const authoritativeWellPumpOccurrences: TimelineRawEvent[] = [];
     wellPumps.forEach((s) => {
       if (!s.enabled || !s.time || s.time === "--:--") return;
-      if (!isScheduleActiveOnDate(s, selectedDate)) return;
+      if (!isScheduleActiveOnDate(s, selectedDate, clock.date)) return;
 
       const occTimes = expandIntervalTimes(
         s.time,
@@ -263,7 +263,7 @@ function TodayScheduleTimelineComponent({
 
       schedules.forEach((s) => {
         if (!s.enabled || !s.time || s.time === "--:--") return;
-        if (!isScheduleActiveOnDate(s, selectedDate)) return;
+        if (!isScheduleActiveOnDate(s, selectedDate, clock.date)) return;
 
         const occTimes = expandIntervalTimes(
           s.time,
@@ -348,7 +348,7 @@ function TodayScheduleTimelineComponent({
 
         // Time-based Fan schedule
         if (!s.time || s.time === "--:--") return;
-        if (!isScheduleActiveOnDate(s, selectedDate)) return;
+        if (!isScheduleActiveOnDate(s, selectedDate, clock.date)) return;
 
         const occTimes = expandIntervalTimes(s.time, undefined, undefined);
         occTimes.forEach((occTime, oIdx) => {
