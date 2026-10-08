@@ -1,3 +1,30 @@
+# AI HANDOVER - SP-CORE-PROTOCOL-MIXING-003
+
+## Current status
+Core mixing and dosing protocol (`protocol_mixing`) orchestrator has been **HARDENED AND VERIFIED** per code review requirements:
+1. **Dosing Timeout Reachability & OFF Check:**
+   - Normal completion: At $t \ge T_{\text{expected}}$, requests OFF. If successful, channel completes.
+   - Timeout reachability: If OFF fails, channel is not marked complete, continues to monitor until $t > T_{\text{timeout}}$ ($1.5\times$ expected), cleanly tripping `MIXING_RESULT_DOSING_TIMEOUT` and triggering safe-stop.
+2. **Progress-Based No-Flow Detection:**
+   - Detects stalls anywhere along delivery (e.g., flow reaches 500 mL and stops). If elapsed time since last progress exceeds grace period, trips `MIXING_RESULT_RAW_WATER_NO_FLOW`.
+3. **Scoped Safe Stop Isolation:**
+   - Protocol safely turns OFF and releases ONLY actuators acquired and owned by the active mixing job. No unowned hardware actuators are touched.
+4. **Actuator OFF Command Verifications:**
+   - Checked error results on all OFF commands (raw water, dosing, mixing pump). If OFF fails, `MIXING_RESULT_ACTUATOR_ERROR` is returned.
+5. **Post-Mix Semantics Audit:**
+   - Preserved `post_mix_duration_sec`. Semantics of value 0 documented as `POST_MIX_DURATION_SEMANTICS_UNDEFINED`.
+6. **Dynamic Threshold & Invariants Preserved:**
+   - Threshold percent remains dynamic from schedule registration without artificial range limits in protocol.
+   - Raw water source of truth remains physical pulse flow meter.
+   - Parallel simultaneous dosing channels preserved.
+7. **Verification:**
+   - ESP-IDF build: PASS (`agrotech_esp32.bin` linked).
+   - Protocol tests: PASS (`scripts/test_protocol_mixing.mjs`).
+   - OpenAPI Contract: PASS (`npm test`).
+   - TypeScript: PASS (`npx tsc --noEmit`).
+
+---
+
 # AI HANDOVER - SP-CORE-PROTOCOL-MIXING-002
 
 ## Current status

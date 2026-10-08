@@ -1433,20 +1433,25 @@ SUCCESS (MIXING_RESULT_SUCCESS)
    - When the threshold volume is reached, all configured dosing channels start **SIMULTANEOUSLY**.
    - Each dosing pump runs for its own calibrated duration: $T_{\text{dosing}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal}}}$.
    - Channels shut down independently as their respective target dosages are met.
-4. **Strict 1.5x Calibration Timeout Rule:**
+4. **Strict 1.5x Calibration Timeout & Reachable Dosing Timeout:**
    - For raw water:
      $$T_{\text{expected}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal\_raw}}}, \quad T_{\text{timeout}} = T_{\text{expected}} \times 1.5$$
    - For each dosing pump:
      $$T_{\text{expected\_dosing}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal\_dosing}}}, \quad T_{\text{timeout\_dosing}} = T_{\text{expected\_dosing}} \times 1.5$$
-   - No extra fixed safety margins (no $+30\text{ s}$, no minimum $60\text{ s}$, no $+5\text{ s}$).
-   - If runtime exceeds $T_{\text{timeout}}$, protocol aborts immediately with `MIXING_RESULT_RAW_WATER_TIMEOUT` or `MIXING_RESULT_DOSING_TIMEOUT`.
-5. **Post-Mix Duration Protocol:**
+   - When expected dosing runtime is reached ($t \ge T_{\text{expected}}$), protocol requests OFF.
+     - If OFF command succeeds: channel is marked `completed = true`.
+     - If OFF command fails or actuator faults: channel is NOT completed, stays monitored until $t > T_{\text{timeout}}$ ($1.5\times$), tripping `MIXING_RESULT_DOSING_TIMEOUT` and triggering safe-stop.
+   - Actuator OFF error checks: Raw water, dosing, and mixing pumps check `set_actuator_state(..., false)` results. If OFF command fails, protocol fails with `MIXING_RESULT_ACTUATOR_ERROR` and never returns premature success.
+5. **Post-Mix Duration Protocol & Semantics Audit:**
    - Post-mix agitation starts strictly AFTER raw water pump is OFF (100% target met) AND all dosing pumps are complete.
    - The mixing pump continues running for `post_mix_duration_sec`, then turns OFF.
-   - Note on architectural source: `post_mix_duration_sec` is not yet formalized in legacy recipe schemas (`POST MIX DURATION SOURCE MISSING`) and must be supplied via schedule/recipe configuration in subsequent integration phases.
-6. **No-Flow Detection:**
-   - If raw water pump is active for more than `no_flow_grace_period_sec` (15s) with 0 mL measured flow, protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW`.
-7. **Emergency Stop & Safe Stop Mandate:**
-   - If `actuator_hal_is_emergency_stopped()` is latched or abort is requested at ANY point, all actuators (raw water pump, mixing pump, all dosing pumps) are shut OFF immediately via `stop_mixing_protocol_actuators()` and the protocol returns `MIXING_RESULT_EMERGENCY_STOP`.
-   - Every error pathway executes `stop_mixing_protocol_actuators()` before returning.
+   - **Post-mix Semantics of Value 0:** In legacy schemas, `mixingDurationSec == 0` existed in scheduler/fertigation, but for `post_mix_duration_sec` specifically, no canonical contract formalizes the exact semantics of `0` (`POST_MIX_DURATION_SEMANTICS_UNDEFINED`). The field is preserved as passed by caller without inventing artificial defaults (e.g. 30s/60s).
+6. **Progress-Based No-Flow Detection:**
+   - Flow monitoring tracks continuous volume progress (`last_flow_volume_ml`, `last_flow_progress_time`).
+   - If raw water pump is active and time since last progress exceeds `no_flow_grace_period_sec` (default: 15s) while actual volume < target (e.g. flow stalls at 500 mL), protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW` and triggers safe-stop.
+7. **Scoped Safe Stop & Actuator Isolation Mandate:**
+   - Safe stop is strictly **job-scoped**: protocol only turns OFF and releases actuators acquired and owned by the active mixing job.
+   - No unconditional global kill switches are applied to unowned hardware channels.
+   - If `actuator_hal_is_emergency_stopped()` is latched or abort is requested at ANY point, all job-owned actuators are shut OFF immediately and the protocol returns `MIXING_RESULT_EMERGENCY_STOP`.
+   - Every error pathway executes job-scoped safe-stop before returning.
    - No automatic retry is executed on errors.

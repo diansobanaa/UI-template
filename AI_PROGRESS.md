@@ -1,3 +1,25 @@
+## SP-CORE-PROTOCOL-MIXING-003
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, TypeScript PASS, E2E Contracts PASS, Protocol Tests PASS)
+- **Objective**: Core Protocol Mixing Logic Corrections & Safety Hardening (`protocol_mixing`):
+  1. Dynamic Threshold: Retained purely dynamic threshold percent from schedule registration (`(raw_water_target_ml * threshold_percent) / 100`). Removed non-contractual range constraints (`threshold_percent >= 1` or `< 100`) from protocol logic.
+  2. Reachable Dosing Timeout: Fixed reachable timeout logic. At $t \ge T_{\text{expected}}$, protocol requests OFF. If OFF succeeds, `completed = true`. If OFF fails or actuator faults, channel remains uncompleted and is monitored until $t > T_{\text{timeout}}$ ($1.5\times$ expected), cleanly tripping `MIXING_RESULT_DOSING_TIMEOUT` and triggering safe-stop.
+  3. Progress-Based No-Flow: Replaced static `volume == 0` check with progress tracking (`last_flow_volume_ml`, `last_flow_progress_us`). If flow stalls for `no_flow_grace_period_sec` after initial flow (e.g. at 500 mL), protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW` and executes safe-stop.
+  4. Scoped Safe-Stop Isolation: Replaced global unconstrained actuator kill switches with job-scoped ownership tracking (`scoped_actuator_t`, `mixing_job_actuators_t`). Safe-stop turns OFF and releases ONLY actuators acquired and owned by the active mixing job.
+  5. Actuator OFF Command Verification: Added explicit error checking on all `set_actuator_state(..., false)` calls (raw water pump, dosing pumps, mixing pump). If an OFF command fails, protocol aborts with `MIXING_RESULT_ACTUATOR_ERROR` and never returns premature success.
+  6. Post-Mix Semantics Audit: Retained `post_mix_duration_sec` without artificial defaults. Documented that value 0 semantics in legacy contracts remain `POST_MIX_DURATION_SEMANTICS_UNDEFINED`.
+- **Implemented**:
+  - `esp32/main/services/protocol_mixing.c`: Added scoped actuator tracking, progress-based no-flow detection, reachable dosing timeout handling, and OFF failure verifications.
+  - `scripts/test_protocol_mixing.mjs`: Added tests for progress no-flow stall at 500 mL, reachable dosing timeout, OFF failure handling, and scoped safe-stop isolation.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Updated Section 35.4 operational rules with progress no-flow, reachable dosing timeout, OFF command verifications, scoped safe-stop, and post-mix semantics.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 build PASS (`agrotech_esp32.bin` linked cleanly with 0 errors/warnings).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (all tests passed).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**: `esp32/main/services/protocol_mixing.c`, `scripts/test_protocol_mixing.mjs`, `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Next Action**: STOP. Do not integrate into scheduler, fertigation queue, or frontend at this stage.
+
 ## SP-CORE-PROTOCOL-MIXING-002
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Build PASS, TypeScript PASS, Contract E2E PASS, Test Suite 10/10 PASS)

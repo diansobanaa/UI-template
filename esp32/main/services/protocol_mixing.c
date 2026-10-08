@@ -25,7 +25,24 @@ typedef struct {
     uint32_t observed_runtime_ms;
     bool is_running;
     bool completed;
+    bool off_requested;
+    bool off_failed;
 } channel_execution_state_t;
+
+typedef struct {
+    char component_id[40];
+    actuator_id_t fallback_aid;
+    bool acquired_by_component;
+    bool acquired_by_fallback;
+    bool is_on;
+} scoped_actuator_t;
+
+typedef struct {
+    scoped_actuator_t raw_water;
+    scoped_actuator_t mixing_pump;
+    scoped_actuator_t dosing[MAX_MIXING_DOSING_CHANNELS];
+    uint32_t channel_count;
+} mixing_job_actuators_t;
 
 const char *mixing_status_to_string(mixing_status_code_t status)
 {
@@ -55,19 +72,6 @@ const char *mixing_status_to_string(mixing_status_code_t status)
     }
 }
 
-static esp_err_t resolve_and_acquire_actuator(const char *component_id, actuator_owner_t owner)
-{
-    if (!component_id || !component_id[0]) return ESP_ERR_INVALID_ARG;
-    esp_err_t err = actuator_hal_acquire_component(component_id, owner);
-    if (err != ESP_OK) {
-        actuator_id_t fallback_aid = ACTUATOR_MAX_COUNT;
-        if (actuator_hal_find_id_by_component_id(component_id, &fallback_aid) == ESP_OK) {
-            err = actuator_hal_acquire(fallback_aid, owner);
-        }
-    }
-    return err;
-}
-
 static esp_err_t set_actuator_state(const char *component_id, bool on)
 {
     if (!component_id || !component_id[0]) return ESP_ERR_INVALID_ARG;
@@ -92,6 +96,81 @@ static esp_err_t release_actuator(const char *component_id, actuator_owner_t own
     return ESP_OK;
 }
 
+static esp_err_t acquire_scoped_actuator(scoped_actuator_t *act, const char *component_id, actuator_id_t default_fallback)
+{
+    if (!act || !component_id || !component_id[0]) return ESP_ERR_INVALID_ARG;
+    memset(act, 0, sizeof(*act));
+    strncpy(act->component_id, component_id, sizeof(act->component_id) - 1);
+    act->fallback_aid = default_fallback;
+
+    esp_err_t err = actuator_hal_acquire_component(component_id, ACTUATOR_OWNER_FERTIGATION);
+    if (err == ESP_OK) {
+        act->acquired_by_component = true;
+        return ESP_OK;
+    }
+
+    actuator_id_t resolved_aid = ACTUATOR_MAX_COUNT;
+    if (actuator_hal_find_id_by_component_id(component_id, &resolved_aid) == ESP_OK) {
+        act->fallback_aid = resolved_aid;
+    }
+
+    if (act->fallback_aid < ACTUATOR_MAX_COUNT) {
+        err = actuator_hal_acquire(act->fallback_aid, ACTUATOR_OWNER_FERTIGATION);
+        if (err == ESP_OK) {
+            act->acquired_by_fallback = true;
+            return ESP_OK;
+        }
+    }
+
+    return err;
+}
+
+static esp_err_t set_scoped_actuator_state(scoped_actuator_t *act, bool on)
+{
+    if (!act || (!act->acquired_by_component && !act->acquired_by_fallback)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ESP_FAIL;
+    if (act->acquired_by_component) {
+        err = actuator_hal_set_by_component_id(act->component_id, on);
+    }
+    if (err != ESP_OK && act->acquired_by_fallback && act->fallback_aid < ACTUATOR_MAX_COUNT) {
+        err = actuator_hal_set(act->fallback_aid, on);
+    }
+    if (err == ESP_OK) {
+        act->is_on = on;
+    }
+    return err;
+}
+
+static void release_scoped_actuator(scoped_actuator_t *act)
+{
+    if (!act) return;
+    if (act->is_on) {
+        (void)set_scoped_actuator_state(act, false);
+    }
+    if (act->acquired_by_component) {
+        actuator_hal_release_component(act->component_id, ACTUATOR_OWNER_FERTIGATION);
+        act->acquired_by_component = false;
+    }
+    if (act->acquired_by_fallback && act->fallback_aid < ACTUATOR_MAX_COUNT) {
+        actuator_hal_release(act->fallback_aid, ACTUATOR_OWNER_FERTIGATION);
+        act->acquired_by_fallback = false;
+    }
+    act->is_on = false;
+}
+
+static void stop_job_scoped_actuators(mixing_job_actuators_t *job)
+{
+    if (!job) return;
+    release_scoped_actuator(&job->raw_water);
+    release_scoped_actuator(&job->mixing_pump);
+    for (uint32_t i = 0; i < job->channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        release_scoped_actuator(&job->dosing[i]);
+    }
+    ESP_LOGI(TAG, "Safe Stop: job-scoped actuators forced OFF and released.");
+}
+
 static float get_pump_calibration_rate(const char *component_id, actuator_id_t fallback_id)
 {
     float rate = 0.0f;
@@ -109,40 +188,30 @@ static float get_pump_calibration_rate(const char *component_id, actuator_id_t f
 
 esp_err_t stop_mixing_protocol_actuators(const mixing_protocol_config_t *config)
 {
-    const char *raw_pump = (config && config->raw_water_component_id[0])
+    if (!config) return ESP_ERR_INVALID_ARG;
+
+    const char *raw_pump = config->raw_water_component_id[0]
                            ? config->raw_water_component_id : "pump_submersible";
-    const char *mixing_pump = (config && config->mixing_pump_id[0])
+    const char *mixing_pump = config->mixing_pump_id[0]
                              ? config->mixing_pump_id : "mixing_pump";
 
-    // Stop raw water pump
+    // Stop and release raw water pump configured for this job
     (void)set_actuator_state(raw_pump, false);
     (void)release_actuator(raw_pump, ACTUATOR_OWNER_FERTIGATION);
-    (void)actuator_hal_set(ACTUATOR_RAW_SUBMERSIBLE, false);
-    (void)actuator_hal_release(ACTUATOR_RAW_SUBMERSIBLE, ACTUATOR_OWNER_FERTIGATION);
 
-    // Stop mixing pump
+    // Stop and release mixing pump configured for this job
     (void)set_actuator_state(mixing_pump, false);
     (void)release_actuator(mixing_pump, ACTUATOR_OWNER_FERTIGATION);
-    (void)actuator_hal_set(ACTUATOR_MIXING_PUMP, false);
-    (void)actuator_hal_release(ACTUATOR_MIXING_PUMP, ACTUATOR_OWNER_FERTIGATION);
 
-    // Stop all configured dosing channels
-    if (config) {
-        for (uint32_t i = 0; i < config->channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
-            if (config->channels[i].component_id[0]) {
-                (void)set_actuator_state(config->channels[i].component_id, false);
-                (void)release_actuator(config->channels[i].component_id, ACTUATOR_OWNER_FERTIGATION);
-            }
+    // Stop and release ONLY the dosing pumps configured for this job
+    for (uint32_t i = 0; i < config->channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        if (config->channels[i].component_id[0]) {
+            (void)set_actuator_state(config->channels[i].component_id, false);
+            (void)release_actuator(config->channels[i].component_id, ACTUATOR_OWNER_FERTIGATION);
         }
     }
 
-    // Safety fallback: ensure legacy dosing pumps are unconditionally OFF
-    (void)actuator_hal_set(ACTUATOR_DOSING_A, false);
-    (void)actuator_hal_release(ACTUATOR_DOSING_A, ACTUATOR_OWNER_FERTIGATION);
-    (void)actuator_hal_set(ACTUATOR_DOSING_B, false);
-    (void)actuator_hal_release(ACTUATOR_DOSING_B, ACTUATOR_OWNER_FERTIGATION);
-
-    ESP_LOGI(TAG, "Safe Stop: all mixing protocol actuators forced OFF and released.");
+    ESP_LOGI(TAG, "Safe Stop: protocol actuators for configured job forced OFF and released without affecting unowned actuators.");
     return ESP_OK;
 }
 
@@ -165,13 +234,6 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         result.status = MIXING_RESULT_INVALID_CONFIG;
         result.error_code = mixing_status_to_string(result.status);
         snprintf(result.message, sizeof(result.message), "raw_water_target_ml must be greater than 0.");
-        return result;
-    }
-
-    if (config->threshold_percent > 100) {
-        result.status = MIXING_RESULT_INVALID_CONFIG;
-        result.error_code = mixing_status_to_string(result.status);
-        snprintf(result.message, sizeof(result.message), "threshold_percent (%u) exceeds 100%%.", (unsigned)config->threshold_percent);
         return result;
     }
 
@@ -300,33 +362,44 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     }
 
     /* -------------------------------------------------------------
-     * 6. PRECHECK - ACTUATOR ACQUISITION
+     * 6. PRECHECK - ACTUATOR ACQUISITION (SCOPED OWNERSHIP)
      * ------------------------------------------------------------- */
     const char *mixing_pump_id = config->mixing_pump_id[0]
                                 ? config->mixing_pump_id : "mixing_pump";
 
-    if (resolve_and_acquire_actuator(raw_pump_id, ACTUATOR_OWNER_FERTIGATION) != ESP_OK) {
+    mixing_job_actuators_t job_actuators;
+    memset(&job_actuators, 0, sizeof(job_actuators));
+    job_actuators.channel_count = config->channel_count;
+
+    if (acquire_scoped_actuator(&job_actuators.raw_water, raw_pump_id, ACTUATOR_RAW_SUBMERSIBLE) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
         snprintf(result.message, sizeof(result.message), "Failed to acquire raw water pump '%s'.", raw_pump_id);
-        stop_mixing_protocol_actuators(config);
+        stop_job_scoped_actuators(&job_actuators);
         return result;
     }
 
-    if (resolve_and_acquire_actuator(mixing_pump_id, ACTUATOR_OWNER_FERTIGATION) != ESP_OK) {
+    if (acquire_scoped_actuator(&job_actuators.mixing_pump, mixing_pump_id, ACTUATOR_MIXING_PUMP) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
         snprintf(result.message, sizeof(result.message), "Failed to acquire mixing pump '%s'.", mixing_pump_id);
-        stop_mixing_protocol_actuators(config);
+        stop_job_scoped_actuators(&job_actuators);
         return result;
     }
 
     for (uint32_t i = 0; i < config->channel_count; ++i) {
-        if (resolve_and_acquire_actuator(exec_channels[i].component_id, ACTUATOR_OWNER_FERTIGATION) != ESP_OK) {
+        actuator_id_t fallback_aid = (strcasecmp(exec_channels[i].component_id, "pump_dosing_a") == 0 ||
+                                      strcasecmp(exec_channels[i].component_id, "dosingA") == 0)
+                                     ? ACTUATOR_DOSING_A
+                                     : (strcasecmp(exec_channels[i].component_id, "pump_dosing_b") == 0 ||
+                                        strcasecmp(exec_channels[i].component_id, "dosingB") == 0)
+                                     ? ACTUATOR_DOSING_B : ACTUATOR_MAX_COUNT;
+
+        if (acquire_scoped_actuator(&job_actuators.dosing[i], exec_channels[i].component_id, fallback_aid) != ESP_OK) {
             result.status = MIXING_RESULT_ACTUATOR_ERROR;
             result.error_code = mixing_status_to_string(result.status);
             snprintf(result.message, sizeof(result.message), "Failed to acquire dosing pump '%s'.", exec_channels[i].component_id);
-            stop_mixing_protocol_actuators(config);
+            stop_job_scoped_actuators(&job_actuators);
             return result;
         }
     }
@@ -349,17 +422,19 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     /* -------------------------------------------------------------
      * 8. START RAW WATER PUMP
      * ------------------------------------------------------------- */
-    if (set_actuator_state(raw_pump_id, true) != ESP_OK) {
+    if (set_scoped_actuator_state(&job_actuators.raw_water, true) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
         snprintf(result.message, sizeof(result.message), "Failed to turn ON raw water pump '%s'.", raw_pump_id);
-        stop_mixing_protocol_actuators(config);
+        stop_job_scoped_actuators(&job_actuators);
         return result;
     }
 
     int64_t protocol_start_us = esp_timer_get_time();
     int64_t raw_water_start_us = protocol_start_us;
     int64_t mixing_start_us = 0;
+    int64_t last_flow_progress_us = raw_water_start_us;
+    uint32_t last_flow_volume_ml = 0;
 
     bool raw_water_running = true;
     bool threshold_reached = false;
@@ -377,7 +452,6 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
         int64_t now_us = esp_timer_get_time();
         uint32_t total_elapsed_ms = (uint32_t)((now_us - protocol_start_us) / 1000LL);
-        uint32_t raw_elapsed_sec = (uint32_t)((now_us - raw_water_start_us) / 1000000LL);
 
         // A. Emergency Stop supervision
         if (actuator_hal_is_emergency_stopped() || (config->abort_check && config->abort_check(config->user_ctx))) {
@@ -385,7 +459,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             result.error_code = mixing_status_to_string(result.status);
             snprintf(result.message, sizeof(result.message), "Emergency Stop latched during mixing execution.");
             ESP_LOGW(TAG, "%s", result.message);
-            stop_mixing_protocol_actuators(config);
+            stop_job_scoped_actuators(&job_actuators);
             break;
         }
 
@@ -396,7 +470,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             result.error_code = mixing_status_to_string(result.status);
             snprintf(result.message, sizeof(result.message), "Failed to read flow sensor during execution.");
             ESP_LOGE(TAG, "%s", result.message);
-            stop_mixing_protocol_actuators(config);
+            stop_job_scoped_actuators(&job_actuators);
             break;
         }
 
@@ -405,16 +479,26 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                                        ? (current_sensor_ml - start_flow_ml) : 0;
         result.actual_raw_water_ml = actual_raw_water_ml;
 
-        // C. No-flow protection while raw water pump is active
-        if (raw_water_running && raw_elapsed_sec >= no_flow_grace_sec && actual_raw_water_ml == 0) {
-            result.status = MIXING_RESULT_RAW_WATER_NO_FLOW;
-            result.error_code = mixing_status_to_string(result.status);
-            snprintf(result.message, sizeof(result.message),
-                     "NO FLOW detected: Raw water pump active for %u s with 0 mL measured flow.",
-                     (unsigned)raw_elapsed_sec);
-            ESP_LOGE(TAG, "%s", result.message);
-            stop_mixing_protocol_actuators(config);
-            break;
+        // Update flow progress tracker
+        if (actual_raw_water_ml > last_flow_volume_ml) {
+            last_flow_volume_ml = actual_raw_water_ml;
+            last_flow_progress_us = now_us;
+        }
+
+        // C. Progress-based No-Flow protection while raw water pump is active
+        if (raw_water_running && actual_raw_water_ml < config->raw_water_target_ml) {
+            uint32_t sec_since_progress = (uint32_t)((now_us - last_flow_progress_us) / 1000000LL);
+            if (sec_since_progress >= no_flow_grace_sec) {
+                result.status = MIXING_RESULT_RAW_WATER_NO_FLOW;
+                result.error_code = mixing_status_to_string(result.status);
+                snprintf(result.message, sizeof(result.message),
+                         "NO FLOW detected: No flow progress for %u s (stalled at %u/%u mL).",
+                         (unsigned)sec_since_progress, (unsigned)actual_raw_water_ml,
+                         (unsigned)config->raw_water_target_ml);
+                ESP_LOGE(TAG, "%s", result.message);
+                stop_job_scoped_actuators(&job_actuators);
+                break;
+            }
         }
 
         // D. Raw water maximum runtime timeout check (strictly 1.5x expected calibration time)
@@ -424,11 +508,11 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             result.status = MIXING_RESULT_RAW_WATER_TIMEOUT;
             result.error_code = mixing_status_to_string(result.status);
             snprintf(result.message, sizeof(result.message),
-                     "Raw water timeout: Elapsed %u ms exceeded timeout (1.5x expected: %u ms) with delivered %u/%u mL.",
+                     "Raw water timeout: %ums > %ums (%u/%u mL).",
                      (unsigned)raw_elapsed_ms, (unsigned)max_raw_runtime_ms,
                      (unsigned)actual_raw_water_ml, (unsigned)config->raw_water_target_ml);
             ESP_LOGE(TAG, "%s", result.message);
-            stop_mixing_protocol_actuators(config);
+            stop_job_scoped_actuators(&job_actuators);
             break;
         }
 
@@ -442,21 +526,21 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                      (unsigned)actual_raw_water_ml, (unsigned)threshold_volume_ml, (unsigned)config->channel_count);
 
             // Start mixing pump
-            if (set_actuator_state(mixing_pump_id, true) != ESP_OK) {
+            if (set_scoped_actuator_state(&job_actuators.mixing_pump, true) != ESP_OK) {
                 result.status = MIXING_RESULT_ACTUATOR_ERROR;
                 result.error_code = mixing_status_to_string(result.status);
                 snprintf(result.message, sizeof(result.message), "Failed to start mixing pump '%s'.", mixing_pump_id);
-                stop_mixing_protocol_actuators(config);
+                stop_job_scoped_actuators(&job_actuators);
                 break;
             }
 
-            // Start all dosing channels concurrently
+            // Start all dosing channels simultaneously
             uint32_t now_ms = (uint32_t)(now_us / 1000LL);
             bool dosing_start_failed = false;
             for (uint32_t i = 0; i < config->channel_count; ++i) {
                 exec_channels[i].start_time_ms = now_ms;
                 exec_channels[i].is_running = true;
-                if (set_actuator_state(exec_channels[i].component_id, true) != ESP_OK) {
+                if (set_scoped_actuator_state(&job_actuators.dosing[i], true) != ESP_OK) {
                     result.status = MIXING_RESULT_ACTUATOR_ERROR;
                     result.error_code = mixing_status_to_string(result.status);
                     snprintf(result.message, sizeof(result.message), "Failed to start dosing pump '%s'.", exec_channels[i].component_id);
@@ -465,57 +549,79 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                 }
             }
             if (dosing_start_failed) {
-                stop_mixing_protocol_actuators(config);
+                stop_job_scoped_actuators(&job_actuators);
                 break;
             }
         }
 
         // F. Raw water target completion (DO NOT stop at threshold; stop ONLY when actual >= target)
         if (raw_water_running && actual_raw_water_ml >= config->raw_water_target_ml) {
-            (void)set_actuator_state(raw_pump_id, false);
-            (void)release_actuator(raw_pump_id, ACTUATOR_OWNER_FERTIGATION);
+            esp_err_t off_err = set_scoped_actuator_state(&job_actuators.raw_water, false);
+            if (off_err != ESP_OK) {
+                result.status = MIXING_RESULT_ACTUATOR_ERROR;
+                result.error_code = mixing_status_to_string(result.status);
+                snprintf(result.message, sizeof(result.message),
+                         "Failed to turn OFF raw water pump '%.20s' (err=%d).",
+                         job_actuators.raw_water.component_id, off_err);
+                ESP_LOGE(TAG, "%s", result.message);
+                stop_job_scoped_actuators(&job_actuators);
+                break;
+            }
             raw_water_running = false;
+            release_scoped_actuator(&job_actuators.raw_water);
             result.raw_water_actual_runtime_ms = (uint32_t)((now_us - raw_water_start_us) / 1000LL);
             ESP_LOGI(TAG, "Raw water target reached: %u mL in %u ms. Raw water pump OFF.",
                      (unsigned)actual_raw_water_ml, (unsigned)result.raw_water_actual_runtime_ms);
         }
 
-        // G. Dosing channels supervision
+        // G. Dosing channels supervision & reachable timeout
         if (threshold_reached && !all_dosing_done) {
             uint32_t now_ms = (uint32_t)(now_us / 1000LL);
             bool all_done = true;
             bool channel_fault = false;
 
             for (uint32_t i = 0; i < config->channel_count; ++i) {
-                if (exec_channels[i].is_running) {
+                if (exec_channels[i].is_running && !exec_channels[i].completed) {
                     uint32_t elapsed_ch_ms = now_ms - exec_channels[i].start_time_ms;
                     exec_channels[i].observed_runtime_ms = elapsed_ch_ms;
 
+                    // 1. Expected runtime reached: Request OFF
                     if (elapsed_ch_ms >= exec_channels[i].expected_runtime_ms) {
-                        // Finished calibrated dosage
-                        (void)set_actuator_state(exec_channels[i].component_id, false);
-                        (void)release_actuator(exec_channels[i].component_id, ACTUATOR_OWNER_FERTIGATION);
-                        exec_channels[i].is_running = false;
-                        exec_channels[i].completed = true;
-                        exec_channels[i].observed_runtime_ms = exec_channels[i].expected_runtime_ms;
-                        result.channels[i].actual_runtime_ms = exec_channels[i].observed_runtime_ms;
-                        result.channels[i].completed = true;
-                        ESP_LOGI(TAG, "Dosing channel '%s' completed target (%u mL, %u ms).",
-                                 exec_channels[i].component_id, (unsigned)exec_channels[i].target_volume_ml,
-                                 (unsigned)exec_channels[i].observed_runtime_ms);
-                    } else if (elapsed_ch_ms > exec_channels[i].max_runtime_ms) {
-                        // Safety timeout trip for dosing channel (strictly 1.5x expected calibration time)
+                        exec_channels[i].off_requested = true;
+                        esp_err_t off_err = set_scoped_actuator_state(&job_actuators.dosing[i], false);
+                        if (off_err == ESP_OK) {
+                            release_scoped_actuator(&job_actuators.dosing[i]);
+                            exec_channels[i].is_running = false;
+                            exec_channels[i].completed = true;
+                            exec_channels[i].off_failed = false;
+                            exec_channels[i].observed_runtime_ms = exec_channels[i].expected_runtime_ms;
+                            result.channels[i].actual_runtime_ms = exec_channels[i].observed_runtime_ms;
+                            result.channels[i].completed = true;
+                            ESP_LOGI(TAG, "Dosing channel '%s' completed target (%u mL, %u ms).",
+                                     exec_channels[i].component_id, (unsigned)exec_channels[i].target_volume_ml,
+                                     (unsigned)exec_channels[i].observed_runtime_ms);
+                        } else {
+                            // OFF command failed! Do NOT mark completed!
+                            exec_channels[i].off_failed = true;
+                            all_done = false;
+                            ESP_LOGW(TAG, "Dosing pump '%s' failed to turn OFF (err=%d). Retrying until 1.5x timeout (%u ms)...",
+                                     exec_channels[i].component_id, off_err, (unsigned)exec_channels[i].max_runtime_ms);
+                        }
+                    } else {
+                        all_done = false;
+                    }
+
+                    // 2. Timeout Check: elapsed exceeded max_runtime_ms (1.5x expected) without successful completion
+                    if (!exec_channels[i].completed && elapsed_ch_ms > exec_channels[i].max_runtime_ms) {
                         result.status = MIXING_RESULT_DOSING_TIMEOUT;
                         result.error_code = mixing_status_to_string(result.status);
                         snprintf(result.message, sizeof(result.message),
-                                 "Dosing pump '%s' exceeded timeout (1.5x expected: %u ms > max %u ms).",
+                                 "Dosing '%.20s' timeout: %ums > max %ums (off_fail=%d)",
                                  exec_channels[i].component_id, (unsigned)elapsed_ch_ms,
-                                 (unsigned)exec_channels[i].max_runtime_ms);
+                                 (unsigned)exec_channels[i].max_runtime_ms, exec_channels[i].off_failed ? 1 : 0);
                         ESP_LOGE(TAG, "%s", result.message);
                         channel_fault = true;
                         break;
-                    } else {
-                        all_done = false;
                     }
                 } else if (!exec_channels[i].completed) {
                     all_done = false;
@@ -523,7 +629,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             }
 
             if (channel_fault) {
-                stop_mixing_protocol_actuators(config);
+                stop_job_scoped_actuators(&job_actuators);
                 break;
             }
 
@@ -562,9 +668,19 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         // I. Success Evaluation: Raw water done + All dosing done + Post-mix duration complete
         if (!raw_water_running && all_dosing_done && post_mix_done) {
             // Turn OFF mixing pump
-            (void)set_actuator_state(mixing_pump_id, false);
-            (void)release_actuator(mixing_pump_id, ACTUATOR_OWNER_FERTIGATION);
+            esp_err_t off_err = set_scoped_actuator_state(&job_actuators.mixing_pump, false);
+            if (off_err != ESP_OK) {
+                result.status = MIXING_RESULT_ACTUATOR_ERROR;
+                result.error_code = mixing_status_to_string(result.status);
+                snprintf(result.message, sizeof(result.message),
+                         "Failed to turn OFF mixing pump '%.20s' (err=%d).",
+                         job_actuators.mixing_pump.component_id, off_err);
+                ESP_LOGE(TAG, "%s", result.message);
+                stop_job_scoped_actuators(&job_actuators);
+                break;
+            }
             mixing_running = false;
+            release_scoped_actuator(&job_actuators.mixing_pump);
 
             result.status = MIXING_RESULT_SUCCESS;
             result.error_code = mixing_status_to_string(result.status);
@@ -578,8 +694,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         }
     }
 
-    // Ensure actuators are fully cleaned up
-    stop_mixing_protocol_actuators(config);
+    // Ensure job-scoped actuators are fully cleaned up
+    stop_job_scoped_actuators(&job_actuators);
 
     int64_t end_us = esp_timer_get_time();
     result.total_runtime_ms = (uint32_t)((end_us - protocol_start_us) / 1000LL);
