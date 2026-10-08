@@ -821,6 +821,88 @@ paths:
         "409":
           $ref: "#/components/responses/ConflictError"
 
+  /api/v1/calibration/test-mixing:
+    get:
+      tags: [Calibration]
+      operationId: getCalibrationMixingTestStatus
+      summary: Get live or final status of the canonical mixing and dosing hardware test
+      responses:
+        "200":
+          description: Mixing test status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MixingTestStatus"
+    post:
+      tags: [Calibration]
+      operationId: startCalibrationMixingTest
+      summary: Start canonical mixing and dosing hardware test using protocol_mixing()
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MixingTestRequest"
+      responses:
+        "202":
+          description: Mixing test started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MixingTestStatus"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Calibration]
+      operationId: stopCalibrationMixingTest
+      summary: Stop/abort active canonical mixing and dosing hardware test
+      responses:
+        "200":
+          description: Mixing test stopped
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MixingTestStatus"
+
+  /api/v1/calibration/test-mixing/stop:
+    post:
+      tags: [Calibration]
+      operationId: stopCalibrationMixingTestPost
+      summary: Stop/abort active canonical mixing and dosing hardware test (POST alias)
+      responses:
+        "200":
+          description: Mixing test stopped
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MixingTestStatus"
+
   /api/v1/topology-capabilities:
     get:
       tags: [Device]
@@ -2203,6 +2285,58 @@ components:
       properties:
         componentId: { type: string }
         rateValue: { type: number, minimum: 0.001 }
+
+    MixingTestChannelRequest:
+      type: object
+      required: [componentId, targetVolumeMl]
+      properties:
+        componentId: { type: string }
+        targetVolumeMl: { type: integer, minimum: 1 }
+
+    MixingTestRequest:
+      type: object
+      required: [rawWaterTargetMl]
+      properties:
+        rawWaterTargetMl: { type: integer, minimum: 1 }
+        thresholdPercent: { type: integer, minimum: 0, maximum: 100 }
+        postMixDurationSec: { type: integer, minimum: 0 }
+        rawWaterComponentId: { type: string }
+        rawFlowSensorId: { type: string }
+        mixingPumpId: { type: string }
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/MixingTestChannelRequest"
+
+    MixingTestChannelStatus:
+      type: object
+      required: [componentId, targetVolumeMl, calibrationRateMlSec, expectedRuntimeMs, actualRuntimeMs, completed, status]
+      properties:
+        componentId: { type: string }
+        targetVolumeMl: { type: number }
+        calibrationRateMlSec: { type: number }
+        expectedRuntimeMs: { type: number }
+        actualRuntimeMs: { type: number }
+        completed: { type: boolean }
+        status: { type: string, enum: [PENDING, RUNNING, COMPLETED] }
+
+    MixingTestStatus:
+      type: object
+      required: [status, phase, rawWaterTargetMl, rawWaterActualMl, thresholdPercent, postMixDurationSec, totalRuntimeMs, channels]
+      properties:
+        status: { type: string, enum: [IDLE, RUNNING, SUCCESS, ERROR] }
+        phase: { type: string }
+        rawWaterTargetMl: { type: number }
+        rawWaterActualMl: { type: number }
+        thresholdPercent: { type: number }
+        postMixDurationSec: { type: number }
+        totalRuntimeMs: { type: number }
+        errorCode: { type: string, nullable: true }
+        message: { type: string }
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/MixingTestChannelStatus"
 
     Plant:
       type: object

@@ -1,3 +1,38 @@
+## SP-CALIBRATION-MIXING-TEST-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, test_calibration_mixing_test 19/19 PASS, test_protocol_mixing 14/14 PASS, test_mixing_fertigation_execution 6/6 PASS, test_dosing_checkpoint_recovery 20/20 PASS, npm test PASS, npx tsc PASS)
+- **Objective**: Implement Calibration Page "Test Mixing & Dosing" Feature via Canonical `protocol_mixing()`:
+  1. Audit: Verified existing calibration and fertigation endpoints, confirmed need for dedicated manual test endpoints without creating duplicate mixing/dosing runtime loops.
+  2. Protocol Enhancements: Added `live_result` to `mixing_protocol_config_t` and `sync_live_result()` in `esp32/main/services/protocol_mixing.c` for continuous runtime phase and metric tracking.
+  3. Firmware Calibration Manager: Added `calibration_mgr_start_mixing_test()`, `stop_mixing_test()`, `get_mixing_test_status()`, and `is_mixing_test_running()` in `esp32/main/services/calibration_mgr.c`. Worker task runs canonical `protocol_mixing(&s_mixing_test_cfg)` on Core 1 with 6144 B stack.
+  4. Concurrency & Safety Interlocks: Rejects start if `fertigation_mgr_get_state()` is busy (`ESP_ERR_INVALID_STATE` / HTTP 409 `MIXING_BUSY`). Abort commands trigger `stop_mixing_protocol_actuators()` for scoped safe-stop of test actuators without disturbing unrelated subsystems.
+  5. API & OpenAPI Contracts: Registered `/api/v1/calibration/test-mixing` (POST, GET, DELETE) and `/api/v1/calibration/test-mixing/stop` (POST) in `api_calibration_handlers.c`, documented in `contracts/UI_ESP32_OPENAPI.yaml` and `UI_ESP32_OPENAPI.yaml`.
+  6. Frontend Client & Service: Added TypeScript types to `contracts.ts`, methods to `esp32-client.ts`, and service wrappers to `services.ts`.
+  7. UI Component: Created `src/components/calibration/TestMixingModal.tsx` providing config panel (raw water target, threshold %, post-mix duration, dynamic dosing pump channel selection from hardware registry), explicit safety confirmation warning, live running monitor, and result diagnostics.
+  8. Calibration Page Integration: Added `[ Test Mixing & Dosing ]` button to `src/app/calibration/page.tsx` header actions and pump panel, with offline and running protections.
+  9. Canonical Documentation: Added Section 37 to `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`.
+  10. Automated Tests: Created `scripts/test_calibration_mixing_test.mjs` (19/19 checks PASS).
+- **Implemented**:
+  - `esp32/main/services/protocol_mixing.h`, `esp32/main/services/protocol_mixing.c`
+  - `esp32/main/services/calibration_mgr.h`, `esp32/main/services/calibration_mgr.c`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_OPENAPI.yaml`
+  - `src/lib/api/contracts.ts`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`
+  - `src/components/calibration/TestMixingModal.tsx`, `src/app/calibration/page.tsx`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `scripts/test_calibration_mixing_test.mjs`
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: PASS (`agrotech_esp32.bin` built cleanly, 48% flash free).
+  - `node scripts/test_calibration_mixing_test.mjs`: PASS (19/19 checks).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (all checks).
+  - `node scripts/test_mixing_fertigation_execution.mjs`: PASS (all checks).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: PASS (20/20 checks).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**: `esp32/main/services/protocol_mixing.h`, `esp32/main/services/protocol_mixing.c`, `esp32/main/services/calibration_mgr.h`, `esp32/main/services/calibration_mgr.c`, `esp32/main/http/api_calibration_handlers.c`, `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_OPENAPI.yaml`, `src/lib/api/contracts.ts`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`, `src/components/calibration/TestMixingModal.tsx`, `src/app/calibration/page.tsx`, `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`, `scripts/test_calibration_mixing_test.mjs`.
+- **Git Commit**: Pending commit.
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-SCHEDULE-TIMELINE-PARITY-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Schedule Timeline 3/3 PASS, Table 3/3 PASS, verify_timeline_engine 26/26 PASS, npm test PASS, npx tsc PASS, npm run build PASS)

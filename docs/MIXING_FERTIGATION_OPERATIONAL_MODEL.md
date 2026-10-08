@@ -1505,3 +1505,37 @@ Greenhouse fertigation distribution is fully decoupled from the central preparat
 - The central preparation state returns to `FERT_STATE_IDLE`, freeing central shared resources (raw water pump, dosing pumps, mixing pump) for the next queued recipe.
 - Per-greenhouse distribution pumps are commanded independently by the scheduler monitor loop without blocking central preparation.
 
+# 37. Calibration Mixing & Dosing Hardware Test Architecture
+
+## 37.1 Operational Objective
+Provides a dedicated hardware diagnostic on the Calibration page allowing operators to test physical actuators (12V DC Raw Water Pump, Mixing Pump, and dynamic Dosing Pumps) using the canonical `protocol_mixing()` execution engine without scheduled recipes or dosing queue modifications.
+
+```text
+Calibration Page
+      ↓
+[ Test Mixing & Dosing ]
+      ↓
+Test Configuration (Raw Water, Threshold %, Post-Mix, Dynamic Dosing Volumes)
+      ↓
+Safety Confirmation (Physical Actuator Warning)
+      ↓
+POST /api/v1/calibration/test-mixing
+      ↓
+calibration_mgr_start_mixing_test()
+      ↓
+protocol_mixing(&s_mixing_test_cfg)
+      ↓
+Live Status Polling & Scoped Actuator Stop
+      ↓
+Live Result (Raw Water Actual vs Target, Dosing Status, Error Diagnostics)
+```
+
+## 37.2 Single Canonical Execution Engine
+- **Zero Duplicate Implementations:** Manual mixing and dosing testing does not implement timer loops or separate actuator sequences. All runs are orchestrated directly by `protocol_mixing(&s_mixing_test_cfg)`.
+- **Dynamic Channel Resolution:** Dosing channels are dynamically resolved from the active hardware registry and calibration repository. Channels with valid calibration rates are enabled; uncalibrated channels are flagged `NOT CALIBRATED` and prevented from actuation.
+- **Safety Interlocks & Concurrency:**
+  - Start requests are rejected with `MIXING_BUSY` (HTTP 409) if the central fertigation manager is currently active (`FERT_STATE_MIXING`, `FERT_STATE_STAGING`, etc.).
+  - Emergency stop immediately trips abort hooks and engages scoped safe-stop (`stop_mixing_protocol_actuators`), releasing owned actuators without perturbing unrelated greenhouse subsystems.
+  - Test execution is strictly read-only with respect to calibration values; test runs never recalculate or overwrite stored calibration coefficients.
+
+

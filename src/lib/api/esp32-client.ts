@@ -21,6 +21,8 @@ import type {
   Schedule,
   SchedulesResponse,
   CalibrationRates,
+  MixingTestRequest,
+  MixingTestStatus,
   StartCropCycleRequest,
   StatusResponse,
   TelemetrySnapshot,
@@ -500,6 +502,17 @@ export class Esp32Client {
     });
   }
 
+  async startMixingTest(request: MixingTestRequest): Promise<MixingTestStatus> {
+    return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing", request);
+  }
+
+  async getMixingTestStatus(): Promise<MixingTestStatus> {
+    return this.getEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing");
+  }
+
+  async stopMixingTest(): Promise<MixingTestStatus> {
+    return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing/stop", {});
+  }
 
   async getTopologyCapabilities(): Promise<TopologyCapabilitiesResponse> {
     return this.getEnveloped<TopologyCapabilitiesResponse>("/api/v1/topology-capabilities");

@@ -39,6 +39,7 @@ import { ComplexSwitcher, GreenhouseSwitcher } from "@/components/layout/bits";
 import { SectionCard } from "@/components/ui/cards";
 import { Badge, Button, Input, Label, StatusBadge } from "@/components/ui/primitives";
 import { ConfirmDialog } from "@/components/ui/overlay";
+import { TestMixingModal } from "@/components/calibration/TestMixingModal";
 import { useToast } from "@/components/ui/toast";
 import { calibrationService, complexService, greenhouseService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
@@ -99,10 +100,13 @@ function CalibrationContent() {
   const [category, setCategory] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"calibrate" | "history">("calibrate");
+  const [testMixingModalOpen, setTestMixingModalOpen] = useState(false);
   /** Single source of truth for a running pump — the header E-Stop and the wizard share it. */
   const [run, setRun] = useState<{ deviceId: string; secondsLeft: number } | null>(null);
   const [authoritativeDevices, setAuthoritativeDevices] = useState<CalibrationDevice[]>([]);
   const [authoritativeHistory, setAuthoritativeHistory] = useState<import("@/lib/types").CalibrationRecord[]>([]);
+
+  const isOnline = Boolean(complex?.esp32?.online && realtimeState !== "offline");
 
   useDbVersion();
 
@@ -196,6 +200,16 @@ function CalibrationContent() {
           <LiveStatus state={realtimeState} label="Hardware Link" />
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            className="border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-semibold"
+            disabled={!isOnline}
+            title={!isOnline ? "Device is offline. Mixing test cannot be started." : undefined}
+            onClick={() => setTestMixingModalOpen(true)}
+          >
+            <FlaskConical className="h-4 w-4 mr-2 text-emerald-600" />
+            Test Mixing & Dosing
+          </Button>
           <Button variant="secondary" onClick={async () => {
             toast("Permintaan sinkronisasi dikirim ke ESP32", "info");
             await refreshAuthoritative();
@@ -319,7 +333,20 @@ function CalibrationContent() {
                       <History className="h-4 w-4" /> Riwayat Kalibrasi
                     </button>
                   </div>
-                  <div className="pb-3">
+                  <div className="pb-3 flex items-center gap-2">
+                    {(device.category === "dosing-pump" || device.category === "raw-water-pump") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-emerald-600 text-emerald-700 hover:bg-emerald-50 text-xs font-semibold h-7"
+                        disabled={!isOnline}
+                        title={!isOnline ? "Device is offline. Mixing test cannot be started." : undefined}
+                        onClick={() => setTestMixingModalOpen(true)}
+                      >
+                        <FlaskConical className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                        Test Mixing & Dosing
+                      </Button>
+                    )}
                     {getCalibrationAgeBadge(device)}
                   </div>
                 </div>
@@ -354,6 +381,12 @@ function CalibrationContent() {
           )}
         </div>
       </div>
+      <TestMixingModal
+        open={testMixingModalOpen}
+        onClose={() => setTestMixingModalOpen(false)}
+        devices={authoritativeDevices}
+        isOnline={isOnline}
+      />
     </AppShell>
   );
 }

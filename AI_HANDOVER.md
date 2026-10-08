@@ -1,3 +1,32 @@
+# AI HANDOVER - SP-CALIBRATION-MIXING-TEST-001
+
+## Current status
+Calibration Page "Test Mixing & Dosing" feature fully implemented using canonical `protocol_mixing()`:
+1. **Canonical Engine Direct Execution**:
+   - Firmware test worker in `calibration_mgr.c` executes `protocol_mixing(&s_mixing_test_cfg)` on Core 1 with 6144 B stack.
+   - Zero duplicated mixing/dosing logic or ad-hoc timers.
+   - Protocol synchronizes runtime metrics and phases continuously via `live_result`.
+2. **Concurrency & Hardware Safety**:
+   - Rejects execution with HTTP 409 `MIXING_BUSY` if fertigation manager or another mixing job is active.
+   - Offline protection: UI disables test button and modal displays explicit warning if ESP32 is offline.
+   - Abort & Emergency Stop: `POST /api/v1/calibration/test-mixing/stop` invokes `stop_mixing_protocol_actuators()` for scoped safe-stop of only test-owned actuators.
+   - Calibration values remain read-only during test runs.
+3. **Dynamic Hardware Topology**:
+   - Renders all dosing pumps dynamically from the active hardware registry.
+   - Calibrated pumps are selectable with their rates displayed in mL/sec.
+   - Uncalibrated pumps are flagged `NOT CALIBRATED` and prevented from actuation.
+4. **Verifications**:
+   - ESP-IDF Firmware Build: PASS (`agrotech_esp32.bin` built, 48% flash free).
+   - Test Suite (`scripts/test_calibration_mixing_test.mjs`): 19/19 checks PASS.
+   - Protocol Suite (`scripts/test_protocol_mixing.mjs`): 14/14 checks PASS.
+   - Mixing Fertigation Execution (`scripts/test_mixing_fertigation_execution.mjs`): 6/6 checks PASS.
+   - Dosing Recovery Suite (`scripts/test_dosing_checkpoint_recovery.mjs`): 20/20 checks PASS.
+   - Frontend Contract & Mock E2E (`npm test`): PASS.
+   - TypeScript Static Typecheck (`npx tsc --noEmit`): PASS.
+5. **Git Commit**: Pending commit.
+
+---
+
 # AI HANDOVER - SP-SCHEDULE-TIMELINE-PARITY-001
 
 ## Current status

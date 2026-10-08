@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include "hal/actuator_hal.h"
 #include "cJSON.h"
+#include "services/protocol_mixing.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -96,6 +97,12 @@ float calibration_mgr_get_flow_fert_pulses_per_l(void);
 bool calibration_mgr_is_flow_fert_calibrated(void);
 esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l);
 esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj);
+
+/* Canonical Mixing & Dosing hardware test execution via protocol_mixing */
+esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *config);
+esp_err_t calibration_mgr_stop_mixing_test(void);
+esp_err_t calibration_mgr_get_mixing_test_status(cJSON **out_json);
+bool calibration_mgr_is_mixing_test_running(void);
 
 #ifdef __cplusplus
 }

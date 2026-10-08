@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "services/calibration_mgr.h"
+#include "services/protocol_mixing.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include "storage/storage_mgr.h"
@@ -383,6 +384,120 @@ static esp_err_t api_calibration_record_get_handler(httpd_req_t *req)
     return http_send_enveloped_response(req,200,NULL,record);
 }
 
+static esp_err_t api_calibration_test_mixing_start_handler(httpd_req_t *req)
+{
+    cJSON *json = NULL;
+    if (http_parse_json_body(req, &json) != ESP_OK || !json) {
+        http_send_error(req, 400, "BAD_REQUEST", "Invalid JSON body", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *payload = cJSON_GetObjectItem(json, "payload");
+    cJSON *target = payload ? payload : json;
+
+    cJSON *raw_target = cJSON_GetObjectItem(target, "rawWaterTargetMl");
+    if (!raw_target) raw_target = cJSON_GetObjectItem(target, "raw_water_target_ml");
+
+    cJSON *thresh = cJSON_GetObjectItem(target, "thresholdPercent");
+    if (!thresh) thresh = cJSON_GetObjectItem(target, "threshold_percent");
+
+    cJSON *post_mix = cJSON_GetObjectItem(target, "postMixDurationSec");
+    if (!post_mix) post_mix = cJSON_GetObjectItem(target, "post_mix_duration_sec");
+
+    if (!raw_target || !cJSON_IsNumber(raw_target) || raw_target->valueint <= 0) {
+        cJSON_Delete(json);
+        http_send_error(req, 422, "VALIDATION_FAILED", "rawWaterTargetMl must be a positive integer", NULL);
+        return ESP_FAIL;
+    }
+
+    mixing_protocol_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.raw_water_target_ml = (uint32_t)raw_target->valueint;
+    cfg.threshold_percent = (thresh && cJSON_IsNumber(thresh) && thresh->valueint >= 0 && thresh->valueint <= 100) ? (uint8_t)thresh->valueint : 0;
+    cfg.post_mix_duration_sec = (post_mix && cJSON_IsNumber(post_mix) && post_mix->valueint >= 0) ? (uint32_t)post_mix->valueint : 0;
+
+    cJSON *rw_comp = cJSON_GetObjectItem(target, "rawWaterComponentId");
+    if (!rw_comp) rw_comp = cJSON_GetObjectItem(target, "raw_water_component_id");
+    if (rw_comp && cJSON_IsString(rw_comp) && rw_comp->valuestring[0]) {
+        strncpy(cfg.raw_water_component_id, rw_comp->valuestring, sizeof(cfg.raw_water_component_id) - 1);
+    }
+
+    cJSON *flow_sensor = cJSON_GetObjectItem(target, "rawFlowSensorId");
+    if (!flow_sensor) flow_sensor = cJSON_GetObjectItem(target, "raw_flow_sensor_id");
+    if (flow_sensor && cJSON_IsString(flow_sensor) && flow_sensor->valuestring[0]) {
+        strncpy(cfg.raw_flow_sensor_id, flow_sensor->valuestring, sizeof(cfg.raw_flow_sensor_id) - 1);
+    }
+
+    cJSON *mix_pump = cJSON_GetObjectItem(target, "mixingPumpId");
+    if (!mix_pump) mix_pump = cJSON_GetObjectItem(target, "mixing_pump_id");
+    if (mix_pump && cJSON_IsString(mix_pump) && mix_pump->valuestring[0]) {
+        strncpy(cfg.mixing_pump_id, mix_pump->valuestring, sizeof(cfg.mixing_pump_id) - 1);
+    }
+
+    cJSON *channels = cJSON_GetObjectItem(target, "channels");
+    if (channels && cJSON_IsArray(channels)) {
+        int num_ch = cJSON_GetArraySize(channels);
+        if (num_ch > MAX_MIXING_DOSING_CHANNELS) {
+            cJSON_Delete(json);
+            http_send_error(req, 422, "TOO_MANY_CHANNELS", "Exceeded maximum dosing channels (8)", NULL);
+            return ESP_FAIL;
+        }
+        for (int i = 0; i < num_ch; i++) {
+            cJSON *ch_item = cJSON_GetArrayItem(channels, i);
+            if (!ch_item || !cJSON_IsObject(ch_item)) continue;
+            cJSON *cid = cJSON_GetObjectItem(ch_item, "componentId");
+            if (!cid) cid = cJSON_GetObjectItem(ch_item, "component_id");
+            cJSON *vol = cJSON_GetObjectItem(ch_item, "targetVolumeMl");
+            if (!vol) vol = cJSON_GetObjectItem(ch_item, "target_volume_ml");
+
+            if (!cid || !cJSON_IsString(cid) || !cid->valuestring[0] ||
+                !vol || !cJSON_IsNumber(vol) || vol->valueint <= 0) {
+                cJSON_Delete(json);
+                http_send_error(req, 422, "INVALID_CHANNEL_PARAM", "Each channel must have valid componentId and positive targetVolumeMl", NULL);
+                return ESP_FAIL;
+            }
+
+            strncpy(cfg.channels[cfg.channel_count].component_id, cid->valuestring, sizeof(cfg.channels[cfg.channel_count].component_id) - 1);
+            cfg.channels[cfg.channel_count].target_volume_ml = (uint32_t)vol->valueint;
+            cfg.channel_count++;
+        }
+    }
+
+    cJSON_Delete(json);
+
+    esp_err_t err = calibration_mgr_start_mixing_test(&cfg);
+    if (err == ESP_ERR_INVALID_STATE) {
+        http_send_error(req, 409, "MIXING_BUSY", "Mixing or fertigation system is currently busy or estop active.", NULL);
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        http_send_error(req, 422, "MIXING_TEST_START_FAILED", "Failed to start mixing & dosing test", NULL);
+        return ESP_FAIL;
+    }
+
+    cJSON *resp = NULL;
+    calibration_mgr_get_mixing_test_status(&resp);
+    return http_send_enveloped_response(req, 202, NULL, resp);
+}
+
+static esp_err_t api_calibration_test_mixing_get_handler(httpd_req_t *req)
+{
+    cJSON *resp = NULL;
+    esp_err_t err = calibration_mgr_get_mixing_test_status(&resp);
+    if (err != ESP_OK || !resp) {
+        http_send_error(req, 500, "STATUS_READ_FAILED", "Could not get mixing test status", NULL);
+        return ESP_FAIL;
+    }
+    return http_send_enveloped_response(req, 200, NULL, resp);
+}
+
+static esp_err_t api_calibration_test_mixing_stop_handler(httpd_req_t *req)
+{
+    (void)calibration_mgr_stop_mixing_test();
+    cJSON *resp = NULL;
+    calibration_mgr_get_mixing_test_status(&resp);
+    return http_send_enveloped_response(req, 200, NULL, resp);
+}
+
 void register_api_calibration_handlers(httpd_handle_t server)
 {
     httpd_uri_t a={.uri="/api/v1/calibration",.method=HTTP_POST,.handler=api_calibration_start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
@@ -392,4 +507,17 @@ void register_api_calibration_handlers(httpd_handle_t server)
     httpd_uri_t gr={.uri="/api/v1/calibration/rate",.method=HTTP_GET,.handler=api_calibration_get_rate_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&gr);
     httpd_uri_t rec={.uri="/api/v1/calibration/record",.method=HTTP_POST,.handler=api_calibration_record_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&rec);
     httpd_uri_t rec_get={.uri="/api/v1/calibration/record",.method=HTTP_GET,.handler=api_calibration_record_get_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&rec_get);
+
+    httpd_uri_t tmix_start = {.uri = "/api/v1/calibration/test-mixing", .method = HTTP_POST, .handler = api_calibration_test_mixing_start_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_start);
+
+    httpd_uri_t tmix_get = {.uri = "/api/v1/calibration/test-mixing", .method = HTTP_GET, .handler = api_calibration_test_mixing_get_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_get);
+
+    httpd_uri_t tmix_stop = {.uri = "/api/v1/calibration/test-mixing/stop", .method = HTTP_POST, .handler = api_calibration_test_mixing_stop_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_stop);
+
+    httpd_uri_t tmix_del = {.uri = "/api/v1/calibration/test-mixing", .method = HTTP_DELETE, .handler = api_calibration_test_mixing_stop_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_del);
 }
+

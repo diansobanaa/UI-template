@@ -245,12 +245,20 @@ esp_err_t stop_mixing_protocol_actuators(const mixing_protocol_config_t *config)
     return ESP_OK;
 }
 
+static inline void sync_live_result(const mixing_protocol_config_t *config, const mixing_result_t *res)
+{
+    if (config && config->live_result) {
+        *config->live_result = *res;
+    }
+}
+
 mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 {
     mixing_result_t result;
     memset(&result, 0, sizeof(result));
     result.current_phase = MIXING_PHASE_PRECHECK;
     result.final_phase = MIXING_PHASE_PRECHECK;
+    sync_live_result(config, &result);
 
     /* -------------------------------------------------------------
      * 1. PRECHECK - CONFIGURATION VALIDATION
@@ -500,6 +508,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     }
 
     result.current_phase = MIXING_PHASE_RAW_WATER_FILL;
+    sync_live_result(config, &result);
 
     int64_t protocol_start_us = esp_timer_get_time();
     int64_t raw_water_start_us = protocol_start_us;
@@ -764,6 +773,12 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             result.mixing_actual_runtime_ms = (uint32_t)((now_us - mixing_start_us) / 1000LL);
         }
 
+        for (uint32_t c = 0; c < config->channel_count; ++c) {
+            result.channels[c].actual_runtime_ms = exec_channels[c].observed_runtime_ms;
+            result.channels[c].completed = exec_channels[c].completed;
+        }
+        sync_live_result(config, &result);
+
         // I. Success Evaluation: Raw water done + All dosing done + Post-mix duration complete
         if (!raw_water_running && all_dosing_done && post_mix_done) {
             result.current_phase = MIXING_PHASE_STOP;
@@ -807,5 +822,6 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (result.status != MIXING_RESULT_SUCCESS) {
         result.final_phase = MIXING_PHASE_ERROR;
     }
+    sync_live_result(config, &result);
     return result;
 }

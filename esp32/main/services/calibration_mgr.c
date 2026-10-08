@@ -1,4 +1,6 @@
 #include "services/calibration_mgr.h"
+#include "services/protocol_mixing.h"
+#include "services/fertigation_mgr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -25,6 +27,16 @@ static size_t s_record_count = 0;
 static float s_flow_raw_pulses_per_l = 0.0f;
 static float s_flow_fert_pulses_per_l = 0.0f;
 static bool s_calibration_running_component = false;
+
+/* Canonical Mixing & Dosing hardware test state */
+static SemaphoreHandle_t s_mixing_test_mutex = NULL;
+static bool s_mixing_test_running = false;
+static bool s_mixing_test_abort_requested = false;
+static mixing_protocol_config_t s_mixing_test_cfg;
+static mixing_result_t s_mixing_test_live_res;
+static mixing_result_t s_mixing_test_final_res;
+static bool s_mixing_test_has_result = false;
+static TaskHandle_t s_mixing_test_task_handle = NULL;
 
 
 static void copy_str(char *dst, size_t len, const char *src)
@@ -319,6 +331,8 @@ esp_err_t calibration_mgr_init(void)
 {
     if (!s_mutex) s_mutex = xSemaphoreCreateMutex();
     if (!s_mutex) return ESP_ERR_NO_MEM;
+    if (!s_mixing_test_mutex) s_mixing_test_mutex = xSemaphoreCreateMutex();
+    if (!s_mixing_test_mutex) return ESP_ERR_NO_MEM;
     memset(&s_ctx, 0, sizeof(s_ctx));
     s_ctx.state = CALIBRATION_STATE_IDLE;
     s_ctx.pump_id = ACTUATOR_MAX_COUNT;
@@ -671,3 +685,203 @@ esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l) { if(pul
 float calibration_mgr_get_flow_fert_pulses_per_l(void) { return s_flow_fert_pulses_per_l; }
 bool calibration_mgr_is_flow_fert_calibrated(void) { return s_flow_fert_pulses_per_l > 0.0f; }
 esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; s_flow_fert_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); xSemaphoreGive(s_mutex); return e; }
+
+/* -------------------------------------------------------------
+ * Canonical Mixing & Dosing hardware test execution via protocol_mixing
+ * ------------------------------------------------------------- */
+static bool mixing_test_abort_check(void *ctx)
+{
+    (void)ctx;
+    return s_mixing_test_abort_requested || actuator_hal_is_emergency_stopped();
+}
+
+static void mixing_test_worker_task(void *pvParameters)
+{
+    (void)pvParameters;
+    ESP_LOGI(TAG, "Mixing & Dosing hardware test worker task started (canonical protocol_mixing).");
+    (void)event_mgr_log(LOG_LEVEL_INFO, "CALIBRATION", "MIXING_TEST_STARTED",
+                        "Manual mixing and dosing test started.", NULL);
+
+    mixing_result_t res = protocol_mixing(&s_mixing_test_cfg);
+
+    if (s_mixing_test_mutex && xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY) == pdTRUE) {
+        s_mixing_test_final_res = res;
+        s_mixing_test_has_result = true;
+        s_mixing_test_running = false;
+        s_mixing_test_task_handle = NULL;
+        xSemaphoreGive(s_mixing_test_mutex);
+    } else {
+        s_mixing_test_running = false;
+        s_mixing_test_task_handle = NULL;
+    }
+
+    if (res.status == MIXING_RESULT_SUCCESS) {
+        ESP_LOGI(TAG, "Mixing & Dosing hardware test COMPLETED successfully.");
+        (void)event_mgr_log(LOG_LEVEL_INFO, "CALIBRATION", "MIXING_TEST_SUCCESS",
+                            "Manual mixing and dosing test completed successfully.", NULL);
+    } else {
+        ESP_LOGE(TAG, "Mixing & Dosing hardware test FAILED (%s): %s",
+                 mixing_status_to_string(res.status), res.message);
+        (void)event_mgr_log(LOG_LEVEL_ERROR, "CALIBRATION", "MIXING_TEST_FAILED",
+                            res.message[0] ? res.message : mixing_status_to_string(res.status), NULL);
+    }
+
+    vTaskDelete(NULL);
+}
+
+bool calibration_mgr_is_mixing_test_running(void)
+{
+    return s_mixing_test_running;
+}
+
+esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *config)
+{
+    if (!config || config->raw_water_target_ml == 0) return ESP_ERR_INVALID_ARG;
+
+    if (!s_mixing_test_mutex) {
+        s_mixing_test_mutex = xSemaphoreCreateMutex();
+        if (!s_mixing_test_mutex) return ESP_ERR_NO_MEM;
+    }
+
+    if (xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+    if (s_mixing_test_running) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Concurrency protection: reject if fertigation manager is currently active */
+    fertigation_state_t f_st = fertigation_mgr_get_state();
+    if (f_st != FERT_STATE_IDLE && f_st != FERT_STATE_COMPLETE &&
+        f_st != FERT_STATE_FAULTED && f_st != FERT_STATE_ABORTED) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGW(TAG, "Cannot start mixing test: fertigation manager is currently busy (state=%d).", (int)f_st);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Safety interlock: reject if E-Stop latched */
+    if (actuator_hal_is_emergency_stopped()) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGW(TAG, "Cannot start mixing test: Emergency Stop latched.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    memset(&s_mixing_test_cfg, 0, sizeof(s_mixing_test_cfg));
+    s_mixing_test_cfg = *config;
+    s_mixing_test_cfg.abort_check = mixing_test_abort_check;
+    s_mixing_test_cfg.live_result = &s_mixing_test_live_res;
+
+    memset(&s_mixing_test_live_res, 0, sizeof(s_mixing_test_live_res));
+    s_mixing_test_live_res.current_phase = MIXING_PHASE_PRECHECK;
+    s_mixing_test_live_res.target_raw_water_ml = config->raw_water_target_ml;
+    s_mixing_test_live_res.channel_count = config->channel_count;
+    for (uint32_t i = 0; i < config->channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        strncpy(s_mixing_test_live_res.channels[i].component_id, config->channels[i].component_id, sizeof(s_mixing_test_live_res.channels[i].component_id) - 1);
+        s_mixing_test_live_res.channels[i].target_volume_ml = config->channels[i].target_volume_ml;
+    }
+
+    s_mixing_test_abort_requested = false;
+    s_mixing_test_running = true;
+    s_mixing_test_has_result = false;
+
+    BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 6144, NULL, 5, &s_mixing_test_task_handle, 1);
+    if (ret != pdPASS) {
+        s_mixing_test_running = false;
+        s_mixing_test_task_handle = NULL;
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGE(TAG, "Failed to spawn mixing test task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    xSemaphoreGive(s_mixing_test_mutex);
+    return ESP_OK;
+}
+
+esp_err_t calibration_mgr_stop_mixing_test(void)
+{
+    if (!s_mixing_test_mutex) return ESP_OK;
+    if (xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+    if (!s_mixing_test_running) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        return ESP_OK;
+    }
+
+    s_mixing_test_abort_requested = true;
+    (void)stop_mixing_protocol_actuators(&s_mixing_test_cfg);
+    xSemaphoreGive(s_mixing_test_mutex);
+    ESP_LOGI(TAG, "Mixing & Dosing hardware test abort requested.");
+    return ESP_OK;
+}
+
+esp_err_t calibration_mgr_get_mixing_test_status(cJSON **out_json)
+{
+    if (!out_json) return ESP_ERR_INVALID_ARG;
+    *out_json = NULL;
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    if (!s_mixing_test_mutex) {
+        s_mixing_test_mutex = xSemaphoreCreateMutex();
+    }
+    if (s_mixing_test_mutex) {
+        xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY);
+    }
+
+    bool running = s_mixing_test_running;
+    bool has_result = s_mixing_test_has_result;
+    mixing_result_t snap = running ? s_mixing_test_live_res : s_mixing_test_final_res;
+    mixing_protocol_config_t cfg_snap = s_mixing_test_cfg;
+
+    if (s_mixing_test_mutex) {
+        xSemaphoreGive(s_mixing_test_mutex);
+    }
+
+    const char *state_str = "IDLE";
+    if (running) {
+        state_str = "RUNNING";
+    } else if (has_result) {
+        state_str = (snap.status == MIXING_RESULT_SUCCESS) ? "SUCCESS" : "ERROR";
+    }
+
+    cJSON_AddStringToObject(root, "status", state_str);
+    cJSON_AddStringToObject(root, "phase", mixing_phase_to_string(snap.current_phase));
+    cJSON_AddNumberToObject(root, "rawWaterTargetMl", (double)(snap.target_raw_water_ml > 0 ? snap.target_raw_water_ml : cfg_snap.raw_water_target_ml));
+    cJSON_AddNumberToObject(root, "rawWaterActualMl", (double)snap.actual_raw_water_ml);
+    cJSON_AddNumberToObject(root, "thresholdPercent", (double)cfg_snap.threshold_percent);
+    cJSON_AddNumberToObject(root, "postMixDurationSec", (double)cfg_snap.post_mix_duration_sec);
+    cJSON_AddNumberToObject(root, "totalRuntimeMs", (double)snap.total_runtime_ms);
+
+    if (snap.error_code && snap.error_code[0]) {
+        cJSON_AddStringToObject(root, "errorCode", snap.error_code);
+    } else if (snap.status != MIXING_RESULT_SUCCESS && has_result) {
+        cJSON_AddStringToObject(root, "errorCode", mixing_status_to_string(snap.status));
+    } else {
+        cJSON_AddNullToObject(root, "errorCode");
+    }
+
+    if (snap.message[0]) {
+        cJSON_AddStringToObject(root, "message", snap.message);
+    } else {
+        cJSON_AddStringToObject(root, "message", running ? "Test running" : (has_result ? (snap.status == MIXING_RESULT_SUCCESS ? "Test completed successfully" : "Test failed") : "No test running"));
+    }
+
+    cJSON *arr = cJSON_AddArrayToObject(root, "channels");
+    uint32_t count = snap.channel_count > 0 ? snap.channel_count : cfg_snap.channel_count;
+    for (uint32_t i = 0; i < count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        cJSON *ch = cJSON_CreateObject();
+        const char *cid = snap.channels[i].component_id[0] ? snap.channels[i].component_id : cfg_snap.channels[i].component_id;
+        cJSON_AddStringToObject(ch, "componentId", cid);
+        cJSON_AddNumberToObject(ch, "targetVolumeMl", (double)(snap.channels[i].target_volume_ml > 0 ? snap.channels[i].target_volume_ml : cfg_snap.channels[i].target_volume_ml));
+        cJSON_AddNumberToObject(ch, "calibrationRateMlSec", (double)snap.channels[i].calibration_rate_ml_sec);
+        cJSON_AddNumberToObject(ch, "expectedRuntimeMs", (double)snap.channels[i].expected_runtime_ms);
+        cJSON_AddNumberToObject(ch, "actualRuntimeMs", (double)snap.channels[i].actual_runtime_ms);
+        cJSON_AddBoolToObject(ch, "completed", snap.channels[i].completed);
+        cJSON_AddStringToObject(ch, "status", snap.channels[i].completed ? "COMPLETED" : (running ? "RUNNING" : "PENDING"));
+        cJSON_AddItemToArray(arr, ch);
+    }
+
+    *out_json = root;
+    return ESP_OK;
+}

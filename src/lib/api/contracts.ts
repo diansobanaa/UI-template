@@ -946,6 +946,44 @@ export interface SetCalibrationRateRequest {
   rateValue: number;
 }
 
+export interface MixingTestChannelRequest {
+  componentId: string;
+  targetVolumeMl: number;
+}
+
+export interface MixingTestRequest {
+  rawWaterTargetMl: number;
+  thresholdPercent?: number;
+  postMixDurationSec?: number;
+  rawWaterComponentId?: string;
+  rawFlowSensorId?: string;
+  mixingPumpId?: string;
+  channels?: MixingTestChannelRequest[];
+}
+
+export interface MixingTestChannelStatus {
+  componentId: string;
+  targetVolumeMl: number;
+  calibrationRateMlSec: number;
+  expectedRuntimeMs: number;
+  actualRuntimeMs: number;
+  completed: boolean;
+  status: "PENDING" | "RUNNING" | "COMPLETED";
+}
+
+export interface MixingTestStatus {
+  status: "IDLE" | "RUNNING" | "SUCCESS" | "ERROR";
+  phase: string;
+  rawWaterTargetMl: number;
+  rawWaterActualMl: number;
+  thresholdPercent: number;
+  postMixDurationSec: number;
+  totalRuntimeMs: number;
+  errorCode: string | null;
+  message: string;
+  channels: MixingTestChannelStatus[];
+}
+
 export interface HardwarePortConfig {
   pythonBaseUrl: string;
   esp32BaseUrl?: string;

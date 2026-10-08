@@ -14,7 +14,7 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails } from "./api/contracts";
+import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, MixingTestRequest, MixingTestStatus } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
 import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
@@ -2399,6 +2399,66 @@ export const calibrationService = {
       }
     }
     return { state: "IDLE", remaining_sec: 0 };
+  },
+  async startMixingTest(request: MixingTestRequest): Promise<MixingTestStatus> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.startMixingTest(request);
+    }
+    // Simulation / mock fallback for offline or UI development
+    return {
+      status: "RUNNING",
+      phase: "RAW_WATER_FILL",
+      rawWaterTargetMl: request.rawWaterTargetMl,
+      rawWaterActualMl: 0,
+      thresholdPercent: request.thresholdPercent ?? 0,
+      postMixDurationSec: request.postMixDurationSec ?? 0,
+      totalRuntimeMs: 0,
+      errorCode: null,
+      message: "Test running (simulated)",
+      channels: (request.channels || []).map((ch) => ({
+        componentId: ch.componentId,
+        targetVolumeMl: ch.targetVolumeMl,
+        calibrationRateMlSec: 25.0,
+        expectedRuntimeMs: (ch.targetVolumeMl / 25.0) * 1000,
+        actualRuntimeMs: 0,
+        completed: false,
+        status: "RUNNING" as const,
+      })),
+    };
+  },
+  async getMixingTestStatus(): Promise<MixingTestStatus> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.getMixingTestStatus();
+    }
+    return {
+      status: "IDLE",
+      phase: "IDLE",
+      rawWaterTargetMl: 0,
+      rawWaterActualMl: 0,
+      thresholdPercent: 0,
+      postMixDurationSec: 0,
+      totalRuntimeMs: 0,
+      errorCode: null,
+      message: "No test running",
+      channels: [],
+    };
+  },
+  async stopMixingTest(): Promise<MixingTestStatus> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.stopMixingTest();
+    }
+    return {
+      status: "IDLE",
+      phase: "STOP",
+      rawWaterTargetMl: 0,
+      rawWaterActualMl: 0,
+      thresholdPercent: 0,
+      postMixDurationSec: 0,
+      totalRuntimeMs: 0,
+      errorCode: null,
+      message: "Test stopped",
+      channels: [],
+    };
   },
 };
 

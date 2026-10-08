@@ -47,6 +47,8 @@ typedef struct {
     uint32_t target_volume_ml;   /**< Target dosage in mL */
 } mixing_dosing_channel_config_t;
 
+typedef struct mixing_result_s mixing_result_t;
+
 /** Input configuration for protocol_mixing. */
 typedef struct {
     uint32_t raw_water_target_ml;          /**< Target raw water volume in mL (must be > 0) */
@@ -70,6 +72,9 @@ typedef struct {
     /* Optional external abort hook (returns true to request immediate abort) */
     bool (*abort_check)(void *user_ctx);
     void *user_ctx;
+
+    /* Optional live progress structure updated on each iteration of the loop */
+    mixing_result_t *live_result;          /**< Optional pointer updated with intermediate metrics and phase on each tick */
 } mixing_protocol_config_t;
 
 /** Result metrics for an individual dosing channel. */
@@ -83,7 +88,7 @@ typedef struct {
 } mixing_channel_result_t;
 
 /** Outcome structure returned by protocol_mixing. */
-typedef struct {
+struct mixing_result_s {
     mixing_status_code_t status;
     const char *error_code;
     char message[128];
@@ -100,7 +105,7 @@ typedef struct {
 
     uint32_t channel_count;
     mixing_channel_result_t channels[MAX_MIXING_DOSING_CHANNELS];
-} mixing_result_t;
+};
 
 /**
  * @brief Convert a mixing status code to canonical uppercase string identifier.
