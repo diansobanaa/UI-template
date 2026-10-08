@@ -73,20 +73,13 @@ const WS_FRESH_MS = POLL_INTERVAL_MS + HEALTH_TIMEOUT_MS;
 const CHIME_SUPPRESS_MS = 15000;
 const CONNECTION_BUS = "agrotech_connection_bus";
 
-// One AudioContext per tab, created only inside a user gesture so autoplay policy never logs errors.
-let audioCtx: AudioContext | null = null;
+import { getAudioContext, unlockAudio as unlockSharedAudio, useAlarmCondition } from "@/lib/alarm-audio";
+
+// Cross-tab chime latch
 let pendingChime = false;
 
-function getAudioContext(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (!audioCtx) {
-    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (Ctor) audioCtx = new Ctor();
-  }
-  return audioCtx;
-}
-
 function unlockAudio(): void {
+  unlockSharedAudio();
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -141,6 +134,7 @@ export function ConnectionMonitor() {
   useDbVersion();
   const [isOffline, setIsOffline] = useState(false);
   const [isSilenced, setIsSilenced] = useState(false);
+  useAlarmCondition("esp32-offline", isOffline && !isSilenced);
   const isOfflineRef = useRef(false); // previous global state, for edge-triggered transitions
   const isSilencedRef = useRef(false);
   const consecutiveHealthFailures = useRef<Map<string, number>>(new Map());

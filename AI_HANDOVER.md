@@ -1,3 +1,35 @@
+# AI HANDOVER - SP-UI-AUDIO-ALARM-001
+
+## Current status
+Restoring persistent Web UI alarm buzzer sound for ESP32 offline and Tamper disconnected states ("suara alarm tidak berbunyi") is **COMPLETE & FULLY VERIFIED**:
+1. **Root Cause Analysis**:
+   - In commit `c02de18` (`SP-UI-SCHEDULE-DELETE-OPT-002`), `playBuzzerBeep()` and its continuous 600ms repeating loop were removed from `ConnectionMonitor.tsx` to fix modal lag, leaving only a one-shot disconnect chime on the ONLINE $\to$ OFFLINE edge.
+   - Tamper loop (`TAMPER_LOOP_OPEN`) in `AlarmManagerOverlay.tsx` was displaying the visual banner with `"HARDWARE BUZZER AKTIF"` but was never wired to any Web UI Web Audio synthesizer.
+   - As a result, the Web UI had NO continuous audio alarm when ESP32 went offline, and NO audio alarm when the Tamper loop was open.
+2. **Implementation Details**:
+   - **Centralized Alarm Audio Engine (`src/lib/alarm-audio.ts`)**:
+     - Standard resonant 2400Hz square-wave buzzer tone (280ms duration: 0.28 gain, 220ms sustain plateau, 60ms exponential decay).
+     - Persistent 600ms cadence (280ms pulse + 320ms pause) repeating continuously while active.
+     - Condition registry (`activeConditions` Map) and `useAlarmCondition` React hook.
+     - Strict duplicate protection: idempotent loop start (`isLoopRunning`), single-flight oscillator creation, and clean gain zeroing on condition clear.
+     - Autoplay compliant: AudioContext initialization and resume strictly bound to passive user gestures (`pointerdown`, `click`, `touchstart`, `keydown`).
+   - **Trigger Sources Wired**:
+     - `ConnectionMonitor.tsx`: Wired `useAlarmCondition("esp32-offline", isOffline && !isSilenced)`.
+     - `AlarmManagerOverlay.tsx`: Wired `useAlarmCondition("tamper-disconnected", hasTamperAlarm && !isControllerOffline)`.
+     - If both occur simultaneously, they coalesce into exactly ONE persistent alarm audio loop.
+3. **Verification**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+   - `node scripts/test_tamper_loop_e2e.mjs`: PASS (8/8).
+   - `npx tsx scripts/test_alarm_audio_engine.mjs`: PASS (9/9 lifecycle & duplicate tests).
+   - `node scripts/test_browser_audio_alarm.mjs`: PASS (Live browser evaluation via Edge engine).
+   - Production build `npm run build`: PASS (`dist/index.html` 1,276.71 kB built in 8.67s).
+4. **Canonical Documentation**:
+   - Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` (Audio & Buzzer Architecture).
+
+---
+
 # AI HANDOVER - SP-UI-ALERT-PERF-OPT-001
 
 ## Current status

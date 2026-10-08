@@ -1,3 +1,32 @@
+## SP-UI-AUDIO-ALARM-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Liveness test PASS, Tamper test PASS, Unit test PASS 9/9, Browser validation PASS)
+- **Objective**: Restore authentic persistent Web UI alarm buzzer sound for ESP32 offline and Tamper disconnected states ("suara alarm tidak berbunyi"):
+  1. Restore authentic 2400Hz square-wave buzzer audio engine in `src/lib/alarm-audio.ts`: Re-implemented the standard resonant frequency acoustic buzzer pulse (2400Hz square wave, 280ms duration, 0.28 gain with exponential decay) and 600ms persistent repeating cadence (280ms beep + 320ms pause).
+  2. Implement strict duplicate audio protection: Singleton alarm engine with condition registry (`useAlarmCondition`) ensures that React re-renders, multiple component mounts, or multiple concurrent alarm conditions never create overlapping oscillators or duplicate intervals. Exactly one audio alarm instance runs at any given time.
+  3. Comply with browser autoplay policies: AudioContext initialization and resume is strictly bound to passive user gestures (`pointerdown`, `click`, `touchstart`, `keydown`). Once unlocked, the alarm activates automatically upon critical state transitions.
+  4. Wire existing trigger sources without changing visual logic or polling:
+     - In `ConnectionMonitor.tsx`: Wired `useAlarmCondition("esp32-offline", isOffline && !isSilenced)`.
+     - In `AlarmManagerOverlay.tsx`: Wired `useAlarmCondition("tamper-disconnected", hasTamperAlarm && !isControllerOffline)`.
+  5. Instant cleanup on clear: As soon as conditions return to normal (ESP32 online, Tamper loop connected), intervals and active oscillators are stopped immediately with zero audio tail or memory leak.
+- **Implemented**:
+  - `src/lib/alarm-audio.ts`: Centralized alarm audio engine, 2400Hz buzzer synthesis, condition registry, and `useAlarmCondition` hook.
+  - `src/components/ConnectionMonitor.tsx`: Wired `esp32-offline` condition, connected unlockAudio to shared engine.
+  - `src/components/AlarmManagerOverlay.tsx`: Wired `tamper-disconnected` condition to shared engine.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`: Documented restored audio buzzer architecture.
+  - `scripts/test_alarm_audio_engine.mjs`: Dedicated unit test suite verifying all 9 lifecycle transitions and duplicate protections.
+  - `scripts/test_browser_audio_alarm.mjs`: Live browser validation with Microsoft Edge engine verifying gesture unlock, loop persistence, and clean termination.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+  - `node scripts/test_tamper_loop_e2e.mjs`: PASS (8/8).
+  - `npx tsx scripts/test_alarm_audio_engine.mjs`: PASS (9/9).
+  - `node scripts/test_browser_audio_alarm.mjs`: PASS (Live browser evaluation verified).
+  - Production build `npm run build`: PASS (`dist/index.html` 1,276.71 kB built in 8.67s).
+- **Changed Files**: `src/lib/alarm-audio.ts`, `src/components/ConnectionMonitor.tsx`, `src/components/AlarmManagerOverlay.tsx`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `scripts/test_alarm_audio_engine.mjs`, `scripts/test_browser_audio_alarm.mjs`, `dist/index.html`.
+- **Next Action**: Ready for operational deployment.
+
 ## SP-UI-ALERT-PERF-OPT-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Liveness test PASS)

@@ -6,6 +6,7 @@ import { esp32Client } from "@/lib/api/esp32-client";
 import { isDirectEsp32Enabled, getActiveEsp32Endpoint } from "@/lib/api/backend-client";
 import { getOperationalSnapshot } from "@/lib/operational-state";
 import { getControllerTargets } from "@/components/ConnectionMonitor";
+import { useAlarmCondition } from "@/lib/alarm-audio";
 import type { AlarmsResponse, AlarmItem, AlarmPriority } from "@/lib/api/contracts";
 import {
   AlertTriangle,
@@ -174,6 +175,7 @@ export function AlarmManagerOverlay() {
   const buzzerAudible = summary?.buzzerAudible || false;
 
   const hasTamperAlarm = activeAlarms.some((a) => a.code === "TAMPER_LOOP_OPEN");
+  useAlarmCondition("tamper-disconnected", hasTamperAlarm && !isControllerOffline);
 
   // Render minimized badge if user collapsed active alarms
   if (isMinimized && hasActiveAlarms) {
