@@ -1455,3 +1455,53 @@ SUCCESS (MIXING_RESULT_SUCCESS)
    - If `actuator_hal_is_emergency_stopped()` is latched or abort is requested at ANY point, all job-owned actuators are shut OFF immediately and the protocol returns `MIXING_RESULT_EMERGENCY_STOP`.
    - Every error pathway executes job-scoped safe-stop before returning.
    - No automatic retry is executed on errors.
+
+---
+
+# 36. Canonical State Machine Integration (`protocol_mixing` as Single Execution Path)
+
+## 36.1 Single Canonical Engine Mandate
+`protocol_mixing()` is the single, canonical implementation for mixing, raw water metering, dynamic threshold triggering, simultaneous dosing, and post-mix agitation across the firmware.
+
+All dual implementations and legacy state machine preparation branches have been eliminated:
+1. **Removed Legacy States:**
+   - `FERT_STATE_FILLING`
+   - `FERT_STATE_DOSING`
+   - `FERT_STATE_FINAL_MIXING`
+   - `FERT_STATE_MIX_READY`
+   - `FERT_STATE_DELIVERY`
+2. **Active State Machine (`fertigation_state_t`):**
+   - `FERT_STATE_IDLE` (Standby / ready for next preparation)
+   - `FERT_STATE_RECOVERY_HOLD` (Power loss recovery safe-hold, manual inspection required)
+   - `FERT_STATE_PRECHECK` (Pre-execution validation and sensor auditing)
+   - `FERT_STATE_MIXING` (Active canonical execution via `protocol_mixing(&mix_cfg)`)
+   - `FERT_STATE_COMPLETE` (Lifecycle terminal state)
+   - `FERT_STATE_INTERRUPTED` (Emergency-stop or manual abort)
+   - `FERT_STATE_FAULTED` (Actuator fault, timeout, or safety trip)
+   - `FERT_STATE_ABORTED` (Explicit operator abort)
+
+## 36.2 Execution Flow in `fertigation_mgr.c`
+```text
+FERT_STATE_PRECHECK
+   │ (Validates recipe, flow sensor, routing valves)
+   ▼
+FERT_STATE_MIXING
+   │ (Acquires routing valves, builds mixing_protocol_config_t)
+   ├── protocol_mixing(&mix_cfg)
+   │     ├── Meter raw water to dynamic threshold
+   │     ├── Trigger mixing pump & all active dosing pumps in parallel
+   │     ├── Continue raw water to 100% target volume
+   │     ├── Stop dosing channels upon individual calibrated volumes
+   │     └── Run post-mix agitation duration
+   ├── Close & release routing valves
+   ├── Record observed dosing runtimes (s_dosing_runtime_observed_ms)
+   ├── Transfer batch snapshot to s_delivery_slots (DELIVERY_SLOT_READY_TO_SEND)
+   └── Return central engine immediately to FERT_STATE_IDLE
+```
+
+## 36.3 Parallel Decoupled Delivery
+Greenhouse fertigation distribution is fully decoupled from the central preparation engine. Once `protocol_mixing()` succeeds:
+- The prepared batch is handed over to `s_delivery_slots` with state `DELIVERY_SLOT_READY_TO_SEND`.
+- The central preparation state returns to `FERT_STATE_IDLE`, freeing central shared resources (raw water pump, dosing pumps, mixing pump) for the next queued recipe.
+- Per-greenhouse distribution pumps are commanded independently by the scheduler monitor loop without blocking central preparation.
+

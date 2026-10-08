@@ -35,6 +35,7 @@ export const DosingQueueCard: React.FC<DosingQueueCardProps> = ({ currentGhId, c
           batchId: data.batchId || data.runId || 'IDLE',
           ghId: data.ghId || 'gh-a',
           runtimeState: data.runtimeState || (
+            data.state === 'FERT_STATE_MIXING' ? 'MIXING' :
             data.state === 'FERT_STATE_FILLING' ? 'MIXING_RAW_WATER' :
             data.state === 'FERT_STATE_DOSING' ? 'DOSING' :
             data.state === 'FERT_STATE_MIX_READY' ? 'READY' :

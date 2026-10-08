@@ -18,12 +18,13 @@ function test(name, fn) {
   } catch (err) {
     failed += 1;
     console.error(`FAIL: ${name}`);
-    console.error(err);
+    console.error(err.message ? err.message.slice(0, 150) : err);
   }
 }
 
 console.log("=== DOSING PROTOCOL, UNIFIED CHECKPOINT & POWER RECOVERY VERIFICATION ===\n");
 
+const protoCode = fs.readFileSync(path.resolve("esp32/main/services/protocol_mixing.c"), "utf8");
 const fertMgrCode = fs.readFileSync(path.resolve("esp32/main/services/fertigation_mgr.c"), "utf8");
 const fertMgrHeader = fs.readFileSync(path.resolve("esp32/main/services/fertigation_mgr.h"), "utf8");
 const schedulerCode = fs.readFileSync(path.resolve("esp32/main/services/scheduler.c"), "utf8");
@@ -59,9 +60,8 @@ test("3. Exact Mathematical Threshold Calculation (80L * 20% = 16L)", () => {
   const threshVolMl = (targetMl * threshPct) / 100;
   assert.equal(threshVolMl, 16000, "16L threshold must equal 16,000 ml");
 
-  assert.match(fertMgrCode, /thresh_vol =/);
-  assert.match(fertMgrCode, /s_batch\.target_water_ml \* thresh_pct/);
-  assert.match(fertMgrCode, /transition\(FERT_STATE_DOSING\);/);
+  assert.match(protoCode, /threshold_volume_ml\s*=\s*\(uint32_t\)\(\(\(uint64_t\)config->raw_water_target_ml \* config->threshold_percent\) \/ 100ULL\);/);
+  assert.match(fertMgrCode, /transition\(FERT_STATE_MIXING\);/);
 });
 
 // -------------------------------------------------------------
@@ -69,43 +69,43 @@ test("3. Exact Mathematical Threshold Calculation (80L * 20% = 16L)", () => {
 // -------------------------------------------------------------
 test("4. Simultaneous Dosing Start on Threshold (All active channels start together)", () => {
   // Must NOT have sequential channel indexing (s_active_dosing_channel_idx++)
-  assert.ok(!/s_active_dosing_channel_idx\+\+/.test(fertMgrCode), "Sequential channel stepping must be removed from DOSING state");
+  assert.ok(!/s_active_dosing_channel_idx\+\+/.test(fertMgrCode), "Sequential channel stepping must be removed");
   
-  // Must loop through all channels and initialize start time simultaneously
-  assert.match(fertMgrCode, /for \(uint32_t ch = 0; ch < s_batch\.channel_count && ch < FERT_MAX_DOSING_CHANNELS; ch\+\+\)/);
-  assert.match(fertMgrCode, /s_dosing_start_ms\[ch\] = cur_now;/);
-  assert.match(fertMgrCode, /actuator_hal_acquire_component\(s_batch\.channels\[ch\]\.component_id/);
+  // Simultaneous start in protocol_mixing.c
+  assert.match(protoCode, /for \(uint32_t i = 0; i < config->channel_count; \+\+i\)/);
+  assert.match(protoCode, /exec_channels\[i\]\.start_time_ms = now_ms;/);
+  assert.match(protoCode, /set_scoped_actuator_state\(&job_actuators\.dosing\[i\], true\)/);
 });
 
 // -------------------------------------------------------------
 // Test 5: Raw Water Fills Concurrently to 100%
 // -------------------------------------------------------------
 test("5. Raw Water Continues Filling to 100% During Dosing", () => {
-  assert.match(fertMgrCode, /case FERT_STATE_DOSING:/);
-  assert.match(fertMgrCode, /if \(!s_raw_water_filling_done\)/);
-  assert.match(fertMgrCode, /sensor_hal_get_component_accumulated_ml/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.raw_water_component_id\);/);
-  assert.match(fertMgrCode, /s_raw_water_filling_done = true;/);
+  // In protocol_mixing.c: Raw water is active and does NOT stop at threshold, stops when target reached
+  assert.match(protoCode, /RAW WATER REMAINS ACTIVE/);
+  assert.match(protoCode, /if \(raw_water_running && actual_raw_water_ml >= config->raw_water_target_ml\)/);
+  assert.match(protoCode, /set_scoped_actuator_state\(&job_actuators\.raw_water, false\)/);
+  assert.match(protoCode, /raw_water_running = false;/);
 });
 
 // -------------------------------------------------------------
 // Test 6: Individual Dosing Channel Stopping
 // -------------------------------------------------------------
 test("6. Individual Dosing Channels Stop Upon Reaching Calibrated Target", () => {
-  assert.match(fertMgrCode, /if \(channel_elapsed < target_runtime\)/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.channels\[ch\]\.component_id\);/);
-  assert.match(fertMgrCode, /s_dosing_runtime_observed_ms\[ch\] = target_runtime;/);
+  assert.match(protoCode, /if \(elapsed_ch_ms >= exec_channels\[i\]\.expected_runtime_ms\)/);
+  assert.match(protoCode, /set_scoped_actuator_state\(&job_actuators\.dosing\[i\], false\)/);
+  assert.match(protoCode, /exec_channels\[i\]\.completed = true;/);
+  assert.match(fertMgrCode, /s_dosing_runtime_observed_ms\[i\] = mres\.channels\[i\]\.actual_runtime_ms;/);
 });
 
 // -------------------------------------------------------------
 // Test 7: Final Mixing Homogenization
 // -------------------------------------------------------------
 test("7. Final Mixing Follows Complete Dosing & Water Preparation", () => {
-  assert.match(fertMgrCode, /if \(all_dosing_done && s_raw_water_filling_done\)/);
-  assert.match(fertMgrCode, /transition\(FERT_STATE_FINAL_MIXING\);/);
-  assert.match(fertMgrCode, /case FERT_STATE_FINAL_MIXING:/);
-  assert.match(fertMgrCode, /elapsed >= s_batch\.mixing_duration_sec \* 1000U/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.mixing_pump_id\);/);
+  assert.match(protoCode, /if \(!raw_water_running && all_dosing_done\)/);
+  assert.match(protoCode, /MIXING_PHASE_POST_MIX/);
+  assert.match(protoCode, /post_mix_elapsed_ms >= config->post_mix_duration_sec \* 1000U/);
+  assert.match(protoCode, /set_scoped_actuator_state\(&job_actuators\.mixing_pump, false\)/);
 });
 
 // -------------------------------------------------------------
@@ -113,35 +113,35 @@ test("7. Final Mixing Follows Complete Dosing & Water Preparation", () => {
 // -------------------------------------------------------------
 test("8. READY_TO_FERTIGATE Reached Without Starting Delivery Pump", () => {
   assert.match(fertMgrCode, /DELIVERY_SLOT_READY_TO_SEND/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.raw_water_component_id\);/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.mixing_pump_id\);/);
+  assert.match(fertMgrCode, /mres\.status == MIXING_RESULT_SUCCESS/);
+  assert.match(fertMgrCode, /transition\(FERT_STATE_IDLE\);/);
 });
 
 // -------------------------------------------------------------
 // Test 9: 1.5x Monotonic Runtime Timeout Guard
 // -------------------------------------------------------------
 test("9. 1.5x Monotonic Runtime Timeout Guard on Dosing Pumps", () => {
-  assert.match(fertMgrCode, /max_channel_runtime = \(uint32_t\)\(target_runtime \* 1\.5f\);/);
-  assert.match(fertMgrCode, /if \(channel_elapsed > max_channel_runtime\)/);
-  assert.match(fertMgrCode, /stop_component\(s_batch\.channels\[ch\]\.component_id\);/);
-  assert.match(fertMgrCode, /DOSING_TIMEOUT/);
+  assert.match(protoCode, /max_run_ms\s*=\s*\(uint32_t\)roundf\(\(float\)run_ms \* 1\.5f\);/);
+  assert.match(protoCode, /if \(!exec_channels\[i\]\.completed && elapsed_ch_ms > exec_channels\[i\]\.max_runtime_ms\)/);
+  assert.match(protoCode, /MIXING_RESULT_DOSING_TIMEOUT/);
 });
 
 // -------------------------------------------------------------
 // Test 10: Raw Water Flow Inactivity Fault
 // -------------------------------------------------------------
 test("10. Raw Water Filling Timeout Protection", () => {
-  assert.match(fertMgrCode, /else if \(elapsed > \(s_batch\.fill_timeout_sec \* 1000U\)\)/);
-  assert.match(fertMgrCode, /persist_run\("FILL_TIMEOUT"\);/);
+  assert.match(protoCode, /if \(raw_water_running && raw_elapsed_ms > max_raw_runtime_ms/);
+  assert.match(protoCode, /MIXING_RESULT_RAW_WATER_TIMEOUT/);
 });
 
 // -------------------------------------------------------------
 // Test 11: Single Channel Timeout with Partial Fault Handling
 // -------------------------------------------------------------
 test("11. Single Channel Timeout Safety Stop and Trip", () => {
-  assert.match(fertMgrCode, /if \(s_batch\.fallback_enabled\)/);
-  assert.match(fertMgrCode, /stop_all\(\);/);
-  assert.match(fertMgrCode, /s_state = FERT_STATE_FAULTED;/);
+  assert.match(protoCode, /if \(channel_fault\)/);
+  assert.match(protoCode, /stop_job_scoped_actuators\(&job_actuators\);/);
+  assert.match(fertMgrCode, /s_state = \(mres\.status == MIXING_RESULT_EMERGENCY_STOP\)/);
+  assert.match(fertMgrCode, /FERT_STATE_FAULTED;/);
 });
 
 // -------------------------------------------------------------
@@ -156,7 +156,7 @@ test("12. Queue Preservation Across Reboot", () => {
 // Test 13: Power Outage During Raw Water Filling
 // -------------------------------------------------------------
 test("13. Power Recovery During Filling Sets RECOVERY_REQUIRED", () => {
-  assert.match(fertMgrCode, /if \(cp_data\.state == FERT_STATE_FILLING/);
+  assert.match(fertMgrCode, /cp_data\.state == 3 \/\* legacy FERT_STATE_FILLING \*\//);
   assert.match(fertMgrCode, /s_state = FERT_STATE_RECOVERY_HOLD;/);
   assert.match(fertMgrCode, /FERTIGATION_RECOVERY_REQUIRED/);
 });
@@ -165,7 +165,7 @@ test("13. Power Recovery During Filling Sets RECOVERY_REQUIRED", () => {
 // Test 14: Power Outage During Dosing
 // -------------------------------------------------------------
 test("14. Power Recovery During Dosing Prevents Blind Nutrient Resumption", () => {
-  assert.match(fertMgrCode, /cp_data\.state == FERT_STATE_DOSING/);
+  assert.match(fertMgrCode, /cp_data\.state == 4 \/\* legacy FERT_STATE_DOSING \*\//);
   assert.match(fertMgrCode, /s_state = FERT_STATE_RECOVERY_HOLD;/);
   assert.match(fertMgrCode, /Nutrients not resumed automatically to prevent plant toxicity/);
 });
@@ -174,7 +174,8 @@ test("14. Power Recovery During Dosing Prevents Blind Nutrient Resumption", () =
 // Test 15: Power Outage During Final Mixing
 // -------------------------------------------------------------
 test("15. Power Recovery During Final Mixing Handled Safely", () => {
-  assert.match(fertMgrCode, /cp_data\.state == FERT_STATE_FINAL_MIXING/);
+  assert.match(fertMgrCode, /cp_data\.state == 5 \/\* legacy FERT_STATE_FINAL_MIXING \*\//);
+  assert.match(fertMgrCode, /cp_data\.state == FERT_STATE_MIXING/);
   assert.match(fertMgrCode, /s_state = FERT_STATE_RECOVERY_HOLD;/);
 });
 
@@ -182,7 +183,7 @@ test("15. Power Recovery During Final Mixing Handled Safely", () => {
 // Test 16: Power Outage After READY_TO_FERTIGATE
 // -------------------------------------------------------------
 test("16. Power Recovery in READY_TO_FERTIGATE Restores Ready State Without Re-Dosing", () => {
-  assert.match(fertMgrCode, /if \(cp_data\.state == FERT_STATE_MIX_READY\)/);
+  assert.match(fertMgrCode, /if \(cp_data\.state == 6 \/\* legacy FERT_STATE_MIX_READY \*\/\)/);
   assert.match(fertMgrCode, /slot->state = DELIVERY_SLOT_READY_TO_SEND;/);
   assert.match(fertMgrCode, /s_state = FERT_STATE_IDLE;/);
 });

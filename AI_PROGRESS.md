@@ -1,3 +1,44 @@
+## SP-CANONICAL-PROTOCOL-MIXING-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing 14/14 PASS, Mixing Fertigation Execution 6/6 PASS, Parallel Distribution 13/13 PASS, Scenarios A-T 21/21 PASS, Production Path Gate 17/17 PASS, Dosing Checkpoint Recovery 20/20 PASS, npm test PASS, npx tsc PASS)
+- **Objective**: Establish `protocol_mixing()` as the Single Canonical Implementation across Firmware:
+  1. Complete elimination of dual implementation and legacy state machine:
+     - Removed legacy enum states: `FERT_STATE_FILLING`, `FERT_STATE_DOSING`, `FERT_STATE_FINAL_MIXING`, `FERT_STATE_MIX_READY`, `FERT_STATE_DELIVERY`.
+     - Active canonical state machine is strictly: `FERT_STATE_IDLE`, `FERT_STATE_RECOVERY_HOLD`, `FERT_STATE_PRECHECK`, `FERT_STATE_MIXING`, `FERT_STATE_COMPLETE`, `FERT_STATE_INTERRUPTED`, `FERT_STATE_FAULTED`, `FERT_STATE_ABORTED`.
+  2. Routed all preparation execution strictly through `protocol_mixing(&mix_cfg)` in `fertigation_mgr.c`:
+     - Dynamic threshold volume calculation (`(raw_water_target_ml * threshold_percent) / 100`).
+     - Simultaneous parallel dosing of all configured channels at threshold without sequential stepping.
+     - Concurrent raw water filling until 100% target volume is measured by the physical flow meter.
+     - Post-mix homogenization duration execution after raw water and all dosing pumps complete.
+     - 1.5x monotonic runtime timeout guard on both raw water and dosing pumps.
+     - Immediate `MIXING_RESULT_ACTUATOR_ERROR` on dosing pump turn-OFF failure without waiting for timeout.
+     - Scoped safe-stop isolation preserving unowned actuators.
+     - Checkpoint hook (`mixing_tick_checkpoint_hook`) persisting CRC-protected state every 3 seconds without extra FreeRTOS tasks.
+  3. Cleaned up obsolete variables (`s_dosing_start_ms`, `s_raw_water_filling_done`, `elapsed`), dead float trip checks in delivery, and legacy fallbacks checking `FERT_STATE_MIX_READY`.
+  4. Updated caller references in `scheduler.c`, `tft_hal.c`, and UI `DosingQueueCard.tsx`.
+  5. Updated test suites (`scripts/test_protocol_mixing.mjs`, `scripts/test_dosing_checkpoint_recovery.mjs`, `scripts/test_m17_software_e2e.py`) to verify behavior instead of legacy string literals.
+- **Implemented**:
+  - `esp32/main/services/protocol_mixing.h` & `protocol_mixing.c`: Core protocol implementation with dynamic threshold, simultaneous dosing, post-mix duration, progress-based no-flow grace, scoped safe-stop, and immediate actuator error on turn-OFF failure.
+  - `esp32/main/services/fertigation_mgr.h` & `fertigation_mgr.c`: State machine refactor to `FERT_STATE_MIXING`, unified call to `protocol_mixing(&mix_cfg)`, checkpoint hooks, and cleanup of legacy cases.
+  - `esp32/main/services/scheduler.c`: Updated status checks to `FERT_STATE_PRECHECK` and `FERT_STATE_MIXING`, silenced unused variable warning.
+  - `esp32/main/hal/tft_hal.c`: Updated TFT state string mapping.
+  - `src/components/fertigation/DosingQueueCard.tsx`: Mapped `FERT_STATE_MIXING` to `'MIXING'`.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Added Section 36 documenting canonical protocol_mixing integration.
+  - `scripts/test_dosing_checkpoint_recovery.mjs`: Updated tests 3-11 and 13-16 to assert behavioral orchestration and recovery across `protocol_mixing.c` and `fertigation_mgr.c`.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 build PASS (`agrotech_esp32.bin` binary size 0x18dad0, 0 errors, 0 warnings).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (14/14 tests).
+  - `node scripts/test_mixing_fertigation_execution.mjs`: PASS (6/6 tests).
+  - `node scripts/test_parallel_distribution.mjs`: PASS (13/13 tests).
+  - `node scripts/test_reconciled_scenarios_a_to_t.mjs`: PASS (21/21 tests).
+  - `node scripts/test_m11_m12_firmware_path.mjs`: PASS (17/17 tests).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: PASS (20/20 tests).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**: `esp32/main/services/protocol_mixing.h`, `esp32/main/services/protocol_mixing.c`, `esp32/main/services/fertigation_mgr.h`, `esp32/main/services/fertigation_mgr.c`, `esp32/main/services/scheduler.c`, `esp32/main/hal/tft_hal.c`, `src/components/fertigation/DosingQueueCard.tsx`, `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`, `scripts/test_protocol_mixing.mjs`, `scripts/test_dosing_checkpoint_recovery.mjs`, `scripts/test_m17_software_e2e.py`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Git Commit**: `1bde8609251b45928ea223d2cc69e439605556f9`
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-CLEANUP-LEGACY-FERTIGATION-002
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing PASS, Mixing Fertigation Execution PASS, Dosing Checkpoint Recovery PASS, npm test PASS, npx tsc PASS)

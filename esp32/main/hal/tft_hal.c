@@ -518,9 +518,7 @@ static void draw_screen1_header(const struct tm *ti, bool full)
 static void draw_screen1_process(bool full)
 {
     fertigation_state_t fstate = fertigation_mgr_get_state();
-    bool f_active = (fstate == FERT_STATE_PRECHECK || fstate == FERT_STATE_FILLING ||
-                     fstate == FERT_STATE_DOSING || fstate == FERT_STATE_FINAL_MIXING ||
-                     fstate == FERT_STATE_MIX_READY || fstate == FERT_STATE_DELIVERY);
+    bool f_active = (fstate == FERT_STATE_PRECHECK || fstate == FERT_STATE_MIXING);
     bool pump_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
 
     if (full) {
@@ -702,9 +700,7 @@ static void draw_screen2_fert_stats(bool full)
 static void draw_screen2_actuator_matrix(bool full)
 {
     fertigation_state_t fstate = fertigation_mgr_get_state();
-    bool f_active = (fstate == FERT_STATE_PRECHECK || fstate == FERT_STATE_FILLING ||
-                     fstate == FERT_STATE_DOSING || fstate == FERT_STATE_FINAL_MIXING ||
-                     fstate == FERT_STATE_MIX_READY || fstate == FERT_STATE_DELIVERY);
+    bool f_active = (fstate == FERT_STATE_PRECHECK || fstate == FERT_STATE_MIXING);
 
     bool p_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
     bool f_on = f_active || actuator_hal_get_state(ACTUATOR_DIST_PUMP);

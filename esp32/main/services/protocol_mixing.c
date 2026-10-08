@@ -25,8 +25,6 @@ typedef struct {
     uint32_t observed_runtime_ms;
     bool is_running;
     bool completed;
-    bool off_requested;
-    bool off_failed;
 } channel_execution_state_t;
 
 typedef struct {
@@ -67,8 +65,40 @@ const char *mixing_status_to_string(mixing_status_code_t status)
             return "MIXING_ACTUATOR_ERROR";
         case MIXING_RESULT_EMERGENCY_STOP:
             return "MIXING_EMERGENCY_STOP";
+        case MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED:
+            return "POST_MIX_DURATION_SEMANTICS_UNDEFINED";
         default:
             return "MIXING_UNKNOWN_ERROR";
+    }
+}
+
+const char *mixing_phase_to_string(mixing_phase_t phase)
+{
+    switch (phase) {
+        case MIXING_PHASE_IDLE:
+            return "IDLE";
+        case MIXING_PHASE_PRECHECK:
+            return "PRECHECK";
+        case MIXING_PHASE_RAW_WATER_FILL:
+            return "RAW_WATER_FILL";
+        case MIXING_PHASE_THRESHOLD_REACHED:
+            return "THRESHOLD_REACHED";
+        case MIXING_PHASE_MIXING_AND_DOSING:
+            return "MIXING_AND_DOSING";
+        case MIXING_PHASE_RAW_WATER_COMPLETE:
+            return "RAW_WATER_COMPLETE";
+        case MIXING_PHASE_DOSING_COMPLETION:
+            return "DOSING_COMPLETION";
+        case MIXING_PHASE_POST_MIX:
+            return "POST_MIX";
+        case MIXING_PHASE_STOP:
+            return "STOP";
+        case MIXING_PHASE_SUCCESS:
+            return "SUCCESS";
+        case MIXING_PHASE_ERROR:
+            return "ERROR";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -219,6 +249,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 {
     mixing_result_t result;
     memset(&result, 0, sizeof(result));
+    result.current_phase = MIXING_PHASE_PRECHECK;
+    result.final_phase = MIXING_PHASE_PRECHECK;
 
     /* -------------------------------------------------------------
      * 1. PRECHECK - CONFIGURATION VALIDATION
@@ -226,6 +258,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (!config) {
         result.status = MIXING_RESULT_INVALID_CONFIG;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Config pointer is NULL.");
         return result;
     }
@@ -233,13 +267,26 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (config->raw_water_target_ml == 0) {
         result.status = MIXING_RESULT_INVALID_CONFIG;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "raw_water_target_ml must be greater than 0.");
+        return result;
+    }
+
+    if (config->post_mix_duration_sec == 0) {
+        result.status = MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED;
+        result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
+        snprintf(result.message, sizeof(result.message), "post_mix_duration_sec is 0: semantics undefined.");
         return result;
     }
 
     if (config->channel_count > MAX_MIXING_DOSING_CHANNELS) {
         result.status = MIXING_RESULT_INVALID_CONFIG;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "channel_count (%u) exceeds maximum (%d).",
                  (unsigned)config->channel_count, MAX_MIXING_DOSING_CHANNELS);
         return result;
@@ -252,12 +299,16 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         if (!config->channels[i].component_id[0]) {
             result.status = MIXING_RESULT_INVALID_CONFIG;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Channel %u component_id is empty.", (unsigned)i);
             return result;
         }
         if (config->channels[i].target_volume_ml == 0) {
             result.status = MIXING_RESULT_INVALID_CONFIG;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Channel %u target_volume_ml must be greater than 0.", (unsigned)i);
             return result;
         }
@@ -269,6 +320,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (actuator_hal_is_emergency_stopped() || (config->abort_check && config->abort_check(config->user_ctx))) {
         result.status = MIXING_RESULT_EMERGENCY_STOP;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Emergency stop is active before protocol start.");
         stop_mixing_protocol_actuators(config);
         return result;
@@ -280,6 +333,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (!calibration_mgr_is_flow_raw_calibrated() || calibration_mgr_get_flow_raw_pulses_per_l() <= 0.0f) {
         result.status = MIXING_RESULT_CALIBRATION_MISSING;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Raw water flow sensor (ZJ-B1) has no valid pulse calibration.");
         ESP_LOGE(TAG, "%s", result.message);
         return result;
@@ -289,6 +344,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (sensor_hal_get_readings(&initial_readings) != ESP_OK || !initial_readings.raw_zjb1_calibrated) {
         result.status = MIXING_RESULT_RAW_WATER_SENSOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Sensor HAL indicates raw flow sensor is unverified/error.");
         ESP_LOGE(TAG, "%s", result.message);
         return result;
@@ -303,6 +360,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (raw_rate_ml_sec <= 0.0f) {
         result.status = MIXING_RESULT_CALIBRATION_MISSING;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Raw water pump '%s' calibration missing or <= 0 ml/s.", raw_pump_id);
         ESP_LOGE(TAG, "%s", result.message);
         return result;
@@ -335,6 +394,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         if (d_rate <= 0.0f) {
             result.status = MIXING_RESULT_CALIBRATION_MISSING;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Dosing pump '%s' calibration missing or <= 0 ml/s.", ch_id);
             ESP_LOGE(TAG, "%s", result.message);
             return result;
@@ -374,6 +435,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (acquire_scoped_actuator(&job_actuators.raw_water, raw_pump_id, ACTUATOR_RAW_SUBMERSIBLE) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Failed to acquire raw water pump '%s'.", raw_pump_id);
         stop_job_scoped_actuators(&job_actuators);
         return result;
@@ -382,6 +445,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (acquire_scoped_actuator(&job_actuators.mixing_pump, mixing_pump_id, ACTUATOR_MIXING_PUMP) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Failed to acquire mixing pump '%s'.", mixing_pump_id);
         stop_job_scoped_actuators(&job_actuators);
         return result;
@@ -398,6 +463,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         if (acquire_scoped_actuator(&job_actuators.dosing[i], exec_channels[i].component_id, fallback_aid) != ESP_OK) {
             result.status = MIXING_RESULT_ACTUATOR_ERROR;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Failed to acquire dosing pump '%s'.", exec_channels[i].component_id);
             stop_job_scoped_actuators(&job_actuators);
             return result;
@@ -425,10 +492,14 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     if (set_scoped_actuator_state(&job_actuators.raw_water, true) != ESP_OK) {
         result.status = MIXING_RESULT_ACTUATOR_ERROR;
         result.error_code = mixing_status_to_string(result.status);
+        result.current_phase = MIXING_PHASE_ERROR;
+        result.final_phase = MIXING_PHASE_ERROR;
         snprintf(result.message, sizeof(result.message), "Failed to turn ON raw water pump '%s'.", raw_pump_id);
         stop_job_scoped_actuators(&job_actuators);
         return result;
     }
+
+    result.current_phase = MIXING_PHASE_RAW_WATER_FILL;
 
     int64_t protocol_start_us = esp_timer_get_time();
     int64_t raw_water_start_us = protocol_start_us;
@@ -450,6 +521,10 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(poll_delay_ms));
 
+        if (config->tick_cb) {
+            config->tick_cb(config->user_ctx);
+        }
+
         int64_t now_us = esp_timer_get_time();
         uint32_t total_elapsed_ms = (uint32_t)((now_us - protocol_start_us) / 1000LL);
 
@@ -457,6 +532,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         if (actuator_hal_is_emergency_stopped() || (config->abort_check && config->abort_check(config->user_ctx))) {
             result.status = MIXING_RESULT_EMERGENCY_STOP;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Emergency Stop latched during mixing execution.");
             ESP_LOGW(TAG, "%s", result.message);
             stop_job_scoped_actuators(&job_actuators);
@@ -468,6 +545,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         if (sensor_hal_get_readings(&curr_readings) != ESP_OK) {
             result.status = MIXING_RESULT_RAW_WATER_SENSOR_ERROR;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message), "Failed to read flow sensor during execution.");
             ESP_LOGE(TAG, "%s", result.message);
             stop_job_scoped_actuators(&job_actuators);
@@ -491,6 +570,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             if (sec_since_progress >= no_flow_grace_sec) {
                 result.status = MIXING_RESULT_RAW_WATER_NO_FLOW;
                 result.error_code = mixing_status_to_string(result.status);
+                result.current_phase = MIXING_PHASE_ERROR;
+                result.final_phase = MIXING_PHASE_ERROR;
                 snprintf(result.message, sizeof(result.message),
                          "NO FLOW detected: No flow progress for %u s (stalled at %u/%u mL).",
                          (unsigned)sec_since_progress, (unsigned)actual_raw_water_ml,
@@ -507,6 +588,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             actual_raw_water_ml < config->raw_water_target_ml) {
             result.status = MIXING_RESULT_RAW_WATER_TIMEOUT;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
             snprintf(result.message, sizeof(result.message),
                      "Raw water timeout: %ums > %ums (%u/%u mL).",
                      (unsigned)raw_elapsed_ms, (unsigned)max_raw_runtime_ms,
@@ -519,6 +602,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         // E. Threshold check: Start Mixing & Dosing
         if (!threshold_reached && actual_raw_water_ml >= threshold_volume_ml) {
             threshold_reached = true;
+            result.current_phase = MIXING_PHASE_THRESHOLD_REACHED;
             mixing_start_us = now_us;
             mixing_running = true;
 
@@ -529,6 +613,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             if (set_scoped_actuator_state(&job_actuators.mixing_pump, true) != ESP_OK) {
                 result.status = MIXING_RESULT_ACTUATOR_ERROR;
                 result.error_code = mixing_status_to_string(result.status);
+                result.current_phase = MIXING_PHASE_ERROR;
+                result.final_phase = MIXING_PHASE_ERROR;
                 snprintf(result.message, sizeof(result.message), "Failed to start mixing pump '%s'.", mixing_pump_id);
                 stop_job_scoped_actuators(&job_actuators);
                 break;
@@ -543,6 +629,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                 if (set_scoped_actuator_state(&job_actuators.dosing[i], true) != ESP_OK) {
                     result.status = MIXING_RESULT_ACTUATOR_ERROR;
                     result.error_code = mixing_status_to_string(result.status);
+                    result.current_phase = MIXING_PHASE_ERROR;
+                    result.final_phase = MIXING_PHASE_ERROR;
                     snprintf(result.message, sizeof(result.message), "Failed to start dosing pump '%s'.", exec_channels[i].component_id);
                     dosing_start_failed = true;
                     break;
@@ -552,6 +640,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                 stop_job_scoped_actuators(&job_actuators);
                 break;
             }
+            result.current_phase = MIXING_PHASE_MIXING_AND_DOSING;
         }
 
         // F. Raw water target completion (DO NOT stop at threshold; stop ONLY when actual >= target)
@@ -560,6 +649,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             if (off_err != ESP_OK) {
                 result.status = MIXING_RESULT_ACTUATOR_ERROR;
                 result.error_code = mixing_status_to_string(result.status);
+                result.current_phase = MIXING_PHASE_ERROR;
+                result.final_phase = MIXING_PHASE_ERROR;
                 snprintf(result.message, sizeof(result.message),
                          "Failed to turn OFF raw water pump '%.20s' (err=%d).",
                          job_actuators.raw_water.component_id, off_err);
@@ -570,11 +661,12 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             raw_water_running = false;
             release_scoped_actuator(&job_actuators.raw_water);
             result.raw_water_actual_runtime_ms = (uint32_t)((now_us - raw_water_start_us) / 1000LL);
+            result.current_phase = MIXING_PHASE_RAW_WATER_COMPLETE;
             ESP_LOGI(TAG, "Raw water target reached: %u mL in %u ms. Raw water pump OFF.",
                      (unsigned)actual_raw_water_ml, (unsigned)result.raw_water_actual_runtime_ms);
         }
 
-        // G. Dosing channels supervision & reachable timeout
+        // G. Dosing channels supervision & immediate OFF failure handling
         if (threshold_reached && !all_dosing_done) {
             uint32_t now_ms = (uint32_t)(now_us / 1000LL);
             bool all_done = true;
@@ -587,13 +679,11 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
                     // 1. Expected runtime reached: Request OFF
                     if (elapsed_ch_ms >= exec_channels[i].expected_runtime_ms) {
-                        exec_channels[i].off_requested = true;
                         esp_err_t off_err = set_scoped_actuator_state(&job_actuators.dosing[i], false);
                         if (off_err == ESP_OK) {
                             release_scoped_actuator(&job_actuators.dosing[i]);
                             exec_channels[i].is_running = false;
                             exec_channels[i].completed = true;
-                            exec_channels[i].off_failed = false;
                             exec_channels[i].observed_runtime_ms = exec_channels[i].expected_runtime_ms;
                             result.channels[i].actual_runtime_ms = exec_channels[i].observed_runtime_ms;
                             result.channels[i].completed = true;
@@ -601,24 +691,33 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                                      exec_channels[i].component_id, (unsigned)exec_channels[i].target_volume_ml,
                                      (unsigned)exec_channels[i].observed_runtime_ms);
                         } else {
-                            // OFF command failed! Do NOT mark completed!
-                            exec_channels[i].off_failed = true;
-                            all_done = false;
-                            ESP_LOGW(TAG, "Dosing pump '%s' failed to turn OFF (err=%d). Retrying until 1.5x timeout (%u ms)...",
-                                     exec_channels[i].component_id, off_err, (unsigned)exec_channels[i].max_runtime_ms);
+                            // Section 9: OFF command failed! Do NOT wait for 1.5x timeout. Immediate ACTUATOR_ERROR!
+                            result.status = MIXING_RESULT_ACTUATOR_ERROR;
+                            result.error_code = mixing_status_to_string(result.status);
+                            result.current_phase = MIXING_PHASE_ERROR;
+                            result.final_phase = MIXING_PHASE_ERROR;
+                            snprintf(result.message, sizeof(result.message),
+                                     "Failed to turn OFF dosing pump '%.20s' (err=%d).",
+                                     exec_channels[i].component_id, off_err);
+                            ESP_LOGE(TAG, "%s", result.message);
+                            stop_job_scoped_actuators(&job_actuators);
+                            channel_fault = true;
+                            break;
                         }
                     } else {
                         all_done = false;
                     }
 
-                    // 2. Timeout Check: elapsed exceeded max_runtime_ms (1.5x expected) without successful completion
+                    // 2. Watchdog timeout check: elapsed exceeded max_runtime_ms (1.5x expected)
                     if (!exec_channels[i].completed && elapsed_ch_ms > exec_channels[i].max_runtime_ms) {
                         result.status = MIXING_RESULT_DOSING_TIMEOUT;
                         result.error_code = mixing_status_to_string(result.status);
+                        result.current_phase = MIXING_PHASE_ERROR;
+                        result.final_phase = MIXING_PHASE_ERROR;
                         snprintf(result.message, sizeof(result.message),
-                                 "Dosing '%.20s' timeout: %ums > max %ums (off_fail=%d)",
+                                 "Dosing '%.20s' timeout: %ums > max %ums",
                                  exec_channels[i].component_id, (unsigned)elapsed_ch_ms,
-                                 (unsigned)exec_channels[i].max_runtime_ms, exec_channels[i].off_failed ? 1 : 0);
+                                 (unsigned)exec_channels[i].max_runtime_ms);
                         ESP_LOGE(TAG, "%s", result.message);
                         channel_fault = true;
                         break;
@@ -635,6 +734,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
             if (all_done) {
                 all_dosing_done = true;
+                result.current_phase = MIXING_PHASE_DOSING_COMPLETION;
                 ESP_LOGI(TAG, "All %u dosing channel(s) completed successfully.", (unsigned)config->channel_count);
             }
         }
@@ -645,12 +745,11 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             if (!post_mix_started) {
                 post_mix_started = true;
                 post_mix_start_us = now_us;
+                result.current_phase = MIXING_PHASE_POST_MIX;
                 ESP_LOGI(TAG, "Raw water target reached (%u mL) and all %u dosing pump(s) complete. Starting post-mix duration (%u s).",
                          (unsigned)actual_raw_water_ml, (unsigned)config->channel_count, (unsigned)config->post_mix_duration_sec);
-                if (config->post_mix_duration_sec == 0) {
-                    post_mix_done = true;
-                }
             } else if (!post_mix_done) {
+                result.current_phase = MIXING_PHASE_POST_MIX;
                 uint32_t post_mix_elapsed_ms = (uint32_t)((now_us - post_mix_start_us) / 1000LL);
                 result.post_mix_actual_runtime_ms = post_mix_elapsed_ms;
                 if (post_mix_elapsed_ms >= config->post_mix_duration_sec * 1000U) {
@@ -667,11 +766,15 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
         // I. Success Evaluation: Raw water done + All dosing done + Post-mix duration complete
         if (!raw_water_running && all_dosing_done && post_mix_done) {
+            result.current_phase = MIXING_PHASE_STOP;
+
             // Turn OFF mixing pump
             esp_err_t off_err = set_scoped_actuator_state(&job_actuators.mixing_pump, false);
             if (off_err != ESP_OK) {
                 result.status = MIXING_RESULT_ACTUATOR_ERROR;
                 result.error_code = mixing_status_to_string(result.status);
+                result.current_phase = MIXING_PHASE_ERROR;
+                result.final_phase = MIXING_PHASE_ERROR;
                 snprintf(result.message, sizeof(result.message),
                          "Failed to turn OFF mixing pump '%.20s' (err=%d).",
                          job_actuators.mixing_pump.component_id, off_err);
@@ -684,6 +787,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
             result.status = MIXING_RESULT_SUCCESS;
             result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_SUCCESS;
+            result.final_phase = MIXING_PHASE_SUCCESS;
             result.total_runtime_ms = total_elapsed_ms;
             snprintf(result.message, sizeof(result.message),
                      "Mixing protocol successfully completed: %u mL raw water, %u dosing channel(s) parallel, %u s post-mix.",
@@ -699,5 +804,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 
     int64_t end_us = esp_timer_get_time();
     result.total_runtime_ms = (uint32_t)((end_us - protocol_start_us) / 1000LL);
+    if (result.status != MIXING_RESULT_SUCCESS) {
+        result.final_phase = MIXING_PHASE_ERROR;
+    }
     return result;
 }

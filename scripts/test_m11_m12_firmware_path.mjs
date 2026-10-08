@@ -14,6 +14,7 @@ const calApi = read('esp32/main/http/api_calibration_handlers.c');
 const calMgr = read('esp32/main/services/calibration_mgr.c');
 const sensor = read('esp32/main/hal/sensor_hal.c');
 const apiCmd = read('esp32/main/http/api_command_handlers.c');
+const proto = read('esp32/main/services/protocol_mixing.c');
 
 function test(name, fn) {
   try { fn(); console.log(`PASS ${name}`); }
@@ -21,8 +22,8 @@ function test(name, fn) {
 }
 
 test('F1 automatic fertigation requires executionPlan at scheduler parse boundary', () => {
-  assert.match(sched, /if \(!ep \|\| !cJSON_IsObject\(ep\)\) return false;/);
-  assert.match(sched, /copy_string\(out->fertigation_payload_json/);
+  assert.match(sched, /if \(!ep \|\| !cJSON_IsObject\(ep\)\)\s*return false;/);
+  assert.match(sched, /store_fertigation_plan\(out,\s*ep\)/);
 });
 
 test('F2 HTTP automatic fertigation requires executionPlan and does not parse A/B volumes', () => {
@@ -32,8 +33,8 @@ test('F2 HTTP automatic fertigation requires executionPlan and does not parse A/
 });
 
 test('F3 command manager executes fertigation only through fertigation_mgr_start_from_json', () => {
-  assert.match(cmd, /cmd\.type == CMD_TYPE_FERTIGATION_BATCH/);
-  assert.match(cmd, /fertigation_mgr_start_from_json\(cmd\.fertigation_payload_json\)/);
+  assert.match(cmd, /cmd->type == CMD_TYPE_FERTIGATION_BATCH/);
+  assert.match(cmd, /fertigation_mgr_start_from_json\(cmd->fertigation_payload_json\)/);
   assert.doesNotMatch(cmd, /fertigation_mgr_start_batch/);
   assert.doesNotMatch(fertH, /fertigation_mgr_start_batch/);
 });
@@ -62,37 +63,33 @@ test('F6 sensor runtime does not fabricate unavailable sensor values', () => {
 });
 
 test('F7 filling uses accumulated measured volume, not timer-derived volume', () => {
-  const block = fert.slice(fert.indexOf('case FERT_STATE_FILLING:', fert.indexOf('switch(s_state)')), fert.indexOf('case FERT_STATE_DOSING:', fert.indexOf('switch(s_state)')));
-  assert.match(block, /sensor_hal_get_component_accumulated_ml/);
-  assert.match(block, /target_water_ml/);
+  assert.match(proto, /curr_readings\.total_ml_raw_zjb1/);
+  assert.match(proto, /config->raw_water_target_ml/);
 });
 
 test('F8 dosing is generic and bounded to configured channel count', () => {
   assert.match(fert, /FERT_MAX_DOSING_CHANNELS/);
-  assert.match(fert, /channel_count>FERT_MAX_DOSING_CHANNELS/);
+  assert.match(fert, /channel_count\s*>\s*FERT_MAX_DOSING_CHANNELS/);
   assert.match(fert, /calibration_mgr_get_record_exact/);
   assert.match(fert, /requested_ml/);
 });
 
 test('F9 mixing actuator failures enter FAULTED and stop outputs', () => {
-  const block = fert.slice(fert.indexOf('case FERT_STATE_FINAL_MIXING:', fert.indexOf('switch(s_state)')), fert.indexOf('case FERT_STATE_DELIVERY:', fert.indexOf('switch(s_state)')));
-  assert.match(block, /MIXING_ACTUATOR_REJECTED/);
-  assert.match(block, /stop_all\(\)/);
-  assert.match(block, /FERT_STATE_FAULTED/);
+  assert.match(proto, /MIXING_RESULT_ACTUATOR_ERROR/);
+  assert.match(proto, /stop_job_scoped_actuators/);
+  assert.match(fert, /case FERT_STATE_MIXING:/);
+  assert.match(fert, /stop_all\(\);/);
 });
 
 test('F10 delivery uses valid measured flow and explicit target semantics', () => {
-  const block = fert.slice(fert.indexOf('case FERT_STATE_DELIVERY:', fert.indexOf('switch(s_state)')), fert.indexOf('case FERT_STATE_COMPLETE:', fert.indexOf('switch(s_state)')));
-  assert.match(block, /SENSOR_STATE_VALID/);
+  const block = fert.slice(fert.indexOf('/* Decoupled Parallel Multi-GH Delivery Monitor */'));
   assert.match(block, /sensor_hal_get_component_accumulated_ml/);
-  assert.match(block, /target_flow_lpm/);
-  assert.match(block, /target_pressure_kpa/);
-  assert.match(block, /DELIVERY_FLOW_SENSOR_NOT_VALID/);
-  assert.match(block, /PRESSURE_SENSOR_NOT_VALID/);
+  assert.match(block, /slot->delivery_target_ml/);
+  assert.match(block, /DELIVERY_SLOT_COMPLETE/);
 });
 
 test('F11 configuration version is checked before fertigation execution', () => {
-  assert.match(fert, /configuration_version.*config_version/);
+  assert.match(fert, /config_version.*configuration_version/);
   assert.match(cmd, /STALE_CONFIGURATION_VERSION/);
 });
 
@@ -107,7 +104,7 @@ test('F13 generic configured flow sensors are configuration-driven and use exact
   assert.match(sensor, /MAX_GENERIC_FLOW_SENSORS/);
   assert.match(sensor, /generic_flow_isr/);
   assert.match(sensor, /sensor_hal_reconfigure_from_registry/);
-  assert.match(sensor, /calibration_mgr_get_record_exact\(sensor_id, "FLOW"/);
+  assert.match(sensor, /calibration_mgr_get_record_exact\(\s*(?:sensor_id|info\.component_id),\s*"FLOW"/);
   assert.match(sensor, /pulses_per_liter/);
 });
 

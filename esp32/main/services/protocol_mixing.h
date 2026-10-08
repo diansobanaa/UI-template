@@ -22,8 +22,24 @@ typedef enum {
     MIXING_RESULT_DOSING_ERROR,
     MIXING_RESULT_DOSING_TIMEOUT,
     MIXING_RESULT_ACTUATOR_ERROR,
-    MIXING_RESULT_EMERGENCY_STOP
+    MIXING_RESULT_EMERGENCY_STOP,
+    MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED
 } mixing_status_code_t;
+
+/** Canonical internal phases of the core mixing protocol. */
+typedef enum {
+    MIXING_PHASE_IDLE = 0,
+    MIXING_PHASE_PRECHECK,
+    MIXING_PHASE_RAW_WATER_FILL,
+    MIXING_PHASE_THRESHOLD_REACHED,
+    MIXING_PHASE_MIXING_AND_DOSING,
+    MIXING_PHASE_RAW_WATER_COMPLETE,
+    MIXING_PHASE_DOSING_COMPLETION,
+    MIXING_PHASE_POST_MIX,
+    MIXING_PHASE_STOP,
+    MIXING_PHASE_SUCCESS,
+    MIXING_PHASE_ERROR
+} mixing_phase_t;
 
 /** Dynamic dosing channel specification. */
 typedef struct {
@@ -48,6 +64,9 @@ typedef struct {
     uint32_t no_flow_grace_period_sec;     /**< Grace period before NO FLOW trip (default: 15s) */
     uint32_t poll_interval_ms;             /**< Inner loop polling delay (default: 100ms) */
 
+    /* Optional tick callback executed on each iteration of the orchestration loop */
+    void (*tick_cb)(void *user_ctx);
+
     /* Optional external abort hook (returns true to request immediate abort) */
     bool (*abort_check)(void *user_ctx);
     void *user_ctx;
@@ -68,6 +87,8 @@ typedef struct {
     mixing_status_code_t status;
     const char *error_code;
     char message[128];
+    mixing_phase_t current_phase;
+    mixing_phase_t final_phase;
 
     uint32_t target_raw_water_ml;
     uint32_t actual_raw_water_ml;
@@ -85,6 +106,11 @@ typedef struct {
  * @brief Convert a mixing status code to canonical uppercase string identifier.
  */
 const char *mixing_status_to_string(mixing_status_code_t status);
+
+/**
+ * @brief Convert a mixing phase code to canonical uppercase string identifier.
+ */
+const char *mixing_phase_to_string(mixing_phase_t phase);
 
 /**
  * @brief Emergency/safe-stop helper: immediately turn OFF raw water pump,

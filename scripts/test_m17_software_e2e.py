@@ -142,7 +142,7 @@ def software_gate() -> None:
     check("scheduler_requires_active_compiled_schedule", all(x in sched for x in ["activationState", "status", "compiledId", "complexId"]))
     check("command_requires_fertigation_execution_plan", "FERTIGATION_EXECUTION_PLAN_REQUIRED" in cmd and "executionPlan" in cmd)
     check("command_calls_safety_and_registry", "safety_monitor_authorize_component" in cmd and "actuator_hal_set_by_component_id" in cmd)
-    check("fertigation_state_machine", all(x in fert for x in ["FERT_STATE_FILLING", "FERT_STATE_DOSING", "FERT_STATE_FINAL_MIXING", "FERT_STATE_DELIVERY", "FERT_STATE_COMPLETE", "FERT_STATE_INTERRUPTED", "FERT_STATE_FAULTED", "FERT_STATE_ABORTED"]))
+    check("fertigation_state_machine", all(x in fert for x in ["FERT_STATE_PRECHECK", "FERT_STATE_MIXING", "FERT_STATE_COMPLETE", "FERT_STATE_INTERRUPTED", "FERT_STATE_FAULTED", "FERT_STATE_ABORTED"]))
     check("fertigation_fail_safe_stop", "stop_all();" in fert)
     check("telemetry_durable", "storage_mgr_append_telemetry_log" in tele and "recordId" in tele and "quality" in tele)
     check("offline_cursor_persistent", "storage_mgr_get_sync_cursor" in sync and "storage_mgr_set_sync_cursor" in sync)

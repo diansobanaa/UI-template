@@ -1,4 +1,5 @@
 #include "services/fertigation_mgr.h"
+#include "services/protocol_mixing.h"
 #include "config/pin_config.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -79,9 +80,7 @@ static int64_t s_run_start_ms = 0, s_run_end_ms = 0;
 static int64_t s_phase_ts[10] = {0};
 static uint32_t s_state_start_ms = 0;
 static uint32_t s_raw_start_ml = 0, s_delivery_start_ml = 0;
-static uint32_t s_dosing_start_ms[FERT_MAX_DOSING_CHANNELS] = {0};
 static uint32_t s_dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS] = {0};
-static bool s_raw_water_filling_done = false;
 // ITEM-2: Per-slot last_terminal for independent GH fault tracking.
 // Previously a single global s_last_terminal meant: if GH-01 faulted and GH-02
 // completed, calling get_last_terminal() would return whichever happened last —
@@ -158,16 +157,8 @@ static const char *state_name(fertigation_state_t s) {
     return "RECOVERY_HOLD";
   case FERT_STATE_PRECHECK:
     return "PRECHECK";
-  case FERT_STATE_FILLING:
-    return "FILLING";
-  case FERT_STATE_DOSING:
-    return "DOSING";
-  case FERT_STATE_FINAL_MIXING:
-    return "FINAL_MIXING";
-  case FERT_STATE_MIX_READY:
-    return "MIX_READY";
-  case FERT_STATE_DELIVERY:
-    return "DELIVERY";
+  case FERT_STATE_MIXING:
+    return "MIXING";
   case FERT_STATE_COMPLETE:
     return "COMPLETE";
   case FERT_STATE_INTERRUPTED:
@@ -184,26 +175,16 @@ static int phase_index(fertigation_state_t s) {
   switch (s) {
   case FERT_STATE_PRECHECK:
     return 0;
-  case FERT_STATE_FILLING:
+  case FERT_STATE_MIXING:
     return 1;
-  case FERT_STATE_DOSING:
-    return 2;
-  case FERT_STATE_FINAL_MIXING:
-    return 3;
-  case FERT_STATE_MIX_READY:
-    return 4;
-  case FERT_STATE_DELIVERY:
-    return 5;
   case FERT_STATE_COMPLETE:
-    return 6;
+    return 2;
   default:
     return -1;
   }
 }
 static bool active_run_state(fertigation_state_t s) {
-  return s == FERT_STATE_PRECHECK || s == FERT_STATE_FILLING ||
-         s == FERT_STATE_DOSING || s == FERT_STATE_FINAL_MIXING ||
-         s == FERT_STATE_MIX_READY || s == FERT_STATE_DELIVERY;
+  return s == FERT_STATE_PRECHECK || s == FERT_STATE_MIXING;
 }
 static bool op_component(const char *id) {
   return id && id[0] && hardware_registry_is_operational(id);
@@ -411,7 +392,7 @@ static void persist_run(const char *final_fault) {
   if (s_state == FERT_STATE_COMPLETE) {
     mixing_status = "COMPLETED";
     delivery_status = "COMPLETED";
-  } else if (s_phase_ts[4] > 0 || s_state == FERT_STATE_DELIVERY) {
+  } else if (s_phase_ts[4] > 0) {
     mixing_status = "COMPLETED";
     delivery_status = final_fault ? "FAILED" : "COMPLETED";
   } else if (final_fault) {
@@ -855,7 +836,7 @@ static void fertigation_mgr_save_checkpoint(void) {
   cp(cp_data.complex_id, sizeof(cp_data.complex_id), s_batch.complex_id);
   cp(cp_data.gh_id, sizeof(cp_data.gh_id), s_batch.gh_id);
   cp(cp_data.recipe_id, sizeof(cp_data.recipe_id), s_batch.recipe_id);
-  cp_data.process_type = (s_state == FERT_STATE_DELIVERY) ? 1 : 0;
+  cp_data.process_type = 0;
   cp_data.state = (uint8_t)s_state;
   cp_data.target_water_ml = s_batch.target_water_ml;
 
@@ -869,13 +850,13 @@ static void fertigation_mgr_save_checkpoint(void) {
   cp_data.channel_count = (uint8_t)(s_batch.channel_count < FERT_MAX_DOSING_CHANNELS ? s_batch.channel_count : FERT_MAX_DOSING_CHANNELS);
   for (uint32_t i = 0; i < cp_data.channel_count; i++) {
     cp_data.target_dosing_ms[i] = s_batch.channels[i].runtime_ms;
-    cp_data.observed_dosing_ms[i] = s_dosing_runtime_observed_ms[i];
+    cp_data.observed_dosing_ms[i] = 0;
   }
 
   cp_data.mixing_duration_sec = s_batch.mixing_duration_sec;
-  if (s_state == FERT_STATE_FINAL_MIXING) {
+  if (s_state == FERT_STATE_MIXING) {
     cp_data.mixing_elapsed_sec = (now_ms() - s_state_start_ms) / 1000U;
-  } else if (s_state == FERT_STATE_MIX_READY || s_state == FERT_STATE_COMPLETE) {
+  } else if (s_state == FERT_STATE_COMPLETE) {
     cp_data.mixing_elapsed_sec = s_batch.mixing_duration_sec;
   } else {
     cp_data.mixing_elapsed_sec = 0;
@@ -883,22 +864,8 @@ static void fertigation_mgr_save_checkpoint(void) {
 
   // hardware_outputs_mask: record of what was actively commanded
   uint16_t mask = 0;
-  if (s_state == FERT_STATE_FILLING || (s_state == FERT_STATE_DOSING && !s_raw_water_filling_done)) {
-    mask |= HW_MASK_RAW_WATER;
-  }
-  if (s_state == FERT_STATE_DOSING || s_state == FERT_STATE_FINAL_MIXING) {
-    mask |= HW_MASK_MIXING;
-  }
-  if (s_state == FERT_STATE_DOSING) {
-    for (uint32_t i = 0; i < cp_data.channel_count; i++) {
-      if (s_dosing_runtime_observed_ms[i] < s_batch.channels[i].runtime_ms) {
-        if (i == 0) mask |= HW_MASK_DOSING_A;
-        else if (i == 1) mask |= HW_MASK_DOSING_B;
-      }
-    }
-  }
-  if (s_state == FERT_STATE_DELIVERY) {
-    mask |= HW_MASK_DELIVERY;
+  if (s_state == FERT_STATE_MIXING) {
+    mask |= (HW_MASK_RAW_WATER | HW_MASK_MIXING);
   }
   cp_data.hardware_outputs_mask = mask;
   s_last_commanded_outputs_mask = mask;
@@ -912,6 +879,20 @@ static void fertigation_mgr_save_checkpoint(void) {
   if (f) {
     fwrite(&cp_data, 1, sizeof(cp_data), f);
     fclose(f);
+  }
+}
+
+static bool mixing_abort_check_hook(void *user_ctx) {
+  (void)user_ctx;
+  return safety_monitor_has_fault() || actuator_hal_is_emergency_stopped();
+}
+
+static void mixing_tick_checkpoint_hook(void *user_ctx) {
+  (void)user_ctx;
+  uint32_t now = now_ms();
+  if (now - s_last_checkpoint_ms >= 3000U) {
+    s_last_checkpoint_ms = now;
+    fertigation_mgr_save_checkpoint();
   }
 }
 
@@ -961,9 +942,10 @@ static bool restore_recovery_checkpoint(void) {
   // User Instruction 4:
   // On power recovery, if physical progress cannot be ascertained with certainty (e.g. during filling, dosing, or mixing),
   // mark as RECOVERY_REQUIRED (FERT_STATE_RECOVERY_HOLD) and do NOT automatically resume nutrient dispensing!
-  if (cp_data.state == FERT_STATE_FILLING ||
-      cp_data.state == FERT_STATE_DOSING ||
-      cp_data.state == FERT_STATE_FINAL_MIXING) {
+  if (cp_data.state == 3 /* legacy FERT_STATE_FILLING */ ||
+      cp_data.state == 4 /* legacy FERT_STATE_DOSING */ ||
+      cp_data.state == 5 /* legacy FERT_STATE_FINAL_MIXING */ ||
+      cp_data.state == FERT_STATE_MIXING) {
     s_state = FERT_STATE_RECOVERY_HOLD;
     (void)event_mgr_log_command(
         LOG_LEVEL_WARNING, "FERTIGATION_RECOVERY_REQUIRED",
@@ -975,7 +957,7 @@ static bool restore_recovery_checkpoint(void) {
 
   // If already reached MIX_READY before outage:
   // Solution is ready in tank. Restore MIX_READY without re-mixing or re-dosing!
-  if (cp_data.state == FERT_STATE_MIX_READY) {
+  if (cp_data.state == 6 /* legacy FERT_STATE_MIX_READY */) {
     delivery_slot_t *slot = NULL;
     for (size_t s = 0; s < FERT_MAX_DELIVERY_SLOTS; s++) {
       if (!s_delivery_slots[s].occupied) {
@@ -1931,19 +1913,6 @@ static void task(void *arg) {
     }
     if (active_run_state(s_state) &&
         (safety_monitor_has_fault() || actuator_hal_is_emergency_stopped())) {
-      if (s_state == FERT_STATE_DELIVERY &&
-          strcmp(safety_monitor_get_fault_code(), "TANK_LOW") == 0) {
-        stop_component(s_batch.delivery_pump_id);
-        (void)event_mgr_log_command(LOG_LEVEL_INFO, "FERTIGATION_DELIVERED",
-                                    "Fertigation delivery completed upon lower "
-                                    "level boundary sensor trip.",
-                                    s_batch.run_id, s_batch.complex_id,
-                                    s_batch.gh_id, s_batch.delivery_pump_id,
-                                    NULL, s_batch.configuration_version);
-        transition(FERT_STATE_COMPLETE);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        continue;
-      }
       if (actuator_hal_is_emergency_stopped()) {
         (void)event_mgr_log_command(
             LOG_LEVEL_ERROR, "EMERGENCY_STOP",
@@ -1958,7 +1927,6 @@ static void task(void *arg) {
       vTaskDelay(pdMS_TO_TICKS(250));
       continue;
     }
-    uint32_t elapsed = now_ms() - s_state_start_ms;
     if (s_state != FERT_STATE_IDLE && s_state != FERT_STATE_PRECHECK &&
         s_state != FERT_STATE_COMPLETE && s_batch.max_runtime_sec > 0 &&
         s_run_start_ms > 0) {
@@ -2001,11 +1969,12 @@ static void task(void *arg) {
               s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
               s_batch.raw_water_component_id, NULL,
               s_batch.configuration_version);
-          transition(FERT_STATE_FILLING);
+          transition(FERT_STATE_MIXING);
         }
       }
       break;
-    case FERT_STATE_FILLING:
+    case FERT_STATE_MIXING: {
+      /* Acquire and open routing valves if configured */
       for (uint32_t i = 0; i < s_batch.routing_valve_count; i++) {
         if (s_batch.routing_valve_ids[i][0]) {
           if (actuator_hal_acquire_component(s_batch.routing_valve_ids[i],
@@ -2024,199 +1993,58 @@ static void task(void *arg) {
       if (s_state == FERT_STATE_FAULTED)
         break;
 
-      if (actuator_hal_acquire_component(s_batch.raw_water_component_id,
-                                         ACTUATOR_OWNER_FERTIGATION) !=
-          ESP_OK) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("RAW_WATER_RESOURCE_LOCKED");
-        break;
+      /* Log fill started event */
+      (void)event_mgr_log_command(
+          LOG_LEVEL_INFO, "FILL_STARTED", "Raw water filling initiated.",
+          s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
+          s_batch.raw_water_component_id, NULL,
+          s_batch.configuration_version);
+
+      /* Build protocol_mixing configuration */
+      mixing_protocol_config_t mix_cfg;
+      memset(&mix_cfg, 0, sizeof(mix_cfg));
+      cp(mix_cfg.raw_water_component_id, sizeof(mix_cfg.raw_water_component_id),
+         s_batch.raw_water_component_id);
+      cp(mix_cfg.mixing_pump_id, sizeof(mix_cfg.mixing_pump_id),
+         s_batch.mixing_pump_id);
+      mix_cfg.raw_water_target_ml = (uint32_t)s_batch.target_water_ml;
+      mix_cfg.threshold_percent = s_batch.raw_water_start_threshold_percent;
+      mix_cfg.post_mix_duration_sec = s_batch.mixing_duration_sec;
+      mix_cfg.channel_count = s_batch.channel_count < MAX_MIXING_DOSING_CHANNELS
+                                  ? s_batch.channel_count
+                                  : MAX_MIXING_DOSING_CHANNELS;
+      for (uint32_t i = 0; i < mix_cfg.channel_count; i++) {
+        cp(mix_cfg.channels[i].component_id,
+           sizeof(mix_cfg.channels[i].component_id),
+           s_batch.channels[i].component_id);
+        mix_cfg.channels[i].target_volume_ml =
+            s_batch.channels[i].requested_ml > 0
+                ? (uint32_t)s_batch.channels[i].requested_ml
+                : 0;
       }
-      if (actuator_hal_set_by_component_id(s_batch.raw_water_component_id,
-                                           true) != ESP_OK) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("RAW_WATER_ACTUATOR_REJECTED");
-        break;
-      }
-      uint32_t current = 0;
-      if (sensor_hal_get_component_accumulated_ml(s_batch.raw_flow_sensor_id,
-                                                  &current) != ESP_OK) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("RAW_FLOW_MEASUREMENT_UNAVAILABLE");
-        break;
-      }
-      current = current >= s_raw_start_ml ? current - s_raw_start_ml : 0;
-      uint32_t thresh_pct = s_batch.raw_water_start_threshold_percent > 0
-                                ? s_batch.raw_water_start_threshold_percent
-                                : 20;
-      if (thresh_pct > 100)
-        thresh_pct = 100;
-      uint32_t thresh_vol =
-          (uint32_t)(((uint64_t)s_batch.target_water_ml * thresh_pct) / 100ULL);
-      if (current >= thresh_vol) {
-        if (current + s_batch.tolerance_ml >=
-            (uint32_t)s_batch.target_water_ml) {
-          stop_component(s_batch.raw_water_component_id);
-          s_raw_water_filling_done = true;
-        } else {
-          s_raw_water_filling_done = false;
-        }
-        if (s_batch.mixing_pump_id[0]) {
-          if (actuator_hal_acquire_component(s_batch.mixing_pump_id,
-                                             ACTUATOR_OWNER_FERTIGATION) ==
-              ESP_OK) {
-            actuator_hal_set_by_component_id(s_batch.mixing_pump_id, true);
-          }
-        }
-        memset(s_dosing_start_ms, 0, sizeof(s_dosing_start_ms));
-        memset(s_dosing_runtime_observed_ms, 0,
-               sizeof(s_dosing_runtime_observed_ms));
-        (void)event_mgr_log_command(
-            LOG_LEVEL_INFO, "DOSING_STARTED", "Nutrient dosing initiated.",
-            s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
-            s_batch.channel_count > 0 ? s_batch.channels[0].component_id : NULL,
-            NULL, s_batch.configuration_version);
-        transition(FERT_STATE_DOSING);
-      } else if (elapsed > (s_batch.fill_timeout_sec * 1000U)) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("FILL_TIMEOUT");
-      }
-      break;
-    case FERT_STATE_DOSING: {
-      // 1. Raw water filling continues concurrently until 100% target volume reached
-      if (!s_raw_water_filling_done) {
-        uint32_t raw_current = 0;
-        if (sensor_hal_get_component_accumulated_ml(s_batch.raw_flow_sensor_id,
-                                                    &raw_current) == ESP_OK) {
-          raw_current =
-              raw_current >= s_raw_start_ml ? raw_current - s_raw_start_ml : 0;
-          if (raw_current + s_batch.tolerance_ml >=
-              (uint32_t)s_batch.target_water_ml) {
-            stop_component(s_batch.raw_water_component_id);
-            s_raw_water_filling_done = true;
-          }
+      mix_cfg.abort_check = mixing_abort_check_hook;
+      mix_cfg.tick_cb = mixing_tick_checkpoint_hook;
+
+      /* Canonical execution of raw water + simultaneous dosing + mixing */
+      mixing_result_t mres = protocol_mixing(&mix_cfg);
+
+      /* Close and release routing valves */
+      for (uint32_t i = 0; i < s_batch.routing_valve_count; i++) {
+        if (s_batch.routing_valve_ids[i][0]) {
+          actuator_hal_set_by_component_id(s_batch.routing_valve_ids[i],
+                                           false);
+          actuator_hal_release_component(s_batch.routing_valve_ids[i],
+                                         ACTUATOR_OWNER_FERTIGATION);
         }
       }
 
-      // 2. Simultaneous Dosing: All active dosing channels run CONCURRENTLY
-      bool all_dosing_done = true;
-      uint32_t cur_now = now_ms();
-
-      for (uint32_t ch = 0; ch < s_batch.channel_count && ch < FERT_MAX_DOSING_CHANNELS; ch++) {
-        uint32_t target_runtime = s_batch.channels[ch].runtime_ms;
-        if (target_runtime == 0) {
-          s_dosing_runtime_observed_ms[ch] = 0;
-          continue;
-        }
-
-        // Initialize start time on first tick for each active channel
-        if (s_dosing_start_ms[ch] == 0) {
-          s_dosing_start_ms[ch] = cur_now;
-          if (actuator_hal_acquire_component(s_batch.channels[ch].component_id,
-                                             ACTUATOR_OWNER_FERTIGATION) == ESP_OK) {
-            actuator_hal_set_by_component_id(s_batch.channels[ch].component_id, true);
-          }
-        }
-
-        uint32_t channel_elapsed = cur_now - s_dosing_start_ms[ch];
-        // Monotonic pump timeout safety: 1.5x of target runtime (minimum +5s)
-        uint32_t max_channel_runtime = (uint32_t)(target_runtime * 1.5f);
-        if (max_channel_runtime < target_runtime + 5000U) {
-          max_channel_runtime = target_runtime + 5000U;
-        }
-
-        if (channel_elapsed < target_runtime) {
-          // Channel is still actively dispensing
-          all_dosing_done = false;
-          s_dosing_runtime_observed_ms[ch] = channel_elapsed;
-          actuator_hal_set_by_component_id(s_batch.channels[ch].component_id, true);
-        } else {
-          // Channel has met its calibrated dosage target! Stop immediately.
-          stop_component(s_batch.channels[ch].component_id);
-          s_dosing_runtime_observed_ms[ch] = target_runtime;
-        }
-
-        // Channel safety trip check
-        if (channel_elapsed > max_channel_runtime) {
-          stop_component(s_batch.channels[ch].component_id);
-          if (s_batch.fallback_enabled) {
-            stop_all();
-            s_state = FERT_STATE_FAULTED;
-            s_run_end_ms = wallclock_ms();
-            persist_run("DOSING_TIMEOUT");
-            break;
-          }
-        }
+      /* Store observed dosing runtimes for record keeping & telemetry */
+      for (uint32_t i = 0;
+           i < s_batch.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++) {
+        s_dosing_runtime_observed_ms[i] = mres.channels[i].actual_runtime_ms;
       }
 
-      if (s_state == FERT_STATE_FAULTED) break;
-
-      // Overall dosing stage timeout guard
-      if (elapsed > (s_batch.max_dosing_runtime_sec * 1000U)) {
-        for (uint32_t c = 0; c < s_batch.channel_count; c++) {
-          stop_component(s_batch.channels[c].component_id);
-        }
-        if (!s_raw_water_filling_done) {
-          stop_component(s_batch.raw_water_component_id);
-          s_raw_water_filling_done = true;
-        }
-        if (s_batch.fallback_enabled) {
-          stop_all();
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run("DOSING_TIMEOUT");
-          break;
-        } else {
-          ESP_LOGW(TAG, "Dosing timeout reached; advancing to final mixing");
-          transition(FERT_STATE_FINAL_MIXING);
-          break;
-        }
-      }
-
-      // When ALL dosing pumps have completed and raw water filling is 100% done:
-      if (all_dosing_done && s_raw_water_filling_done) {
-        for (uint32_t c = 0; c < s_batch.channel_count; c++) {
-          stop_component(s_batch.channels[c].component_id);
-        }
-        (void)event_mgr_log_command(
-            LOG_LEVEL_INFO, "DOSING_COMPLETED", "Simultaneous nutrient dosing completed.",
-            s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
-            s_batch.configuration_version);
-        transition(FERT_STATE_FINAL_MIXING);
-      }
-      break;
-    }
-    case FERT_STATE_FINAL_MIXING:
-      if (s_batch.mixing_pump_id[0]) {
-        if (actuator_hal_acquire_component(
-                s_batch.mixing_pump_id, ACTUATOR_OWNER_FERTIGATION) != ESP_OK ||
-            actuator_hal_set_by_component_id(s_batch.mixing_pump_id, true) !=
-                ESP_OK) {
-          stop_all();
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run("MIXING_ACTUATOR_REJECTED");
-          break;
-        }
-      }
-      if (elapsed >= s_batch.mixing_duration_sec * 1000U) {
-        stop_component(s_batch.mixing_pump_id);
-        stop_component(s_batch.raw_water_component_id);
-        for (uint32_t i = 0; i < s_batch.routing_valve_count; i++) {
-          if (s_batch.routing_valve_ids[i][0]) {
-            actuator_hal_set_by_component_id(s_batch.routing_valve_ids[i],
-                                             false);
-            actuator_hal_release_component(s_batch.routing_valve_ids[i],
-                                           ACTUATOR_OWNER_FERTIGATION);
-          }
-        }
+      if (mres.status == MIXING_RESULT_SUCCESS) {
         (void)event_mgr_log_command(LOG_LEVEL_INFO, "MIXING_COMPLETED",
                                     "Nutrient solution mixing completed.",
                                     s_batch.run_id, s_batch.complex_id,
@@ -2228,8 +2056,7 @@ static void task(void *arg) {
             s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
             s_batch.mixing_tank_id, NULL, s_batch.configuration_version);
 
-        /* Transfer completed preparation into persistent per-GH delivery slot
-         */
+        /* Transfer completed preparation into persistent per-GH delivery slot */
         delivery_slot_t *slot = NULL;
         for (size_t s = 0; s < FERT_MAX_DELIVERY_SLOTS; s++) {
           if (s_delivery_slots[s].occupied &&
@@ -2274,139 +2101,16 @@ static void task(void *arg) {
         s_run_end_ms = wallclock_ms();
         persist_run(NULL);
         transition(FERT_STATE_IDLE);
-      }
-      break;
-    case FERT_STATE_MIX_READY:
-      /* Genuine holding state: READY_TO_SEND.
-       * All central preparation pumps are OFF, routing valves CLOSED, resources
-       * released. Nutrient solution remains held in the mixing tank.
-       * Distribution is triggered by the scheduler when the occurrence is due.
-       */
-      break;
-    case FERT_STATE_DELIVERY:
-      if (gpio_get_level(PIN_IN_FLOAT_LOWER) == FLOAT_LEVEL_DRY) {
-        stop_component(s_batch.delivery_pump_id);
-        (void)event_mgr_log_command(LOG_LEVEL_INFO, "FERTIGATION_DELIVERED",
-                                    "Fertigation delivery completed upon lower "
-                                    "level boundary sensor trip.",
-                                    s_batch.run_id, s_batch.complex_id,
-                                    s_batch.gh_id, s_batch.delivery_pump_id,
-                                    NULL, s_batch.configuration_version);
-        (void)event_mgr_log_command(
-            LOG_LEVEL_INFO, "DELIVERY_COMPLETED",
-            "Delivery completed upon lower level boundary sensor trip.",
-            s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
-            s_batch.delivery_pump_id, NULL, s_batch.configuration_version);
-        transition(FERT_STATE_COMPLETE);
-        break;
-      }
-      if (actuator_hal_acquire_component(
-              s_batch.delivery_pump_id, ACTUATOR_OWNER_FERTIGATION) != ESP_OK) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("DELIVERY_RESOURCE_LOCKED");
-        break;
-      }
-      if (actuator_hal_set_by_component_id(s_batch.delivery_pump_id, true) !=
-          ESP_OK) {
-        stop_all();
-        s_state = FERT_STATE_FAULTED;
-        s_run_end_ms = wallclock_ms();
-        persist_run("DELIVERY_ACTUATOR_REJECTED");
-        break;
-      }
-      if (strcasecmp(s_batch.delivery_mode, "DURATION") == 0) {
-        if (elapsed >= s_batch.delivery_duration_sec * 1000U) {
-          stop_component(s_batch.delivery_pump_id);
-          (void)event_mgr_log_command(LOG_LEVEL_INFO, "FERTIGATION_DELIVERED",
-                                      "Delivery completed by duration.",
-                                      s_batch.run_id, s_batch.complex_id,
-                                      s_batch.gh_id, s_batch.delivery_pump_id,
-                                      NULL, s_batch.configuration_version);
-          transition(FERT_STATE_COMPLETE);
-        }
       } else {
-        sensor_component_sample_t flow = {0};
-        bool flow_ok = sensor_hal_get_component_sample(
-                           s_batch.delivery_flow_sensor_id, &flow) == ESP_OK &&
-                       flow.state == SENSOR_STATE_VALID && flow.has_value;
-        if (!flow_ok) {
-          stop_all();
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run("DELIVERY_FLOW_SENSOR_NOT_VALID");
-          break;
-        }
-        if (elapsed > 5000 && flow.value <= 0.0001f) {
-          (void)event_mgr_log_command(LOG_LEVEL_ERROR, "FLOW_FAULT",
-                                      "Delivery pump is active but flow sensor "
-                                      "reads zero (flow fault).",
-                                      s_batch.run_id, s_batch.complex_id,
-                                      s_batch.gh_id, s_batch.delivery_pump_id,
-                                      s_batch.delivery_flow_sensor_id,
-                                      s_batch.configuration_version);
-          stop_all();
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run("FLOW_FAULT");
-          break;
-        }
-        sensor_component_sample_t pressure = {0};
-        bool pressure_target_ok = true;
-        if (strcasecmp(s_batch.delivery_mode, "PRESSURE_FLOW") == 0) {
-          if (sensor_hal_get_component_sample(s_batch.pressure_sensor_id,
-                                              &pressure) != ESP_OK ||
-              pressure.state != SENSOR_STATE_VALID || !pressure.has_value) {
-            stop_all();
-            s_state = FERT_STATE_FAULTED;
-            s_run_end_ms = wallclock_ms();
-            persist_run("PRESSURE_SENSOR_NOT_VALID");
-            break;
-          }
-          pressure_target_ok = pressure.value >= s_batch.target_pressure_kpa;
-          if (flow.value <= 0) {
-            stop_all();
-            s_state = FERT_STATE_FAULTED;
-            s_run_end_ms = wallclock_ms();
-            persist_run("DELIVERY_FLOW_NOT_READY");
-            break;
-          }
-        }
-        uint32_t current_del = 0;
-        if (sensor_hal_get_component_accumulated_ml(
-                s_batch.delivery_flow_sensor_id, &current_del) != ESP_OK) {
-          stop_all();
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run("DELIVERY_VOLUME_MEASUREMENT_UNAVAILABLE");
-          break;
-        }
-        current_del = current_del >= s_delivery_start_ml
-                          ? current_del - s_delivery_start_ml
-                          : 0;
-        bool flow_target_ok = strcasecmp(s_batch.delivery_mode, "FLOW") != 0 ||
-                              flow.value >= s_batch.target_flow_lpm;
-        bool target_complete = current_del + s_batch.tolerance_ml >=
-                               (uint32_t)s_batch.delivery_target_ml;
-        if (target_complete && flow_target_ok && pressure_target_ok) {
-          stop_component(s_batch.delivery_pump_id);
-          (void)event_mgr_log_command(
-              LOG_LEVEL_INFO, "FERTIGATION_DELIVERED",
-              "Delivery completed by target volume verification.",
-              s_batch.run_id, s_batch.complex_id, s_batch.gh_id,
-              s_batch.delivery_pump_id, NULL, s_batch.configuration_version);
-          transition(FERT_STATE_COMPLETE);
-        } else if (elapsed > (s_batch.delivery_timeout_sec * 1000U)) {
-          stop_component(s_batch.delivery_pump_id);
-          s_state = FERT_STATE_FAULTED;
-          s_run_end_ms = wallclock_ms();
-          persist_run(flow_target_ok && pressure_target_ok
-                          ? "DELIVERY_TIMEOUT"
-                          : "DELIVERY_TARGET_NOT_REACHED");
-        }
+        stop_all();
+        s_state = (mres.status == MIXING_RESULT_EMERGENCY_STOP)
+                      ? FERT_STATE_INTERRUPTED
+                      : FERT_STATE_FAULTED;
+        s_run_end_ms = wallclock_ms();
+        persist_run(mres.error_code);
       }
       break;
+    }
     case FERT_STATE_COMPLETE:
       stop_all();
       s_run_end_ms = wallclock_ms();
@@ -2631,10 +2335,8 @@ esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {
     s_run_start_ms = wallclock_ms();
     s_run_end_ms = 0;
     memset(s_phase_ts, 0, sizeof(s_phase_ts));
-    memset(s_dosing_start_ms, 0, sizeof(s_dosing_start_ms));
     memset(s_dosing_runtime_observed_ms, 0,
            sizeof(s_dosing_runtime_observed_ms));
-    s_raw_water_filling_done = false;
     transition(FERT_STATE_PRECHECK);
     (void)event_mgr_log_command(
         LOG_LEVEL_INFO, "MIXING_CREATED", "Fertigation batch created.",
@@ -2740,11 +2442,7 @@ esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out) {
   if (s_state == FERT_STATE_COMPLETE) {
     mixing_status = "COMPLETED";
     delivery_status = "COMPLETED";
-  } else if (s_state >= FERT_STATE_MIX_READY) {
-    mixing_status = "COMPLETED";
-    delivery_status =
-        (s_state == FERT_STATE_DELIVERY) ? "IN_PROGRESS" : "NOT_STARTED";
-  } else if (s_state >= FERT_STATE_PRECHECK) {
+  } else if (s_state == FERT_STATE_MIXING || s_state == FERT_STATE_PRECHECK) {
     mixing_status = "IN_PROGRESS";
     delivery_status = "NOT_STARTED";
   }
@@ -2768,16 +2466,8 @@ esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out) {
   cJSON_AddStringToObject(o, "batchId",
                           s_batch.run_id[0] ? s_batch.run_id : "IDLE");
   const char *runtime_state = "IDLE";
-  if (s_state == FERT_STATE_FILLING)
-    runtime_state = "MIXING_RAW_WATER";
-  else if (s_state == FERT_STATE_DOSING)
-    runtime_state = "DOSING";
-  else if (s_state == FERT_STATE_FINAL_MIXING)
-    runtime_state = "MIXING_RAW_WATER";
-  else if (s_state == FERT_STATE_MIX_READY)
-    runtime_state = "READY";
-  else if (s_state == FERT_STATE_DELIVERY)
-    runtime_state = "DISTRIBUTING";
+  if (s_state == FERT_STATE_MIXING)
+    runtime_state = "MIXING";
   else if (s_state == FERT_STATE_COMPLETE)
     runtime_state = "COMPLETED";
   else if (s_state == FERT_STATE_FAULTED)
@@ -2796,7 +2486,7 @@ esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out) {
   cJSON_AddStringToObject(o, "runtimeState", runtime_state);
 
   const char *act_ch = "";
-  if (s_state == FERT_STATE_DOSING) {
+  if (s_state == FERT_STATE_MIXING) {
     act_ch = "ALL";
   }
   cJSON_AddStringToObject(o, "activeChannel", act_ch);
@@ -2931,16 +2621,8 @@ esp_err_t fertigation_mgr_get_queue_summary(fertigation_queue_summary_t *out) {
     strcpy(out->gh_id, "-");
   }
   const char *st = "IDLE";
-  if (s_state == FERT_STATE_FILLING)
-    st = "RAW_WATER";
-  else if (s_state == FERT_STATE_DOSING)
-    st = "DOSING";
-  else if (s_state == FERT_STATE_FINAL_MIXING)
+  if (s_state == FERT_STATE_MIXING)
     st = "MIXING";
-  else if (s_state == FERT_STATE_MIX_READY)
-    st = "READY";
-  else if (s_state == FERT_STATE_DELIVERY)
-    st = "DISTRIBUTING";
   else if (s_state == FERT_STATE_COMPLETE)
     st = "COMPLETED";
   else if (s_state == FERT_STATE_FAULTED)
@@ -2964,7 +2646,7 @@ esp_err_t fertigation_mgr_get_queue_summary(fertigation_queue_summary_t *out) {
   }
   strncpy(out->runtime_state, st, sizeof(out->runtime_state) - 1);
 
-  if (s_state == FERT_STATE_DOSING && s_batch.channel_count > 0) {
+  if (s_state == FERT_STATE_MIXING && s_batch.channel_count > 0) {
     const char *cid = s_batch.channels[0].component_id;
     if (strstr(cid, "dp-a") || strcmp(cid, "A") == 0)
       strcpy(out->active_channel, "A");
@@ -3038,14 +2720,6 @@ bool fertigation_mgr_is_batch_ready(const char *gh_id,
       return true;
     }
   }
-  if (s_state == FERT_STATE_MIX_READY) {
-    if ((!gh_id || !gh_id[0] || strcasecmp(gh_id, s_batch.gh_id) == 0) &&
-        (!occurrence_id || !occurrence_id[0] ||
-         strcmp(occurrence_id, s_batch.occurrence_id) == 0)) {
-      xSemaphoreGive(s_mutex);
-      return true;
-    }
-  }
   xSemaphoreGive(s_mutex);
   return false;
 }
@@ -3069,44 +2743,6 @@ esp_err_t fertigation_mgr_trigger_distribution(const char *gh_id,
         continue;
       slot = &s_delivery_slots[i];
       break;
-    }
-  }
-
-  /* Fallback: if in legacy FERT_STATE_MIX_READY in s_batch */
-  if (!slot && s_state == FERT_STATE_MIX_READY) {
-    if ((!gh_id || !gh_id[0] || strcasecmp(gh_id, s_batch.gh_id) == 0) &&
-        (!occurrence_id || !occurrence_id[0] ||
-         strcmp(occurrence_id, s_batch.occurrence_id) == 0)) {
-      for (size_t i = 0; i < FERT_MAX_DELIVERY_SLOTS; i++) {
-        if (!s_delivery_slots[i].occupied) {
-          slot = &s_delivery_slots[i];
-          break;
-        }
-      }
-      if (slot) {
-        memset(slot, 0, sizeof(*slot));
-        slot->occupied = true;
-        slot->state = DELIVERY_SLOT_READY_TO_SEND;
-        cp(slot->gh_id, sizeof(slot->gh_id), s_batch.gh_id);
-        cp(slot->occurrence_id, sizeof(slot->occurrence_id),
-           s_batch.occurrence_id);
-        cp(slot->batch_id, sizeof(slot->batch_id),
-           s_batch.batch_id[0] ? s_batch.batch_id : s_batch.run_id);
-        cp(slot->run_id, sizeof(slot->run_id), s_batch.run_id);
-        cp(slot->schedule_id, sizeof(slot->schedule_id), s_batch.schedule_id);
-        cp(slot->delivery_pump_id, sizeof(slot->delivery_pump_id),
-           s_batch.delivery_pump_id);
-        cp(slot->delivery_flow_sensor_id, sizeof(slot->delivery_flow_sensor_id),
-           s_batch.delivery_flow_sensor_id);
-        cp(slot->delivery_mode, sizeof(slot->delivery_mode),
-           s_batch.delivery_mode);
-        slot->delivery_target_ml = s_batch.delivery_target_ml;
-        slot->delivery_duration_sec = s_batch.delivery_duration_sec;
-        slot->delivery_timeout_sec = s_batch.delivery_timeout_sec;
-        slot->configuration_version = s_batch.configuration_version;
-        cp(slot->complex_id, sizeof(slot->complex_id), s_batch.complex_id);
-        transition(FERT_STATE_IDLE);
-      }
     }
   }
 

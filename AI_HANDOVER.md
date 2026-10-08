@@ -1,3 +1,38 @@
+# AI HANDOVER - SP-CANONICAL-PROTOCOL-MIXING-001
+
+## Current status
+`protocol_mixing()` is established as the single canonical implementation for mixing, raw water metering, and simultaneous dosing across the firmware repository:
+1. **Legacy State Machine Fully Eliminated**:
+   - Removed: `FERT_STATE_FILLING`, `FERT_STATE_DOSING`, `FERT_STATE_FINAL_MIXING`, `FERT_STATE_MIX_READY`, `FERT_STATE_DELIVERY`.
+   - Canonical enum: `FERT_STATE_IDLE`, `FERT_STATE_RECOVERY_HOLD`, `FERT_STATE_PRECHECK`, `FERT_STATE_MIXING`, `FERT_STATE_COMPLETE`, `FERT_STATE_INTERRUPTED`, `FERT_STATE_FAULTED`, `FERT_STATE_ABORTED`.
+2. **Unified Canonical Execution**:
+   - Preparation phase strictly calls `protocol_mixing(&mix_cfg)` in `fertigation_mgr.c`.
+   - Physical pulse flow sensor (`sensor_flow_raw` / ZJ-B1 on GPIO 15) is the authoritative source of truth.
+   - Dynamic threshold volume triggers mixing pump and all active dosing pumps simultaneously.
+   - Raw water continues filling concurrently until 100% target volume is measured.
+   - Individual dosing channels shut OFF as their calibrated volumes are reached.
+   - Post-mix agitation duration runs strictly after raw water pump is OFF and all dosing pumps complete.
+   - Dosing turn-OFF failures immediately trip `MIXING_RESULT_ACTUATOR_ERROR` without waiting for timeout.
+   - 1.5x monotonic runtime timeout watchdog protects raw water and dosing pumps.
+   - Scoped safe-stop isolation ensures unowned actuators are untouched.
+   - Checkpoint hook (`mixing_tick_checkpoint_hook`) persists state every 3s via CRC32 without extra FreeRTOS tasks.
+3. **Decoupled Delivery**:
+   - Completed batch transitions to `s_delivery_slots` (`DELIVERY_SLOT_READY_TO_SEND`).
+   - Central fertigation engine returns immediately to `FERT_STATE_IDLE`, freeing central shared resources.
+4. **Verifications**:
+   - ESP-IDF Firmware Build: PASS (`agrotech_esp32.bin` linked cleanly, 0 errors, 0 warnings).
+   - Core Protocol Mixing (`scripts/test_protocol_mixing.mjs`): 14/14 PASS.
+   - Mixing Fertigation Execution (`scripts/test_mixing_fertigation_execution.mjs`): 6/6 PASS.
+   - Parallel Multi-GH Distribution (`scripts/test_parallel_distribution.mjs`): 13/13 PASS.
+   - Reconciled Scenarios A-T (`scripts/test_reconciled_scenarios_a_to_t.mjs`): 21/21 PASS.
+   - Production Path Gate (`scripts/test_m11_m12_firmware_path.mjs`): 17/17 PASS.
+   - Dosing Checkpoint Recovery (`scripts/test_dosing_checkpoint_recovery.mjs`): 20/20 PASS.
+   - Frontend Contract & Mock E2E (`npm test`): PASS.
+   - TypeScript Static Typecheck (`npx tsc --noEmit`): PASS.
+   - Git Commit: `1bde8609251b45928ea223d2cc69e439605556f9`
+
+---
+
 # AI HANDOVER - SP-CLEANUP-LEGACY-FERTIGATION-002
 
 ## Current status

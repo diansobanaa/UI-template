@@ -2286,8 +2286,7 @@ static void process_dosing_queue(time_t now) {
       }
     }
   } else if (head->state == QUEUE_STATE_DISPATCHED) {
-    if (fert_st == FERT_STATE_FILLING || fert_st == FERT_STATE_DOSING ||
-        fert_st == FERT_STATE_FINAL_MIXING || fert_st == FERT_STATE_MIX_READY) {
+    if (fert_st == FERT_STATE_PRECHECK || fert_st == FERT_STATE_MIXING) {
       char q_id[48] = {0}, occ_id[48] = {0}, b_id[48] = {0}, gh[48] = {0};
       fertigation_mgr_get_correlation(q_id, sizeof(q_id), occ_id, sizeof(occ_id),
                                       b_id, sizeof(b_id), gh, sizeof(gh));
@@ -2323,8 +2322,8 @@ static void process_dosing_queue(time_t now) {
     bool correlation_matches = (strcmp(q_id, head->queue_id) == 0 &&
                                 strcmp(occ_id, head->occurrence_id) == 0 &&
                                 strcasecmp(gh, head->gh_id) == 0);
-    if ((fert_st == FERT_STATE_MIX_READY && correlation_matches) ||
-        fertigation_mgr_is_batch_ready(head->gh_id, head->occurrence_id)) {
+    (void)correlation_matches;
+    if (fertigation_mgr_is_batch_ready(head->gh_id, head->occurrence_id)) {
       head->state = QUEUE_STATE_COMPLETED;
       ESP_LOGI(TAG, "Batch %s completed preparation, reached READY_TO_SEND", head->batch_id);
 

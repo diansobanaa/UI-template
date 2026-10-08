@@ -70,18 +70,27 @@ const expectedCodes = [
   "MIXING_RESULT_DOSING_ERROR",
   "MIXING_RESULT_DOSING_TIMEOUT",
   "MIXING_RESULT_ACTUATOR_ERROR",
-  "MIXING_RESULT_EMERGENCY_STOP"
+  "MIXING_RESULT_EMERGENCY_STOP",
+  "MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED"
 ];
 for (const code of expectedCodes) {
   assert.match(headerContent, new RegExp(code), `Header must define enum code ${code}`);
   assert.match(sourceContent, new RegExp(code), `Source must handle status code ${code}`);
 }
 
+// Verify mixing phase enum and string converter
+assert.match(headerContent, /typedef\s+enum\s*\{[\s\S]*MIXING_PHASE_RAW_WATER_FILL[\s\S]*\}\s*mixing_phase_t;/,
+  "Header must define mixing_phase_t");
+assert.match(headerContent, /const\s+char\s*\*\s*mixing_phase_to_string\s*\(\s*mixing_phase_t\s+phase\s*\);/,
+  "Header must declare mixing_phase_to_string");
+assert.match(sourceContent, /const\s+char\s*\*\s*mixing_phase_to_string\s*\(\s*mixing_phase_t\s+phase\s*\)/,
+  "Source must implement mixing_phase_to_string");
+
 // Verify CMakeLists.txt registration
 const cmakeContent = fs.readFileSync(path.join(ROOT, "esp32/main/CMakeLists.txt"), "utf8");
 assert.match(cmakeContent, /services\/protocol_mixing\.c/, "CMakeLists.txt must include services/protocol_mixing.c");
 
-console.log("  PASS: Firmware C signatures, error codes, post_mix field, and build registration verified.");
+console.log("  PASS: Firmware C signatures, error codes, phase enum, post_mix field, and build registration verified.");
 
 // -------------------------------------------------------------
 // TEST 2: Dynamic Threshold & State Machine Simulator
@@ -141,6 +150,7 @@ class MixingProtocolSimulator {
     this.last_flow_progress_sec = 0;
     this.last_flow_volume_ml = 0;
 
+    this.phase = "PRECHECK";
     this.post_mix_started = false;
     this.post_mix_elapsed_sec = 0;
     this.post_mix_done = false;
@@ -152,6 +162,9 @@ class MixingProtocolSimulator {
   precheck() {
     if (!this.config.raw_water_target_ml || this.config.raw_water_target_ml <= 0) {
       return this.fail("MIXING_RESULT_INVALID_CONFIG", "Target volume <= 0");
+    }
+    if ((this.config.post_mix_duration_sec ?? 0) === 0) {
+      return this.fail("MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED", "post_mix_duration_sec is 0: semantics undefined.");
     }
     // No threshold range check per Section 1
     if (this.emergency_stopped) {
@@ -173,7 +186,8 @@ class MixingProtocolSimulator {
 
   fail(status, message) {
     this.safeStop();
-    this.result = { status, message, actual_raw_water_ml: this.actual_raw_water_ml };
+    this.phase = "ERROR";
+    this.result = { status, message, phase: this.phase, actual_raw_water_ml: this.actual_raw_water_ml };
     return false;
   }
 
@@ -193,6 +207,7 @@ class MixingProtocolSimulator {
     this.last_flow_progress_sec = 0;
     this.last_flow_volume_ml = 0;
     this.state = "RUNNING";
+    this.phase = "RAW_WATER_FILL";
   }
 
   tick(deltaSec, measuredPulseDeltaMl) {
@@ -232,6 +247,7 @@ class MixingProtocolSimulator {
       // Threshold check: trigger mixing pump AND all dosing pumps simultaneously
       if (!this.threshold_reached && this.actual_raw_water_ml >= this.threshold_volume_ml) {
         this.threshold_reached = true;
+        this.phase = "MIXING_AND_DOSING";
         this.actuators.mixing_pump = true;
         this.channels.forEach(ch => {
           ch.running = true;
@@ -246,6 +262,7 @@ class MixingProtocolSimulator {
         }
         this.actuators.raw_water_pump = false;
         this.raw_water_done = true;
+        this.phase = "RAW_WATER_COMPLETE";
       }
     }
 
@@ -261,8 +278,8 @@ class MixingProtocolSimulator {
           // 1. Expected runtime reached: Request OFF
           if (ch.elapsed_ms >= ch.expected_runtime_ms) {
             if (this.sim_dosing_off_fail[ch.component_id]) {
-              // Simulated OFF command failure: pump stays running, NOT completed!
-              ch.off_failed = true;
+              // Section 9: Dosing pump OFF failed -> IMMEDIATELY ACTUATOR_ERROR!
+              return this.fail("MIXING_RESULT_ACTUATOR_ERROR", `Failed to turn OFF dosing pump ${ch.component_id}`);
             } else {
               ch.running = false;
               ch.completed = true;
@@ -280,15 +297,17 @@ class MixingProtocolSimulator {
     }
 
     const allDosingDone = this.channels.every(ch => ch.completed);
+    if (allDosingDone && this.threshold_reached && !this.post_mix_started) {
+      this.phase = "DOSING_COMPLETION";
+    }
 
     // Post-mix phase: starts ONLY when raw water target reached AND all dosing pumps complete
     if (this.raw_water_done && allDosingDone) {
       if (!this.post_mix_started) {
         this.post_mix_started = true;
-        if ((this.config.post_mix_duration_sec || 0) === 0) {
-          this.post_mix_done = true;
-        }
+        this.phase = "POST_MIX";
       } else if (!this.post_mix_done) {
+        this.phase = "POST_MIX";
         this.post_mix_elapsed_sec += deltaSec;
         if (this.post_mix_elapsed_sec >= this.config.post_mix_duration_sec) {
           this.post_mix_done = true;
@@ -298,13 +317,16 @@ class MixingProtocolSimulator {
 
     // Success evaluation: Raw water done + All dosing done + Post-mix complete
     if (this.raw_water_done && allDosingDone && this.post_mix_done) {
+      this.phase = "STOP";
       if (this.sim_mixing_off_fail) {
         return this.fail("MIXING_RESULT_ACTUATOR_ERROR", "Failed to turn OFF mixing pump");
       }
       this.actuators.mixing_pump = false;
       this.safeStop();
+      this.phase = "SUCCESS";
       this.result = {
         status: "MIXING_RESULT_SUCCESS",
+        phase: this.phase,
         actual_raw_water_ml: this.actual_raw_water_ml,
         post_mix_duration_sec: this.post_mix_elapsed_sec,
         channels: this.channels.map(c => ({ id: c.component_id, completed: c.completed }))
@@ -575,8 +597,8 @@ assert.equal(simRawTimeout.result?.status, "MIXING_RESULT_RAW_WATER_TIMEOUT");
 assert.equal(simRawTimeout.actuators.raw_water_pump, false);
 console.log("  PASS: Raw water timeout tripped at strictly 1.5x expected time and safe-stopped.");
 
-// 4G. Dosing Timeout Reachability (expected = 10s, timeout = 15s)
-console.log("\n[Test 4G] Dosing Timeout Reachability (Expected=10s, Timeout=15s)...");
+// 4G. Dosing OFF Failure -> Immediate ACTUATOR_ERROR (Prompt Section 9)
+console.log("\n[Test 4G] Dosing OFF Failure Protection (Immediate ACTUATOR_ERROR without 1.5x wait)...");
 const simDosingTimeout = new MixingProtocolSimulator({
   raw_water_target_ml: 10000, // Large so raw water won't timeout first
   threshold_percent: 1,      // 100ml reached immediately
@@ -587,7 +609,6 @@ const simDosingTimeout = new MixingProtocolSimulator({
   channels: [{ component_id: "pump_dosing_1", target_volume_ml: 10, rate_ml_sec: 1.0 }]
 });
 assert.equal(simDosingTimeout.channels[0].expected_runtime_ms, 10000);
-assert.equal(simDosingTimeout.channels[0].max_runtime_ms, 15000);
 
 // Simulate that OFF command fails at expected 10s: pump fails to stop
 simDosingTimeout.sim_dosing_off_fail["pump_dosing_1"] = true;
@@ -596,17 +617,13 @@ simDosingTimeout.start();
 simDosingTimeout.tick(1, 100); // Threshold reached, dosing pump 1 ON
 assert.equal(simDosingTimeout.actuators.dosing_pumps["pump_dosing_1"], true);
 
-// At t = 10s (elapsed 10,000ms): OFF requested, but failed! Pump remains active, not completed
+// At t = 10s (elapsed 10,000ms): OFF requested, but failed! Must immediately trip ACTUATOR_ERROR!
 simDosingTimeout.tick(10, 1000);
-assert.equal(simDosingTimeout.channels[0].completed, false, "Channel must NOT be marked completed when OFF fails");
-assert.equal(simDosingTimeout.channels[0].off_failed, true, "Channel must register OFF failure");
-assert.equal(simDosingTimeout.result, null, "Still running until 1.5x timeout");
-
-// Advance past 15s max timeout (total elapsed dosing = 16s > 15s)
-simDosingTimeout.tick(5.5, 500);
-assert.equal(simDosingTimeout.result?.status, "MIXING_RESULT_DOSING_TIMEOUT", "Must trip MIXING_RESULT_DOSING_TIMEOUT");
+assert.equal(simDosingTimeout.result?.status, "MIXING_RESULT_ACTUATOR_ERROR", "Must immediately trip MIXING_RESULT_ACTUATOR_ERROR");
 assert.equal(simDosingTimeout.actuators.dosing_pumps["pump_dosing_1"], false, "Safe Stop: Dosing pump forced OFF");
-console.log("  PASS: Dosing timeout is fully reachable when OFF fails and exceeds 1.5x expected time.");
+assert.equal(simDosingTimeout.actuators.mixing_pump, false, "Safe Stop: Mixing pump forced OFF");
+assert.equal(simDosingTimeout.actuators.raw_water_pump, false, "Safe Stop: Raw water pump forced OFF");
+console.log("  PASS: Dosing OFF failure immediately trips MIXING_RESULT_ACTUATOR_ERROR without waiting 1.5x timeout.");
 
 // 4H. Actuator OFF Failures (Raw Water & Mixing Pump)
 console.log("\n[Test 4H] Actuator OFF Failure Protection (Raw Water & Mixing Pump)...");
@@ -695,5 +712,41 @@ assert.equal(simEStop.actuators.raw_water_pump, false);
 assert.equal(simEStop.actuators.mixing_pump, false);
 assert.equal(simEStop.actuators.dosing_pumps["pump_dosing_1"], false);
 console.log("  PASS: Emergency stop triggered immediate safe-stop of all actuators without waiting for timer.");
+
+// 4K. Zero Threshold Dynamic Triggering (threshold_percent = 0)
+console.log("\n[Test 4K] Zero Threshold (threshold_percent = 0) Dynamic Start...");
+const simZeroThresh = new MixingProtocolSimulator({
+  raw_water_target_ml: 1000,
+  threshold_percent: 0,
+  post_mix_duration_sec: 5,
+  raw_water_rate_ml_sec: 100,
+  flow_sensor_calibrated: true,
+  flow_pulses_per_l: 450,
+  channels: [{ component_id: "pump_dosing_1", target_volume_ml: 5, rate_ml_sec: 1.0 }]
+});
+assert.equal(simZeroThresh.threshold_volume_ml, 0);
+simZeroThresh.start();
+simZeroThresh.tick(0.1, 0); // At 0 mL, 0 >= 0 triggers threshold immediately
+assert.equal(simZeroThresh.threshold_reached, true, "Zero threshold must trigger immediately");
+assert.equal(simZeroThresh.actuators.mixing_pump, true, "Mixing pump started at 0 threshold");
+assert.equal(simZeroThresh.actuators.dosing_pumps["pump_dosing_1"], true, "Dosing pump started at 0 threshold");
+console.log("  PASS: Zero threshold dynamic trigger starts mixing and dosing immediately upon raw water start.");
+
+// 4L. Post-mix duration 0 semantics undefined
+console.log("\n[Test 4L] Post-mix Duration 0 Semantics Undefined (Prompt Section 14)...");
+const simPostMixZero = new MixingProtocolSimulator({
+  raw_water_target_ml: 1000,
+  threshold_percent: 20,
+  post_mix_duration_sec: 0,
+  raw_water_rate_ml_sec: 100,
+  flow_sensor_calibrated: true,
+  flow_pulses_per_l: 450,
+  channels: [{ component_id: "pump_dosing_1", target_volume_ml: 5, rate_ml_sec: 1.0 }]
+});
+simPostMixZero.start();
+assert.equal(simPostMixZero.result?.status, "MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED",
+  "post_mix_duration_sec == 0 must return MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED");
+assert.equal(simPostMixZero.actuators.raw_water_pump, false);
+console.log("  PASS: post_mix_duration_sec == 0 rejected with MIXING_RESULT_POST_MIX_DURATION_SEMANTICS_UNDEFINED.");
 
 console.log("\n>>> ALL CORE PROTOCOL MIXING TESTS PASSED! <<<");

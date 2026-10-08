@@ -183,21 +183,24 @@ test("Invariant 9: Resource locks derived from actual component identities, sepa
 });
 
 // -------------------------------------------------------------
-// 5. Firmware State Machine & MIX_READY Verification (Spec §6, §12)
+// 5. Firmware State Machine & Canonical Mixing Verification (Spec §6, §12)
 // -------------------------------------------------------------
-test("Invariant 4, 5, 6: Firmware implements explicit MIX_READY state and separates mixing vs delivery results", () => {
+test("Invariant 4, 5, 6: Firmware implements canonical MIXING state, protocol_mixing execution, and decoupled delivery", () => {
   const mgrH = fs.readFileSync(path.resolve("esp32/main/services/fertigation_mgr.h"), "utf8");
   const mgrC = fs.readFileSync(path.resolve("esp32/main/services/fertigation_mgr.c"), "utf8");
+  const protoH = fs.readFileSync(path.resolve("esp32/main/services/protocol_mixing.h"), "utf8");
 
-  // Verify FERT_STATE_MIX_READY enum
-  assert.match(mgrH, /FERT_STATE_MIX_READY/, "fertigation_mgr.h must contain FERT_STATE_MIX_READY");
-  assert.match(mgrC, /"MIX_READY"/, "fertigation_mgr.c must include MIX_READY in state_name");
+  // Verify FERT_STATE_MIXING enum
+  assert.match(mgrH, /FERT_STATE_MIXING/, "fertigation_mgr.h must contain FERT_STATE_MIXING");
+  assert.match(mgrC, /"MIXING"/, "fertigation_mgr.c must include MIXING in state_name");
 
-  // Verify MIX_READY state and decoupled delivery slot preparation
-  assert.match(mgrC, /case FERT_STATE_MIX_READY:/);
+  // Verify canonical protocol_mixing execution and decoupled delivery slot preparation
+  assert.match(mgrC, /case FERT_STATE_MIXING:/);
+  assert.match(mgrC, /protocol_mixing\(&mix_cfg\)/);
   assert.match(mgrC, /DELIVERY_SLOT_READY_TO_SEND/);
+  assert.match(protoH, /protocol_mixing/);
 
-  // Verify events: MIX_READY, FLOW_FAULT, DELIVERY_COMPLETED, FERTIGATION_RUN_COMPLETED
+  // Verify events: MIX_READY, FLOW_FAULT, DELIVERY_COMPLETED
   assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_INFO,\s*"MIX_READY"/);
   assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_ERROR,\s*"FLOW_FAULT"/);
   assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_INFO,\s*"DELIVERY_COMPLETED"/);
