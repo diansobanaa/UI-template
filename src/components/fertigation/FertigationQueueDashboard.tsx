@@ -57,7 +57,7 @@ interface FertigationQueueDashboardProps {
   className?: string;
 }
 
-export function FertigationQueueDashboard({
+function FertigationQueueDashboardComponent({
   queue,
   complexId = "",
   selectedGhId,
@@ -1161,3 +1161,5 @@ export function FertigationQueueDashboard({
     </section>
   );
 }
+
+export const FertigationQueueDashboard = React.memo(FertigationQueueDashboardComponent);

@@ -106,36 +106,6 @@ function unlockAudio(): void {
   }
 }
 
-/** Plays one authentic buzzer beep pulse (2400 Hz square wave, 280ms duration). */
-function playBuzzerBeep(): boolean {
-  const ctx = getAudioContext();
-  if (!ctx || ctx.state !== "running") {
-    if (ctx && ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
-    }
-    pendingChime = true;
-    return false;
-  }
-  try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "square";
-    // 2400 Hz: standard resonant frequency of active alarm buzzer (GPIO 18)
-    osc.frequency.setValueAtTime(2400, ctx.currentTime);
-    gain.gain.setValueAtTime(0.28, ctx.currentTime);
-    gain.gain.setValueAtTime(0.28, ctx.currentTime + 0.22);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.28);
-    pendingChime = false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Plays one short 880 Hz -> 440 Hz chime. Returns false if audio is not unlocked/available. */
 function playDisconnectChime(): boolean {
   const ctx = getAudioContext();
@@ -179,31 +149,34 @@ export function ConnectionMonitor() {
   const busRef = useRef<BroadcastChannel | null>(null);
   const lastRemoteChimeAt = useRef(0);
   const chimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const buzzerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const operationalComplexes = getOperationalSnapshot().complexes;
   const targets = getControllerTargets(operationalComplexes);
   const hasBoundController = targets.length > 0;
 
-  // Audio unlock on any user gesture (cheap no-op once running; re-resumes if the browser suspends it).
+  // Audio unlock on first genuine user gesture; self-cleans once running.
   useEffect(() => {
+    let removed = false;
     const handleGesture = () => {
       unlockAudio();
-      if (isOfflineRef.current && !isSilencedRef.current) {
-        playBuzzerBeep();
+      const ctx = getAudioContext();
+      if (ctx && ctx.state === "running") {
+        removeListeners();
       }
     };
-    const opts = { capture: true, passive: true } as const;
-    window.addEventListener("pointerdown", handleGesture, opts);
-    window.addEventListener("click", handleGesture, opts);
-    window.addEventListener("touchstart", handleGesture, opts);
-    window.addEventListener("keydown", handleGesture, opts);
-    return () => {
-      window.removeEventListener("pointerdown", handleGesture, opts);
-      window.removeEventListener("click", handleGesture, opts);
-      window.removeEventListener("touchstart", handleGesture, opts);
-      window.removeEventListener("keydown", handleGesture, opts);
+    const removeListeners = () => {
+      if (removed) return;
+      removed = true;
+      window.removeEventListener("pointerdown", handleGesture);
+      window.removeEventListener("click", handleGesture);
+      window.removeEventListener("touchstart", handleGesture);
+      window.removeEventListener("keydown", handleGesture);
     };
+    window.addEventListener("pointerdown", handleGesture, { passive: true });
+    window.addEventListener("click", handleGesture, { passive: true });
+    window.addEventListener("touchstart", handleGesture, { passive: true });
+    window.addEventListener("keydown", handleGesture, { passive: true });
+    return removeListeners;
   }, []);
 
   // Cross-tab chime coordination. Missing BroadcastChannel just means each tab may chime.
@@ -234,36 +207,6 @@ export function ConnectionMonitor() {
     [],
   );
 
-  // Continuous audible buzzer loop while offline (beeps continuously like hardware buzzer)
-  useEffect(() => {
-    if (!isOffline || isSilenced) {
-      if (buzzerTimerRef.current) {
-        clearInterval(buzzerTimerRef.current);
-        buzzerTimerRef.current = null;
-      }
-      return;
-    }
-
-    playBuzzerBeep();
-    buzzerTimerRef.current = setInterval(() => {
-      if (!isOfflineRef.current || isSilencedRef.current) {
-        if (buzzerTimerRef.current) {
-          clearInterval(buzzerTimerRef.current);
-          buzzerTimerRef.current = null;
-        }
-        return;
-      }
-      playBuzzerBeep();
-    }, 600);
-
-    return () => {
-      if (buzzerTimerRef.current) {
-        clearInterval(buzzerTimerRef.current);
-        buzzerTimerRef.current = null;
-      }
-    };
-  }, [isOffline, isSilenced]);
-
   useEffect(() => {
     const cancelChime = () => {
       if (chimeTimer.current) {
@@ -280,10 +223,6 @@ export function ConnectionMonitor() {
         pendingChime = false;
         setIsSilenced(false);
         isSilencedRef.current = false;
-        if (buzzerTimerRef.current) {
-          clearInterval(buzzerTimerRef.current);
-          buzzerTimerRef.current = null;
-        }
         cancelChime(); // OFFLINE->ONLINE: no recovery sound, drop any pending chime
         return;
       }
@@ -422,11 +361,7 @@ export function ConnectionMonitor() {
       id="esp32-offline-banner"
       role="alert"
       aria-live="assertive"
-      onClick={() => {
-        unlockAudio();
-        if (!isSilencedRef.current) playBuzzerBeep();
-      }}
-      className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl cursor-pointer"
+      className="fixed top-0 left-0 right-0 z-[10000] flex items-center gap-3 border-b-2 border-red-900 bg-red-700 px-4 py-2.5 text-white shadow-2xl"
     >
       <AlertTriangle className="h-6 w-6 shrink-0 text-yellow-300" />
       <div className="min-w-0">
@@ -440,17 +375,15 @@ export function ConnectionMonitor() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            unlockAudio();
             setIsSilenced((prev) => {
               const next = !prev;
               isSilencedRef.current = next;
-              if (!next) playBuzzerBeep();
               return next;
             });
           }}
           className="rounded border border-red-300/40 bg-red-900/90 hover:bg-red-800 px-2.5 py-1 text-xs font-semibold text-white transition shadow"
         >
-          {isSilenced ? "Bunyikan Buzzer" : "Mute Buzzer"}
+          {isSilenced ? "Bunyikan Alarm" : "Mute Alarm"}
         </button>
         <span className="flex items-center gap-1.5 text-[11px] font-mono text-red-100">
           <span className="h-2 w-2 rounded-full bg-yellow-300" />

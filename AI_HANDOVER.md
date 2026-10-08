@@ -1,3 +1,21 @@
+# AI HANDOVER - SP-UI-SCHEDULE-DELETE-OPT-002
+
+## Current status
+Fixing modal opening latency and eliminating Web UI software buzzer/audio overhead ("masih berat walaupun hanya membuka modal hapus, cek juga notifikasi buzzer") is **COMPLETE & FULLY VERIFIED**:
+1. **Root Causes Identified & Eliminated**:
+   - **Continuous Software Buzzer Loop & Gesture Interception**: In `ConnectionMonitor.tsx`, a 600ms `setInterval` was continuously synthesizing 2400Hz square waves (`playBuzzerBeep`), and global window listeners on `pointerdown`, `click`, `touchstart`, and `keydown` with `{ capture: true }` were executing audio checks and buzzer synthesis on every click across the app. This caused main-thread and audio-pipeline thread contention, jitter, and frame drops whenever clicking buttons (such as the Delete button). Removed the software buzzer loop, removed click-triggered buzzer audio, and converted the AudioContext gesture unlock to a passive, self-cleaning listener.
+   - **Non-Portalled Modal Layout Thrashing**: `Modal` and `Drawer` in `src/components/ui/overlay.tsx` were rendered directly inside the deeply nested schedule page DOM tree, forcing layout recalcs across high-resolution gradients and complex grid containers. Portalled `Modal` and `Drawer` directly to `document.body` via `createPortal`.
+   - **Unmemoized Siblings in Schedule Page**: Opening the delete modal updated `deleteTarget` in `ScheduleContent`, which previously caused full re-renders of `TodayScheduleTimeline` (24-hour canvas/lane layout), `FertigationQueueDashboard` (tanks, dosing queues, real-time job displays), and `ScheduleTable`. Memoized all three with `React.memo`.
+2. **Verification**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (28 endpoints, 26 C handlers, REST mock server E2E).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+   - `npm run build`: PASS (`dist/index.html` 1,274 kB built in 9.79s).
+3. **Canonical Documentation**:
+   - Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` with Audio & Buzzer Hygiene and Dialog Portalling.
+
+---
+
 # AI HANDOVER - SP-UI-SCHEDULE-DELETE-OPT-001
 
 ## Current status

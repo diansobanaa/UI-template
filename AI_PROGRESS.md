@@ -1,3 +1,26 @@
+## SP-UI-SCHEDULE-DELETE-OPT-002
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Liveness test PASS)
+- **Objective**: Fix modal opening lag and eliminate Web UI software buzzer / audio thread overhead ("masih berat walaupun hanya membuka modal hapus, cek juga notifikasi buzzer"):
+  1. Eliminate Web UI continuous software buzzer loop and gesture hijacking in `ConnectionMonitor`: Removed the 600ms `setInterval` synthesizing 2400Hz square waves in software (`playBuzzerBeep`), removed audio triggers on every mouse click (`pointerdown`/`click`), and converted the audio gesture unlock to a one-time self-cleaning passive listener. Physical alarms remain dedicated to the physical ESP32 buzzer (GPIO 18 / MOSFET #5), while browser UI preserves only the one-shot disconnect chime on the ONLINE $\to$ OFFLINE edge.
+  2. Isolate Modal & Drawer with React Portal: Portalled `Modal` and `Drawer` in `src/components/ui/overlay.tsx` directly to `document.body` via `createPortal`. This prevents layout thrashing of ancestor elements and complex dashboard containers when toggling modals.
+  3. Prevent child re-renders on dialog state changes: Memoized `TodayScheduleTimeline`, `FertigationQueueDashboard`, and `ScheduleTable` with `React.memo`. When `deleteTarget` opens or closes the delete dialog, timeline lanes, queue cards, and table rows are not re-calculated.
+  4. Removed remaining dead code in `src/app/schedule/page.tsx` (`expandScheduleOccurrences`, `formatClock`).
+- **Implemented**:
+  - `src/components/ConnectionMonitor.tsx`: Removed `playBuzzerBeep` oscillator, removed 600ms buzzer interval, converted gesture listener to passive self-cleaning, cleaned offline banner click handlers.
+  - `src/components/ui/overlay.tsx`: Portalled `Modal` and `Drawer` to `document.body` via `createPortal`.
+  - `src/components/timeline/TodayScheduleTimeline.tsx`: Wrapped component export in `React.memo`.
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`: Wrapped component export in `React.memo`.
+  - `src/app/schedule/page.tsx`: Memoized `ScheduleTable` with `React.memo`, removed dead code.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`: Documented Audio & Buzzer Hygiene and Dialog Portalling.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+  - Production build `npm run build`: PASS (`dist/index.html` 1,274 kB built in 9.79s).
+- **Changed Files**: `src/components/ConnectionMonitor.tsx`, `src/components/ui/overlay.tsx`, `src/components/timeline/TodayScheduleTimeline.tsx`, `src/components/fertigation/FertigationQueueDashboard.tsx`, `src/app/schedule/page.tsx`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `dist/index.html`.
+- **Next Action**: Monitor UI interaction responsiveness during continuous operations.
+
 ## SP-UI-SCHEDULE-DELETE-OPT-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Playwright test PASS)

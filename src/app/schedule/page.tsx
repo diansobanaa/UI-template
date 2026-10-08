@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { Suspense, useEffect, useState, memo, type ComponentType, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -208,57 +208,6 @@ export function ScheduleContent({
   // Queue = pending mixing entries for this GH
   const queue = fertSchedules.filter((s) => s.status === "scheduled" && s.activationState !== "BLOCKED");
   const blockedSchedules = fertSchedules.filter((s) => s.status === "blocked" || s.activationState === "BLOCKED");
-
-  function formatClock(minutes: number): string {
-    const normalized = ((minutes % 1440) + 1440) % 1440;
-    const h = Math.floor(normalized / 60);
-    const m = normalized % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  }
-
-  function expandScheduleOccurrences<T extends {
-    id: string;
-    time: string;
-    endTime?: string;
-    trigger?: string;
-    intervalMin?: number;
-    intervalHours?: number;
-    repeat?: string;
-    status: ScheduleStatus;
-    activationState?: ScheduleActivationState;
-    enabled: boolean;
-  }>(
-    schedule: T,
-    createEvent: (occurrenceTime: string, idx: number, total: number) => ScheduleTimelineEvent
-  ): ScheduleTimelineEvent[] {
-    if (!schedule.enabled) return [];
-    if (!schedule.time || schedule.time === "--:--") return [];
-
-    const isInterval = schedule.trigger === "interval" || (schedule.repeat as string) === "Interval";
-    const intervalMinutes = schedule.intervalMin ?? (schedule.intervalHours ? Math.round(schedule.intervalHours * 60) : undefined);
-
-    if (isInterval && intervalMinutes && intervalMinutes > 0) {
-      const startMinutes = parseClock(schedule.time);
-      let endMinutes = schedule.endTime ? parseClock(schedule.endTime) : 1440;
-      if (endMinutes <= startMinutes && schedule.endTime) {
-        endMinutes = startMinutes;
-      }
-
-      const times: string[] = [];
-      for (let cur = startMinutes; cur <= endMinutes; cur += intervalMinutes) {
-        if (cur >= 1440) break;
-        times.push(formatClock(cur));
-      }
-
-      if (times.length === 0) {
-        times.push(schedule.time);
-      }
-
-      return times.map((t, idx) => createEvent(t, idx + 1, times.length));
-    }
-
-    return [createEvent(schedule.time, 1, 1)];
-  }
 
   /* ---------------------------- mutations ---------------------------- */
 
@@ -1032,7 +981,7 @@ interface Row {
   type?: "fertigation" | "fan" | "pump" | "water-transfer";
 }
 
-function ScheduleTable({
+const ScheduleTable = memo(function ScheduleTable({
   rows,
   accent = "blue",
   addLabel,
@@ -1175,7 +1124,7 @@ function ScheduleTable({
       )}
     </div>
   );
-}
+});
 
 function ActionButton({
   children,

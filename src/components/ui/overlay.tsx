@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "./primitives";
 
@@ -32,7 +33,7 @@ export function Drawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  return (
+  const content = (
     <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none invisible"}`} aria-hidden={!open}>
       {/* dimmed background — page content stays visible */}
       <div
@@ -64,6 +65,8 @@ export function Drawer({
       </aside>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 /* ------------------------------ Modal ---------------------------- */
@@ -91,7 +94,8 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+
+  const content = (
     <div className="fixed inset-0 z-[60]">
       <div className="absolute inset-0 bg-slate-900/45 fade-in" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -117,6 +121,8 @@ export function Modal({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 export function ConfirmDialog({

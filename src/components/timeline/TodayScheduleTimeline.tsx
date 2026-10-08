@@ -106,7 +106,7 @@ function getCategoryToneClasses(tone: "emerald" | "cyan" | "amber" | "violet" | 
   }
 }
 
-export function TodayScheduleTimeline({
+function TodayScheduleTimelineComponent({
   mode = "gh",
   complexId: propComplexId,
   greenhouseId: propGhId,
@@ -1185,3 +1185,5 @@ function TimelineDetailPopover({
     </div>
   );
 }
+
+export const TodayScheduleTimeline = React.memo(TodayScheduleTimelineComponent);
