@@ -1,3 +1,22 @@
+## SP-UI-ALERT-PERF-OPT-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Liveness test PASS)
+- **Objective**: Eliminate Web UI alert system lag and GPU saturation ("masih berat, cek lagi sistem web ui alert, ini yang membuat berat"):
+  1. Eliminate infinite GPU-saturating CSS animations in `AlarmManagerOverlay`: Removed `animate-pulse`, `animate-bounce`, and `animate-ping` across the pinned full-width top `#tamper-alarm-banner`, minimized floating badge, and bottom alert card. Replaced with clean, high-contrast, static indicators (`bg-red-700 text-white font-bold`, solid status dots), eliminating continuous 60 FPS viewport re-rasterization and compositor saturation.
+  2. Implement single-flight guard & safe pacing on alarm polling: Added `isFetchingRef` guard to `fetchAlarms()` in `AlarmManagerOverlay.tsx`, preventing overlapping concurrent HTTP GET requests to the ESP32 socket pool. Paced interval from aggressive 2.5s to safe 5.0s during active alarms and 8.0s while idle.
+  3. Decouple `AlarmManagerOverlay` from `useDbVersion()`: Removed `useDbVersion()` subscription so that high-frequency sensor telemetry batches and operational state updates no longer trigger full re-renders of the alert overlay tree.
+  4. Isolate Alert Overlay with React Portal: Portalled `AlarmManagerOverlay` directly to `document.body` via `createPortal`, isolating it from root page layouts and eliminating DOM reflow cascades.
+- **Implemented**:
+  - `src/components/AlarmManagerOverlay.tsx`: Added `createPortal`, added `isFetchingRef` single-flight guard, paced polling (5s/8s), removed `useDbVersion()`, removed `animate-pulse`/`animate-bounce`/`animate-ping`, and portalled both minimized and open states.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`: Documented Alarm Polling & GPU Compositor Hygiene.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+  - Production build `npm run build`: PASS (`dist/index.html` 1,274.55 kB built in 9.88s).
+- **Changed Files**: `src/components/AlarmManagerOverlay.tsx`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `dist/index.html`.
+- **Next Action**: Verify UI responsiveness under live active alarm conditions.
+
 ## SP-UI-SCHEDULE-DELETE-OPT-002
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Liveness test PASS)

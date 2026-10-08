@@ -1,3 +1,22 @@
+# AI HANDOVER - SP-UI-ALERT-PERF-OPT-001
+
+## Current status
+Eliminating Web UI alert system lag and GPU saturation ("masih berat, cek lagi sistem web ui alert, ini yang membuat berat") is **COMPLETE & FULLY VERIFIED**:
+1. **Root Causes Identified & Eliminated**:
+   - **Infinite CSS Animations on Fixed Viewport Overlays**: Active `TAMPER_LOOP_OPEN` hardware alert was rendering `#tamper-alarm-banner` with `animate-pulse` and `<AlertTriangle className="animate-bounce" />` (and `<ShieldAlert className="animate-pulse" />` or `<Bell className="animate-bounce" />`). In Chromium, fixed-position opacity and translateY keyframe animations force 60 FPS compositor layer invalidations and repaints continuously, causing severe frame drops when blending with modal backdrops. Replaced with clean, static, high-contrast indicators (`bg-red-700 font-bold border-red-900`).
+   - **Unbounded 2.5s Polling Without In-Flight Guard**: `AlarmManagerOverlay.tsx` was polling `GET /api/v1/alarms` every 2.5 seconds when an alarm was active, with no single-flight guard. Slow requests overlapped and queued up on the ESP32 socket pool. Added `isFetchingRef` guard and relaxed polling to 5s active / 8s idle.
+   - **`useDbVersion()` Re-render Cascade**: Removed `useDbVersion()` from `AlarmManagerOverlay.tsx` so sensor telemetry and state mutations no longer cause redundant re-render cycles of the alert UI.
+   - **DOM Layout Thrashing**: Portalled `AlarmManagerOverlay` directly to `document.body` via `createPortal`.
+2. **Verification**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (28 endpoints, 26 C handlers, REST mock server E2E).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+   - `npm run build`: PASS (`dist/index.html` 1,274.55 kB built in 9.88s).
+3. **Canonical Documentation**:
+   - Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` with Alarm Polling & GPU Compositor Hygiene.
+
+---
+
 # AI HANDOVER - SP-UI-SCHEDULE-DELETE-OPT-002
 
 ## Current status

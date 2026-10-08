@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { isDirectEsp32Enabled, getActiveEsp32Endpoint } from "@/lib/api/backend-client";
-import { telemetryStreamManager } from "@/lib/api/telemetry-stream";
-import { useDbVersion } from "@/lib/useDb";
 import { getOperationalSnapshot } from "@/lib/operational-state";
 import { getControllerTargets } from "@/components/ConnectionMonitor";
 import type { AlarmsResponse, AlarmItem, AlarmPriority } from "@/lib/api/contracts";
@@ -69,13 +68,13 @@ const HUMAN_MESSAGES: Record<string, { title: string; explanation: string; actio
 };
 
 export function AlarmManagerOverlay() {
-  useDbVersion();
   const [alarmData, setAlarmData] = useState<AlarmsResponse | null>(null);
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
   const [testingBuzzer, setTestingBuzzer] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isFetchingRef = useRef(false);
 
   const operationalComplexes = getOperationalSnapshot().complexes;
   const targets = getControllerTargets(operationalComplexes);
@@ -90,7 +89,8 @@ export function AlarmManagerOverlay() {
     );
 
   const fetchAlarms = useCallback(async () => {
-    if (!isDirectEsp32Enabled()) return;
+    if (!isDirectEsp32Enabled() || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const data = await esp32Client.getAlarms({ endpoint, timeoutMs: 3000 });
       setAlarmData((prev) => {
@@ -110,12 +110,14 @@ export function AlarmManagerOverlay() {
       });
     } catch {
       // Suppress network polling errors; ConnectionMonitor handles offline detection
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [endpoint]);
 
   useEffect(() => {
     fetchAlarms();
-    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 2500 : 5000;
+    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 5000 : 8000;
     pollTimerRef.current = setInterval(fetchAlarms, intervalMs);
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
@@ -176,21 +178,21 @@ export function AlarmManagerOverlay() {
   // Render minimized badge if user collapsed active alarms
   if (isMinimized && hasActiveAlarms) {
     const isCritical = summary?.criticalCount && summary.criticalCount > 0;
-    return (
+    const content = (
       <>
         {hasTamperAlarm && !isControllerOffline && (
           <div
             id="tamper-alarm-banner"
             role="alert"
             aria-live="assertive"
-            className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse"
+            className="fixed top-0 left-0 right-0 z-[9999] bg-red-700 text-white font-bold py-2.5 px-4 shadow-xl flex items-center justify-between gap-3 border-b-2 border-red-900 text-sm"
           >
             <div className="flex items-center gap-2.5">
-              <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
+              <AlertTriangle className="w-5 h-5 text-yellow-300 shrink-0" />
               <span className="tracking-wide text-sm font-extrabold">
                 ⚠ TAMPER LOOP OPEN — PERIKSA POMPA
               </span>
-              <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
+              <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-800/80 px-2 py-0.5 rounded">
                 Sirkuit loop terbuka. Sistem tetap berjalan, segera periksa kondisi pompa!
               </span>
             </div>
@@ -207,11 +209,11 @@ export function AlarmManagerOverlay() {
         <div className="fixed bottom-5 right-5 z-[9990] flex items-center gap-3">
           <button
             onClick={() => setIsMinimized(false)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-full shadow-2xl font-bold text-white text-sm transition-transform hover:scale-105 ${
-              isCritical ? "bg-red-600 animate-pulse" : "bg-amber-600"
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full shadow-xl font-bold text-white text-sm transition-transform hover:scale-105 ${
+              isCritical ? "bg-red-700 border border-red-500/50" : "bg-amber-600 border border-amber-400/50"
             }`}
           >
-            <Bell className="w-4 h-4 animate-bounce" />
+            <Bell className="w-4 h-4 text-white" />
             <span>
               {activeAlarms.length} Alarm Aktif ({summary?.highestPriority})
             </span>
@@ -221,6 +223,7 @@ export function AlarmManagerOverlay() {
         </div>
       </>
     );
+    return typeof document !== "undefined" ? createPortal(content, document.body) : content;
   }
 
   // If no active alarms and buzzer not active/testing, do not render floating standby widget
@@ -231,7 +234,7 @@ export function AlarmManagerOverlay() {
   const criticalAlarms = activeAlarms.filter((a) => a.priority === "CRITICAL");
   const safetyFaults = activeAlarms.filter((a) => a.priority !== "CRITICAL");
 
-  return (
+  const content = (
     <>
       {/* Pinned Top-Screen Warning for Tamper Loop Open: Visible across all pages */}
       {hasTamperAlarm && !isControllerOffline && (
@@ -239,14 +242,14 @@ export function AlarmManagerOverlay() {
           id="tamper-alarm-banner"
           role="alert"
           aria-live="assertive"
-          className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white font-bold py-2.5 px-4 shadow-2xl flex items-center justify-between gap-3 border-b-2 border-red-800 text-sm animate-pulse"
+          className="fixed top-0 left-0 right-0 z-[9999] bg-red-700 text-white font-bold py-2.5 px-4 shadow-xl flex items-center justify-between gap-3 border-b-2 border-red-900 text-sm"
         >
           <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-yellow-300 animate-bounce shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-yellow-300 shrink-0" />
             <span className="tracking-wide text-sm font-extrabold">
               ⚠ TAMPER LOOP OPEN — PERIKSA POMPA
             </span>
-            <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
+            <span className="hidden md:inline text-xs font-normal text-red-100 bg-red-800/80 px-2 py-0.5 rounded">
               Sirkuit loop terbuka. Sistem tetap berjalan, segera periksa kondisi pompa!
             </span>
           </div>
@@ -263,7 +266,7 @@ export function AlarmManagerOverlay() {
         <div className="flex items-center gap-2.5">
           <div
             className={`w-3 h-3 rounded-full ${
-              buzzerAudible ? "bg-red-500 animate-ping" : isSilenced ? "bg-amber-500" : "bg-emerald-500"
+              buzzerAudible ? "bg-red-500" : isSilenced ? "bg-amber-500" : "bg-emerald-500"
             }`}
           />
           <div>
@@ -348,7 +351,7 @@ export function AlarmManagerOverlay() {
             >
               <div className="flex items-start gap-3">
                 <div className="p-2 bg-red-600 text-white rounded-md shrink-0 mt-0.5">
-                  <ShieldAlert className="w-5 h-5 animate-pulse" />
+                  <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
@@ -522,4 +525,6 @@ export function AlarmManagerOverlay() {
       </div>
     </>
   );
+
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
