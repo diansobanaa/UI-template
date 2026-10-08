@@ -1377,21 +1377,21 @@ Under previous iterations, an uncalibrated pump or invalid batch left the entry 
 # 35. Core Protocol Mixing & Dosing Orchestrator Architecture (`protocol_mixing`)
 
 ## 35.1 Scope & Purpose
-The `protocol_mixing` module (`esp32/main/services/protocol_mixing.c` and `esp32/main/services/protocol_mixing.h`) is the dedicated, standalone orchestrator for the mixing and dosing lifecycle on the ESP32. It intentionally does NOT integrate with schedulers, fertigation distribution queues, or higher-level business logic, preserving strict modularity and high safety reliability.
+The `protocol_mixing` module (`esp32/main/services/protocol_mixing.c` and `esp32/main/services/protocol_mixing.h`) is the dedicated, standalone orchestrator for the mixing and nutrient dosing lifecycle on the ESP32. It intentionally does NOT integrate with schedulers, fertigation distribution queues, or higher-level business logic at this stage, preserving strict modularity and high safety reliability.
 
 ## 35.2 Public API & Configuration
 ```c
 mixing_result_t protocol_mixing(const mixing_protocol_config_t *config);
+esp_err_t stop_mixing_protocol_actuators(const mixing_protocol_config_t *config);
 ```
 
 - **Input Configuration (`mixing_protocol_config_t`):**
   - `raw_water_target_ml`: Target volume of raw water in mL (must be > 0).
-  - `threshold_percent`: Threshold percent (0-100%) of raw water target to trigger simultaneous mixing and nutrient dosing.
-  - `mixing_duration_sec`: Required continuous runtime of the mixing pump in seconds.
-  - `channel_count`: Dynamic number of dosing pumps (0 to `MAX_MIXING_DOSING_CHANNELS` = 8).
+  - `threshold_percent`: Dynamic threshold percent (0-100%) from schedule registration (`threshold_volume_ml = (raw_water_target_ml * threshold_percent) / 100`). Never hardcoded.
+  - `post_mix_duration_sec`: Required agitation duration of the mixing pump in seconds AFTER raw water filling and all dosing have completed.
+  - `channel_count`: Dynamic number of active dosing pumps (0 to `MAX_MIXING_DOSING_CHANNELS` = 8).
   - `channels[]`: Dynamic array of `mixing_dosing_channel_config_t` (`component_id`, `target_volume_ml`).
   - `no_flow_grace_period_sec`: Grace period for flow sensor response (default: 15s).
-  - `timeout_safety_margin_sec`: Additional margin for raw water max runtime (default: 50% or min 30s).
   - `poll_interval_ms`: Polling tick rate (default: 100ms).
 
 ## 35.3 Execution Sequence & State Flow
@@ -1402,19 +1402,19 @@ START RAW WATER PUMP (pump_submersible / GPIO 4)
    ↓
 MONITOR FLOW SENSOR (ZJ-B1 / GPIO 15, Source of Truth)
    ↓
-THRESHOLD REACHED (actual_raw_water_ml >= threshold_volume_ml)
+ACTUAL VOLUME >= THRESHOLD (actual_raw_water_ml >= threshold_volume_ml)
    ↓
-START MIXING PUMP (GPIO 40) + START DOSING PUMPS (concurrently)
+START MIXING PUMP (GPIO 40) + START ALL DOSING PUMPS SIMULTANEOUSLY (Parallel)
    ↓
-RAW WATER CONTINUES RUNNING (NEVER stops at threshold)
+RAW WATER TETAP BERJALAN (NEVER stops at threshold)
    ↓
-RAW WATER TARGET REACHED (actual_raw_water_ml >= raw_water_target_ml)
+ACTUAL RAW WATER >= TARGET (actual_raw_water_ml >= raw_water_target_ml)
    ↓
 RAW WATER PUMP OFF
    ↓
-DOSING COMPLETE (each dosing channel turns OFF as calibrated volume is met)
+WAIT ALL DOSING PUMPS COMPLETE (each channel shuts OFF as individual calibrated volume is met)
    ↓
-MIXING DURATION COMPLETE (mixing pump satisfies mixing_duration_sec)
+POST MIX DURATION (mixing pump continues agitating for post_mix_duration_sec)
    ↓
 MIXING PUMP OFF
    ↓
@@ -1425,13 +1425,28 @@ SUCCESS (MIXING_RESULT_SUCCESS)
 1. **Flow Sensor as Source of Truth:**
    - Raw water delivery is metered exclusively via the physical pulse flow meter (`sensor_flow_raw` / ZJ-B1 on GPIO 15).
    - Raw water volume is NEVER estimated from a timer.
-2. **Calibration-Driven Runtime & Safety Timeout:**
-   - Expected runtime is computed from the calibrated flow rate: $T_{\text{expected}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal}}}$.
-   - Max runtime is bounded: $T_{\text{max}} = T_{\text{expected}} + T_{\text{margin}}$.
-   - If target volume is not achieved within $T_{\text{max}}$, the protocol trips `MIXING_RESULT_RAW_WATER_TIMEOUT`.
-3. **No-Flow Detection:**
-   - If raw water pump is active for more than `no_flow_grace_period_sec` (15s) with 0 mL measured flow, the protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW`.
-4. **Emergency Stop & Safe Stop Mandate:**
+2. **Dynamic Threshold Calculation:**
+   - `threshold_percent` is dynamically provided by schedule registration (e.g. 10%, 20%, 25%, 30%).
+   - Protocol computes: $\text{threshold\_volume\_ml} = \frac{\text{raw\_water\_target\_ml} \times \text{threshold\_percent}}{100}$.
+   - No threshold percentage is hardcoded in the protocol.
+3. **Simultaneous Parallel Dosing Channels:**
+   - When the threshold volume is reached, all configured dosing channels start **SIMULTANEOUSLY**.
+   - Each dosing pump runs for its own calibrated duration: $T_{\text{dosing}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal}}}$.
+   - Channels shut down independently as their respective target dosages are met.
+4. **Strict 1.5x Calibration Timeout Rule:**
+   - For raw water:
+     $$T_{\text{expected}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal\_raw}}}, \quad T_{\text{timeout}} = T_{\text{expected}} \times 1.5$$
+   - For each dosing pump:
+     $$T_{\text{expected\_dosing}} = \frac{V_{\text{target}}}{\text{Rate}_{\text{cal\_dosing}}}, \quad T_{\text{timeout\_dosing}} = T_{\text{expected\_dosing}} \times 1.5$$
+   - No extra fixed safety margins (no $+30\text{ s}$, no minimum $60\text{ s}$, no $+5\text{ s}$).
+   - If runtime exceeds $T_{\text{timeout}}$, protocol aborts immediately with `MIXING_RESULT_RAW_WATER_TIMEOUT` or `MIXING_RESULT_DOSING_TIMEOUT`.
+5. **Post-Mix Duration Protocol:**
+   - Post-mix agitation starts strictly AFTER raw water pump is OFF (100% target met) AND all dosing pumps are complete.
+   - The mixing pump continues running for `post_mix_duration_sec`, then turns OFF.
+   - Note on architectural source: `post_mix_duration_sec` is not yet formalized in legacy recipe schemas (`POST MIX DURATION SOURCE MISSING`) and must be supplied via schedule/recipe configuration in subsequent integration phases.
+6. **No-Flow Detection:**
+   - If raw water pump is active for more than `no_flow_grace_period_sec` (15s) with 0 mL measured flow, protocol trips `MIXING_RESULT_RAW_WATER_NO_FLOW`.
+7. **Emergency Stop & Safe Stop Mandate:**
    - If `actuator_hal_is_emergency_stopped()` is latched or abort is requested at ANY point, all actuators (raw water pump, mixing pump, all dosing pumps) are shut OFF immediately via `stop_mixing_protocol_actuators()` and the protocol returns `MIXING_RESULT_EMERGENCY_STOP`.
    - Every error pathway executes `stop_mixing_protocol_actuators()` before returning.
    - No automatic retry is executed on errors.

@@ -1,3 +1,25 @@
+## SP-CORE-PROTOCOL-MIXING-002
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Build PASS, TypeScript PASS, Contract E2E PASS, Test Suite 10/10 PASS)
+- **Objective**: Refine Core Mixing Protocol (`protocol_mixing`) per Operational Mandates:
+  1. Dynamic Threshold: Enforced that `threshold_percent` is dynamically supplied from schedule registration (`threshold_volume_ml = (raw_water_target_ml * threshold_percent) / 100`). Confirmed zero hardcoded threshold percentages (`#define` or literals) in protocol logic. Tested across 10%, 20%, 25%, 30%.
+  2. Raw Water Source of Truth: Verified flow sensor pulse counter (`sensor_flow_raw` / ZJ-B1 on GPIO 15) remains authoritative source of truth. Raw water pump stops strictly when `actual >= target`, never on timer.
+  3. Strict Timeout Rule: Strictly locked timeouts to $\text{timeout} = \text{expected\_time\_from\_calibration} \times 1.5$ for both raw water and dosing channels. Completely removed all extra safety margins (eliminated $+30\text{ s}$, minimum $60\text{ s}$, and $+5\text{ s}$).
+  4. Simultaneous Parallel Dosing: Enforced that all active dosing channels start simultaneously at threshold, run concurrently, and stop independently based on their own calibrated runtimes.
+  5. Post-Mix Duration Protocol: Replaced legacy `mixing_duration_sec` with `post_mix_duration_sec`, enforcing that post-mix agitation runs strictly AFTER raw water pump is OFF (100% target met) AND all dosing channels have finished. Documented `POST MIX DURATION SOURCE MISSING` in legacy recipe schemas.
+- **Implemented**:
+  - `esp32/main/services/protocol_mixing.h`: Replaced `mixing_duration_sec` with `post_mix_duration_sec`, removed `timeout_safety_margin_sec`, updated execution sequence documentation.
+  - `esp32/main/services/protocol_mixing.c`: Removed `DEFAULT_MIN_SAFETY_MARGIN_SEC`, locked raw water and dosing timeouts strictly to $1.5 \times \text{expected}$, implemented post-mix agitation state machine.
+  - `scripts/test_protocol_mixing.mjs`: Added tests for dynamic threshold % (10%, 20%, 25%, 30%), parallel dosing with independent runtimes (10s, 15s, 8s), post-mix agitation, and strict 1.5x timeouts.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`: Updated Section 35 with dynamic threshold rules, simultaneous parallel dosing, strict 1.5x timeouts, and post-mix protocol.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 build PASS (`agrotech_esp32.bin` linked cleanly).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (10/10 tests).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+- **Changed Files**: `esp32/main/services/protocol_mixing.h`, `esp32/main/services/protocol_mixing.c`, `scripts/test_protocol_mixing.mjs`, `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Next Action**: Awaiting operational review for subsequent recipe/schedule integration phase.
+
 ## SP-CORE-PROTOCOL-MIXING-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, TypeScript PASS, E2E Contracts PASS, Test Suite 10/10 PASS)

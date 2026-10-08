@@ -13,7 +13,6 @@
 static const char *TAG = "MIXING_CORE";
 
 #define DEFAULT_NO_FLOW_GRACE_SEC       15
-#define DEFAULT_MIN_SAFETY_MARGIN_SEC   30
 #define DEFAULT_POLL_INTERVAL_MS        100
 
 typedef struct {
@@ -248,18 +247,14 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     }
 
     // Expected runtime in seconds
-    uint32_t expected_raw_sec = (uint32_t)ceilf((float)config->raw_water_target_ml / raw_rate_ml_sec);
+    float expected_raw_sec_f = (float)config->raw_water_target_ml / raw_rate_ml_sec;
+    uint32_t expected_raw_sec = (uint32_t)ceilf(expected_raw_sec_f);
     result.raw_water_expected_runtime_sec = expected_raw_sec;
 
-    // Timeout: expected + safety margin
-    uint32_t safety_margin_sec = config->timeout_safety_margin_sec;
-    if (safety_margin_sec == 0) {
-        safety_margin_sec = expected_raw_sec / 2;
-        if (safety_margin_sec < DEFAULT_MIN_SAFETY_MARGIN_SEC) {
-            safety_margin_sec = DEFAULT_MIN_SAFETY_MARGIN_SEC;
-        }
-    }
-    uint32_t max_raw_runtime_sec = expected_raw_sec + safety_margin_sec;
+    // Timeout: strictly expected_time * 1.5
+    float max_raw_sec_f = expected_raw_sec_f * 1.5f;
+    uint32_t max_raw_runtime_ms = (uint32_t)roundf(max_raw_sec_f * 1000.0f);
+    uint32_t max_raw_runtime_sec = (uint32_t)ceilf(max_raw_sec_f);
 
     /* -------------------------------------------------------------
      * 5. PRECHECK - DOSING CHANNELS CALIBRATION AUDIT
@@ -284,14 +279,18 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         }
 
         uint32_t req_ml = config->channels[i].target_volume_ml;
-        uint32_t run_ms = (uint32_t)roundf(((float)req_ml / d_rate) * 1000.0f);
-        if (run_ms == 0) run_ms = 100; // minimum tick
+        float expected_dosing_sec_f = (float)req_ml / d_rate;
+        uint32_t run_ms = (uint32_t)roundf(expected_dosing_sec_f * 1000.0f);
+        if (run_ms == 0) run_ms = 1; // minimum tick
+
+        // Timeout: strictly expected_time * 1.5
+        uint32_t max_run_ms = (uint32_t)roundf((float)run_ms * 1.5f);
 
         strncpy(exec_channels[i].component_id, ch_id, sizeof(exec_channels[i].component_id) - 1);
         exec_channels[i].target_volume_ml = req_ml;
         exec_channels[i].rate_ml_sec = d_rate;
         exec_channels[i].expected_runtime_ms = run_ms;
-        exec_channels[i].max_runtime_ms = (uint32_t)(run_ms * 1.5f) + 5000U;
+        exec_channels[i].max_runtime_ms = max_run_ms;
 
         strncpy(result.channels[i].component_id, ch_id, sizeof(result.channels[i].component_id) - 1);
         result.channels[i].target_volume_ml = req_ml;
@@ -343,7 +342,7 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     uint32_t poll_delay_ms = config->poll_interval_ms > 0
                              ? config->poll_interval_ms : DEFAULT_POLL_INTERVAL_MS;
 
-    ESP_LOGI(TAG, "Starting Mixing Protocol: Target=%u mL, Threshold=%u%% (%u mL), RawRate=%.2f mL/s, ExpectedRun=%u s, MaxRun=%u s",
+    ESP_LOGI(TAG, "Starting Mixing Protocol: Target=%u mL, Threshold=%u%% (%u mL), RawRate=%.2f mL/s, ExpectedRun=%u s, Timeout=%u s",
              (unsigned)config->raw_water_target_ml, (unsigned)config->threshold_percent, (unsigned)threshold_volume_ml,
              raw_rate_ml_sec, (unsigned)expected_raw_sec, (unsigned)max_raw_runtime_sec);
 
@@ -366,7 +365,9 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     bool threshold_reached = false;
     bool mixing_running = false;
     bool all_dosing_done = (config->channel_count == 0);
-    bool mixing_duration_done = (config->mixing_duration_sec == 0);
+    bool post_mix_started = false;
+    bool post_mix_done = false;
+    int64_t post_mix_start_us = 0;
 
     /* -------------------------------------------------------------
      * 9. ORCHESTRATION LOOP
@@ -416,14 +417,15 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             break;
         }
 
-        // D. Raw water maximum runtime timeout check
-        if (raw_water_running && raw_elapsed_sec > max_raw_runtime_sec &&
+        // D. Raw water maximum runtime timeout check (strictly 1.5x expected calibration time)
+        uint32_t raw_elapsed_ms = (uint32_t)((now_us - raw_water_start_us) / 1000LL);
+        if (raw_water_running && raw_elapsed_ms > max_raw_runtime_ms &&
             actual_raw_water_ml < config->raw_water_target_ml) {
             result.status = MIXING_RESULT_RAW_WATER_TIMEOUT;
             result.error_code = mixing_status_to_string(result.status);
             snprintf(result.message, sizeof(result.message),
-                     "Raw water timeout: Elapsed %u s exceeded max %u s (delivered %u/%u mL).",
-                     (unsigned)raw_elapsed_sec, (unsigned)max_raw_runtime_sec,
+                     "Raw water timeout: Elapsed %u ms exceeded timeout (1.5x expected: %u ms) with delivered %u/%u mL.",
+                     (unsigned)raw_elapsed_ms, (unsigned)max_raw_runtime_ms,
                      (unsigned)actual_raw_water_ml, (unsigned)config->raw_water_target_ml);
             ESP_LOGE(TAG, "%s", result.message);
             stop_mixing_protocol_actuators(config);
@@ -502,11 +504,11 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
                                  exec_channels[i].component_id, (unsigned)exec_channels[i].target_volume_ml,
                                  (unsigned)exec_channels[i].observed_runtime_ms);
                     } else if (elapsed_ch_ms > exec_channels[i].max_runtime_ms) {
-                        // Safety timeout trip for dosing channel
+                        // Safety timeout trip for dosing channel (strictly 1.5x expected calibration time)
                         result.status = MIXING_RESULT_DOSING_TIMEOUT;
                         result.error_code = mixing_status_to_string(result.status);
                         snprintf(result.message, sizeof(result.message),
-                                 "Dosing pump '%s' exceeded safety timeout (%u ms > max %u ms).",
+                                 "Dosing pump '%s' exceeded timeout (1.5x expected: %u ms > max %u ms).",
                                  exec_channels[i].component_id, (unsigned)elapsed_ch_ms,
                                  (unsigned)exec_channels[i].max_runtime_ms);
                         ESP_LOGE(TAG, "%s", result.message);
@@ -531,17 +533,34 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             }
         }
 
-        // H. Mixing duration supervision
-        if (mixing_running) {
-            uint32_t mixing_elapsed_sec = (uint32_t)((now_us - mixing_start_us) / 1000000LL);
-            result.mixing_actual_runtime_ms = (uint32_t)((now_us - mixing_start_us) / 1000LL);
-            if (mixing_elapsed_sec >= config->mixing_duration_sec) {
-                mixing_duration_done = true;
+        // H. Post-mix duration supervision
+        // Begins strictly AFTER raw water target is reached (pump OFF) AND all dosing pumps are complete
+        if (!raw_water_running && all_dosing_done) {
+            if (!post_mix_started) {
+                post_mix_started = true;
+                post_mix_start_us = now_us;
+                ESP_LOGI(TAG, "Raw water target reached (%u mL) and all %u dosing pump(s) complete. Starting post-mix duration (%u s).",
+                         (unsigned)actual_raw_water_ml, (unsigned)config->channel_count, (unsigned)config->post_mix_duration_sec);
+                if (config->post_mix_duration_sec == 0) {
+                    post_mix_done = true;
+                }
+            } else if (!post_mix_done) {
+                uint32_t post_mix_elapsed_ms = (uint32_t)((now_us - post_mix_start_us) / 1000LL);
+                result.post_mix_actual_runtime_ms = post_mix_elapsed_ms;
+                if (post_mix_elapsed_ms >= config->post_mix_duration_sec * 1000U) {
+                    post_mix_done = true;
+                    ESP_LOGI(TAG, "Post-mix duration complete (%u s).", (unsigned)config->post_mix_duration_sec);
+                }
             }
         }
 
-        // I. Success Evaluation: ALL 3 criteria satisfied
-        if (!raw_water_running && all_dosing_done && mixing_duration_done) {
+        // Track total time mixing pump has been running
+        if (mixing_running) {
+            result.mixing_actual_runtime_ms = (uint32_t)((now_us - mixing_start_us) / 1000LL);
+        }
+
+        // I. Success Evaluation: Raw water done + All dosing done + Post-mix duration complete
+        if (!raw_water_running && all_dosing_done && post_mix_done) {
             // Turn OFF mixing pump
             (void)set_actuator_state(mixing_pump_id, false);
             (void)release_actuator(mixing_pump_id, ACTUATOR_OWNER_FERTIGATION);
@@ -551,8 +570,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             result.error_code = mixing_status_to_string(result.status);
             result.total_runtime_ms = total_elapsed_ms;
             snprintf(result.message, sizeof(result.message),
-                     "Mixing protocol successfully completed: %u mL raw water, %u dosing channel(s), %u s mixing.",
-                     (unsigned)actual_raw_water_ml, (unsigned)config->channel_count, (unsigned)config->mixing_duration_sec);
+                     "Mixing protocol successfully completed: %u mL raw water, %u dosing channel(s) parallel, %u s post-mix.",
+                     (unsigned)actual_raw_water_ml, (unsigned)config->channel_count, (unsigned)config->post_mix_duration_sec);
 
             ESP_LOGI(TAG, "%s", result.message);
             break;

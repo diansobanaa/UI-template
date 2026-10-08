@@ -34,19 +34,18 @@ typedef struct {
 /** Input configuration for protocol_mixing. */
 typedef struct {
     uint32_t raw_water_target_ml;          /**< Target raw water volume in mL (must be > 0) */
-    uint8_t threshold_percent;             /**< Threshold % of raw water volume (0-100%) to start mixing & dosing */
-    uint32_t mixing_duration_sec;          /**< Required run duration of mixing pump in seconds */
+    uint8_t threshold_percent;             /**< Dynamic threshold % (0-100%) from schedule registration to trigger mixing & dosing */
+    uint32_t post_mix_duration_sec;        /**< Required agitation duration in seconds AFTER raw water target is reached and all dosing pumps complete */
 
     char raw_water_component_id[40];       /**< Optional: default "pump_submersible" */
     char raw_flow_sensor_id[40];           /**< Optional: default "sensor_flow_raw" */
     char mixing_pump_id[40];               /**< Optional: default "mixing_pump" */
 
-    uint32_t channel_count;                /**< Number of active dosing channels (0 to MAX_MIXING_DOSING_CHANNELS) */
+    uint32_t channel_count;                /**< Dynamic number of active dosing channels (0 to MAX_MIXING_DOSING_CHANNELS) */
     mixing_dosing_channel_config_t channels[MAX_MIXING_DOSING_CHANNELS];
 
-    /* Timing & Safety margin overrides (0 = use canonical defaults) */
+    /* Timing overrides (0 = use canonical defaults) */
     uint32_t no_flow_grace_period_sec;     /**< Grace period before NO FLOW trip (default: 15s) */
-    uint32_t timeout_safety_margin_sec;    /**< Extra margin added to raw water expected runtime (default: 50% or min 30s) */
     uint32_t poll_interval_ms;             /**< Inner loop polling delay (default: 100ms) */
 
     /* Optional external abort hook (returns true to request immediate abort) */
@@ -74,6 +73,7 @@ typedef struct {
     uint32_t actual_raw_water_ml;
     uint32_t raw_water_expected_runtime_sec;
     uint32_t raw_water_actual_runtime_ms;
+    uint32_t post_mix_actual_runtime_ms;
     uint32_t mixing_actual_runtime_ms;
     uint32_t total_runtime_ms;
 
@@ -97,21 +97,23 @@ esp_err_t stop_mixing_protocol_actuators(const mixing_protocol_config_t *config)
  *
  * Sequence:
  * 1. PRECHECK (validate config, E-Stop check, flow sensor calibration check, pump calibration checks, actuator acquisition)
- * 2. START RAW WATER (raw water submersible pump ON)
- * 3. MONITOR FLOW SENSOR (source of truth = actual pulses converted to mL, not timer)
- * 4. THRESHOLD REACHED (actual_raw_water_ml >= threshold_volume -> START MIXING & START DOSING)
- * 5. CONCURRENT RUN (raw water remains ON until target volume reached; dosing channels run concurrently)
- * 6. RAW WATER TARGET REACHED (actual_raw_water_ml >= target -> RAW WATER OFF)
- * 7. DOSING COMPLETE (each dosing pump turns OFF as its calibrated runtime is satisfied)
- * 8. MIXING DURATION COMPLETE (mixing pump turned OFF after required duration)
- * 9. SUCCESS (clean release, returns MIXING_SUCCESS)
+ * 2. START RAW WATER (raw water pump ON)
+ * 3. MONITOR FLOW SENSOR (source of truth = physical flow sensor pulses, NOT timer)
+ * 4. ACTUAL VOLUME >= THRESHOLD (actual_raw_water_ml >= (raw_water_target_ml * threshold_percent / 100))
+ * 5. START MIXING PUMP + START ALL DOSING PUMPS SIMULTANEOUSLY (all active dosing channels run in parallel)
+ * 6. RAW WATER TETAP BERJALAN (raw water pump continues running concurrently)
+ * 7. ACTUAL RAW WATER >= TARGET (actual_raw_water_ml >= raw_water_target_ml -> RAW WATER OFF)
+ * 8. WAIT ALL DOSING PUMPS COMPLETE (each pump shuts OFF when its individual calibrated runtime is met)
+ * 9. POST MIX DURATION (mixing pump continues agitating for post_mix_duration_sec after raw water & dosing finish)
+ * 10. MIXING PUMP OFF (mixing pump turned OFF)
+ * 11. SUCCESS (clean release, returns MIXING_RESULT_SUCCESS)
  *
  * Safety interlocks enforced throughout:
  * - Immediate safe-stop on emergency stop latch
- * - No flow detection after grace period
+ * - No flow detection after grace period (default 15s)
  * - Flow sensor health verification
- * - Raw water timeout based on calibration expected runtime + safety margin
- * - Dosing timeout protection (1.5x expected + 5s)
+ * - Raw water timeout: strictly 1.5x expected calibration time (target / rate)
+ * - Dosing pump timeout: strictly 1.5x expected calibration time (target / rate)
  * - Safe stop on all error pathways with no auto-retry.
  *
  * @param config Protocol input configuration.

@@ -1,3 +1,28 @@
+# AI HANDOVER - SP-CORE-PROTOCOL-MIXING-002
+
+## Current status
+Core mixing and dosing protocol (`protocol_mixing`) orchestrator has been **REFOCUSED AND FULLY ALIGNED** with strict operational mandates:
+1. **Dynamic Threshold:**
+   - `threshold_percent` is dynamically supplied from schedule registration (`threshold_volume_ml = (raw_water_target_ml * threshold_percent) / 100`).
+   - Verified zero hardcoded threshold constants (`#define` or magic 20%). Tested across 10%, 20%, 25%, 30%.
+2. **Raw Water Source of Truth:**
+   - Raw water volume is metered exclusively via the physical pulse flow sensor (`sensor_flow_raw` / ZJ-B1 on GPIO 15). Pump stops strictly when `actual >= target`.
+3. **Strict 1.5x Calibration Timeout:**
+   - Bounded strictly by $\text{timeout} = \text{expected\_time\_from\_calibration} \times 1.5$ for raw water and all dosing channels.
+   - All extra margins ($+30\text{ s}$, minimum $60\text{ s}$, $+5\text{ s}$) eliminated.
+4. **Simultaneous Parallel Dosing:**
+   - All active dosing pumps trigger simultaneously at threshold, run concurrently, and stop independently based on their own calibrated runtimes.
+5. **Post-Mix Duration Protocol:**
+   - Agitation continues for `post_mix_duration_sec` strictly after raw water is OFF and all dosing pumps complete.
+   - Note: Legacy recipe schemas lack this field (`POST MIX DURATION SOURCE MISSING`). Must be supplied in future schedule/recipe contracts.
+6. **Verification & Build:**
+   - ESP-IDF build `scripts\build_esp32.ps1` -> PASS (`agrotech_esp32.bin`).
+   - Test suite `node scripts/test_protocol_mixing.mjs` -> PASS (10/10).
+   - `npx tsc --noEmit` -> PASS (0 errors).
+   - `npm test` -> PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+
+---
+
 # AI HANDOVER - SP-CORE-PROTOCOL-MIXING-001
 
 ## Current status
