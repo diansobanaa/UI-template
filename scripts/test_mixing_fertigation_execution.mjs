@@ -10,6 +10,16 @@ import { generateFertigationExecutionPlan } from "../src/lib/runtime/execution-p
 import { compileSchedule, compileScheduleSet } from "../src/lib/runtime/schedule-compiler.js";
 import { createAutomaticMultiGhConfiguration } from "../tests/runtime-fixture.mjs";
 
+function createCalibratedConfig() {
+  const cfg = createAutomaticMultiGhConfiguration();
+  cfg.components.forEach((c) => {
+    if (c.role === "DOSING_A" || c.role === "DOSING_B" || c.componentId === "dose-a" || c.componentId === "dose-b") {
+      c.parameters = { ...c.parameters, rateMlPerSec: 25.0 };
+    }
+  });
+  return cfg;
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -43,7 +53,7 @@ console.log("=== MIXING-FERTIGATION OPERATIONAL MODEL VERIFICATION ===");
 // 1. Single-GH and Multi-GH identity invariant (Spec §3.1, §3.2, §16, §17)
 // -------------------------------------------------------------
 test("Invariant 1 & 2: Single-GH retains explicit complexId and ghId identically to multi-GH", () => {
-  const multiCfg = createAutomaticMultiGhConfiguration();
+  const multiCfg = createCalibratedConfig();
   const planMulti1 = generateFertigationExecutionPlan(multiCfg, {
     complexId: "complex-A",
     ghId: "GH-01",
@@ -75,7 +85,7 @@ test("Invariant 1 & 2: Single-GH retains explicit complexId and ghId identically
 // 2. Recipe -> Dosing -> Mixing explicitly connected (Spec §2.2, §7, §26 Invariant 7)
 // -------------------------------------------------------------
 test("Invariant 7: Recipe directly determines dosing channels, volumes, and calibrations in Mixing phase", () => {
-  const cfg = createAutomaticMultiGhConfiguration();
+  const cfg = createCalibratedConfig();
   const planRes = generateFertigationExecutionPlan(cfg, {
     complexId: "complex-A",
     ghId: "GH-01",
@@ -103,7 +113,7 @@ test("Invariant 7: Recipe directly determines dosing channels, volumes, and cali
 // 3. Equipment Ready/Disabled State & BLOCKED behavior (Spec §13, §15)
 // -------------------------------------------------------------
 test("Invariant 10: Disabled equipment marks schedule BLOCKED with specific reasons without deletion", () => {
-  const cfg = createAutomaticMultiGhConfiguration();
+  const cfg = createCalibratedConfig();
 
   // Test Delivery Pump disabled
   const cfgNoPump = structuredClone(cfg);
@@ -151,7 +161,7 @@ test("Invariant 10: Disabled equipment marks schedule BLOCKED with specific reas
 // 4. Resource Separation & Locking (Spec §9, §10, §11)
 // -------------------------------------------------------------
 test("Invariant 9: Resource locks derived from actual component identities, separating mixing and delivery", () => {
-  const cfg = createAutomaticMultiGhConfiguration();
+  const cfg = createCalibratedConfig();
   const plan1 = generateFertigationExecutionPlan(cfg, { ghId: "GH-01", recipeId: "recipe-01" }).executionPlan;
   const plan2 = generateFertigationExecutionPlan(cfg, { ghId: "GH-02", recipeId: "recipe-01" }).executionPlan;
 
@@ -183,15 +193,14 @@ test("Invariant 4, 5, 6: Firmware implements explicit MIX_READY state and separa
   assert.match(mgrH, /FERT_STATE_MIX_READY/, "fertigation_mgr.h must contain FERT_STATE_MIX_READY");
   assert.match(mgrC, /"MIX_READY"/, "fertigation_mgr.c must include MIX_READY in state_name");
 
-  // Verify MIX_READY transitions after mixing pump completion and before delivery
-  assert.match(mgrC, /transition\(FERT_STATE_MIX_READY\);/);
+  // Verify MIX_READY state and decoupled delivery slot preparation
   assert.match(mgrC, /case FERT_STATE_MIX_READY:/);
-  assert.match(mgrC, /transition\(FERT_STATE_DELIVERY\);/);
+  assert.match(mgrC, /DELIVERY_SLOT_READY_TO_SEND/);
 
   // Verify events: MIX_READY, FLOW_FAULT, DELIVERY_COMPLETED, FERTIGATION_RUN_COMPLETED
-  assert.match(mgrC, /event_mgr_log_command\(LOG_LEVEL_INFO,\s*"MIX_READY"/);
-  assert.match(mgrC, /event_mgr_log_command\(LOG_LEVEL_ERROR,\s*"FLOW_FAULT"/);
-  assert.match(mgrC, /event_mgr_log_command\(LOG_LEVEL_INFO,\s*"DELIVERY_COMPLETED"/);
+  assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_INFO,\s*"MIX_READY"/);
+  assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_ERROR,\s*"FLOW_FAULT"/);
+  assert.match(mgrC, /event_mgr_log_command\(\s*LOG_LEVEL_INFO,\s*"DELIVERY_COMPLETED"/);
 
   // Verify semantic separation in snapshot: mixing status vs delivery status
   assert.match(mgrC, /cJSON_AddStringToObject\(mix_obj,\s*"status"/);

@@ -1,3 +1,25 @@
+## SP-CLEANUP-LEGACY-FERTIGATION-002
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing PASS, Mixing Fertigation Execution PASS, Dosing Checkpoint Recovery PASS, npm test PASS, npx tsc PASS)
+- **Objective**: Additional redundant code cleanup and surgical patches prior to `protocol_mixing()` integration:
+  1. Removed dead state variable `s_active_dosing_channel_idx` and unused field `active_dosing_channel_idx` from `preparation_slot_t` in `fertigation_mgr.c`. (Sequential channel stepping was eliminated when simultaneous dosing was introduced; the channel index was permanently static at 0).
+  2. Simplified active channel telemetry reporting in `fertigation_mgr_get_queue_summary()` to directly inspect active channel 0 during `FERT_STATE_DOSING` when channels are present.
+  3. Patched `scripts/test_mixing_fertigation_execution.mjs` to supply valid calibration parameters in test configurations and align regex assertions with the decoupled `DELIVERY_SLOT_READY_TO_SEND` state machine and `event_mgr_log_command` formatting.
+  4. Preserved all active runtime paths: `scheduler` -> `dosing queue` -> `command_mgr` -> `fertigation_mgr` (`PRECHECK` -> `FILLING` -> `DOSING` -> `FINAL_MIXING`).
+  5. Kept `protocol_mixing()` completely standalone without premature integration into scheduler or fertigation queue.
+- **Implemented**:
+  - `esp32/main/services/fertigation_mgr.c`: Removed `active_dosing_channel_idx` from `preparation_slot_t`, removed `s_active_dosing_channel_idx`, removed redundant zero-assignments, and cleaned up channel inspection in `fertigation_mgr_get_queue_summary()`.
+  - `scripts/test_mixing_fertigation_execution.mjs`: Added `createCalibratedConfig()` helper, and updated test 5 assertions to match decoupled delivery slot readiness and multiline log formatting.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 build PASS (`agrotech_esp32.bin` binary size 0x18c4d0, 0 errors, 0 warnings).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (all core protocol tests passed).
+  - `node scripts/test_mixing_fertigation_execution.mjs`: PASS (6 passed, 0 failed).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: PASS (20/20 passed).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**: `esp32/main/services/fertigation_mgr.c`, `scripts/test_mixing_fertigation_execution.mjs`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Next Action**: STOP. Do not advance to `protocol_mixing()` integration yet.
+
 ## SP-CORE-PROTOCOL-MIXING-003
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, TypeScript PASS, E2E Contracts PASS, Protocol Tests PASS)

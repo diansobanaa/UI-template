@@ -71,7 +71,6 @@ typedef struct {
   uint32_t delivery_start_ml;
   uint32_t dosing_start_ms[FERT_MAX_DOSING_CHANNELS];
   uint32_t dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS];
-  uint32_t active_dosing_channel_idx;
   bool raw_water_filling_done;
 } preparation_slot_t;
 
@@ -82,7 +81,6 @@ static uint32_t s_state_start_ms = 0;
 static uint32_t s_raw_start_ml = 0, s_delivery_start_ml = 0;
 static uint32_t s_dosing_start_ms[FERT_MAX_DOSING_CHANNELS] = {0};
 static uint32_t s_dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS] = {0};
-static uint32_t s_active_dosing_channel_idx = 0;
 static bool s_raw_water_filling_done = false;
 // ITEM-2: Per-slot last_terminal for independent GH fault tracking.
 // Previously a single global s_last_terminal meant: if GH-01 faulted and GH-02
@@ -2075,7 +2073,6 @@ static void task(void *arg) {
             actuator_hal_set_by_component_id(s_batch.mixing_pump_id, true);
           }
         }
-        s_active_dosing_channel_idx = 0;
         memset(s_dosing_start_ms, 0, sizeof(s_dosing_start_ms));
         memset(s_dosing_runtime_observed_ms, 0,
                sizeof(s_dosing_runtime_observed_ms));
@@ -2637,7 +2634,6 @@ esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {
     memset(s_dosing_start_ms, 0, sizeof(s_dosing_start_ms));
     memset(s_dosing_runtime_observed_ms, 0,
            sizeof(s_dosing_runtime_observed_ms));
-    s_active_dosing_channel_idx = 0;
     s_raw_water_filling_done = false;
     transition(FERT_STATE_PRECHECK);
     (void)event_mgr_log_command(
@@ -2968,10 +2964,8 @@ esp_err_t fertigation_mgr_get_queue_summary(fertigation_queue_summary_t *out) {
   }
   strncpy(out->runtime_state, st, sizeof(out->runtime_state) - 1);
 
-  if (s_state == FERT_STATE_DOSING &&
-      s_active_dosing_channel_idx < s_batch.channel_count) {
-    const char *cid =
-        s_batch.channels[s_active_dosing_channel_idx].component_id;
+  if (s_state == FERT_STATE_DOSING && s_batch.channel_count > 0) {
+    const char *cid = s_batch.channels[0].component_id;
     if (strstr(cid, "dp-a") || strcmp(cid, "A") == 0)
       strcpy(out->active_channel, "A");
     else if (strstr(cid, "dp-b") || strcmp(cid, "B") == 0)

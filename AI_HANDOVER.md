@@ -1,3 +1,27 @@
+# AI HANDOVER - SP-CLEANUP-LEGACY-FERTIGATION-002
+
+## Current status
+Additional redundant legacy cleanup and surgical test patch completed before `protocol_mixing()` integration:
+1. **Redundant Code Eliminated**:
+   - `s_active_dosing_channel_idx` and `preparation_slot_t.active_dosing_channel_idx` in `esp32/main/services/fertigation_mgr.c` were completely removed. Sequential channel stepping (`s_active_dosing_channel_idx++`) was already removed in simultaneous dosing, leaving this index permanently zeroed out.
+   - Removed redundant zero assignments during `FERT_STATE_FILLING` and `fertigation_mgr_start_from_json()`.
+   - Telemetry channel reporting simplified to inspect channel 0 if channels are configured.
+2. **Surgical Test Patch**:
+   - `scripts/test_mixing_fertigation_execution.mjs`: Added `createCalibratedConfig()` helper so execution plan generator and compiler receive valid calibration rates on dosing pumps.
+   - Updated test 5 regex to match the decoupled `DELIVERY_SLOT_READY_TO_SEND` state architecture and multiline `event_mgr_log_command` formatting.
+3. **Runtime Invariants Preserved**:
+   - Active runtime pipeline `scheduler` -> `dosing queue` -> `command_mgr` -> `fertigation_mgr` (`PRECHECK` -> `FILLING` -> `DOSING` -> `FINAL_MIXING`) remains intact and unmodified.
+   - `protocol_mixing()` remains strictly modular and unintegrated.
+4. **Verification**:
+   - ESP-IDF build `scripts\build_esp32.ps1` -> PASS (`agrotech_esp32.bin`, 0 errors/warnings).
+   - Core protocol tests `node scripts/test_protocol_mixing.mjs` -> PASS.
+   - Mixing fertigation execution `node scripts/test_mixing_fertigation_execution.mjs` -> PASS (6/6).
+   - Dosing checkpoint recovery `node scripts/test_dosing_checkpoint_recovery.mjs` -> PASS (20/20).
+   - E2E API contracts `npm test` -> PASS (28 OpenAPI endpoints, 26 C handlers).
+   - Typecheck `npx tsc --noEmit` -> PASS (0 errors).
+
+---
+
 # AI HANDOVER - SP-CORE-PROTOCOL-MIXING-003
 
 ## Current status
