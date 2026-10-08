@@ -936,7 +936,7 @@ runtimeState
 1. **Global Dosing Queue Dispatch Latch (`QUEUE_STATE_DISPATCHED`):**
    - The scheduler 1-second evaluation tick never resubmits the same queue HEAD while waiting for physical execution.
    - Upon `command_mgr_submit()` acceptance, queue entry transitions `QUEUE_STATE_PENDING -> QUEUE_STATE_DISPATCHED` with `dispatched_at_ms`.
-   - When `fertigation_mgr` confirms physical dosing has started (`FERT_STATE_FILLING` with threshold, `FERT_STATE_DOSING`, or `FERT_STATE_MIX_READY`), state transitions `QUEUE_STATE_DISPATCHED -> QUEUE_STATE_ACTIVE`.
+   - When `fertigation_mgr` confirms physical preparation has started (`FERT_STATE_PRECHECK` or `FERT_STATE_MIXING`), state transitions `QUEUE_STATE_DISPATCHED -> QUEUE_STATE_ACTIVE`.
    - A 15-second watchdog fails the dispatch deterministically (`QUEUE_STATE_FAILED`) if physical start is not observed.
 
 2. **Exact 4-Tuple Correlation:**
@@ -954,8 +954,8 @@ runtimeState
    - `rebuild_dosing_queue_on_boot(now)` iterates in strict chronological order and enqueues the first pending occurrence per GH.
 
 5. **Physical Gating & Concurrent Mixing:**
-   - When raw water fill hits the configured threshold (~20%), the mixing pump starts AND serial dosing starts ($A \to B \to N$) while raw water continues flowing to target volume.
-   - Upon final mixing completion, all pumps stop and routing valves close, holding the batch in `READY_TO_SEND` (`FERT_STATE_MIX_READY`) until the scheduled delivery time arrives.
+   - When raw water fill hits the configured threshold (~20%), the mixing pump starts AND parallel dosing starts for all configured channels while raw water continues flowing to target volume.
+   - Upon post-mix completion via `protocol_mixing()`, all pumps stop and routing valves close, transferring the batch into the per-GH delivery slot as `READY_TO_SEND` (`DELIVERY_SLOT_READY_TO_SEND`) until the scheduled delivery time arrives.
 
 Semua event harus dapat ditelusuri ke batch melalui batchId.
 

@@ -2005,6 +2005,8 @@ static void task(void *arg) {
       memset(&mix_cfg, 0, sizeof(mix_cfg));
       cp(mix_cfg.raw_water_component_id, sizeof(mix_cfg.raw_water_component_id),
          s_batch.raw_water_component_id);
+      cp(mix_cfg.raw_flow_sensor_id, sizeof(mix_cfg.raw_flow_sensor_id),
+         s_batch.raw_flow_sensor_id);
       cp(mix_cfg.mixing_pump_id, sizeof(mix_cfg.mixing_pump_id),
          s_batch.mixing_pump_id);
       mix_cfg.raw_water_target_ml = (uint32_t)s_batch.target_water_ml;
@@ -2301,8 +2303,8 @@ esp_err_t fertigation_mgr_init(void) {
         "held for explicit operator disposition.",
         s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
         s_batch.configuration_version);
-  /* STACK-TUNING: measured peak used 1124 B. 3584 B provides 2460 B (>200%) margin, saving 2560 B internal DRAM. */
-  xTaskCreatePinnedToCore(task, "fert_mgr", 3584, NULL, 5, NULL, 1);
+  /* STACK-TUNING: allocated 6144 B for safe execution of canonical protocol_mixing(), cJSON logging, and HAL calls */
+  xTaskCreatePinnedToCore(task, "fert_mgr", 6144, NULL, 5, NULL, 1);
   return ESP_OK;
 }
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {

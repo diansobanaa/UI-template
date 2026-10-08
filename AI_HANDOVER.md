@@ -1,3 +1,28 @@
+# AI HANDOVER - SP-CANONICAL-PROTOCOL-MIXING-002
+
+## Current status
+Hardened canonical `protocol_mixing()` integration and specification alignment complete:
+1. **FreeRTOS Stack Margin Expansion**:
+   - `fert_mgr` task stack expanded from 3584 B to 6144 B in `fertigation_mgr.c` ensuring safe headroom during `protocol_mixing()` execution, cJSON formatting, logging, and HAL calls.
+2. **Authoritative Flow Sensor Forwarding**:
+   - Bound `s_batch.raw_flow_sensor_id` to `mix_cfg.raw_flow_sensor_id` in `fertigation_mgr.c`.
+3. **Frontend & Documentation Alignment**:
+   - Cleaned up obsolete legacy state strings in `DosingQueueCard.tsx`.
+   - Updated `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` to reference canonical `FERT_STATE_MIXING` and `DELIVERY_SLOT_READY_TO_SEND`.
+4. **Verifications**:
+   - ESP-IDF Firmware Build: PASS (`agrotech_esp32.bin` linked cleanly, 0 errors, 0 warnings).
+   - Core Protocol Mixing (`scripts/test_protocol_mixing.mjs`): 14/14 PASS.
+   - Mixing Fertigation Execution (`scripts/test_mixing_fertigation_execution.mjs`): 6/6 PASS.
+   - Parallel Multi-GH Distribution (`scripts/test_parallel_distribution.mjs`): 13/13 PASS.
+   - Reconciled Scenarios A-T (`scripts/test_reconciled_scenarios_a_to_t.mjs`): 21/21 PASS.
+   - Production Path Gate (`scripts/test_m11_m12_firmware_path.mjs`): 17/17 PASS.
+   - Dosing Checkpoint Recovery (`scripts/test_dosing_checkpoint_recovery.mjs`): 20/20 PASS.
+   - Frontend Contract & Mock E2E (`npm test`): PASS.
+   - TypeScript Static Typecheck (`npx tsc --noEmit`): PASS.
+5. **Git Commit**: `3196bc3a514b03e593c2a7ce2711c800153e91a4`
+
+---
+
 # AI HANDOVER - SP-CANONICAL-PROTOCOL-MIXING-001
 
 ## Current status

@@ -1,3 +1,29 @@
+## SP-CANONICAL-PROTOCOL-MIXING-002
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing 14/14 PASS, Mixing Fertigation Execution 6/6 PASS, Parallel Distribution 13/13 PASS, Scenarios A-T 21/21 PASS, Production Path Gate 17/17 PASS, Dosing Checkpoint Recovery 20/20 PASS, npm test PASS, npx tsc PASS)
+- **Objective**: Hardened Canonical `protocol_mixing()` Integration, Stack Margin Expansion & Specification Alignment:
+  1. Expanded `fert_mgr` FreeRTOS task stack allocation from 3584 B to 6144 B in `esp32/main/services/fertigation_mgr.c` for safe headroom during `protocol_mixing()` execution, cJSON formatting, logging, and HAL calls.
+  2. Forwarded authoritative `raw_flow_sensor_id` from `s_batch` into `mix_cfg.raw_flow_sensor_id` for greenhouse-specific flow sensor binding.
+  3. Cleaned up obsolete legacy state strings (`FERT_STATE_FILLING`, `FERT_STATE_DOSING`, `FERT_STATE_MIX_READY`, `FERT_STATE_DELIVERY`) in `src/components/fertigation/DosingQueueCard.tsx`.
+  4. Updated `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md` to reference canonical `FERT_STATE_MIXING` and `DELIVERY_SLOT_READY_TO_SEND`.
+- **Implemented**:
+  - `esp32/main/services/fertigation_mgr.c`: Expanded stack to 6144 B and bound `raw_flow_sensor_id`.
+  - `src/components/fertigation/DosingQueueCard.tsx`: Cleaned up legacy states in runtime snapshot mapping.
+  - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Updated Section 1 and Section 5 state descriptions.
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: ESP32-S3 build PASS (`agrotech_esp32.bin` linked cleanly, 0 errors, 0 warnings).
+  - `node scripts/test_protocol_mixing.mjs`: PASS (14/14 tests).
+  - `node scripts/test_mixing_fertigation_execution.mjs`: PASS (6/6 tests).
+  - `node scripts/test_parallel_distribution.mjs`: PASS (13/13 tests).
+  - `node scripts/test_reconciled_scenarios_a_to_t.mjs`: PASS (21/21 tests).
+  - `node scripts/test_m11_m12_firmware_path.mjs`: PASS (17/17 tests).
+  - `node scripts/test_dosing_checkpoint_recovery.mjs`: PASS (20/20 tests).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**: `esp32/main/services/fertigation_mgr.c`, `src/components/fertigation/DosingQueueCard.tsx`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Git Commit**: `3196bc3a514b03e593c2a7ce2711c800153e91a4`
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-CANONICAL-PROTOCOL-MIXING-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Protocol Mixing 14/14 PASS, Mixing Fertigation Execution 6/6 PASS, Parallel Distribution 13/13 PASS, Scenarios A-T 21/21 PASS, Production Path Gate 17/17 PASS, Dosing Checkpoint Recovery 20/20 PASS, npm test PASS, npx tsc PASS)

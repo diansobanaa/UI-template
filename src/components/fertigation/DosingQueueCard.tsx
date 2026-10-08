@@ -36,17 +36,14 @@ export const DosingQueueCard: React.FC<DosingQueueCardProps> = ({ currentGhId, c
           ghId: data.ghId || 'gh-a',
           runtimeState: data.runtimeState || (
             data.state === 'FERT_STATE_MIXING' ? 'MIXING' :
-            data.state === 'FERT_STATE_FILLING' ? 'MIXING_RAW_WATER' :
-            data.state === 'FERT_STATE_DOSING' ? 'DOSING' :
-            data.state === 'FERT_STATE_MIX_READY' ? 'READY' :
-            data.state === 'FERT_STATE_DELIVERY' ? 'DISTRIBUTING' :
+            data.state === 'FERT_STATE_RECOVERY_HOLD' ? 'PAUSED' :
+            data.state === 'FERT_STATE_PRECHECK' ? 'MIXING' :
             data.state === 'FERT_STATE_COMPLETE' ? 'COMPLETED' :
             data.state === 'FERT_STATE_FAULTED' ? 'FAILED' :
-            data.state === 'FERT_STATE_ABORTED' ? 'CANCELLED' : 'IDLE'
+            data.state === 'FERT_STATE_ABORTED' ? 'CANCELLED' :
+            data.state === 'FERT_STATE_INTERRUPTED' ? 'PAUSED' : 'IDLE'
           ),
-          activeChannel: data.activeChannel || (
-            data.state === 'FERT_STATE_DOSING' ? 'A' : ''
-          ),
+          activeChannel: data.activeChannel || '',
           rawWaterActualMl: data.rawWaterActualMl ?? data.actualWaterMl ?? 0,
           rawWaterTargetMl: data.rawWaterTargetMl ?? data.targetWaterMl ?? 20000,
           thresholdPercent: data.thresholdPercent ?? 20,
