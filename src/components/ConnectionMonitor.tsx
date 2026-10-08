@@ -187,7 +187,6 @@ export function ConnectionMonitor() {
 
   // Audio unlock on any user gesture (cheap no-op once running; re-resumes if the browser suspends it).
   useEffect(() => {
-    unlockAudio();
     const handleGesture = () => {
       unlockAudio();
       if (isOfflineRef.current && !isSilencedRef.current) {

@@ -1006,9 +1006,15 @@ export function updateComplexRuntime(complexId: string, data: {
 }): void {
   const complex = snapshot.complexes.find((item) => item.id === complexId);
   if (!complex) return;
+
+  let complexChanged = false;
   const next = structuredClone(complex);
-  if (data.emergencyStopped !== undefined) next.emergencyStopped = data.emergencyStopped;
-  if (data.online !== undefined) {
+
+  if (data.emergencyStopped !== undefined && next.emergencyStopped !== data.emergencyStopped) {
+    next.emergencyStopped = data.emergencyStopped;
+    complexChanged = true;
+  }
+  if (data.online !== undefined && next.esp32.online !== data.online) {
     next.esp32.online = data.online;
     if (!data.online) {
       next.operationalStatus = "OFFLINE";
@@ -1020,27 +1026,62 @@ export function updateComplexRuntime(complexId: string, data: {
       next.esp32.synchronized = true;
       next.esp32.lastSync = new Date().toLocaleTimeString();
     }
+    complexChanged = true;
   }
-  if (data.device?.firmwareVersion) next.esp32.firmwareVersion = data.device.firmwareVersion;
-  if (data.device?.hardwareModel) next.esp32.hardwareModel = data.device.hardwareModel;
-  if (data.configuration?.version !== undefined) {
+  if (data.device?.firmwareVersion && next.esp32.firmwareVersion !== data.device.firmwareVersion) {
+    next.esp32.firmwareVersion = data.device.firmwareVersion;
+    complexChanged = true;
+  }
+  if (data.device?.hardwareModel && next.esp32.hardwareModel !== data.device.hardwareModel) {
+    next.esp32.hardwareModel = data.device.hardwareModel;
+    complexChanged = true;
+  }
+  if (data.configuration?.version !== undefined && next.esp32.configVersion !== data.configuration.version) {
     next.esp32.configVersion = data.configuration.version;
     next.esp32.esp32ConfigVersion = data.configuration.version;
+    complexChanged = true;
   }
-  if (data.actuators) next.water.wellPumpOn = Boolean(data.actuators.wellPump);
-  replaceComplex(next);
+  if (data.actuators) {
+    const nextWellPumpOn = Boolean(data.actuators.wellPump);
+    if (next.water.wellPumpOn !== nextWellPumpOn) {
+      next.water.wellPumpOn = nextWellPumpOn;
+      complexChanged = true;
+    }
+  }
+
+  if (complexChanged) {
+    replaceComplex(next);
+  }
 
   const ghs = snapshot.greenhouses.filter((item) => item.complexId === complexId);
   if (ghs.length && (data.online !== undefined || data.sensors)) {
     for (const greenhouse of ghs) {
+      let ghChanged = false;
       const updated = structuredClone(greenhouse);
-      if (data.online !== undefined) updated.online = data.online;
-      if (data.sensors) {
-        if (data.sensors.temperatureC !== undefined) updated.telemetry.temperatureC = data.sensors.temperatureC;
-        if (data.sensors.humidityPct !== undefined) updated.telemetry.humidityPct = data.sensors.humidityPct;
-        if (data.sensors.floatLowerOk !== undefined) updated.telemetry.tankPct = data.sensors.floatLowerOk ? 100 : 0;
+      if (data.online !== undefined && updated.online !== data.online) {
+        updated.online = data.online;
+        ghChanged = true;
       }
-      replaceGreenhouse(updated);
+      if (data.sensors) {
+        if (data.sensors.temperatureC !== undefined && updated.telemetry.temperatureC !== data.sensors.temperatureC) {
+          updated.telemetry.temperatureC = data.sensors.temperatureC;
+          ghChanged = true;
+        }
+        if (data.sensors.humidityPct !== undefined && updated.telemetry.humidityPct !== data.sensors.humidityPct) {
+          updated.telemetry.humidityPct = data.sensors.humidityPct;
+          ghChanged = true;
+        }
+        if (data.sensors.floatLowerOk !== undefined) {
+          const nextTankPct = data.sensors.floatLowerOk ? 100 : 0;
+          if (updated.telemetry.tankPct !== nextTankPct) {
+            updated.telemetry.tankPct = nextTankPct;
+            ghChanged = true;
+          }
+        }
+      }
+      if (ghChanged) {
+        replaceGreenhouse(updated);
+      }
     }
   }
 }

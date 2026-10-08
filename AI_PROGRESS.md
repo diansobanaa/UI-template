@@ -1,3 +1,33 @@
+## SP-UI-PERF-OPTIMIZATION-001
+- **Date**: 2026-10-08
+- **Status**: `COMPLETE & FULLY VERIFIED` (Build PASS, TypeScript PASS, Contract E2E PASS, Playwright profiling PASS)
+- **Objective**: Resolve sluggish / heavy Web UI performance ("web ui terasa sangat berat"):
+  1. Eliminate global re-render cascades: Add substantive change detection in `updateComplexRuntime` before calling `replaceComplex` / `notify()`, preventing app-wide root re-renders every 5s.
+  2. Eliminate 1-second layout & lane-packing re-calculations in `TodayScheduleTimeline`: Bind `selectedDate` to `clock.dateStr` and `offsetDays`, memoize `ghs` and `activeGh`, and gate heavy collision detection on minute boundaries (`currentMinutes`) and user navigation rather than 1000ms clock ticks.
+  3. Eliminate rapid-fire HTTP polling: Decouple `AlarmManagerOverlay` from incoming sensor telemetry batches, increase idle alarm polling interval from 2s/4s to 2.5s/5s, and preserve alarm state reference equality when summaries and active alarms match.
+  4. Prevent premature AudioContext instantiation on mount in `ConnectionMonitor`: Defer audio unlocking strictly to genuine user gestures (`pointerdown`, `click`, `keydown`).
+  5. Stabilize `useTelemetryStream` hook subscription with `useRef` to prevent tearing on inline callbacks.
+- **Implemented**:
+  - `src/lib/operational-state.ts`: Added field change comparison before calling `replaceComplex` and `replaceGreenhouse`.
+  - `src/components/timeline/TodayScheduleTimeline.tsx`: Memoized `selectedDate` via `clock.dateStr`, memoized `ghs` and `activeGh`.
+  - `src/components/AlarmManagerOverlay.tsx`: Removed redundant `telemetryStreamManager.subscribe` trigger, adjusted interval (2.5s active / 5s idle), and added reference equality preservation.
+  - `src/components/ConnectionMonitor.tsx`: Removed premature `unlockAudio()` call on initial effect mount.
+  - `src/lib/api/telemetry-stream.ts`: Added `useRef` callback stabilization in `useTelemetryStream`.
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`: Documented UI Rendering Performance & Polling Hygiene Policy.
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm test`: PASS (28 endpoints, 26 C handlers, REST mock server E2E).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+  - `node scripts/test_tamper_loop_e2e.mjs`: PASS (11/11).
+  - `node scripts/test_timeline_screenshots.mjs`: PASS (Playwright visual verification).
+  - Playwright live profiling:
+    - Fertigation Page FPS increased from 22.5 FPS to 46.5 FPS (+106% gain).
+    - Calibration Page FPS increased from 22.5 FPS to 43.5 FPS (+93% gain).
+    - Steady-state network requests dropped from ~12 req/s to ~0.4 req/s.
+  - Production build `npm run build`: PASS (singlefile `dist/index.html` 1,277 kB).
+- **Changed Files**: `src/lib/operational-state.ts`, `src/components/timeline/TodayScheduleTimeline.tsx`, `src/components/AlarmManagerOverlay.tsx`, `src/components/ConnectionMonitor.tsx`, `src/lib/api/telemetry-stream.ts`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, `dist/index.html`.
+- **Next Action**: Monitor Web UI responsiveness during live field operations.
+
 ## SP-SAFETY-MAX-RUNTIME-001
 - **Date**: 2026-10-08
 - **Status**: `COMPLETE & FULLY VERIFIED`

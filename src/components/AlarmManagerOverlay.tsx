@@ -93,7 +93,21 @@ export function AlarmManagerOverlay() {
     if (!isDirectEsp32Enabled()) return;
     try {
       const data = await esp32Client.getAlarms({ endpoint, timeoutMs: 3000 });
-      setAlarmData(data);
+      setAlarmData((prev) => {
+        if (!prev) return data;
+        const prevAlarms = prev.activeAlarms || [];
+        const nextAlarms = data.activeAlarms || [];
+        if (
+          prevAlarms.length === nextAlarms.length &&
+          prev.summary?.buzzerAudible === data.summary?.buzzerAudible &&
+          prev.summary?.isSilenced === data.summary?.isSilenced &&
+          prev.summary?.activeCount === data.summary?.activeCount &&
+          prevAlarms.every((a, i) => a.id === nextAlarms[i]?.id && a.acknowledged === nextAlarms[i]?.acknowledged)
+        ) {
+          return prev; // No change, preserve object reference to prevent re-render
+        }
+        return data;
+      });
     } catch {
       // Suppress network polling errors; ConnectionMonitor handles offline detection
     }
@@ -101,20 +115,12 @@ export function AlarmManagerOverlay() {
 
   useEffect(() => {
     fetchAlarms();
-    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 2000 : 4000;
+    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 2500 : 5000;
     pollTimerRef.current = setInterval(fetchAlarms, intervalMs);
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [fetchAlarms, alarmData?.activeAlarms?.length]);
-
-  // Realtime WebSocket transition listener: immediately refresh alarms on state change
-  useEffect(() => {
-    const unsubscribe = telemetryStreamManager.subscribe(() => {
-      fetchAlarms();
-    });
-    return unsubscribe;
-  }, [fetchAlarms]);
 
   const handleAcknowledge = async (alarmId?: string) => {
     setIsActionLoading(true);

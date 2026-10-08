@@ -15,7 +15,7 @@ import { esp32Client } from "./esp32-client";
 import type { TelemetrySnapshot, TelemetryStreamBatch } from "./contracts";
 import { telemetryService } from "@/lib/services";
 import { deviceClock } from "@/lib/device-clock";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export type TelemetryBatchListener = (batch: TelemetryStreamBatch) => void;
 
@@ -234,16 +234,16 @@ export const telemetryStreamManager = new TelemetryStreamManager();
  */
 export function useTelemetryStream(onBatchReceived?: TelemetryBatchListener) {
   const [status, setStatus] = useState(() => telemetryStreamManager.getStatus());
+  const callbackRef = useRef(onBatchReceived);
+  callbackRef.current = onBatchReceived;
 
   useEffect(() => {
     const unsubscribe = telemetryStreamManager.subscribe((batch) => {
       setStatus(telemetryStreamManager.getStatus());
-      if (onBatchReceived) {
-        onBatchReceived(batch);
-      }
+      callbackRef.current?.(batch);
     });
     return unsubscribe;
-  }, [onBatchReceived]);
+  }, []);
 
   return status;
 }

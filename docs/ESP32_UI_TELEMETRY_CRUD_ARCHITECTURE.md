@@ -47,6 +47,12 @@ The production target is:
 - `ConnectionMonitor` probes `GET /api/v1/health` every 5000 ms with an isolated 2500 ms timeout (single-flight). A failed probe is overridden only when the WebSocket is open **and** delivered a telemetry frame from that controller within the last 7.5 s; an open-but-silent socket is not liveness evidence. The WebSocket manager itself is unchanged (read-only `subscribe`).
 - The controller is marked OFFLINE after 2 consecutive failed probes (~5.0 s fastest, ~7.5 s typical foreground, ≤ ~12.5 s maximum expected). One short two-tone chime plays on the ONLINE → OFFLINE edge only (cross-tab deduplicated); details in `docs/POWER_MAP.md` §7.2.
 
+### UI Rendering Performance & Polling Hygiene Policy
+- **Authoritative Change Detection (`updateComplexRuntime`)**: `updateComplexRuntime` verifies substantive field changes (`online`, `emergencyStopped`, `firmwareVersion`, `configVersion`, `actuators.wellPump`, and sensors) before invoking `replaceComplex` or `replaceGreenhouse`. If state is steady, no `notify()` is dispatched, eliminating app-wide re-render cascades across all `useDbVersion()` subscribers.
+- **Timeline Engine Recalculation Gating (`TodayScheduleTimeline`)**: Selected date resolution is bound to `clock.dateStr` and `offsetDays`, and `ghs` is memoized. Re-running the heavy collision detection and lane packing engine is gated on minute rollover (`currentMinutes`) and date/filter navigation, rather than 1000 ms clock ticks.
+- **WebSocket Hook Stability (`useTelemetryStream`)**: Uses a stable `useRef` for caller callbacks to prevent tearing and re-subscribing on inline callback instances.
+- **Alarm Polling Hygiene (`AlarmManagerOverlay`)**: Decoupled from incoming sensor telemetry batches to prevent rapid-fire HTTP GET spam against the ESP32. Unchanged alarm summaries preserve state reference equality, and AudioContext unlocking is strictly deferred to genuine user gestures.
+
 For ordinary operational data:
 
 ```text

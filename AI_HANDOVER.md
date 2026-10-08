@@ -1,3 +1,29 @@
+# AI HANDOVER - SP-UI-PERF-OPTIMIZATION-001
+
+## Current status
+Resolving sluggish / heavy Web UI performance ("web ui terasa sangat berat") is **COMPLETE & FULLY VERIFIED**:
+1. **Root Causes Identified & Eliminated**:
+   - **Global Re-Render Storm**: `ConnectionMonitor` was invoking `updateComplexRuntime` every 5 seconds, which always mutated `lastSync` and called `replaceComplex` / `notify()`, forcing full-tree re-renders of all components subscribing to `useDbVersion()`. Fixed by adding field change comparison so `notify()` only fires when substantive operational state changes.
+   - **1-Second Recalculation Storm in `TodayScheduleTimeline`**: `selectedDate` dependency on `clock.date` (which ticks every second) caused the entire schedule collision engine, lane packing, and event card DOM to recompute every 1000ms across all mounted instances. Fixed by locking `selectedDate` to `clock.dateStr` and `offsetDays`, memoizing `ghs` and `activeGh`, and gating heavy lane calculations on minute boundaries.
+   - **Excessive Network Polling & WebSocket Churn in `AlarmManagerOverlay`**: A redundant `telemetryStreamManager.subscribe` trigger called `fetchAlarms()` on every single incoming sensor telemetry frame (~1s), hammering the ESP32 with HTTP GET requests. Fixed by decoupling alarms from sensor telemetry streams, adjusting polling intervals to 2.5s (active alarms) / 5s (idle), and preserving state reference equality.
+   - **Premature AudioContext Instantiation**: `ConnectionMonitor` was attempting to unlock audio on mount without user interaction, triggering browser warnings and audio subsystem overhead. Deferral strictly to genuine user gestures (`pointerdown`, `click`, `keydown`).
+   - **`useTelemetryStream` Hook Stability**: Hook callers using inline arrow callbacks previously caused constant unsubscription/resubscription loops on every render. Stabilized via `useRef`.
+2. **Verification & Performance Metrics**:
+   - Playwright profiling confirmed:
+     - Fertigation Page FPS increased from **22.5 FPS $\to$ 46.5 FPS (+106% increase)**.
+     - Calibration Page FPS increased from **22.5 FPS $\to$ 43.5 FPS (+93% increase)**.
+     - Steady-state network requests dropped from ~12 req/s to ~0.4 req/s.
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (28 endpoints, 26 C handlers, REST mock server E2E).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14).
+   - `node scripts/test_tamper_loop_e2e.mjs`: PASS (11/11).
+   - `node scripts/test_timeline_screenshots.mjs`: PASS.
+   - `npm run build`: PASS (singlefile `dist/index.html` 1,277 kB).
+3. **Canonical Documentation**:
+   - Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md` with UI Rendering Performance & Polling Hygiene Policy.
+
+---
+
 # AI HANDOVER - SP-SAFETY-MAX-RUNTIME-001
 
 ## Current status

@@ -132,12 +132,15 @@ export function TodayScheduleTimeline({
     if (propCategory) setActiveFilter(propCategory);
   }, [propCategory]);
 
-  // Authoritative Selected Date
+  // Authoritative Selected Date (stable reference across seconds, advances at midnight or on offset change)
+  const baseDateStr = clock.dateStr || "";
   const selectedDate = useMemo(() => {
-    const d = new Date(clock.date.getTime());
-    d.setDate(d.getDate() + offsetDays);
-    return d;
-  }, [clock.date, offsetDays]);
+    const [y, m, d] = baseDateStr.split("-").map(Number);
+    const dateObj = !isNaN(y) && !isNaN(m) && !isNaN(d) ? new Date(y, m - 1, d) : new Date();
+    dateObj.setHours(0, 0, 0, 0);
+    dateObj.setDate(dateObj.getDate() + offsetDays);
+    return dateObj;
+  }, [baseDateStr, offsetDays]);
 
   const isToday = offsetDays === 0;
 
@@ -162,7 +165,7 @@ export function TodayScheduleTimeline({
     });
   }, [selectedDate]);
 
-  // Context resolution: Complex and Greenhouses
+  // Context resolution: Complex and Greenhouses (memoized to prevent new array references each render)
   const complexes = complexService.list();
   const activeComplex =
     (propComplexId ? complexes.find((c) => c.id === propComplexId) : null) ||
@@ -172,14 +175,20 @@ export function TodayScheduleTimeline({
       name: "Complex 01",
     };
 
-  const ghs = greenhouseService.byComplex(activeComplex.id);
-  const activeGh =
-    (propGhId ? ghs.find((g) => g.id === propGhId) : null) ||
-    ghs[0] || {
-      id: "gh-01",
-      code: "GH-01",
-      name: "Greenhouse 01",
-    };
+  const ghs = useMemo(() => {
+    return greenhouseService.byComplex(activeComplex.id);
+  }, [activeComplex.id]);
+
+  const activeGh = useMemo(() => {
+    return (
+      (propGhId ? ghs.find((g) => g.id === propGhId) : null) ||
+      ghs[0] || {
+        id: "gh-01",
+        code: "GH-01",
+        name: "Greenhouse 01",
+      }
+    );
+  }, [propGhId, ghs]);
 
   // ---------------- AUTHORITATIVE SCHEDULE OCCURRENCE CALCULATION ----------------
   const { rows, filterOptions } = useMemo(() => {
