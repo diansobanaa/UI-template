@@ -18,6 +18,8 @@ Updating actuator safety continuous runtime maximum limits (ACTUATOR_MAX_RUNTIME
    - `esp32-client.ts` & `services.ts`: Default manual durations set to 3600s.
    - `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/POWER_MAP.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Synchronized to 60 minutes / 8 hours.
 4. **Verification**:
+   - Flashed to physical ESP32 on COM3 via `python scripts/run_idf.py -p COM3 flash`: 100% hash verified, hard reset via RTS.
+   - Live hardware verification (`http://192.168.0.101/api/v1/well-pump`): confirmed `maxRuntimeSec: 3600`.
    - `node scripts/test_well_pump_scenarios.mjs`: 24/24 PASS.
    - `npm test`: PASS.
    - `npx tsc --noEmit`: PASS.

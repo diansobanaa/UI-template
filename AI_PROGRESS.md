@@ -21,11 +21,13 @@
   - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`: Added Section 62 documenting all 4 actuator group runtime limits.
   - `scripts/test_well_pump_scenarios.mjs`: Updated all 24 verification test scenarios to 3600s.
 - **Verification**:
+  - IDF compilation & Flashing `python scripts/run_idf.py -p COM3 flash`: PASS (Binary 0x18be40 bytes flashed to COM3, hash verified, hard reset via RTS).
+  - Live hardware verification (`http://192.168.0.101/api/v1/well-pump`): PASS (`maxRuntimeSec: 3600` active on live hardware).
   - `node scripts/test_well_pump_scenarios.mjs`: PASS (24/24 passed).
   - `npm test`: PASS (28/28 endpoints, 26 C handlers, mock REST E2E passed).
   - `npx tsc --noEmit`: PASS (Zero TypeScript errors).
 - **Changed Files**: `esp32/main/services/safety_monitor.c`, `esp32/main/services/well_pump_mgr.h`, `esp32/main/services/well_pump_mgr.c`, `esp32/main/services/command_mgr.c`, `esp32/main/http/api_device_handlers.c`, `esp32/main/hal/hardware_registry.c`, `src/components/WellPumpControlCard.tsx`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`, `contracts/UI_ESP32_OPENAPI.yaml`, `UI_ESP32_COMMUNICATION_SPEC.md`, `docs/POWER_MAP.md`, `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`, `scripts/test_well_pump_scenarios.mjs`.
-- **Next Action**: Flash updated firmware to physical hardware when ready.
+- **Next Action**: Monitor operational runtime during field usage.
 
 ## SP-GH-BLOWER-FAN-FIX-001
 - **Date**: 2026-10-08
