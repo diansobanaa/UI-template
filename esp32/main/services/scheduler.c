@@ -1398,12 +1398,6 @@ esp_err_t scheduler_clear_compiled(void) {
   return err;
 }
 
-static bool __attribute__((unused)) same_resource(const resource_claim_t *a,
-                          const resource_claim_t *b) {
-  return a && b && a->resource_id[0] &&
-         strcmp(a->resource_id, b->resource_id) == 0;
-}
-
 static scheduler_resource_lock_t *find_resource_lock(const char *resource_id) {
   if (!resource_id || !resource_id[0])
     return NULL;

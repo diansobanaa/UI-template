@@ -73,11 +73,9 @@ typedef struct {
   uint32_t dosing_runtime_observed_ms[FERT_MAX_DOSING_CHANNELS];
   uint32_t active_dosing_channel_idx;
   bool raw_water_filling_done;
-  bool dosing_mutex_held;
 } preparation_slot_t;
 
 static EXT_RAM_BSS_ATTR preparation_slot_t s_prep_slots[FERT_MAX_PREPARATION_SLOTS];
-static SemaphoreHandle_t s_dosing_mutex = NULL;
 static int64_t s_run_start_ms = 0, s_run_end_ms = 0;
 static int64_t s_phase_ts[10] = {0};
 static uint32_t s_state_start_ms = 0;
@@ -211,14 +209,6 @@ static bool active_run_state(fertigation_state_t s) {
 }
 static bool op_component(const char *id) {
   return id && id[0] && hardware_registry_is_operational(id);
-}
-static bool text_has(const char *a, const char *b) {
-  return a && b && strcasestr(a, b) != NULL;
-}
-static bool assigned_to(const hw_component_info_t *c, const char *gh) {
-  if (!c)
-    return false;
-  return !c->assignment.gh_id[0] || strcasecmp(c->assignment.gh_id, gh) == 0;
 }
 static uint32_t now_ms(void) {
   return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -856,20 +846,6 @@ static void clear_recovery(void) {
   }
 }
 
-// ITEM-3: Clear recovery for a specific slot only (not all slots).
-static void clear_recovery_for_slot(int slot_idx) {
-  if (slot_idx < 0 || slot_idx >= FERT_MAX_PREPARATION_SLOTS)
-    return;
-  nvs_handle_t h;
-  if (nvs_open(FERT_RECOVERY_NS, NVS_READWRITE, &h) == ESP_OK) {
-    char key[24];
-    snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, slot_idx);
-    nvs_erase_key(h, key);
-    nvs_commit(h);
-    nvs_close(h);
-  }
-}
-
 // UNIFIED CHECKPOINT: Lightweight 3-second checkpoint writer
 static void fertigation_mgr_save_checkpoint(void) {
   fert_checkpoint_t cp_data;
@@ -1337,11 +1313,6 @@ static bool precheck(void) {
       level.value < 1.0f)
     return false;
   return true;
-}
-
-static const char *json_string_or_null(cJSON *object, const char *key) {
-  cJSON *v = cJSON_GetObjectItem(object, key);
-  return (v && cJSON_IsString(v) && v->valuestring[0]) ? v->valuestring : NULL;
 }
 
 static bool parse_u32(cJSON *object, const char *key, uint32_t *out,
