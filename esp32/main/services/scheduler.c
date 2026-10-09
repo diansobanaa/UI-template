@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
+#include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -39,6 +40,8 @@ static const char *TAG = "SCHEDULER";
 #define NVS_KEY_MARKERS "sched_marks"
 #define SPIFFS_SCHEDULE_INTENTS_FILE "/spiffs/sched_intents.json"
 #define SPIFFS_SCHEDULE_MARKERS_FILE "/spiffs/sched_markers.bin"
+#define SPIFFS_SCHEDULE_MARKERS_TMP_FILE "/spiffs/sched_markers.bin.tmp"
+#define MARKER_PERSIST_CHUNK_BYTES 512U
 #define SCHEDULER_TICK_MS 1000U
 #define CLOCK_VALID_YEAR 120
 
@@ -506,12 +509,33 @@ static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf) {
     return ESP_ERR_INVALID_ARG;
 
   /* Primary storage: SPIFFS (9MB) to avoid exhausting 24KB NVS */
-  int fd = open(SPIFFS_SCHEDULE_MARKERS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int fd = open(SPIFFS_SCHEDULE_MARKERS_TMP_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd >= 0) {
     size_t to_write = sizeof(scheduler_marker_t) * MAX_COMPILED_SCHEDULES;
-    ssize_t written = write(fd, buf, to_write);
-    close(fd);
-    if ((size_t)written == to_write) {
+    const uint8_t *data = (const uint8_t *)buf;
+    size_t offset = 0;
+    bool write_ok = true;
+    while (offset < to_write) {
+      size_t chunk = to_write - offset;
+      if (chunk > MARKER_PERSIST_CHUNK_BYTES) chunk = MARKER_PERSIST_CHUNK_BYTES;
+      ssize_t written = write(fd, data + offset, chunk);
+      if (written <= 0) {
+        write_ok = false;
+        break;
+      }
+      offset += (size_t)written;
+      /*
+       * Each individual SPIFFS write is bounded. Feeding only between complete
+       * VFS writes preserves the watchdog while avoiding interruption inside a
+       * filesystem operation.
+       */
+      esp_task_wdt_reset();
+    }
+    if (write_ok && fsync(fd) != 0) write_ok = false;
+    bool close_ok = close(fd) == 0;
+    if (!close_ok) write_ok = false;
+    if (write_ok && offset == to_write &&
+        rename(SPIFFS_SCHEDULE_MARKERS_TMP_FILE, SPIFFS_SCHEDULE_MARKERS_FILE) == 0) {
       /* Ensure legacy sched_marks is scrubbed from NVS */
       nvs_handle_t handle;
       if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
@@ -521,6 +545,7 @@ static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf) {
       }
       return ESP_OK;
     }
+    (void)unlink(SPIFFS_SCHEDULE_MARKERS_TMP_FILE);
   }
 
   /* Fallback to NVS only if SPIFFS is unavailable */
@@ -576,7 +601,16 @@ static void marker_persist_task(void *pvParameters) {
       portEXIT_CRITICAL(&s_marker_spinlock);
 
       // Stage 2: Tulis NVS di LUAR s_mutex. Bisa memakan 100-500ms.
-      (void)persist_markers_from_buffer(s_marker_snapshot);
+      esp_err_t persist_err = persist_markers_from_buffer(s_marker_snapshot);
+      if (persist_err != ESP_OK) {
+        ESP_LOGE(TAG, "Marker persistence failed (%s); retaining pending state",
+                 esp_err_to_name(persist_err));
+        portENTER_CRITICAL(&s_marker_spinlock);
+        s_marker_persist_pending = true;
+        portEXIT_CRITICAL(&s_marker_spinlock);
+        xTaskNotifyGive(s_marker_persist_task_handle);
+        break;
+      }
 
       // Stage 3: Cek apakah ada update baru yang masuk selama Stage 2. Jika
       // ya, ulangi seluruh siklus; jika tidak, selesai dan tunggu notifikasi

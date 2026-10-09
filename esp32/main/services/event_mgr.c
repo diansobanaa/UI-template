@@ -221,6 +221,20 @@ esp_err_t event_mgr_init(void)
     if (s_initialized) return ESP_OK;
 
     (void)allocate_sequence_locked();
+    /*
+     * Reserve the next block while initialization is still on the internal
+     * main-task stack. Runtime actuator/calibration tasks must not fall back
+     * into NVS allocation from their smaller stacks when the active block
+     * expires.
+     */
+    if (s_spare_block_first == 0) {
+        uint64_t first = 0;
+        if (storage_mgr_reserve_sequence_block("event_seq_end", EVENT_SEQUENCE_BLOCK, &first) == ESP_OK) {
+            s_spare_block_first = first;
+        } else {
+            ESP_LOGW(TAG, "Could not pre-reserve event sequence block; runtime allocation may degrade");
+        }
+    }
     esp_err_t err = log_internal(LOG_LEVEL_INFO, "SYSTEM", "SYS_BOOT",
                                   "System booted with local event history enabled", NULL, NULL, NULL, "esp32", NULL, 0);
     if (err != ESP_OK) s_storage_degraded = true;

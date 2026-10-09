@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test:m16": "node scripts/test_m16_no_legacy_operational_paths.mjs",
     "test:actuators": "node scripts/test_actuator_centralization.mjs",
+    "test:storage-calibration": "node scripts/test_storage_calibration_hardening.mjs",
     "test:m3:m4": "python3 scripts/test_m3_m4_hardening.py",
     "test:m13": "node scripts/test_m13_firmware_contract.mjs",
     "test:m14:m15": "python3 scripts/test_m14_m15.py",

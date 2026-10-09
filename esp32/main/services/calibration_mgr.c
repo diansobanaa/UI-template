@@ -17,6 +17,7 @@
 
 static const char *TAG = "CALIB_MGR";
 #define MAX_CAL_RECORDS 32
+#define CALIBRATION_TASK_STACK 4096
 
 static calibration_status_t s_ctx;
 static SemaphoreHandle_t s_mutex = NULL;
@@ -38,6 +39,12 @@ static mixing_result_t s_mixing_test_final_res;
 static bool s_mixing_test_has_result = false;
 static TaskHandle_t s_mixing_test_task_handle = NULL;
 
+static void log_calibration_stack(const char *point)
+{
+    UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+    ESP_LOGI(TAG, "calib_mgr stack_hwm_%s=%u B", point,
+             (unsigned)(free_words * sizeof(StackType_t)));
+}
 
 static void copy_str(char *dst, size_t len, const char *src)
 {
@@ -293,6 +300,7 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
 static void calibration_worker_task(void *arg)
 {
     (void)arg;
+    log_calibration_stack("start");
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(200));
         if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) continue;
@@ -305,6 +313,7 @@ static void calibration_worker_task(void *arg)
                 }
             }
             if (actuator_hal_is_emergency_stopped()) {
+                log_calibration_stack("before_emergency_off");
                 actuator_hal_request_component(s_ctx.component_id, false,
                                                ACTUATOR_SOURCE_SAFETY,
                                                "calibration_emergency_stop");
@@ -315,10 +324,12 @@ static void calibration_worker_task(void *arg)
                                          "calibration_emergency_stop_legacy");
                     actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
                 }
+                log_calibration_stack("after_emergency_off");
                 copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "EMERGENCY_STOP");
                 s_ctx.state = CALIBRATION_STATE_ERROR;
                 s_ctx.remaining_sec = 0;
             } else if (elapsed >= s_ctx.duration_sec) {
+                log_calibration_stack("before_complete_off");
                 actuator_hal_request_component(s_ctx.component_id, false,
                                                ACTUATOR_SOURCE_CALIBRATION,
                                                "calibration_complete");
@@ -329,6 +340,7 @@ static void calibration_worker_task(void *arg)
                                          "calibration_complete_legacy");
                     actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
                 }
+                log_calibration_stack("after_complete_off");
                 s_ctx.state = CALIBRATION_STATE_COMPLETE;
                 s_ctx.remaining_sec = 0;
             } else {
@@ -349,8 +361,14 @@ esp_err_t calibration_mgr_init(void)
     s_ctx.state = CALIBRATION_STATE_IDLE;
     s_ctx.pump_id = ACTUATOR_MAX_COUNT;
     load_persisted();
-    /* STACK-TUNING: measured peak used 740 B. 2560 B provides 1820 B (>240%) margin, saving 1536 B internal DRAM. */
-    xTaskCreatePinnedToCore(calibration_worker_task, "calib_mgr", 2560, NULL, 3, NULL, 1);
+    /*
+     * The previous 2560-byte tuning predates centralized actuator request
+     * logging. The OFF path now includes actuator validation, event creation,
+     * and deferred persistence signaling; keep a measured high-water log at
+     * those boundaries and provide bounded headroom for that call chain.
+     */
+    xTaskCreatePinnedToCore(calibration_worker_task, "calib_mgr",
+                            CALIBRATION_TASK_STACK, NULL, 3, NULL, 1);
     ESP_LOGI(TAG, "Calibration manager ready with %u versioned records", (unsigned)s_record_count);
     return ESP_OK;
 }

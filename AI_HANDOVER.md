@@ -52,6 +52,46 @@ ESP32-S3 on `COM3`.
 Software flashing is verified, but physical actuator operation, motor rotation,
 and load-current behavior still require controlled hardware observation.
 
+# AI HANDOVER - SP-RESILIENCE-WDT-CALIB-001
+
+## Current status
+Two independent restart paths were hardened and the firmware build passed.
+The new firmware has not yet been flashed.
+
+## Root-cause evidence
+- `mk_persist` is a CPU 1, priority 2, 3072-byte, WDT-registered task. It
+  previously wrote the complete 32-entry marker snapshot in one SPIFFS
+  `write()`. The observed backtrace entered SPIFFS GC and exceeded the 5-second
+  task-WDT window.
+- `calib_mgr` is a separate CPU 1, priority 3 task. Its 2560-byte stack tuning
+  predates centralized actuator request/event logging. The observed corrupted
+  overflow trace does not prove a single deepest callee, so high-water logging
+  was added around the actuator OFF transitions.
+- Event sequence allocation could perform NVS work from a runtime caller when
+  the active sequence block was exhausted, increasing stack demand in the
+  calibration/actuator path.
+
+## Changes
+- `scheduler.c`: bounded 512-byte writes to a temporary marker file,
+  watchdog feed only between completed writes, `fsync`, close error handling,
+  atomic rename, and retry-on-failure pending preservation.
+- `event_mgr.c`: spare sequence block pre-reserved during initialization with
+  explicit degraded warning on failure.
+- `calibration_mgr.c`: stack raised to 4096 bytes with byte-based
+  `uxTaskGetStackHighWaterMark()` diagnostics at startup and OFF transitions.
+- Added `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md` and
+  `scripts/test_storage_calibration_hardening.mjs`.
+
+## Verification
+- Static storage/calibration checks: PASS.
+- Actuator centralization checks: PASS.
+- API contract tests (28/28): PASS.
+- Type-check and frontend build: PASS.
+- ESP-IDF firmware build: PASS; 48% app partition free.
+- Hardware runtime verification: PENDING; do not claim the incidents are fixed
+  until serial observation confirms no restart and records stack high-water
+  margins.
+
 # AI HANDOVER - SP-POLL-OVERLAP-002
 
 ## Current status

@@ -41,6 +41,32 @@
 - **Known issues**: Physical actuator operation and motor/load behavior remain unverified.
 - **Next action**: Observe serial/runtime behavior and verify actuator operation under controlled hardware conditions.
 
+## SP-RESILIENCE-WDT-CALIB-001
+- **Date**: 2026-10-09
+- **Status**: `IMPLEMENTED & BUILD-VERIFIED; HARDWARE VALIDATION PENDING`
+- **Objective**: Address the independent scheduler-marker SPIFFS watchdog incident and calibration-worker stack-overflow incident without weakening watchdog, actuator safety, or persistence durability.
+- **Confirmed findings**:
+  - `mk_persist` was WDT-registered on CPU 1 and performed a whole fixed marker snapshot write through SPIFFS; the observed backtrace entered SPIFFS garbage collection during `write()`.
+  - `calib_mgr` was a separate CPU 1 task with a 2560-byte stack. The corrupted overflow backtrace cannot identify the deepest callee, but the old tuning predates centralized actuator request/event logging.
+  - Event sequence allocation could fall back to NVS from a runtime actuator/calibration caller when its sequence block expired.
+- **Implemented**:
+  - Marker snapshots now write to a temporary SPIFFS file in bounded 512-byte writes, feed WDT only between completed VFS writes, `fsync`, close-check, and atomically rename on success.
+  - Marker persistence failures remove the temporary file, restore the pending flag, and retry; the previous committed marker file remains intact.
+  - Event manager pre-reserves a spare sequence block during initialization on the main task's internal stack and logs reservation failure explicitly.
+  - Calibration worker stack increased from 2560 to 4096 bytes with high-water logging at startup and around emergency/completion OFF transitions.
+  - Added static regression checks in `scripts/test_storage_calibration_hardening.mjs` and canonical documentation in `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`.
+- **Verification**:
+  - `npm run test:storage-calibration`: PASS.
+  - `npm run test:actuators`: PASS.
+  - `npm test`: PASS; 28/28 endpoint checks.
+  - `npx tsc --noEmit`: PASS.
+  - `npm run build`: PASS.
+  - ESP-IDF firmware build: PASS; 48% app partition free.
+  - `git diff --check`: PASS.
+- **Changed files**: `esp32/main/services/scheduler.c`, `esp32/main/services/event_mgr.c`, `esp32/main/services/calibration_mgr.c`, `scripts/test_storage_calibration_hardening.mjs`, `package.json`, `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues**: SPIFFS free-space/fragmentation and post-fix calibration high-water values require serial observation on hardware. Firmware was built but not flashed in this safe point.
+- **Next action**: Flash the new firmware to the target, capture boot/storage diagnostics, exercise calibration OFF and marker persistence, and verify no WDT or stack-overflow restart.
+
 ## SP-POLL-OVERLAP-002
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Firmware Build PASS, ESP32 Flash PASS, Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)
