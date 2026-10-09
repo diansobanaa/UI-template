@@ -171,6 +171,11 @@ static void add_sensor_sample(cJSON *samples, const sensor_descriptor_t *descrip
     else cJSON_AddNullToObject(item, "calibrationId");
     if (descriptor->calibration_version > 0) cJSON_AddNumberToObject(item, "calibrationVersion", descriptor->calibration_version);
     else cJSON_AddNullToObject(item, "calibrationVersion");
+    if (sample->max_retries > 0) {
+        cJSON_AddStringToObject(item, "retryState", sensor_retry_state_to_str(sample->retry_state));
+        cJSON_AddNumberToObject(item, "retryCount", sample->retry_count);
+        cJSON_AddNumberToObject(item, "maxRetries", sample->max_retries);
+    }
     cJSON_AddItemToArray(samples, item);
 }
 
@@ -301,6 +306,19 @@ static cJSON *build_current_json_from_snap(const char *greenhouse_id, const tele
     cJSON_AddNumberToObject(values, "waterLevelPct", snap->water_level_pct);
     cJSON_AddNumberToObject(values, "flowRateLpm", snap->flow_rate_lpm);
     cJSON_AddNumberToObject(values, "totalLiters", snap->total_liters);
+
+    sensor_retry_state_t dht_st = SENSOR_RETRY_STATE_ONLINE;
+    uint8_t dht_cnt = 0;
+    if (sensor_hal_get_retry_info("sensor_dht22", &dht_st, &dht_cnt) == ESP_OK) {
+        cJSON_AddStringToObject(values, "dht22RetryState", sensor_retry_state_to_str(dht_st));
+        cJSON_AddNumberToObject(values, "dht22RetryCount", dht_cnt);
+    }
+    sensor_retry_state_t ds_st = SENSOR_RETRY_STATE_ONLINE;
+    uint8_t ds_cnt = 0;
+    if (sensor_hal_get_retry_info("temp_ds18b20", &ds_st, &ds_cnt) == ESP_OK) {
+        cJSON_AddStringToObject(values, "ds18b20RetryState", sensor_retry_state_to_str(ds_st));
+        cJSON_AddNumberToObject(values, "ds18b20RetryCount", ds_cnt);
+    }
 
     if (descriptors) free(descriptors);
     return root;

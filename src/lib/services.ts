@@ -869,6 +869,26 @@ export const telemetryService = {
   },
 };
 
+export const sensorService = {
+  async retry(sensorId: string, complexId?: string, ghId?: string): Promise<{ sensorId: string; status: string; retryState: string; retryCount: number; maxRetries: number }> {
+    const res = await esp32Client.retrySensor(sensorId);
+    if (complexId) {
+      const cached = telemetryService.getCachedCurrent(complexId, ghId || "");
+      if (cached && cached.values) {
+        if (sensorId.toLowerCase().includes("dht22") || sensorId.toLowerCase().includes("temperature") || sensorId.toLowerCase().includes("humidity")) {
+          cached.values.dht22RetryState = "RETRYING";
+          cached.values.dht22RetryCount = 0;
+        }
+        if (sensorId.toLowerCase().includes("ds18b20") || sensorId.toLowerCase().includes("water")) {
+          cached.values.ds18b20RetryState = "RETRYING";
+          cached.values.ds18b20RetryCount = 0;
+        }
+      }
+    }
+    return res;
+  },
+};
+
 /* -------------------------- schedules ---------------------------- */
 
 function repeatToTrigger(item: { repeat: string; trigger?: string; time: string; endTime?: string; date?: string; intervalHours?: number; intervalMin?: number; days?: string[] }): Record<string, unknown> {

@@ -470,6 +470,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CommandResponse"
+
+  /api/v1/sensors/{sensorId}/retry:
+    post:
+      tags: [Device]
+      summary: Trigger manual sensor acquisition retry under sensor_retry_max10 protocol
+      operationId: retrySensor
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          description: Sensor identifier (e.g. sensor_dht22, temp_ds18b20, sensor_light)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Manual retry accepted; fresh recovery episode initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensorId: { type: string }
+                  status: { type: string, example: "ACCEPTED" }
+                  retryState: { type: string, example: "RETRYING" }
+                  retryCount: { type: integer, example: 0 }
+                  maxRetries: { type: integer, example: 10 }
+                  message: { type: string }
+        "404":
+          description: Unknown sensor identifier
+        "409":
+          description: Retry operation is already pending or in progress
+        "422":
+          description: Sensor is out of scope or invalid
+
   /api/v1/schedule-intents:
     get:
       tags: [Schedules]
@@ -2759,6 +2792,7 @@ components:
             targetComplexId: { type: string, nullable: true }
             targetGhId: { type: string, nullable: true }
             componentId: { type: string, nullable: true }
+            sensorId: { type: string, nullable: true, description: "Target sensor identifier for SENSOR_RETRY commands" }
             resourceId: { type: string, nullable: true }
             durationSeconds: { type: integer, minimum: 0, nullable: true }
             maxRuntimeSec: { type: integer, minimum: 1, nullable: true }

@@ -16,9 +16,27 @@ typedef enum {
     SENSOR_STATE_TIMEOUT,
     SENSOR_STATE_DISCONNECTED,
     SENSOR_STATE_OUT_OF_RANGE,
-    SENSOR_STATE_UNAVAILABLE
+    SENSOR_STATE_UNAVAILABLE,
+    SENSOR_STATE_RETRY_EXHAUSTED
 } sensor_state_t;
 
+/* sensor_retry_max10 Protocol states */
+typedef enum {
+    SENSOR_RETRY_STATE_ONLINE = 0,
+    SENSOR_RETRY_STATE_RETRYING,
+    SENSOR_RETRY_STATE_RETRY_EXHAUSTED,
+    SENSOR_RETRY_STATE_UNAVAILABLE,
+    SENSOR_RETRY_STATE_STALE
+} sensor_retry_state_t;
+
+typedef struct {
+    sensor_retry_state_t state;
+    uint8_t retry_count;          /* 0 when online/idle; 1..10 during retries; 10 when exhausted */
+    bool in_failure_episode;      /* true once initial attempt fails */
+    bool manual_retry_pending;    /* true when operator triggered manual retry */
+    int64_t last_attempt_ms;
+    int64_t next_retry_ms;
+} sensor_retry_tracker_t;
 
 typedef enum {
     SENSOR_TYPE_TEMPERATURE = 0,
@@ -58,6 +76,10 @@ typedef struct {
     char calibration_reference[40];
     char calibration_type[24];
     bool has_value;
+    /* sensor_retry_max10 protocol */
+    sensor_retry_state_t retry_state;
+    uint8_t retry_count;
+    uint8_t max_retries;
 } sensor_component_sample_t;
 
 typedef struct {
@@ -68,6 +90,12 @@ typedef struct {
     float dht22_temperature_c;
     float dht22_humidity_rh;
     sensor_state_t dht22_state;
+
+    /* sensor_retry_max10 Protocol fields */
+    sensor_retry_state_t dht22_retry_state;
+    uint8_t dht22_retry_count;
+    sensor_retry_state_t ds18b20_retry_state;
+    uint8_t ds18b20_retry_count;
 
     /* RAW WATER FLOW SENSOR (ZJ-B1, GPIO 15) */
     float flow_rate_raw_zjb1_lpm;
@@ -133,6 +161,12 @@ esp_err_t sensor_hal_get_component_sample(const char *sensor_id, sensor_componen
 /** Return accumulated measured volume in mL for a configured FLOW sensor. */
 esp_err_t sensor_hal_get_component_accumulated_ml(const char *sensor_id, uint32_t *out_ml);
 size_t sensor_hal_list_configured(sensor_descriptor_t *out_descriptors, size_t max_count);
+
+/* sensor_retry_max10 protocol functions */
+const char *sensor_retry_state_to_str(sensor_retry_state_t state);
+bool sensor_hal_is_retry_eligible(const char *sensor_id);
+esp_err_t sensor_hal_manual_retry(const char *sensor_id);
+esp_err_t sensor_hal_get_retry_info(const char *sensor_id, sensor_retry_state_t *out_state, uint8_t *out_count);
 
 #ifdef __cplusplus
 }

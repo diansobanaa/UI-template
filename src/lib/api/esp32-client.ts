@@ -424,6 +424,25 @@ export class Esp32Client {
     });
   }
 
+  /**
+   * Unified helper to manually retry a sensor under sensor_retry_max10 protocol.
+   */
+  async retrySensor(sensorId: string): Promise<{ sensorId: string; status: string; retryState: string; retryCount: number; maxRetries: number; message?: string }> {
+    try {
+      return await this.postEnveloped<{ sensorId: string; status: string; retryState: string; retryCount: number; maxRetries: number; message?: string }>(
+        `/api/v1/sensors/${encodeURIComponent(sensorId)}/retry`,
+        {}
+      );
+    } catch (err: any) {
+      if (err?.code === "SENSOR_OUT_OF_SCOPE" || err?.code === "RETRY_IN_PROGRESS") {
+        throw err;
+      }
+      const cmdId = `retry-${sensorId}-${Date.now()}`;
+      await this.postCommand(cmdId, "SENSOR_RETRY", { componentId: sensorId });
+      return { sensorId, status: "ACCEPTED", retryState: "RETRYING", retryCount: 0, maxRetries: 10 };
+    }
+  }
+
   /* -------------------------- Canonical Crop Cycle (OpenAPI) -------------------------- */
 
   async getCurrentCropCycle(ghId: string): Promise<CurrentCropCycleResponse> {

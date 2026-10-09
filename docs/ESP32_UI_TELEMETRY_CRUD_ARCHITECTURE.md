@@ -1833,4 +1833,105 @@ OPERATOR ACTIONS:
    - When the physical DHT22 sensor is disconnected or unreadable, `quality: BAD` and `measurementType: UNAVAILABLE` with `value: null` are emitted.
    - Both Web UI and TFT render the unavailable state (`--.-` / `--%`) without mock numbers, NaN, or system faults.
 
+---
+
+# 37. Unified Sensor Retry & Recovery Protocol (`sensor_retry_max10`)
+
+## 37.1 Problem Statement & Root-Cause Analysis
+Prior to this protocol, sensor acquisition failures (e.g. DHT22 on GPIO 41 or DS18B20 on GPIO 17) retried indefinitely. In `sensor_hal.c`, read errors rewound polling timestamps by `(INTERVAL - 3000ms)` or `(INTERVAL - 2000ms)` on every failure without any streak limit or budget counter. This caused continuous CPU cycling, indefinite peripheral re-triggering, and repeated log spamming every 2–3 seconds:
+```text
+W DHT22: DHT22 timeout Phase C (wait high). cur_lvl=0
+W SENSOR_HAL: DHT22 read attempt on GPIO 41: err=263 (ESP_ERR_TIMEOUT) -> retrying in 3000 ms
+```
+
+## 37.2 Mandatory Scope & Sensor Category Isolation
+The `sensor_retry_max10` protocol applies **exclusively** to environmental and physical sensing probes:
+1. **Air Temperature Sensors** (e.g., DHT22 on GPIO 41).
+2. **Water Temperature Sensors** (e.g., DS18B20 on GPIO 17).
+3. **Relative Humidity Sensors** (e.g., DHT22 on GPIO 41).
+4. **Light Intensity Sensors** (e.g., analog/I2C lux sensors).
+5. **Rain Sensors** (when present).
+
+**Explicit Exclusions:** Pumps, valves, relays, dosing equipment, flow meters, water level switches, and actuators are strictly excluded from this protocol and follow their respective mechanical safety interlocks.
+
+## 37.3 Protocol State Machine & Budget Rules
+Each eligible sensor is governed by an independent `sensor_retry_tracker_t`:
+
+```text
+    ┌─────────────────────────┐
+    │         ONLINE          │ ◄──────────┐
+    └────────────┬────────────┘            │
+                 │ initial read fails      │
+                 ▼                         │
+    ┌─────────────────────────┐            │
+    │        RETRYING         │            │
+    │  (retry_count: 0 -> 9)  │            │
+    └────────────┬────────────┘            │
+                 │ 10th retry fails        │ Valid read obtained
+                 ▼                         │
+    ┌─────────────────────────┐            │
+    │     RETRY_EXHAUSTED     │            │
+    │    (retries halted)     │            │
+    └────────────┬────────────┘            │
+                 │ Manual Retry requested  │
+                 ▼                         │
+         Reset episode &                   │
+         perform initial read ─────────────┘
+```
+
+1. **Initial Attempt & Budget Allocation**:
+   - The sensor performs its scheduled normal read.
+   - If successful, it publishes the reading and remains `ONLINE` with `retry_count = 0`.
+   - If the initial read fails, a failure episode begins with `retry_count = 0` and state transitions to `RETRYING`.
+   - Exactly **10 automatic retries** are permitted following the initial failed read (1 initial + 10 retries = 11 read attempts maximum per failure episode).
+   - Only actual retry attempts increment `retry_count` (1 to 10).
+2. **Retry Exhaustion (`RETRY_EXHAUSTED`)**:
+   - When the 10th automatic retry fails, the tracker transitions to `RETRY_EXHAUSTED` (`retry_count = 10`).
+   - All automatic hardware read attempts are halted immediately.
+   - The polling loop completely skips the sensor (`should_poll = false`).
+   - No timers are re-armed and no background tasks retry the hardware.
+   - Repeated timeout warnings are suppressed; a single diagnostic warning and error are logged:
+     ```text
+     [SENSOR_RETRY] DHT22 retry 10/10 failed
+     [SENSOR_RETRY] DHT22 state=RETRY_EXHAUSTED; automatic retries stopped
+     ```
+3. **Physical Sensor Mutual Binding (DHT22)**:
+   - DHT22 is a single physical component providing both Air Temperature and Relative Humidity.
+   - Both measurements share the identical `s_dht22_tracker`.
+   - Air Temperature and Humidity UI cards both observe and bind to this shared tracker.
+   - Triggering a manual retry from either card resets the single shared DHT22 tracker, eliminating conflicting acquisition loops.
+4. **Per-Sensor Isolation**:
+   - DS18B20 and DHT22 maintain separate trackers (`s_ds18b20_tracker` vs `s_dht22_tracker`).
+   - Exhaustion of DHT22 has zero impact on DS18B20 polling and vice versa.
+   - Missing readings are emitted as `null` / `UNAVAILABLE`. DS18B20 water temperature is never substituted for missing DHT22 air temperature, and missing measurements are never fabricated or zeroed.
+
+## 37.4 Manual Recovery & API Contract
+1. **REST Endpoint**:
+   - `POST /api/v1/sensors/{sensorId}/retry`
+   - Validates `sensorId` against eligible sensor identifiers (`dht22`, `sensor_dht22`, `sensor_dht22_temp`, `sensor_dht22_hum`, `ds18b20`, `temp_ds18b20`, `water_temperature`, `sensor_light`, `sensor_rain`).
+   - Non-eligible components (e.g. pumps, valves) or unknown sensor IDs return HTTP `422 Unprocessable Entity`.
+   - In-flight duplicate requests return HTTP `409 Conflict`.
+2. **Command Pipeline Integration**:
+   - Also supported asynchronously via command queue: `POST /api/v1/commands` with `cmdType: "SENSOR_RETRY"` and payload `{ "sensorId": "sensor_dht22" }`.
+3. **Recovery Execution**:
+   - Resets tracker state to `RETRYING`, clears failure episode, and schedules an immediate read attempt (`manual_retry_pending = true`).
+   - If the initial recovery read fails, a fresh budget of 10 automatic retries is allocated.
+   - If a valid reading is obtained, tracker returns to `ONLINE`.
+
+## 37.5 Web UI Integration & Presentation
+The `SensorRetryBadge` component (`src/components/ui/SensorRetryBadge.tsx`) provides real-time state indication and manual recovery:
+- **`ONLINE`**: Green badge `● Online`. Retry button hidden.
+- **`RETRYING`**: Pulsing amber badge `Retry X/10` with spinning icon.
+- **`RETRY_EXHAUSTED`**: Rose badge `10/10 Exhausted` with prominent `[ Retry ]` button.
+- **`STALE`**: Amber badge `Stale` with `[ Retry ]` button.
+- **`UNAVAILABLE`**: Slate badge `Unavailable` with `[ Retry ]` button.
+
+State updates stream automatically over WebSocket (`/api/v1/telemetry/stream`) and REST telemetry snapshots (`dht22RetryState`, `dht22RetryCount`, `ds18b20RetryState`, `ds18b20RetryCount`) without page reloads.
+
+## 37.6 Offline & Persistence Architecture
+- **RAM-First Execution**: Retry counters and failure states are maintained exclusively in internal RAM. Counters are deliberately not written to Flash/NVS on every polling attempt to prevent flash memory wear.
+- **Local Autonomy**: All retry limits and backoffs are computed locally on the ESP32 without relying on backend or cloud connectivity.
+- **Reboot Behavior**: Upon controller reboot, RAM is cleanly initialized. The sensor starts in `ONLINE`/`UNAVAILABLE` and begins a fresh acquisition attempt. If the hardware is disconnected, it executes 1 initial attempt and up to 10 automatic retries before safely halting at `RETRY_EXHAUSTED`, strictly preventing uncontrolled infinite retry loops.
+
+
 

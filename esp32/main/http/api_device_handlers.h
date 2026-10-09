@@ -53,6 +53,7 @@ esp_err_t handler_harvest_crop_cycle(httpd_req_t *req);
 /* Telemetry & Events Handlers */
 esp_err_t handler_get_telemetry(httpd_req_t *req);
 esp_err_t handler_get_events(httpd_req_t *req);
+esp_err_t handler_post_sensor_retry(httpd_req_t *req);
 
 /* Universal OPTIONS Preflight Handler */
 esp_err_t handler_options_preflight(httpd_req_t *req);

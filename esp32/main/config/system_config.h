@@ -59,6 +59,8 @@ extern "C" {
 #define DHT22_POLL_INTERVAL_MS    60000  /* 1 min — ambient changes slowly, reduces critical-section load */
 #define DHT22_RETRY_INTERVAL_MS   3000   /* 3 s — immediate back-off retry on transient noise (CRC/response) */
 #define DS18B20_POLL_INTERVAL_MS  20000  /* 20 s — water temperature */
+#define DS18B20_RETRY_INTERVAL_MS 2000   /* 2 s — back-off retry on 1-wire noise */
+#define SENSOR_RETRY_MAX_ATTEMPTS 10     /* sensor_retry_max10: max 10 automatic retries after initial failed read */
 
 /* Hardware Feature Flags */
 #ifndef FEATURE_MICROSD_ENABLED

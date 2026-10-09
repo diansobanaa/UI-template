@@ -4,6 +4,7 @@
 #include "storage/storage_mgr.h"
 #include "cJSON.h"
 #include "services/command_mgr.h"
+#include "hal/sensor_hal.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -190,6 +191,22 @@ static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char
         cmd->param_on = false;
         if (!cmd->component_id[0]) {
             strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
+        }
+    } else if (strcmp(type, "SENSOR_RETRY") == 0 || strcmp(type, "RETRY_SENSOR") == 0) {
+        cmd->type = CMD_TYPE_SENSOR_RETRY;
+        const char *sid = json_string(payload, "sensorId");
+        if (sid && sid[0]) {
+            strncpy(cmd->component_id, sid, sizeof(cmd->component_id) - 1);
+        }
+        if (!cmd->component_id[0]) {
+            snprintf(code, code_len, "SENSOR_ID_REQUIRED");
+            snprintf(message, message_len, "SENSOR_RETRY requires sensorId or componentId.");
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (!sensor_hal_is_retry_eligible(cmd->component_id)) {
+            snprintf(code, code_len, "SENSOR_OUT_OF_SCOPE");
+            snprintf(message, message_len, "Sensor '%s' is not eligible for sensor_retry_max10 protocol.", cmd->component_id);
+            return ESP_ERR_NOT_SUPPORTED;
         }
     } else {
         snprintf(code, code_len, "UNSUPPORTED_COMMAND_TYPE");

@@ -18,7 +18,8 @@ typedef enum {
     CMD_TYPE_EMERGENCY_STOP,
     CMD_TYPE_RESUME,
     CMD_TYPE_COMPONENT_TIMED,
-    CMD_TYPE_CUSTOM
+    CMD_TYPE_CUSTOM,
+    CMD_TYPE_SENSOR_RETRY
 } cmd_type_t;
 
 typedef enum {

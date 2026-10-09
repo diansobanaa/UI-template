@@ -1,3 +1,52 @@
+## SP-SENSOR-RETRY-MAX10-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, test_sensor_retry_max10 17/17 PASS, verify_e2e_contracts 4/4 PASS, npx tsc PASS)
+- **Objective**: Implement Unified Sensor Failure and Recovery Protocol (`sensor_retry_max10`) across AgroTech System:
+  1. Root-Cause Resolution: Removed indefinite rewind retry loops in `esp32/main/hal/sensor_hal.c`. Replaced with controlled `sensor_retry_max10` protocol enforcing 1 initial read attempt + maximum 10 automatic retries (11 read attempts maximum per failure episode).
+  2. Retry Exhaustion (`RETRY_EXHAUSTED`): When the 10th retry fails, automatic hardware reads and polling loops halt completely. No polling timers re-arm, no background polling tasks attempt reads, and repeated timeout warning spam is completely suppressed.
+  3. Scope & Per-Sensor Isolation: Strictly bounded to Air Temperature (DHT22), Water Temperature (DS18B20), Relative Humidity (DHT22), Light Intensity, and Rain sensors. Actuators, pumps, valves, and flow meters are strictly excluded. DHT22 failure has zero impact on DS18B20 and vice versa.
+  4. DHT22 Shared Physical Entity: Both Air Temperature and Relative Humidity bind to a single unified tracker (`s_dht22_tracker`). Triggering manual retry resets the single shared DHT22 tracker without duplicate acquisition loops.
+  5. Manual Recovery API & Pipeline: Implemented REST route `POST /api/v1/sensors/{sensorId}/retry` in `http_server.c` and `api_device_handlers.c`. Integrated command pipeline `CMD_TYPE_SENSOR_RETRY` in `command_mgr.c` and `api_command_handlers.c`. Rejects out-of-scope/unknown sensors with 422, rejects in-flight duplicates with 409.
+  6. Frontend Client & UI Integration: Added `SensorRetryBadge` (`src/components/ui/SensorRetryBadge.tsx`) with real-time status badges (`Online`, `Retry X/10`, `10/10 Exhausted`, `Stale`, `Unavailable`) and interactive `[ Retry ]` button. Integrated into metric cards, 24H environmental panel, and equipment list on `src/app/page.tsx` and `src/app/greenhouse/[ghId]/page.tsx`.
+  7. Offline & Reboot Resilience: Local enforcement on ESP32 without requiring cloud/backend connectivity. RAM-first tracking avoids flash wear; reboot starts fresh bounded episode without infinite loops.
+  8. Canonical Documentation: Added Section 37 to `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`.
+  9. Automated Test Suite: Created `scripts/test_sensor_retry_max10.mjs` verifying all 17 acceptance requirements from the specification.
+- **Implemented**:
+  - `esp32/main/config/system_config.h`
+  - `esp32/main/hal/sensor_hal.h`, `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/services/command_mgr.h`, `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_device_handlers.h`, `esp32/main/http/api_device_handlers.c`
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `src/lib/types.ts`, `src/lib/api/contracts.ts`
+  - `src/lib/api/esp32-client.ts`, `src/lib/services.ts`
+  - `src/lib/operational-state.ts`, `src/lib/api/telemetry-stream.ts`
+  - `src/components/ui/SensorRetryBadge.tsx`
+  - `src/app/page.tsx`, `src/app/greenhouse/[ghId]/page.tsx`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `scripts/test_sensor_retry_max10.mjs`
+- **Verification**:
+  - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: PASS (`agrotech_esp32.bin` built cleanly, 48% flash free).
+  - `node scripts/test_sensor_retry_max10.mjs`: PASS (17/17 acceptance tests).
+  - `node scripts/verify_e2e_contracts.mjs`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+  - `npx tsc --noEmit`: PASS (0 errors).
+- **Changed Files**:
+  - `esp32/main/config/system_config.h`, `esp32/main/hal/sensor_hal.h`, `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/services/command_mgr.h`, `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`, `esp32/main/http/api_device_handlers.h`, `esp32/main/http/api_device_handlers.c`, `esp32/main/http/http_server.c`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `src/lib/types.ts`, `src/lib/api/contracts.ts`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`
+  - `src/lib/operational-state.ts`, `src/lib/api/telemetry-stream.ts`
+  - `src/components/ui/SensorRetryBadge.tsx`
+  - `src/app/page.tsx`, `src/app/greenhouse/[ghId]/page.tsx`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `scripts/test_sensor_retry_max10.mjs`
+- **Git Commit**: Pending commit.
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-SENSOR-TEMP-SEPARATION-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Vite/React Frontend Build PASS, npm test PASS)

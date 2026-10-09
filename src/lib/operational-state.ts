@@ -400,6 +400,21 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                   if (espStatus.sensors.floatLowerOk !== undefined) {
                     g.telemetry.tankPct = espStatus.sensors.floatLowerOk ? 100 : 0;
                   }
+                  if (espStatus.sensors.dht22RetryState || espStatus.sensors.ds18b20RetryState) {
+                    g.telemetry.sensorRetries = {
+                      ...(g.telemetry.sensorRetries || {}),
+                      dht22: espStatus.sensors.dht22RetryState ? {
+                        state: espStatus.sensors.dht22RetryState,
+                        retryCount: Number(espStatus.sensors.dht22RetryCount ?? 0),
+                        maxRetries: 10,
+                      } : undefined,
+                      ds18b20: espStatus.sensors.ds18b20RetryState ? {
+                        state: espStatus.sensors.ds18b20RetryState,
+                        retryCount: Number(espStatus.sensors.ds18b20RetryCount ?? 0),
+                        maxRetries: 10,
+                      } : undefined,
+                    };
+                  }
                 }
               }
             }

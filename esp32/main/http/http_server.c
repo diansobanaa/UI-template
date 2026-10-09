@@ -539,6 +539,13 @@ esp_err_t http_server_start(void) {
                             .user_ctx = NULL};
   httpd_register_uri_handler(s_server, &uri_events);
 
+  /* Sensor Retry */
+  httpd_uri_t uri_sensor_retry = {.uri = "/api/v1/sensors/*/retry",
+                                  .method = HTTP_POST,
+                                  .handler = handler_post_sensor_retry,
+                                  .user_ctx = NULL};
+  httpd_register_uri_handler(s_server, &uri_sensor_retry);
+
   /* Crop Cycle Routes */
   httpd_uri_t uri_cc_get = {.uri = "/api/v1/greenhouses/*/crop-cycle",
                             .method = HTTP_GET,

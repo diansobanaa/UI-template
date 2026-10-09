@@ -408,6 +408,9 @@ export interface TelemetrySample {
   measurementType: "MEASURED" | "DERIVED" | "UNAVAILABLE" | "INVALID";
   calibrationId?: string | null;
   calibrationVersion?: number | null;
+  retryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+  retryCount?: number;
+  maxRetries?: number;
 }
 
 export interface TelemetrySnapshot {
@@ -715,6 +718,10 @@ export interface StatusResponse {
     humidityPct?: number | null;
     floatLowerOk?: boolean;
     tamperLoopOk?: boolean;
+    dht22RetryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+    dht22RetryCount?: number;
+    ds18b20RetryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+    ds18b20RetryCount?: number;
     [key: string]: unknown;
   };
   storage: Record<string, unknown>;
@@ -1134,6 +1141,10 @@ export interface TelemetryStreamBatch {
       dosingB: boolean;
       coolingFan: boolean;
     };
+    dht22RetryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+    dht22RetryCount?: number;
+    ds18b20RetryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+    ds18b20RetryCount?: number;
     [key: string]: unknown;
   }>;
   sequenceStart: number;

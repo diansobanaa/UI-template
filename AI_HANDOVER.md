@@ -1,3 +1,57 @@
+# AI HANDOVER - SP-SENSOR-RETRY-MAX10-001
+
+## Current status
+Unified sensor failure and recovery protocol (`sensor_retry_max10`) fully implemented, built, and verified across ESP32 firmware, REST API, and Web UI:
+1. **Root-Cause Resolved**:
+   - Firmware eliminated indefinite rewind retry loops in `esp32/main/hal/sensor_hal.c`.
+   - Enforced 1 initial read attempt + maximum 10 automatic retries (11 read attempts total per failure episode).
+   - Upon 10th failed retry, tracker transitions to `RETRY_EXHAUSTED` and all automatic read attempts stop.
+   - Background polling loops completely skip the exhausted sensor; zero repeated timeout spam in logs.
+2. **Scope & Sensor Isolation**:
+   - Scope strictly bounded to Air Temperature (DHT22), Water Temperature (DS18B20), Humidity (DHT22), Light intensity, and Rain sensors. Actuators, pumps, valves, and flow meters are strictly excluded.
+   - DHT22 and DS18B20 operate with independent state trackers; DHT22 failure does not disturb DS18B20 and vice versa.
+   - DHT22 provides both Air Temperature and Relative Humidity under a single unified tracker (`s_dht22_tracker`).
+3. **Manual Recovery & API Pipeline**:
+   - Direct REST endpoint `POST /api/v1/sensors/{sensorId}/retry` implemented in `http_server.c` and `api_device_handlers.c`.
+   - Asynchronous command pipeline `CMD_TYPE_SENSOR_RETRY` implemented in `command_mgr.c` and `api_command_handlers.c`.
+   - Input validation: rejects out-of-scope or unknown sensor IDs with HTTP 422; rejects in-flight duplicate triggers with HTTP 409.
+   - Initiating manual retry resets the exhausted state and starts a fresh acquisition attempt with up to 10 automatic retries.
+4. **Web UI Presentation**:
+   - Created reusable component `SensorRetryBadge` (`src/components/ui/SensorRetryBadge.tsx`).
+   - Visual states: `Online`, `Retry X/10` (pulsing), `10/10 Exhausted` (rose badge + interactive `[ Retry ]` button), `Stale`, `Unavailable`.
+   - Integrated into metric cards, 24H environmental panel, and equipment list on `src/app/page.tsx` and `src/app/greenhouse/[ghId]/page.tsx`.
+   - Live updates stream over WebSocket and REST status reconciliation without page reloads.
+5. **Persistence & Offline Policy**:
+   - Trackers operate in RAM; counters are not persisted to flash on every poll (preventing flash wear).
+   - Local autonomy: retries and limits are enforced locally on ESP32 without requiring cloud connectivity.
+   - Reboot initializes a clean episode in RAM with max 10 retries, preventing uncontrolled infinite retry loops.
+6. **Verifications**:
+   - `powershell -ExecutionPolicy Bypass -File scripts\build_esp32.ps1`: PASS (`agrotech_esp32.bin` built cleanly, 48% flash free).
+   - `node scripts/test_sensor_retry_max10.mjs`: PASS (17/17 acceptance tests).
+   - `node scripts/verify_e2e_contracts.mjs`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+   - `npx tsc --noEmit`: PASS (0 errors).
+7. **Changed Files**:
+   - `esp32/main/config/system_config.h`
+   - `esp32/main/hal/sensor_hal.h`, `esp32/main/hal/sensor_hal.c`
+   - `esp32/main/services/command_mgr.h`, `esp32/main/services/command_mgr.c`
+   - `esp32/main/http/api_command_handlers.c`
+   - `esp32/main/http/api_device_handlers.h`, `esp32/main/http/api_device_handlers.c`
+   - `esp32/main/http/http_server.c`
+   - `esp32/main/services/telemetry_mgr.c`
+   - `contracts/UI_ESP32_OPENAPI.yaml`
+   - `src/lib/types.ts`, `src/lib/api/contracts.ts`, `src/lib/api/esp32-client.ts`, `src/lib/services.ts`
+   - `src/lib/operational-state.ts`, `src/lib/api/telemetry-stream.ts`
+   - `src/components/ui/SensorRetryBadge.tsx`
+   - `src/app/page.tsx`, `src/app/greenhouse/[ghId]/page.tsx`
+   - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+   - `scripts/test_sensor_retry_max10.mjs`
+   - `AI_PROGRESS.md`
+   - `AI_HANDOVER.md`
+8. **Git Commit**: Pending commit.
+9. **Next Action**: Repository is at a stable, verified safe point.
+
+---
+
 # AI HANDOVER - SP-SENSOR-DECOUPLING-001
 
 ## Current status

@@ -170,6 +170,10 @@ esp_err_t handler_get_status(httpd_req_t *req)
     } else {
         cJSON_AddNullToObject(s_obj, "humidityPct");
     }
+    cJSON_AddStringToObject(s_obj, "dht22RetryState", sensor_retry_state_to_str(sensors.dht22_retry_state));
+    cJSON_AddNumberToObject(s_obj, "dht22RetryCount", sensors.dht22_retry_count);
+    cJSON_AddStringToObject(s_obj, "ds18b20RetryState", sensor_retry_state_to_str(sensors.ds18b20_retry_state));
+    cJSON_AddNumberToObject(s_obj, "ds18b20RetryCount", sensors.ds18b20_retry_count);
     cJSON_AddNumberToObject(s_obj, "flowRawZjb1Lpm", sensors.flow_rate_raw_zjb1_lpm);
     cJSON_AddNumberToObject(s_obj, "totalLitersRawZjb1", sensors.total_liters_raw_zjb1);
     cJSON_AddNumberToObject(s_obj, "totalPulsesRawZjb1", (double)sensors.total_pulses_raw_zjb1);
@@ -827,3 +831,51 @@ esp_err_t handler_post_well_pump(httpd_req_t *req)
     cJSON_Delete(body);
     return handler_get_well_pump(req);
 }
+
+esp_err_t handler_post_sensor_retry(httpd_req_t *req)
+{
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    const char *uri = req->uri;
+    const char *prefix = "/api/v1/sensors/";
+    const char *p = strstr(uri, prefix);
+    if (!p) return http_send_error(req, 422, "VALIDATION_FAILED", "Invalid sensor path", NULL);
+    p += strlen(prefix);
+    const char *suffix = "/retry";
+    const char *end = strstr(p, suffix);
+    if (!end) return http_send_error(req, 422, "VALIDATION_FAILED", "Missing /retry suffix", NULL);
+
+    char sensor_id[64] = {0};
+    size_t len = (size_t)(end - p);
+    if (len >= sizeof(sensor_id)) len = sizeof(sensor_id) - 1;
+    memcpy(sensor_id, p, len);
+    sensor_id[len] = '\0';
+
+    if (!sensor_id[0]) {
+        return http_send_error(req, 422, "SENSOR_ID_REQUIRED", "Sensor ID is required", NULL);
+    }
+
+    if (!sensor_hal_is_retry_eligible(sensor_id)) {
+        return http_send_error(req, 422, "SENSOR_OUT_OF_SCOPE", "Sensor is not eligible for sensor_retry_max10 protocol", NULL);
+    }
+
+    esp_err_t err = sensor_hal_manual_retry(sensor_id);
+    if (err == ESP_ERR_INVALID_STATE) {
+        return http_send_error(req, 409, "RETRY_IN_PROGRESS", "Retry already in progress for this sensor", NULL);
+    }
+    if (err == ESP_ERR_NOT_FOUND) {
+        return http_send_error(req, 404, "NOT_FOUND", "Sensor not found", NULL);
+    }
+    if (err != ESP_OK) {
+        return http_send_error(req, 500, "INTERNAL_ERROR", "Failed to initiate manual retry", NULL);
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "sensorId", sensor_id);
+    cJSON_AddStringToObject(root, "status", "ACCEPTED");
+    cJSON_AddStringToObject(root, "retryState", "RETRYING");
+    cJSON_AddNumberToObject(root, "retryCount", 0);
+    cJSON_AddNumberToObject(root, "maxRetries", 10);
+    cJSON_AddStringToObject(root, "message", "Manual sensor retry accepted; new acquisition episode started.");
+    return http_send_enveloped_response(req, 200, NULL, root);
+}
+

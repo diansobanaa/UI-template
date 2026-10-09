@@ -88,6 +88,189 @@ static float s_last_valid_dht_hum = 0.0f;
 static bool s_has_valid_dht = false;
 static uint8_t s_dht22_fail_streak = 0;
 
+/* sensor_retry_max10 Protocol Trackers */
+static sensor_retry_tracker_t s_dht22_tracker = {
+    .state = SENSOR_RETRY_STATE_ONLINE,
+    .retry_count = 0,
+    .in_failure_episode = false,
+    .manual_retry_pending = false,
+    .last_attempt_ms = -(int64_t)DHT22_POLL_INTERVAL_MS,
+    .next_retry_ms = 0
+};
+
+typedef enum {
+  DS18B20_STATE_IDLE = 0,
+  DS18B20_STATE_WAIT_CONV
+} ds18b20_state_t;
+
+static ds18b20_state_t s_ds18b20_state = DS18B20_STATE_IDLE;
+static uint32_t s_ds18b20_start_tick = 0;
+static portMUX_TYPE s_ds18b20_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static sensor_retry_tracker_t s_ds18b20_tracker = {
+    .state = SENSOR_RETRY_STATE_ONLINE,
+    .retry_count = 0,
+    .in_failure_episode = false,
+    .manual_retry_pending = false,
+    .last_attempt_ms = -(int64_t)DS18B20_POLL_INTERVAL_MS,
+    .next_retry_ms = 0
+};
+
+static sensor_retry_tracker_t s_light_tracker = {
+    .state = SENSOR_RETRY_STATE_ONLINE,
+    .retry_count = 0,
+    .in_failure_episode = false,
+    .manual_retry_pending = false,
+    .last_attempt_ms = 0,
+    .next_retry_ms = 0
+};
+
+const char *sensor_retry_state_to_str(sensor_retry_state_t state) {
+  switch (state) {
+    case SENSOR_RETRY_STATE_ONLINE: return "ONLINE";
+    case SENSOR_RETRY_STATE_RETRYING: return "RETRYING";
+    case SENSOR_RETRY_STATE_RETRY_EXHAUSTED: return "RETRY_EXHAUSTED";
+    case SENSOR_RETRY_STATE_UNAVAILABLE: return "UNAVAILABLE";
+    case SENSOR_RETRY_STATE_STALE: return "STALE";
+    default: return "UNAVAILABLE";
+  }
+}
+
+bool sensor_hal_is_retry_eligible(const char *sensor_id) {
+  if (!sensor_id || !sensor_id[0]) return false;
+  if (strcasecmp(sensor_id, "sensor_dht22") == 0 ||
+      strcasecmp(sensor_id, "sensor_dht22_hum") == 0 ||
+      strcasecmp(sensor_id, "dht22") == 0 ||
+      strcasecmp(sensor_id, "sensor_env_dht22") == 0 ||
+      strcasecmp(sensor_id, "temperature_air") == 0 ||
+      strcasecmp(sensor_id, "temperature") == 0 ||
+      strcasecmp(sensor_id, "humidity") == 0) {
+    return true;
+  }
+  if (strcasecmp(sensor_id, "temp_ds18b20") == 0 ||
+      strcasecmp(sensor_id, "ds18b20") == 0 ||
+      strcasecmp(sensor_id, "temperature_water") == 0 ||
+      strcasecmp(sensor_id, "waterTemperature") == 0 ||
+      strcasecmp(sensor_id, "water_temperature") == 0) {
+    return true;
+  }
+  if (strcasecmp(sensor_id, "sensor_light") == 0 ||
+      strcasecmp(sensor_id, "light") == 0 ||
+      strcasecmp(sensor_id, "light_intensity") == 0) {
+    return true;
+  }
+  if (strcasecmp(sensor_id, "sensor_rain") == 0 ||
+      strcasecmp(sensor_id, "rain") == 0) {
+    return true;
+  }
+  return false;
+}
+
+esp_err_t sensor_hal_manual_retry(const char *sensor_id) {
+  if (!sensor_id || !sensor_id[0]) return ESP_ERR_INVALID_ARG;
+  if (!sensor_hal_is_retry_eligible(sensor_id)) {
+    ESP_LOGW(TAG, "[SENSOR_RETRY] Manual retry rejected for out-of-scope/unknown sensor: %s", sensor_id);
+    return ESP_ERR_NOT_SUPPORTED;
+  }
+
+  /* 1. DHT22 (Air temp & Humidity share the single physical acquisition mechanism) */
+  if (strcasecmp(sensor_id, "sensor_dht22") == 0 ||
+      strcasecmp(sensor_id, "sensor_dht22_hum") == 0 ||
+      strcasecmp(sensor_id, "dht22") == 0 ||
+      strcasecmp(sensor_id, "sensor_env_dht22") == 0 ||
+      strcasecmp(sensor_id, "temperature_air") == 0 ||
+      strcasecmp(sensor_id, "temperature") == 0 ||
+      strcasecmp(sensor_id, "humidity") == 0) {
+    if (s_dht22_tracker.manual_retry_pending) {
+      ESP_LOGW(TAG, "[SENSOR_RETRY] DHT22 manual retry rejected: retry already in progress");
+      return ESP_ERR_INVALID_STATE;
+    }
+    ESP_LOGI(TAG, "[SENSOR_RETRY] DHT22 manual retry requested");
+    s_dht22_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+    s_dht22_tracker.retry_count = 0;
+    s_dht22_tracker.in_failure_episode = false;
+    s_dht22_tracker.manual_retry_pending = true;
+    s_dht22_tracker.next_retry_ms = 0;
+    s_dht22_tracker.last_attempt_ms = -(int64_t)DHT22_POLL_INTERVAL_MS;
+
+    if (s_sensor_lock && xSemaphoreTake(s_sensor_lock, pdMS_TO_TICKS(50)) == pdTRUE) {
+      s_current_readings.dht22_retry_state = SENSOR_RETRY_STATE_RETRYING;
+      s_current_readings.dht22_retry_count = 0;
+      xSemaphoreGive(s_sensor_lock);
+    }
+    ESP_LOGI(TAG, "[SENSOR_RETRY] DHT22 manual retry accepted");
+    return ESP_OK;
+  }
+
+  /* 2. DS18B20 (Water temperature) */
+  if (strcasecmp(sensor_id, "temp_ds18b20") == 0 ||
+      strcasecmp(sensor_id, "ds18b20") == 0 ||
+      strcasecmp(sensor_id, "temperature_water") == 0 ||
+      strcasecmp(sensor_id, "waterTemperature") == 0 ||
+      strcasecmp(sensor_id, "water_temperature") == 0) {
+    if (s_ds18b20_tracker.manual_retry_pending) {
+      ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 manual retry rejected: retry already in progress");
+      return ESP_ERR_INVALID_STATE;
+    }
+    ESP_LOGI(TAG, "[SENSOR_RETRY] DS18B20 manual retry requested");
+    s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+    s_ds18b20_tracker.retry_count = 0;
+    s_ds18b20_tracker.in_failure_episode = false;
+    s_ds18b20_tracker.manual_retry_pending = true;
+    s_ds18b20_tracker.next_retry_ms = 0;
+    s_ds18b20_tracker.last_attempt_ms = -(int64_t)DS18B20_POLL_INTERVAL_MS;
+    s_ds18b20_state = DS18B20_STATE_IDLE;
+
+    if (s_sensor_lock && xSemaphoreTake(s_sensor_lock, pdMS_TO_TICKS(50)) == pdTRUE) {
+      s_current_readings.ds18b20_retry_state = SENSOR_RETRY_STATE_RETRYING;
+      s_current_readings.ds18b20_retry_count = 0;
+      xSemaphoreGive(s_sensor_lock);
+    }
+    ESP_LOGI(TAG, "[SENSOR_RETRY] DS18B20 manual retry accepted");
+    return ESP_OK;
+  }
+
+  /* 3. Light sensor */
+  if (strcasecmp(sensor_id, "sensor_light") == 0 ||
+      strcasecmp(sensor_id, "light") == 0 ||
+      strcasecmp(sensor_id, "light_intensity") == 0) {
+    if (s_light_tracker.manual_retry_pending) {
+      return ESP_ERR_INVALID_STATE;
+    }
+    ESP_LOGI(TAG, "[SENSOR_RETRY] LIGHT manual retry requested");
+    s_light_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+    s_light_tracker.retry_count = 0;
+    s_light_tracker.in_failure_episode = false;
+    s_light_tracker.manual_retry_pending = true;
+    ESP_LOGI(TAG, "[SENSOR_RETRY] LIGHT manual retry accepted");
+    return ESP_OK;
+  }
+
+  return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t sensor_hal_get_retry_info(const char *sensor_id, sensor_retry_state_t *out_state, uint8_t *out_count) {
+  if (!sensor_id || !out_state || !out_count) return ESP_ERR_INVALID_ARG;
+  if (strcasestr(sensor_id, "dht22") || strcasecmp(sensor_id, "temperature_air") == 0 ||
+      strcasecmp(sensor_id, "temperature") == 0 || strcasecmp(sensor_id, "humidity") == 0) {
+    *out_state = s_dht22_tracker.state;
+    *out_count = s_dht22_tracker.retry_count;
+    return ESP_OK;
+  }
+  if (strcasestr(sensor_id, "ds18b20") || strcasecmp(sensor_id, "waterTemperature") == 0 ||
+      strcasecmp(sensor_id, "temperature_water") == 0) {
+    *out_state = s_ds18b20_tracker.state;
+    *out_count = s_ds18b20_tracker.retry_count;
+    return ESP_OK;
+  }
+  if (strcasestr(sensor_id, "light")) {
+    *out_state = s_light_tracker.state;
+    *out_count = s_light_tracker.retry_count;
+    return ESP_OK;
+  }
+  return ESP_ERR_NOT_FOUND;
+}
+
 #define MAX_GENERIC_SENSOR_SAMPLES 32
 #define MAX_GENERIC_FLOW_SENSORS 8
 
@@ -120,15 +303,6 @@ static void IRAM_ATTR generic_flow_isr(void *arg) {
   if (slot)
     slot->pulses++;
 }
-
-typedef enum {
-  DS18B20_STATE_IDLE = 0,
-  DS18B20_STATE_WAIT_CONV
-} ds18b20_state_t;
-
-static ds18b20_state_t s_ds18b20_state = DS18B20_STATE_IDLE;
-static uint32_t s_ds18b20_start_tick = 0;
-static portMUX_TYPE s_ds18b20_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR zjb1_isr_handler(void *arg) { s_pulses_raw_zjb1++; }
 
@@ -737,37 +911,74 @@ esp_err_t sensor_hal_poll(void) {
   xSemaphoreGive(s_sensor_lock);
   return ESP_OK;
 #else
-  /* DHT22 Temperature & Humidity Reading - Non Blocking (Every 3s minimum
-     interval) Performed OUTSIDE s_sensor_lock so the mutex is not held across
-     the 20ms pulse / critical section. */
+  /* DHT22 Temperature & Humidity Reading - Non Blocking
+     sensor_retry_max10 Protocol:
+     - 1 initial attempt + max 10 automatic retries (11 read attempts total per failure episode)
+     - On 10th failure -> SENSOR_RETRY_STATE_RETRY_EXHAUSTED; all automatic read attempts stop!
+     - Manual retry resets exhausted state and starts fresh acquisition episode.
+     - DHT22 is one physical sensor sharing acquisition and retry state across temperature & humidity. */
   static int64_t s_last_dht22_poll_ms = -(int64_t)DHT22_POLL_INTERVAL_MS;  /* force read on first boot */
   int64_t dht_now_ms = esp_timer_get_time() / 1000LL;
-  bool should_poll_dht22 = (dht_now_ms - s_last_dht22_poll_ms >= DHT22_POLL_INTERVAL_MS);
+
+  bool is_dht_manual = s_dht22_tracker.manual_retry_pending;
+  bool is_dht_exhausted = (s_dht22_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED);
+  bool should_poll_dht22 = false;
+
+  if (is_dht_manual) {
+    should_poll_dht22 = true;
+  } else if (is_dht_exhausted) {
+    should_poll_dht22 = false; /* STOP all automatic read attempts */
+  } else if (s_dht22_tracker.in_failure_episode) {
+    should_poll_dht22 = (dht_now_ms - s_last_dht22_poll_ms >= DHT22_RETRY_INTERVAL_MS);
+  } else {
+    should_poll_dht22 = (dht_now_ms - s_last_dht22_poll_ms >= DHT22_POLL_INTERVAL_MS);
+  }
+
   float dht_temp = 0.0f, dht_hum = 0.0f;
   esp_err_t dht_err = ESP_ERR_NOT_FOUND;
 
   if (should_poll_dht22) {
-    /* FIX(FIX-EQUIPMENT-DHT22): DHT22 is now ENABLED on GPIO 41 per SSOT
-     * docs/HARDWARE_WIRING_MAP.md W-23. Button 4 / Network Change Mode is
-     * DISABLED (PIN_BTN_RESERVED = -1) and is instead accessible via the
-     * embedded /setup web UI served by the ESP32 SoftAP. When PIN_IN_DHT22
-     * is -1 (e.g. future hardware rewiring), dht22_read returns
-     * ESP_ERR_INVALID_ARG and the readings stay at SENSOR_STATE_UNAVAILABLE
-     * — UI must not assume humidity/air-temperature data is available in
-     * that case. */
+    s_last_dht22_poll_ms = dht_now_ms;
+    if (is_dht_manual) {
+      s_dht22_tracker.manual_retry_pending = false;
+    }
+
     const int dht_gpio = PIN_IN_DHT22;
     if (dht_gpio >= 0) {
+      if (s_dht22_tracker.in_failure_episode) {
+        s_dht22_tracker.retry_count++;
+        ESP_LOGW(TAG, "[SENSOR_RETRY] DHT22 retry %u/%u", s_dht22_tracker.retry_count, SENSOR_RETRY_MAX_ATTEMPTS);
+      }
+
       dht_err = dht22_read((gpio_num_t)dht_gpio, &dht_temp, &dht_hum);
       if (dht_err == ESP_OK) {
-        s_last_dht22_poll_ms = dht_now_ms;
+        if (s_dht22_tracker.in_failure_episode) {
+          ESP_LOGI(TAG, "[SENSOR_RETRY] DHT22 recovery successful");
+        }
+        s_dht22_tracker.in_failure_episode = false;
+        s_dht22_tracker.retry_count = 0;
+        s_dht22_tracker.state = SENSOR_RETRY_STATE_ONLINE;
         ESP_LOGI(TAG,
                  "DHT22 read success on GPIO %d: Temp=%.1f C, Humidity=%.1f %%",
                  dht_gpio, dht_temp, dht_hum);
       } else {
-        /* On any read error/transient/timeout: schedule quick retry in 3 seconds instead of waiting full 60s */
-        s_last_dht22_poll_ms = dht_now_ms - (DHT22_POLL_INTERVAL_MS - DHT22_RETRY_INTERVAL_MS);
-        ESP_LOGW(TAG, "DHT22 read attempt on GPIO %d: err=%d (%s) -> retrying in %d ms", dht_gpio,
-                 dht_err, esp_err_to_name(dht_err), (int)DHT22_RETRY_INTERVAL_MS);
+        if (!s_dht22_tracker.in_failure_episode) {
+          /* Initial attempt failed -> begin failure episode */
+          s_dht22_tracker.in_failure_episode = true;
+          s_dht22_tracker.retry_count = 0;
+          s_dht22_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          ESP_LOGW(TAG, "[SENSOR_RETRY] DHT22 initial acquisition failed");
+        } else {
+          /* Retry attempt failed */
+          if (s_dht22_tracker.retry_count >= SENSOR_RETRY_MAX_ATTEMPTS) {
+            s_dht22_tracker.state = SENSOR_RETRY_STATE_RETRY_EXHAUSTED;
+            s_dht22_tracker.in_failure_episode = false;
+            ESP_LOGW(TAG, "[SENSOR_RETRY] DHT22 retry %u/%u failed", SENSOR_RETRY_MAX_ATTEMPTS, SENSOR_RETRY_MAX_ATTEMPTS);
+            ESP_LOGE(TAG, "[SENSOR_RETRY] DHT22 state=RETRY_EXHAUSTED; automatic retries stopped");
+          } else {
+            s_dht22_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          }
+        }
       }
     } else {
       s_last_dht22_poll_ms = dht_now_ms;
@@ -777,10 +988,10 @@ esp_err_t sensor_hal_poll(void) {
 
   xSemaphoreTake(s_sensor_lock, portMAX_DELAY);
 
-  /* Update DHT22 state if freshly polled:
-   * Jika data ada (ESP_OK): masukkan nilai data baru.
-   * Jika data kosong / error: jangan masukkan data kosong, biarkan data yang lama.
-   * Hanya jika belum pernah ada data sejak boot, beri status UNAVAILABLE/INVALID. */
+  /* Update DHT22 state and readings */
+  s_current_readings.dht22_retry_state = s_dht22_tracker.state;
+  s_current_readings.dht22_retry_count = s_dht22_tracker.retry_count;
+
   if (should_poll_dht22) {
     if (dht_err == ESP_OK) {
       s_dht22_fail_streak = 0;
@@ -792,9 +1003,10 @@ esp_err_t sensor_hal_poll(void) {
       s_current_readings.dht22_state = SENSOR_STATE_VALID;
     } else {
       s_dht22_fail_streak++;
-      /* Transient glitch tolerance: allow at most 1 retry (3s) before declaring UNAVAILABLE.
-       * If disconnected or consecutive failure streak >= 2, mark UNAVAILABLE/INVALID and drop valid flag. */
-      if (s_dht22_fail_streak >= 2 || !s_has_valid_dht) {
+      if (s_dht22_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED) {
+        s_current_readings.dht22_state = SENSOR_STATE_RETRY_EXHAUSTED;
+        s_has_valid_dht = false;
+      } else if (s_dht22_fail_streak >= 2 || !s_has_valid_dht) {
         s_has_valid_dht = false;
         if (dht_err == ESP_ERR_TIMEOUT) {
           s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
@@ -808,6 +1020,9 @@ esp_err_t sensor_hal_poll(void) {
         s_current_readings.dht22_state = SENSOR_STATE_VALID;
       }
     }
+  } else if (s_dht22_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED) {
+    s_current_readings.dht22_state = SENSOR_STATE_RETRY_EXHAUSTED;
+    s_has_valid_dht = false;
   }
 
   /* Float Switch: Level 1 = OK (float floating), Level 0 = LOW (tank low) */
@@ -818,20 +1033,61 @@ esp_err_t sensor_hal_poll(void) {
    * pulled high) */
   s_current_readings.tamper_loop_ok = sensor_hal_poll_tamper();
 
-  /* DS18B20 Temperature Reading - Non Blocking */
+  /* DS18B20 Temperature Reading - Non Blocking
+     sensor_retry_max10 Protocol:
+     - 1 initial attempt + max 10 automatic retries
+     - Exhaustion stops all automatic conversion/read attempts */
   float temp_val = 0.0f;
   static int64_t s_last_ds18b20_poll_ms = -(int64_t)DS18B20_POLL_INTERVAL_MS;  /* force read on first boot */
   int64_t ds_now_ms = esp_timer_get_time() / 1000LL;
 
+  bool is_ds_manual = s_ds18b20_tracker.manual_retry_pending;
+  bool is_ds_exhausted = (s_ds18b20_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED);
+
   if (s_ds18b20_state == DS18B20_STATE_IDLE) {
-    if ((ds_now_ms - s_last_ds18b20_poll_ms) >= DS18B20_POLL_INTERVAL_MS) {
+    bool should_start_ds = false;
+    if (is_ds_manual) {
+      should_start_ds = true;
+    } else if (is_ds_exhausted) {
+      should_start_ds = false; /* STOP automatic read attempts */
+    } else if (s_ds18b20_tracker.in_failure_episode) {
+      should_start_ds = (ds_now_ms - s_last_ds18b20_poll_ms >= DS18B20_RETRY_INTERVAL_MS);
+    } else {
+      should_start_ds = (ds_now_ms - s_last_ds18b20_poll_ms >= DS18B20_POLL_INTERVAL_MS);
+    }
+
+    if (should_start_ds) {
+      s_last_ds18b20_poll_ms = ds_now_ms;
+      if (is_ds_manual) {
+        s_ds18b20_tracker.manual_retry_pending = false;
+      }
+      if (s_ds18b20_tracker.in_failure_episode) {
+        s_ds18b20_tracker.retry_count++;
+        ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 retry %u/%u", s_ds18b20_tracker.retry_count, SENSOR_RETRY_MAX_ATTEMPTS);
+      }
+
       if (ds18b20_start_conversion(PIN_IN_TEMP_DS18B20) == ESP_OK) {
         s_ds18b20_state = DS18B20_STATE_WAIT_CONV;
         s_ds18b20_start_tick = xTaskGetTickCount();
       } else {
-        s_current_readings.temp_state = SENSOR_STATE_DISCONNECTED;
-        /* Rapid retry in 2s on start failure instead of waiting full 20s */
-        s_last_ds18b20_poll_ms = ds_now_ms - DS18B20_POLL_INTERVAL_MS + 2000;
+        if (!s_ds18b20_tracker.in_failure_episode) {
+          s_ds18b20_tracker.in_failure_episode = true;
+          s_ds18b20_tracker.retry_count = 0;
+          s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 initial acquisition failed");
+        } else {
+          if (s_ds18b20_tracker.retry_count >= SENSOR_RETRY_MAX_ATTEMPTS) {
+            s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRY_EXHAUSTED;
+            s_ds18b20_tracker.in_failure_episode = false;
+            ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 retry %u/%u failed", SENSOR_RETRY_MAX_ATTEMPTS, SENSOR_RETRY_MAX_ATTEMPTS);
+            ESP_LOGE(TAG, "[SENSOR_RETRY] DS18B20 state=RETRY_EXHAUSTED; automatic retries stopped");
+          } else {
+            s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          }
+        }
+        s_current_readings.temp_state = (s_ds18b20_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED)
+                                            ? SENSOR_STATE_RETRY_EXHAUSTED
+                                            : SENSOR_STATE_DISCONNECTED;
       }
     }
   } else if (s_ds18b20_state == DS18B20_STATE_WAIT_CONV) {
@@ -839,19 +1095,42 @@ esp_err_t sensor_hal_poll(void) {
       s_current_readings.temp_state =
           ds18b20_read_result(PIN_IN_TEMP_DS18B20, &temp_val);
       if (s_current_readings.temp_state == SENSOR_STATE_VALID) {
+        if (s_ds18b20_tracker.in_failure_episode) {
+          ESP_LOGI(TAG, "[SENSOR_RETRY] DS18B20 recovery successful");
+        }
+        s_ds18b20_tracker.in_failure_episode = false;
+        s_ds18b20_tracker.retry_count = 0;
+        s_ds18b20_tracker.state = SENSOR_RETRY_STATE_ONLINE;
         s_current_readings.temperature_c = temp_val;
         s_last_ds18b20_poll_ms = ds_now_ms;
         ESP_LOGI(TAG, "DS18B20 read success on GPIO %d: Water Temp=%.2f C",
                  PIN_IN_TEMP_DS18B20, temp_val);
       } else {
-        /* Rapid retry in 2s on read failure instead of waiting full 20s */
-        s_last_ds18b20_poll_ms = ds_now_ms - DS18B20_POLL_INTERVAL_MS + 2000;
-        ESP_LOGW(TAG, "DS18B20 read failed on GPIO %d (state=%d) -> retrying in 2000 ms",
-                 PIN_IN_TEMP_DS18B20, s_current_readings.temp_state);
+        if (!s_ds18b20_tracker.in_failure_episode) {
+          s_ds18b20_tracker.in_failure_episode = true;
+          s_ds18b20_tracker.retry_count = 0;
+          s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 initial acquisition failed");
+        } else {
+          if (s_ds18b20_tracker.retry_count >= SENSOR_RETRY_MAX_ATTEMPTS) {
+            s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRY_EXHAUSTED;
+            s_ds18b20_tracker.in_failure_episode = false;
+            ESP_LOGW(TAG, "[SENSOR_RETRY] DS18B20 retry %u/%u failed", SENSOR_RETRY_MAX_ATTEMPTS, SENSOR_RETRY_MAX_ATTEMPTS);
+            ESP_LOGE(TAG, "[SENSOR_RETRY] DS18B20 state=RETRY_EXHAUSTED; automatic retries stopped");
+          } else {
+            s_ds18b20_tracker.state = SENSOR_RETRY_STATE_RETRYING;
+          }
+        }
+        if (s_ds18b20_tracker.state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED) {
+          s_current_readings.temp_state = SENSOR_STATE_RETRY_EXHAUSTED;
+        }
       }
       s_ds18b20_state = DS18B20_STATE_IDLE;
     }
   }
+
+  s_current_readings.ds18b20_retry_state = s_ds18b20_tracker.state;
+  s_current_readings.ds18b20_retry_count = s_ds18b20_tracker.retry_count;
 
   /* Flow Calculations & Time-Differential Sampling */
   int64_t now_us = esp_timer_get_time();
@@ -1149,6 +1428,20 @@ sensor_hal_get_component_sample(const char *sensor_id,
   strncpy(out_sample->calibration_reference, descriptor.calibration_reference,
           sizeof(out_sample->calibration_reference) - 1);
   out_sample->timestamp_ms = esp_timer_get_time() / 1000LL;
+  if (sensor_hal_is_retry_eligible(sensor_id)) {
+    out_sample->max_retries = SENSOR_RETRY_MAX_ATTEMPTS;
+    sensor_retry_state_t r_state;
+    uint8_t r_count;
+    if (sensor_hal_get_retry_info(sensor_id, &r_state, &r_count) == ESP_OK) {
+      out_sample->retry_state = r_state;
+      out_sample->retry_count = r_count;
+      if (r_state == SENSOR_RETRY_STATE_RETRY_EXHAUSTED) {
+        out_sample->state = SENSOR_STATE_RETRY_EXHAUSTED;
+        out_sample->has_value = false;
+        return ESP_OK;
+      }
+    }
+  }
   if (!descriptor.installed) {
     out_sample->state = SENSOR_STATE_UNAVAILABLE;
     return ESP_OK;

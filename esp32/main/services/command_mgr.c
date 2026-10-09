@@ -10,6 +10,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hal/actuator_hal.h"
+#include "hal/sensor_hal.h"
 #include "hal/hardware_registry.h"
 #include "services/event_mgr.h"
 #include "services/fertigation_mgr.h"
@@ -200,6 +201,20 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
   }
   if (lifecycle_control)
     return ESP_OK;
+
+  if (cmd->type == CMD_TYPE_SENSOR_RETRY) {
+    if (!cmd->component_id[0]) {
+      copy_str(code, code_len, "SENSOR_ID_REQUIRED");
+      copy_str(message, message_len, "Sensor retry requires a componentId / sensorId.");
+      return ESP_ERR_INVALID_ARG;
+    }
+    if (!sensor_hal_is_retry_eligible(cmd->component_id)) {
+      copy_str(code, code_len, "SENSOR_OUT_OF_SCOPE");
+      copy_str(message, message_len, "Target sensor is not eligible for sensor_retry_max10 protocol.");
+      return ESP_ERR_NOT_SUPPORTED;
+    }
+    return ESP_OK;
+  }
 
   if (cmd->type == CMD_TYPE_FERTIGATION_BATCH) {
     if (!cmd->param_on)
@@ -691,6 +706,21 @@ static void command_worker_task(void *pvParameters) {
       async_task = (err == ESP_OK);
       result_message = err == ESP_OK ? "Fertigation batch started."
                                      : "Fertigation rejected.";
+    } else if (cmd->type == CMD_TYPE_SENSOR_RETRY) {
+      err = sensor_hal_manual_retry(cmd->component_id);
+      if (err == ESP_OK) {
+        result_code = "RETRY_TRIGGERED";
+        result_message = "Sensor manual retry triggered successfully.";
+      } else if (err == ESP_ERR_INVALID_STATE) {
+        result_code = "RETRY_IN_PROGRESS";
+        result_message = "Retry operation is already pending or in progress.";
+      } else if (err == ESP_ERR_NOT_SUPPORTED) {
+        result_code = "SENSOR_OUT_OF_SCOPE";
+        result_message = "Sensor is not eligible for retry protocol.";
+      } else {
+        result_code = "SENSOR_NOT_FOUND";
+        result_message = "Sensor ID not recognized.";
+      }
     } else {
       err = ESP_ERR_NOT_SUPPORTED;
       result_code = "UNSUPPORTED_COMMAND";

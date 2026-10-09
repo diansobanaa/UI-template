@@ -41,7 +41,8 @@ import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { ScheduleContent } from "@/app/schedule/page";
 import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
 import { useToast } from "@/components/ui/toast";
-import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService } from "@/lib/services";
+import { SensorRetryBadge } from "@/components/ui/SensorRetryBadge";
+import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService, sensorService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { formatIndoDate, processCropCycle } from "@/lib/cropCycleProcessor";
 import { errorMessage } from "@/lib/errors";
@@ -1688,6 +1689,47 @@ function GreenhouseContent() {
                         )}
                       </div>
                     </div>
+                    {/* sensor_retry_max10 status badge & retry button */}
+                    {item.id === "temperature" && (
+                      <SensorRetryBadge
+                        sensorId="sensor_dht22"
+                        sensorLabel="DHT22 Air Temp"
+                        retryInfo={gh.telemetry.sensorRetries?.dht22 ?? (telemetrySnapshot?.values?.dht22RetryState ? { state: telemetrySnapshot.values.dht22RetryState as any, retryCount: Number(telemetrySnapshot.values.dht22RetryCount ?? 0), maxRetries: 10 } : null)}
+                        hasValue={item.current !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                    {item.id === "humidity" && (
+                      <SensorRetryBadge
+                        sensorId="sensor_dht22"
+                        sensorLabel="DHT22 Humidity"
+                        retryInfo={gh.telemetry.sensorRetries?.dht22 ?? (telemetrySnapshot?.values?.dht22RetryState ? { state: telemetrySnapshot.values.dht22RetryState as any, retryCount: Number(telemetrySnapshot.values.dht22RetryCount ?? 0), maxRetries: 10 } : null)}
+                        hasValue={item.current !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                    {item.id === "waterTemperature" && (
+                      <SensorRetryBadge
+                        sensorId="temp_ds18b20"
+                        sensorLabel="DS18B20 Water Temp"
+                        retryInfo={gh.telemetry.sensorRetries?.ds18b20 ?? (telemetrySnapshot?.values?.ds18b20RetryState ? { state: telemetrySnapshot.values.ds18b20RetryState as any, retryCount: Number(telemetrySnapshot.values.ds18b20RetryCount ?? 0), maxRetries: 10 } : null)}
+                        hasValue={item.current !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                    {item.id === "light" && (
+                      <SensorRetryBadge
+                        sensorId="sensor_light"
+                        sensorLabel="Light Sensor"
+                        retryInfo={gh.telemetry.sensorRetries?.light ?? null}
+                        hasValue={item.current !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
                   </div>
                   <div className="mt-2 h-[44px] overflow-hidden">
                     <AreaChart points={itemPoints} color={item.color} height={44} compact={true} />
@@ -1710,7 +1752,39 @@ function GreenhouseContent() {
                   <Activity className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <h3 className="text-[17px] font-bold tracking-tight text-white">Environmental 24H</h3>
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="text-[17px] font-bold tracking-tight text-white">Environmental 24H</h3>
+                    {(metric === "temperature" || metric === "humidity") && (
+                      <SensorRetryBadge
+                        sensorId="sensor_dht22"
+                        sensorLabel="DHT22"
+                        retryInfo={gh.telemetry.sensorRetries?.dht22 ?? (telemetrySnapshot?.values?.dht22RetryState ? { state: telemetrySnapshot.values.dht22RetryState as any, retryCount: Number(telemetrySnapshot.values.dht22RetryCount ?? 0), maxRetries: 10 } : null)}
+                        hasValue={activeCurrent !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                    {metric === "waterTemperature" && (
+                      <SensorRetryBadge
+                        sensorId="temp_ds18b20"
+                        sensorLabel="DS18B20"
+                        retryInfo={gh.telemetry.sensorRetries?.ds18b20 ?? (telemetrySnapshot?.values?.ds18b20RetryState ? { state: telemetrySnapshot.values.ds18b20RetryState as any, retryCount: Number(telemetrySnapshot.values.ds18b20RetryCount ?? 0), maxRetries: 10 } : null)}
+                        hasValue={activeCurrent !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                    {metric === "light" && (
+                      <SensorRetryBadge
+                        sensorId="sensor_light"
+                        sensorLabel="Light"
+                        retryInfo={gh.telemetry.sensorRetries?.light ?? null}
+                        hasValue={activeCurrent !== null}
+                        complexId={complex.id}
+                        ghId={gh.id}
+                      />
+                    )}
+                  </div>
                   <p className="mt-0.5 truncate text-[11px] text-slate-500">Temperature, Humidity, Light, Tank Level and Fertigation • {gh.code}</p>
                 </div>
               </div>
@@ -2438,7 +2512,27 @@ function GreenhouseContent() {
               <div className="text-sm font-semibold text-slate-100">{eq.name}</div>
               <div className="mt-1 text-[10px] text-slate-500">{eq.detail}</div>
               <div className="mt-2 flex justify-center">
-                <StatusBadge status={eq.status.toLowerCase()} />
+                {eq.name === "Temperature Sensor" ? (
+                  <SensorRetryBadge
+                    sensorId="sensor_dht22"
+                    sensorLabel="Air Temp"
+                    retryInfo={gh.telemetry.sensorRetries?.dht22 ?? (telemetrySnapshot?.values?.dht22RetryState ? { state: telemetrySnapshot.values.dht22RetryState as any, retryCount: Number(telemetrySnapshot.values.dht22RetryCount ?? 0), maxRetries: 10 } : null)}
+                    hasValue={gh.telemetry.temperatureC !== null}
+                    complexId={complex.id}
+                    ghId={gh.id}
+                  />
+                ) : eq.name === "Humidity Sensor" ? (
+                  <SensorRetryBadge
+                    sensorId="sensor_dht22"
+                    sensorLabel="Humidity"
+                    retryInfo={gh.telemetry.sensorRetries?.dht22 ?? (telemetrySnapshot?.values?.dht22RetryState ? { state: telemetrySnapshot.values.dht22RetryState as any, retryCount: Number(telemetrySnapshot.values.dht22RetryCount ?? 0), maxRetries: 10 } : null)}
+                    hasValue={gh.telemetry.humidityPct !== null}
+                    complexId={complex.id}
+                    ghId={gh.id}
+                  />
+                ) : (
+                  <StatusBadge status={eq.status.toLowerCase()} />
+                )}
               </div>
             </div>
           ))}

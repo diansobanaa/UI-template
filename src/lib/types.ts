@@ -76,6 +76,12 @@ export interface Complex {
 export type GhHealth = "NORMAL" | "WARNING";
 export type FertigationState = "MIXING" | "DISTRIBUTING" | "WAITING" | "IDLE";
 
+export interface SensorRetryInfo {
+  state: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
+  retryCount: number;
+  maxRetries: number;
+}
+
 export interface Telemetry {
   temperatureC: number | null;
   waterTemperatureC?: number | null;
@@ -91,6 +97,12 @@ export interface Telemetry {
   waterDeltaPct: number | null;
   hstDays: number;
   hspDays: number | null;
+  sensorRetries?: {
+    dht22?: SensorRetryInfo;
+    ds18b20?: SensorRetryInfo;
+    light?: SensorRetryInfo;
+    [sensorId: string]: SensorRetryInfo | undefined;
+  };
 }
 
 export interface PlantStats {
