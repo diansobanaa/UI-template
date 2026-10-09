@@ -47,7 +47,7 @@ Unified sensor failure and recovery protocol (`sensor_retry_max10`) fully implem
    - `scripts/test_sensor_retry_max10.mjs`
    - `AI_PROGRESS.md`
    - `AI_HANDOVER.md`
-8. **Git Commit**: Pending commit.
+8. **Git Commit**: `5e17195`
 9. **Next Action**: Repository is at a stable, verified safe point.
 
 ---

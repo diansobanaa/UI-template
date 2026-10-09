@@ -44,7 +44,7 @@
   - `src/app/page.tsx`, `src/app/greenhouse/[ghId]/page.tsx`
   - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
   - `scripts/test_sensor_retry_max10.mjs`
-- **Git Commit**: Pending commit.
+- **Git Commit**: `5e17195`
 - **Next Action**: Repository is at a stable, verified safe point.
 
 ## SP-SENSOR-TEMP-SEPARATION-001
