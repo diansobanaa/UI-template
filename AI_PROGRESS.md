@@ -67,6 +67,23 @@
 - **Known issues**: SPIFFS free-space/fragmentation and post-fix calibration high-water values require serial observation on hardware. Firmware was built but not flashed in this safe point.
 - **Next action**: Flash the new firmware to the target, capture boot/storage diagnostics, exercise calibration OFF and marker persistence, and verify no WDT or stack-overflow restart.
 
+## SP-FLASH-RESILIENCE-001
+- **Date**: 2026-10-10
+- **Status**: `FLASH COMPLETE & VERIFIED; RUNTIME OBSERVATION PENDING`
+- **Objective**: Flash the resilience firmware to the connected ESP32-S3 after releasing the busy serial monitor.
+- **Completed work**:
+  - Force-closed only the identified ESP-IDF monitor/python PIDs holding `COM3`.
+  - Invoked `scripts/flash_esp32.ps1` against `COM3`.
+  - Confirmed target ESP32-S3 identity and MAC `7c:4f:ad:2b:c4:54`.
+  - Flashed application version `c9ea4ae`.
+- **Verification**:
+  - Application, bootloader, partition, and OTA data image hashes verified.
+  - Hard reset via RTS successful.
+  - No full-flash erase performed; NVS, Wi-Fi, and binding data preserved.
+- **Changed files**: `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues**: Runtime verification of SPIFFS watchdog behavior and calibration stack high-water remains pending.
+- **Next action**: Capture serial boot logs, inspect SPIFFS free-space/latency behavior, run calibration OFF paths, and confirm no WDT or stack-overflow restart.
+
 ## SP-POLL-OVERLAP-002
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Firmware Build PASS, ESP32 Flash PASS, Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)

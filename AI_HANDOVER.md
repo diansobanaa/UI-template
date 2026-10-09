@@ -92,6 +92,25 @@ The new firmware has not yet been flashed.
   until serial observation confirms no restart and records stack high-water
   margins.
 
+# AI HANDOVER - SP-FLASH-RESILIENCE-001
+
+## Current status
+The resilience firmware was successfully flashed to the ESP32-S3 on `COM3`
+after force-closing the stale ESP-IDF serial monitor processes.
+
+## Flash verification
+- Application version: `c9ea4ae`
+- Target: ESP32-S3, MAC `7c:4f:ad:2b:c4:54`
+- Application, bootloader, partition, and OTA data hashes: verified
+- Reset: hard reset via RTS successful
+- Full erase: not performed; persisted NVS/Wi-Fi/binding data preserved
+
+## Next action
+Collect serial runtime evidence after boot, including SPIFFS persistence
+latency/free-space behavior and `calib_mgr` stack high-water logs. Confirm
+absence of `mk_persist` WDT resets and calibration stack-overflow resets during
+controlled marker and calibration operations.
+
 # AI HANDOVER - SP-POLL-OVERLAP-002
 
 ## Current status
