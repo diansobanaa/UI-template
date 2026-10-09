@@ -24,6 +24,23 @@
 - **Known issues**: GPIO commands cannot verify motor rotation; dynamic I2C actuator hardware output remains unsupported; privileged alarm buzzer path is intentionally retained inside the HAL.
 - **Next action**: Runtime hardware observation may verify commanded state against physical load behavior; software safe point is complete.
 
+## SP-FLASH-ACTUATOR-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & VERIFIED`
+- **Objective**: Flash the verified actuator-centralization firmware to the connected ESP32-S3.
+- **Completed work**:
+  - Invoked `scripts/flash_esp32.ps1` targeting `COM3`.
+  - Confirmed the flashed application version is `570679f`.
+  - Confirmed application, bootloader, and partition image hashes were verified.
+  - Confirmed the board hard-reset via RTS after flashing.
+- **Verification**:
+  - Flash command exit code: `0`.
+  - No full-flash erase was performed; NVS, Wi-Fi, and binding configuration were preserved.
+  - Worktree remains clean apart from this progress/handover record.
+- **Changed files**: `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues**: Physical actuator operation and motor/load behavior remain unverified.
+- **Next action**: Observe serial/runtime behavior and verify actuator operation under controlled hardware conditions.
+
 ## SP-POLL-OVERLAP-002
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Firmware Build PASS, ESP32 Flash PASS, Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)

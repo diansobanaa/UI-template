@@ -35,6 +35,23 @@ Software cannot verify motor rotation from a GPIO write, and PCA9685/I2C
 actuator output is still intentionally unsupported. Runtime hardware
 observation is the next action if physical verification is required.
 
+# AI HANDOVER - SP-FLASH-ACTUATOR-001
+
+## Current status
+The verified actuator-centralization firmware was flashed to the connected
+ESP32-S3 on `COM3`.
+
+## Flash verification
+- Flash script: `scripts/flash_esp32.ps1`
+- Application version: `570679f`
+- Application, bootloader, and partition image hashes: verified
+- Reset: hard reset via RTS successful
+- Full flash erase: not performed; persisted NVS/Wi-Fi/binding data preserved
+
+## Known issues / next action
+Software flashing is verified, but physical actuator operation, motor rotation,
+and load-current behavior still require controlled hardware observation.
+
 # AI HANDOVER - SP-POLL-OVERLAP-002
 
 ## Current status
