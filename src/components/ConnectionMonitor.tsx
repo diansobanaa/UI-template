@@ -79,10 +79,18 @@ export function normalizeEndpoint(endpoint?: string): string | undefined {
     const hasProto = trimmed.startsWith("http://") || trimmed.startsWith("https://");
     const url = new URL(hasProto ? trimmed : `http://${trimmed}`);
     const port = (url.port === "80" && url.protocol === "http:") || (url.port === "443" && url.protocol === "https:") ? "" : url.port ? `:${url.port}` : "";
-    const path = url.pathname.replace(/\/+$/, "");
+    let path = url.pathname.replace(/\/+$/, "");
+    if (path.endsWith("/api/v1/health")) {
+      path = path.slice(0, -"/api/v1/health".length);
+    } else if (path.endsWith("/api/v1")) {
+      path = path.slice(0, -"/api/v1".length);
+    }
     return `${url.protocol}//${url.hostname.toLowerCase()}${port}${path}`;
   } catch {
-    return trimmed.toLowerCase().replace(/\/+$/, "");
+    let clean = trimmed.toLowerCase().replace(/\/+$/, "");
+    if (clean.endsWith("/api/v1/health")) clean = clean.slice(0, -"/api/v1/health".length);
+    else if (clean.endsWith("/api/v1")) clean = clean.slice(0, -"/api/v1".length);
+    return clean;
   }
 }
 
@@ -107,8 +115,8 @@ export function deduplicateControllerTargets(targets: ControllerTarget[]): Dedup
           existing.complexIds.push(id);
         }
       }
-      if (!existing.endpoint && target.endpoint) {
-        existing.endpoint = target.endpoint;
+      if (!existing.endpoint && (normEndpoint || target.endpoint)) {
+        existing.endpoint = normEndpoint || target.endpoint;
       }
       if (!existing.deviceId && target.deviceId) {
         existing.deviceId = target.deviceId;
@@ -116,7 +124,7 @@ export function deduplicateControllerTargets(targets: ControllerTarget[]): Dedup
     } else {
       groupMap.set(probeKey, {
         probeKey,
-        endpoint: target.endpoint,
+        endpoint: normEndpoint || target.endpoint,
         deviceId: target.deviceId,
         targets: [target],
         complexIds: [...target.complexIds],

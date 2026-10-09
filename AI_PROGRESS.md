@@ -1,3 +1,30 @@
+## SP-POLL-OVERLAP-002
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (Firmware Build PASS, ESP32 Flash PASS, Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)
+- **Objective**: Diagnose Persistent ESP32 HTTP Accept Error 113, Instrument Networking Diagnostics, and Refine Endpoint Deduplication:
+  1. Conclusively identified exact lwIP v5.5.5 trigger path for `ECONNABORTED 113`: in `tcp_in.c` (line 676), `npcb = tcp_alloc(pcb->prio)` returns NULL when `MEMP_TCP_PCB` is exhausted (pool limit `CONFIG_LWIP_MAX_ACTIVE_TCP=16` consumed by active connections and sockets lingering in `TIME_WAIT`), triggering `TCP_EVENT_ACCEPT(pcb, NULL, ...)`, which causes `accept_function` (`api_msg.c` line 556) to post `lwip_netconn_err_to_msg(ERR_ABRT)` into `acceptmbox`. When HTTP server calls `accept()`, `netconn_accept()` returns `ERR_ABRT`, yielding errno 113.
+  2. Verified polling interval documentation: `POLL_INTERVAL_MS = 5000 ms` is the canonical watchdog interval defined in `docs/POWER_MAP.md` §7.1 and verified by `scripts/test_connection_liveness.mjs` (2-failure offline threshold). Polling at 5000 ms provides 40% fewer TCP handshakes than 3000 ms, giving lwIP `TIME_WAIT` PCBs more time to dissipate.
+  3. Refined endpoint deduplication: Enhanced `normalizeEndpoint` in `ConnectionMonitor.tsx` to strip trailing slashes, default ports, and redundant `/api/v1/health` or `/api/v1` subpaths down to the canonical host. Probes now collapse identical physical controllers even if targets have differing or missing controller IDs. Added regression test coverage.
+  4. Instrumented HTTP accept failure diagnostics in firmware (`esp32/main/http/http_server.c`): Installed passive `httpd_log_vprintf_hook` via `esp_log_set_vprintf` that captures uptime, errno 113, active sessions count (`httpd_get_client_list`), socket protocol breakdown (`httpd_ws_get_fd_info`), Wi-Fi RSSI (`esp_wifi_sta_get_ap_info`), and internal heap headroom (`free_int`, `largest`). Added REST diagnostics endpoint `GET /api/v1/diagnostics/httpd`.
+  5. Prevented listener leaks: Added `onExternalAbort` listener removal in `finally` block of `backend-client.ts`.
+  6. Flashed firmware to live ESP32-S3 hardware on `COM3`.
+- **Implemented**:
+  - `esp32/main/http/http_server.c`
+  - `src/components/ConnectionMonitor.tsx`
+  - `src/lib/api/backend-client.ts`
+  - `scripts/test_frontend_polling_improvements.mjs`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+- **Verification**:
+  - `scripts/build_esp32.ps1`: PASS (`agrotech_esp32.bin` built cleanly, 48% flash free).
+  - `scripts/flash_esp32.ps1`: PASS (flashed to `COM3` at 460800 baud, hard reset via RTS successful).
+  - `node scripts/test_frontend_polling_improvements.mjs`: PASS (12/12 tests including URL variations and missing controller IDs).
+  - `node scripts/test_connection_liveness.mjs`: PASS (14/14 tests).
+  - `npm test`: PASS (28/28 OpenAPI endpoints).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (bundled cleanly).
+- **Git Commit**: Pending commit at safe point.
+- **Next Action**: Monitor serial console and `/api/v1/diagnostics/httpd` to record error 113 diagnostic output under physical hardware load.
+
 ## SP-POLL-OVERLAP-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)

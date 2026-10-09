@@ -1,3 +1,40 @@
+# AI HANDOVER - SP-POLL-OVERLAP-002
+
+## Current status
+Diagnostic instrumentation and endpoint deduplication refined across ESP32 firmware and React/Vite UI to diagnose persistent HTTP Accept Error 113:
+1. **Conclusively Identified lwIP Mechanism for Accept Error 113**:
+   - In ESP-IDF v5.5.5, `httpd_accept_conn: error in accept (113)` is caused by `netconn_accept()` returning `ERR_ABRT` (mapped to `ECONNABORTED = 113` via `err_to_errno(ERR_ABRT)`).
+   - In `lwip/core/tcp_in.c` (line 676), when a TCP SYN arrives on port 80 and `tcp_alloc(pcb->prio)` returns NULL due to `MEMP_TCP_PCB` exhaustion (configured limit `CONFIG_LWIP_MAX_ACTIVE_TCP=16` held by active sessions and lingering `TIME_WAIT` connections), lwIP invokes `TCP_EVENT_ACCEPT(pcb, NULL, ...)`.
+   - In `lwip/api/api_msg.c` (`accept_function`, lines 556-564), `newpcb == NULL` causes lwIP to post `lwip_netconn_err_to_msg(ERR_ABRT)` into the listening socket's `acceptmbox` and wake up `select()`.
+   - The HTTP server task wakes up on `listen_fd`, invokes `accept()`, pops `ERR_ABRT` from `acceptmbox`, and logs `error in accept (113)`.
+2. **Polling Interval Rationale Verified**:
+   - `POLL_INTERVAL_MS = 5000 ms` is the canonical watchdog interval specified in `docs/POWER_MAP.md` §7.1 and verified by `scripts/test_connection_liveness.mjs` (2-failure offline threshold).
+   - Polling every 5000 ms generates 40% fewer TCP connections than 3000 ms, giving lwIP `TIME_WAIT` PCBs more time to dissipate without reducing reliability.
+3. **Refined Controller Target Deduplication**:
+   - Updated `normalizeEndpoint()` in `ConnectionMonitor.tsx` to strip trailing slashes, default ports, and redundant `/api/v1/health` or `/api/v1` path segments.
+   - Probes collapse identical physical controller endpoints even when target entries have different or missing `deviceId` values.
+   - Results are broadcast to all associated complex and greenhouse IDs.
+4. **Firmware Diagnostic Instrumentation (`http_server.c`)**:
+   - Installed passive `httpd_log_vprintf_hook` via `esp_log_set_vprintf` in `esp32/main/http/http_server.c`.
+   - Captures uptime, errno 113, active sessions count (`httpd_get_client_list`), socket protocol breakdown (`httpd_ws_get_fd_info`), Wi-Fi RSSI (`esp_wifi_sta_get_ap_info`), and internal heap headroom (`free_int`, `largest`).
+   - Rate-limits additional diagnostic logging to at most once per 3 seconds. Does NOT suppress original ESP-IDF error logs.
+   - Added REST endpoint `GET /api/v1/diagnostics/httpd` exposing live connection pool metrics.
+5. **Flash Execution**:
+   - Built cleanly (`agrotech_esp32.bin`, 48% flash free).
+   - Flashed to ESP32-S3 hardware via COM3 (`scripts/flash_esp32.ps1`). Hard reset via RTS successful.
+6. **Verifications**:
+   - `scripts/build_esp32.ps1`: PASS.
+   - `scripts/flash_esp32.ps1`: PASS.
+   - `node scripts/test_frontend_polling_improvements.mjs`: PASS (12/12 tests).
+   - `node scripts/test_connection_liveness.mjs`: PASS (14/14 tests).
+   - `npm test`: PASS (28/28 OpenAPI endpoints).
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm run build`: PASS.
+7. **Git Commit**: Pending commit at safe point.
+8. **Next Action**: Run live observation and query `GET /api/v1/diagnostics/httpd` to correlate accept errors with active socket counts.
+
+---
+
 # AI HANDOVER - SP-POLL-OVERLAP-001
 
 ## Current status

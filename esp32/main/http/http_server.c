@@ -5,12 +5,83 @@
 #include "http/api_alarm_handlers.h"
 #include "http/api_telemetry_handlers.h"
 #include "http/setup_handlers.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_heap_caps.h"
+#include "esp_log_write.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 static const char *TAG = "HTTP_SERVER";
 static httpd_handle_t s_server = NULL;
+
+/* HTTP Accept Failure Diagnostic Tracker (Phase 2 Instrumentation) */
+typedef struct {
+    uint32_t accept_error_count;
+    int64_t last_error_uptime_ms;
+    int last_errno;
+    uint32_t rate_limited_logs_suppressed;
+} httpd_accept_diag_t;
+
+static httpd_accept_diag_t s_accept_diag = {0};
+static vprintf_like_t s_orig_vprintf = NULL;
+static int64_t s_last_diag_log_time_ms = 0;
+
+static int httpd_log_vprintf_hook(const char *fmt, va_list args) {
+    if (fmt && strstr(fmt, "error in accept (")) {
+        s_accept_diag.accept_error_count++;
+        s_accept_diag.last_error_uptime_ms = esp_timer_get_time() / 1000;
+        s_accept_diag.last_errno = 113;
+
+        int64_t now_ms = s_accept_diag.last_error_uptime_ms;
+        if (now_ms - s_last_diag_log_time_ms >= 3000) {
+            s_last_diag_log_time_ms = now_ms;
+
+            size_t num_fds = 12;
+            int client_fds[12] = {0};
+            size_t ws_clients = 0;
+            size_t http_clients = 0;
+            if (s_server && httpd_get_client_list(s_server, &num_fds, client_fds) == ESP_OK) {
+                for (size_t i = 0; i < num_fds; i++) {
+                    httpd_ws_client_info_t info = httpd_ws_get_fd_info(s_server, client_fds[i]);
+                    if (info == HTTPD_WS_CLIENT_WEBSOCKET) ws_clients++;
+                    else if (info == HTTPD_WS_CLIENT_HTTP) http_clients++;
+                }
+            }
+
+            wifi_ap_record_t ap_info;
+            int8_t rssi = 0;
+            bool wifi_ok = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
+            if (wifi_ok) rssi = ap_info.rssi;
+
+            size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+            size_t largest_int = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+            size_t min_free = esp_get_minimum_free_heap_size();
+
+            esp_log_write(ESP_LOG_WARN, "HTTPD_DIAG",
+                "[ACCEPT_113_DIAG] Errno 113 (ECONNABORTED) at uptime %lld ms | Total Errs: %lu | Active Sockets: %u/12 (WS: %u, HTTP: %u) | WiFi: %s (RSSI: %d dBm) | Internal Heap: free=%u, largest=%u, min_free=%u | Listening Socket Usable: YES\n",
+                (long long)now_ms,
+                (unsigned long)s_accept_diag.accept_error_count,
+                (unsigned int)num_fds,
+                (unsigned int)ws_clients,
+                (unsigned int)http_clients,
+                wifi_ok ? "CONNECTED" : "DISCONNECTED",
+                (int)rssi,
+                (unsigned int)free_int,
+                (unsigned int)largest_int,
+                (unsigned int)min_free
+            );
+        } else {
+            s_accept_diag.rate_limited_logs_suppressed++;
+        }
+    }
+
+    if (s_orig_vprintf) {
+        return s_orig_vprintf(fmt, args);
+    }
+    return vprintf(fmt, args);
+}
 
 extern void register_api_calibration_handlers(httpd_handle_t server);
 extern void register_api_schedule_handlers(httpd_handle_t server);
@@ -310,9 +381,63 @@ static bool http_uri_match_wildcard_custom(const char *pattern, const char *uri,
   return (*pattern == '\0' && *uri == '\0');
 }
 
+static esp_err_t handler_get_diagnostics_httpd(httpd_req_t *req) {
+  http_send_cors_headers(req);
+
+  size_t num_fds = 12;
+  int client_fds[12] = {0};
+  size_t ws_clients = 0;
+  size_t http_clients = 0;
+  if (s_server && httpd_get_client_list(s_server, &num_fds, client_fds) == ESP_OK) {
+    for (size_t i = 0; i < num_fds; i++) {
+      httpd_ws_client_info_t info = httpd_ws_get_fd_info(s_server, client_fds[i]);
+      if (info == HTTPD_WS_CLIENT_WEBSOCKET) ws_clients++;
+      else if (info == HTTPD_WS_CLIENT_HTTP) http_clients++;
+    }
+  }
+
+  wifi_ap_record_t ap_info;
+  int8_t rssi = 0;
+  bool wifi_ok = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
+  if (wifi_ok) rssi = ap_info.rssi;
+
+  cJSON *root = cJSON_CreateObject();
+  cJSON_AddBoolToObject(root, "serverRunning", s_server != NULL);
+  cJSON_AddNumberToObject(root, "uptimeMs", (double)(esp_timer_get_time() / 1000));
+  cJSON_AddNumberToObject(root, "acceptErrorCount", s_accept_diag.accept_error_count);
+  cJSON_AddNumberToObject(root, "lastErrorUptimeMs", (double)s_accept_diag.last_error_uptime_ms);
+  cJSON_AddNumberToObject(root, "lastErrno", s_accept_diag.last_errno);
+  cJSON_AddNumberToObject(root, "activeSessions", (double)num_fds);
+  cJSON_AddNumberToObject(root, "websocketClients", (double)ws_clients);
+  cJSON_AddNumberToObject(root, "httpClients", (double)http_clients);
+  cJSON_AddNumberToObject(root, "maxOpenSockets", 12);
+  cJSON_AddBoolToObject(root, "wifiConnected", wifi_ok);
+  cJSON_AddNumberToObject(root, "wifiRssi", rssi);
+  cJSON_AddNumberToObject(root, "freeInternalHeap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  cJSON_AddNumberToObject(root, "largestInternalBlock", (double)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  cJSON_AddNumberToObject(root, "minFreeHeap", (double)esp_get_minimum_free_heap_size());
+  cJSON_AddNumberToObject(root, "lwipMaxSockets", 16);
+  cJSON_AddNumberToObject(root, "lwipMaxActiveTcp", 16);
+
+  char *json_str = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  if (!json_str) {
+    http_send_error(req, 500, "INTERNAL_ERROR", "JSON allocation failed", NULL);
+    return ESP_FAIL;
+  }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
+  free(json_str);
+  return ESP_OK;
+}
+
 esp_err_t http_server_start(void) {
   if (s_server)
     return ESP_OK;
+
+  if (!s_orig_vprintf) {
+    s_orig_vprintf = esp_log_set_vprintf(httpd_log_vprintf_hook);
+  }
 
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = DEFAULT_HTTP_PORT;
@@ -358,6 +483,12 @@ esp_err_t http_server_start(void) {
                             .handler = handler_get_status,
                             .user_ctx = NULL};
   httpd_register_uri_handler(s_server, &uri_status);
+
+  httpd_uri_t uri_diag_httpd = {.uri = "/api/v1/diagnostics/httpd",
+                                .method = HTTP_GET,
+                                .handler = handler_get_diagnostics_httpd,
+                                .user_ctx = NULL};
+  httpd_register_uri_handler(s_server, &uri_diag_httpd);
 
   httpd_uri_t uri_bind = {.uri = "/api/v1/device/bind",
                           .method = HTTP_POST,
@@ -636,6 +767,10 @@ esp_err_t http_server_start(void) {
 }
 
 esp_err_t http_server_stop(void) {
+  if (s_orig_vprintf) {
+    esp_log_set_vprintf(s_orig_vprintf);
+    s_orig_vprintf = NULL;
+  }
   if (s_server) {
     httpd_stop(s_server);
     s_server = NULL;

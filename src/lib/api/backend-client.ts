@@ -81,15 +81,17 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   const timeoutMs = init.timeoutMs ?? config.requestTimeoutMs;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let onExternalAbort: (() => void) | null = null;
   if (init.signal) {
     if (init.signal.aborted) {
       window.clearTimeout(timeout);
       controller.abort();
     } else {
-      init.signal.addEventListener("abort", () => {
+      onExternalAbort = () => {
         window.clearTimeout(timeout);
         controller.abort();
-      }, { once: true });
+      };
+      init.signal.addEventListener("abort", onExternalAbort, { once: true });
     }
   }
   const headers = new Headers(init.headers);
@@ -151,6 +153,9 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
     throw new BackendNotConnectedError(`Request failed: ${path}`);
   } finally {
     window.clearTimeout(timeout);
+    if (init.signal && onExternalAbort) {
+      init.signal.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 

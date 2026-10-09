@@ -75,10 +75,18 @@ function normalizeEndpoint(endpoint) {
     const hasProto = trimmed.startsWith("http://") || trimmed.startsWith("https://");
     const url = new URL(hasProto ? trimmed : `http://${trimmed}`);
     const port = (url.port === "80" && url.protocol === "http:") || (url.port === "443" && url.protocol === "https:") ? "" : url.port ? `:${url.port}` : "";
-    const path = url.pathname.replace(/\/+$/, "");
+    let path = url.pathname.replace(/\/+$/, "");
+    if (path.endsWith("/api/v1/health")) {
+      path = path.slice(0, -"/api/v1/health".length);
+    } else if (path.endsWith("/api/v1")) {
+      path = path.slice(0, -"/api/v1".length);
+    }
     return `${url.protocol}//${url.hostname.toLowerCase()}${port}${path}`;
   } catch {
-    return trimmed.toLowerCase().replace(/\/+$/, "");
+    let clean = trimmed.toLowerCase().replace(/\/+$/, "");
+    if (clean.endsWith("/api/v1/health")) clean = clean.slice(0, -"/api/v1/health".length);
+    else if (clean.endsWith("/api/v1")) clean = clean.slice(0, -"/api/v1".length);
+    return clean;
   }
 }
 
@@ -123,7 +131,7 @@ function deduplicateControllerTargets(targets) {
   return Array.from(groupMap.values());
 }
 
-// Case A: 2 complexes sharing identical physical endpoint -> exactly 1 probe group
+// Case A: 2 complexes sharing identical physical endpoint with different deviceIds -> exactly 1 probe group
 const targetsSameIp = [
   { key: "esp-01", deviceId: "ESP-01", endpoint: "http://192.168.1.50:80/", complexIds: ["c-1"] },
   { key: "esp-02", deviceId: "ESP-02", endpoint: "http://192.168.1.50", complexIds: ["c-2"] },
@@ -133,23 +141,37 @@ assert.strictEqual(dedupedA.length, 1, "Must collapse into 1 probe group");
 assert.strictEqual(dedupedA[0].complexIds.length, 2, "Must preserve both complex IDs");
 assert(dedupedA[0].complexIds.includes("c-1") && dedupedA[0].complexIds.includes("c-2"));
 assert.strictEqual(dedupedA[0].targets.length, 2, "Must preserve both target references");
-console.log("  ✓ Test 9: Identical physical endpoints collapsed into 1 probe group with all complexIds preserved.");
+console.log("  ✓ Test 9: Identical physical endpoints with different deviceIds collapsed into 1 probe group with all complexIds preserved.");
 
-// Case B: 2 genuinely distinct endpoints -> exactly 2 probe groups
+// Case B: Identical endpoints with missing controller IDs
+const targetsMissingId = [
+  { key: "ep-1", deviceId: undefined, endpoint: "http://192.168.1.50/api/v1/health", complexIds: ["c-3"] },
+  { key: "ep-2", deviceId: "ESP-ALPHA", endpoint: "http://192.168.1.50", complexIds: ["c-4"] },
+];
+const dedupedMissing = deduplicateControllerTargets(targetsMissingId);
+assert.strictEqual(dedupedMissing.length, 1, "Missing controller ID with identical physical endpoint must collapse into 1 group");
+assert.strictEqual(dedupedMissing[0].complexIds.length, 2, "Must preserve complex IDs from missing and defined ID targets");
+console.log("  ✓ Test 10: Missing controller IDs with matching endpoints collapse into single probe group.");
+
+// Case C: Genuinely distinct endpoints -> separate probe groups
 const targetsDistinctIp = [
   { key: "esp-01", deviceId: "ESP-01", endpoint: "http://192.168.1.50", complexIds: ["c-1"] },
   { key: "esp-02", deviceId: "ESP-02", endpoint: "http://192.168.1.51", complexIds: ["c-2"] },
+  { key: "esp-03", deviceId: "ESP-03", endpoint: "http://192.168.1.50:8080", complexIds: ["c-3"] },
 ];
-const dedupedB = deduplicateControllerTargets(targetsDistinctIp);
-assert.strictEqual(dedupedB.length, 2, "Genuinely distinct endpoints must remain separate");
-console.log("  ✓ Test 10: Genuinely distinct controller endpoints remain independent.");
+const dedupedDistinct = deduplicateControllerTargets(targetsDistinctIp);
+assert.strictEqual(dedupedDistinct.length, 3, "Genuinely distinct endpoints must remain separate");
+console.log("  ✓ Test 11: Genuinely distinct controller endpoints (different IPs or ports) remain independent.");
 
-// Case C: Normalization variations (uppercase, trailing slashes, default port 80)
+// Case D: Normalization variations (uppercase, trailing slashes, default port 80, /api/v1/health suffix)
 assert.strictEqual(normalizeEndpoint("http://ESP-GREENHOUSE:80/"), "http://esp-greenhouse");
 assert.strictEqual(normalizeEndpoint("192.168.1.200"), "http://192.168.1.200");
+assert.strictEqual(normalizeEndpoint("http://192.168.1.50/api/v1/health"), "http://192.168.1.50");
+assert.strictEqual(normalizeEndpoint("http://192.168.1.50/api/v1/"), "http://192.168.1.50");
 assert.strictEqual(normalizeEndpoint("https://secure-esp.local:443/"), "https://secure-esp.local");
-assert.strictEqual(normalizeEndpoint("http://esp.local:8080/api/"), "http://esp.local:8080/api");
-console.log("  ✓ Test 11: Endpoint normalization standardizes ports, trailing slashes, and casing.");
+assert.strictEqual(normalizeEndpoint("http://esp.local:8080/api/v1/health"), "http://esp.local:8080");
+assert(backendClientSrc.includes("removeEventListener"), "FAIL: backend-client must clean up AbortSignal listener");
+console.log("  ✓ Test 12: Endpoint normalization standardizes ports, trailing slashes, health paths, and cleans up abort listeners.");
 
 // ----------------------------------------------------------------------------
 // 3. Behavioral Unit Simulation of Non-Overlapping Polling Scheduler
