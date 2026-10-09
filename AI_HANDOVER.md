@@ -1,10 +1,13 @@
 # AI HANDOVER - SP-CALIBRATION-NVS-SIZE-001 (latest)
 
+## Status
+Firmware hardening for calibration NVS size bounding and atomic rollback (commit `ced8110`) has been **BUILT AND FLASHED** to the ESP32-S3 on `COM3`. Hashes of all partitions (bootloader, app, partition table, ota_data) verified and chip hard-reset via RTS.
+
 Root cause: calib_json is one NVS string capped at 4000 bytes; ~272 B/record and every save appended a version, so the ~15th save failed (ESP_ERR_NVS_VALUE_TOO_LONG). Older firmware logged 'Saved' anyway; the record then existed only in RAM. Hardened firmware now reports the failure, but would still hit the cap.
 Fix: persist only latest+previous version per complex/component/type; compact RAM after verified write; rollback on failure (incl. replace-oldest and flow caches); flow-only POST reports failure.
 Files: esp32/main/services/calibration_mgr.c, esp32/main/http/api_calibration_handlers.c, scripts/test_storage_calibration_hardening.mjs, docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md.
-Verification: static/size-model test PASS, npm test PASS, tsc PASS, ESP-IDF build PASS. NOT flashed. Hardware save-reload-reboot NOT verified.
-Next: flash, save >15 times, refresh, reboot; confirm 'Calibration persisted: N records' log.
+Verification: static/size-model test PASS, npm test PASS, tsc PASS, ESP-IDF build PASS. Flashed to ESP32-S3 via COM3: PASS.
+Next: runtime observation on UI, calibrate pump/rate and verify persistence across page refresh and hardware reset.
 
 # AI HANDOVER — SP-CALIBRATION-NVS-READBACK-001 (latest)
 
