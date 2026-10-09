@@ -1,3 +1,25 @@
+# AI HANDOVER - SP-SENSOR-TEMP-SEPARATION-001
+
+## Current status
+Water Temperature Serial Logging & Air vs Water Temperature Decoupling complete and verified:
+1. **Serial Logging for Water Temperature**:
+   - In `esp32/main/hal/sensor_hal.c`, added `ESP_LOGI(TAG, "DS18B20 read success on GPIO %d: Water Temp=%.2f C", PIN_IN_TEMP_DS18B20, temp_val);` when reading is valid.
+   - Added `ESP_LOGW` retry warning on conversion/read failure.
+2. **Device Status Payload Separation**:
+   - In `esp32/main/http/api_device_handlers.c`, `temperatureC` and `temperatureAirC` are strictly assigned from DHT22 (`sensors.dht22_temperature_c`).
+   - `temperatureWaterC` is strictly assigned from DS18B20 (`sensors.temperature_c`).
+3. **Frontend Presentation Fallback Removal**:
+   - In `src/lib/telemetry-presentation.ts`, removed fallback in `samplesForMetric` that previously returned DS18B20 water temperature under `metricId === "temperature"` when DHT22 was disconnected.
+   - In `currentForMetric` and `daily24hPoints`, Air Temperature strictly evaluates `temperatureAirC` and returns `null` (`–`) if DHT22 is unplugged or invalid.
+   - In `src/lib/api/telemetry-stream.ts` and `src/lib/api/esp32-client.ts`, decoupled `sensor_dht22` from generic `temperatureC`.
+4. **Verifications**:
+   - `idf.py build`: PASS (binary generated, 0 warnings/errors in our code).
+   - `npm run build`: PASS.
+   - `npm test`: PASS.
+5. **Git Commit**: Pending commit.
+
+---
+
 # AI HANDOVER - SP-CALIBRATION-MIXING-TEST-001
 
 ## Current status

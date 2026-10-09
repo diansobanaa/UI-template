@@ -835,9 +835,13 @@ esp_err_t sensor_hal_poll(void) {
       if (s_current_readings.temp_state == SENSOR_STATE_VALID) {
         s_current_readings.temperature_c = temp_val;
         s_last_ds18b20_poll_ms = ds_now_ms;
+        ESP_LOGI(TAG, "DS18B20 read success on GPIO %d: Water Temp=%.2f C",
+                 PIN_IN_TEMP_DS18B20, temp_val);
       } else {
         /* Rapid retry in 2s on read failure instead of waiting full 20s */
         s_last_ds18b20_poll_ms = ds_now_ms - DS18B20_POLL_INTERVAL_MS + 2000;
+        ESP_LOGW(TAG, "DS18B20 read failed on GPIO %d (state=%d) -> retrying in 2000 ms",
+                 PIN_IN_TEMP_DS18B20, s_current_readings.temp_state);
       }
       s_ds18b20_state = DS18B20_STATE_IDLE;
     }

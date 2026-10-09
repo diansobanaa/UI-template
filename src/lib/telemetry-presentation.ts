@@ -47,12 +47,11 @@ function samplesForMetric(samples: TelemetrySample[], metricId: EnvironmentMetri
     });
   }
   if (metricId === "temperature") {
-    const hasDht = samples.some((s) => String(s.componentId || "").toLowerCase().includes("dht"));
     return samples.filter((sample) => {
       const cId = String(sample.componentId || "").toLowerCase();
       const mId = String(sample.metricId || "").toUpperCase();
-      if (hasDht && (cId.includes("ds18b20") || cId.includes("water") || cId.includes("temp_ds"))) return false;
-      return mId === "TEMPERATURE";
+      if (cId.includes("ds18b20") || cId.includes("water") || cId.includes("temp_ds")) return false;
+      return mId === "TEMPERATURE" || mId === "AIR_TEMPERATURE";
     });
   }
   const accepted = new Set(METRIC_DEFS.find((x) => x.id === metricId)?.metricIds ?? []);
@@ -84,7 +83,7 @@ function daily24hPoints(
       let val: number | null = null;
       if (hSlot && hSlot.valid) {
         if (metricId === "temperature") {
-          val = hSlot.temperatureAirC ?? hSlot.temperatureC ?? null;
+          val = hSlot.temperatureAirC ?? null;
         } else if (metricId === "waterTemperature") {
           val = hSlot.temperatureWaterC ?? null;
         } else if (metricId === "humidity") {
@@ -159,7 +158,7 @@ export function currentForMetric(samples: TelemetrySample[], metricId: Environme
   if (currentObj?.values) {
     if (metricId === "temperature") {
       if (typeof currentObj.values.temperatureAirC === "number") return currentObj.values.temperatureAirC;
-      if (typeof currentObj.values.temperatureC === "number") return currentObj.values.temperatureC;
+      return null;
     }
     if (metricId === "waterTemperature") {
       if (typeof currentObj.values.temperatureWaterC === "number") return currentObj.values.temperatureWaterC;

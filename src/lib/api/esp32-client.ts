@@ -270,7 +270,7 @@ export class Esp32Client {
           snap.values.waterTemperatureC = waterSample.value;
         }
       }
-      if (typeof snap.values.temperatureC === "number" && snap.values.temperatureAirC === undefined) {
+      if (typeof snap.values.temperatureC === "number" && snap.values.temperatureAirC === undefined && snap.values.temperatureC !== snap.values.temperatureWaterC) {
         snap.values.temperatureAirC = snap.values.temperatureC;
       }
     }

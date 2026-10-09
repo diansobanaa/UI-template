@@ -1,3 +1,24 @@
+## SP-SENSOR-TEMP-SEPARATION-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, Vite/React Frontend Build PASS, npm test PASS)
+- **Objective**: Water Temperature Serial Logging & Air vs Water Temperature Decoupling:
+  1. Serial Logging: Added `ESP_LOGI(TAG, "DS18B20 read success on GPIO %d: Water Temp=%.2f C", ...)` and `ESP_LOGW` retry logging in `esp32/main/hal/sensor_hal.c` so water temperature readings are surfaced directly in the ESP32 serial console.
+  2. Device Status Handlers: Updated `esp32/main/http/api_device_handlers.c` so `temperatureC` and `temperatureAirC` are strictly mapped to `sensors.dht22_temperature_c`, while `temperatureWaterC` is mapped to `sensors.temperature_c` (DS18B20), eliminating water temperature leaking into generic temperature fields.
+  3. Frontend Fallback Elimination: Fixed bug in `src/lib/telemetry-presentation.ts`, `src/lib/api/telemetry-stream.ts`, and `src/lib/api/esp32-client.ts` where Air Temperature (`metricId === "temperature"`) mistakenly fell back to DS18B20 water temperature (`temp_ds18b20`) when DHT22 was disconnected or returned null.
+- **Implemented**:
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `src/lib/telemetry-presentation.ts`
+  - `src/lib/api/telemetry-stream.ts`
+  - `src/lib/api/esp32-client.ts`
+- **Verification**:
+  - `idf.py build`: PASS (`agrotech_esp32.bin` built cleanly, 48% flash free).
+  - `npm run build`: PASS (Vite singlefile production bundle built cleanly).
+  - `npm test`: PASS (28 OpenAPI endpoints, 26 C handlers, REST mock server E2E).
+- **Changed Files**: `esp32/main/hal/sensor_hal.c`, `esp32/main/http/api_device_handlers.c`, `src/lib/telemetry-presentation.ts`, `src/lib/api/telemetry-stream.ts`, `src/lib/api/esp32-client.ts`.
+- **Git Commit**: Pending commit.
+- **Next Action**: Repository is at a stable, verified safe point.
+
 ## SP-CALIBRATION-MIXING-TEST-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, test_calibration_mixing_test 19/19 PASS, test_protocol_mixing 14/14 PASS, test_mixing_fertigation_execution 6/6 PASS, test_dosing_checkpoint_recovery 20/20 PASS, npm test PASS, npx tsc PASS)

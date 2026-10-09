@@ -153,12 +153,17 @@ esp_err_t handler_get_status(httpd_req_t *req)
     sensor_readings_t sensors;
     sensor_hal_get_readings(&sensors);
     cJSON *s_obj = cJSON_AddObjectToObject(root, "sensors");
-    if (sensors.temp_state == SENSOR_STATE_VALID) {
-        cJSON_AddNumberToObject(s_obj, "temperatureC", sensors.temperature_c);
-    } else if (sensors.dht22_state == SENSOR_STATE_VALID) {
+    if (sensors.dht22_state == SENSOR_STATE_VALID) {
         cJSON_AddNumberToObject(s_obj, "temperatureC", sensors.dht22_temperature_c);
+        cJSON_AddNumberToObject(s_obj, "temperatureAirC", sensors.dht22_temperature_c);
     } else {
         cJSON_AddNullToObject(s_obj, "temperatureC");
+        cJSON_AddNullToObject(s_obj, "temperatureAirC");
+    }
+    if (sensors.temp_state == SENSOR_STATE_VALID) {
+        cJSON_AddNumberToObject(s_obj, "temperatureWaterC", sensors.temperature_c);
+    } else {
+        cJSON_AddNullToObject(s_obj, "temperatureWaterC");
     }
     if (sensors.dht22_state == SENSOR_STATE_VALID) {
         cJSON_AddNumberToObject(s_obj, "humidityPct", sensors.dht22_humidity_rh);
