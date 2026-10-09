@@ -21,6 +21,7 @@ import type {
   Schedule,
   SchedulesResponse,
   CalibrationRates,
+  CalibrationApiRecord,
   MixingTestRequest,
   MixingTestStatus,
   StartCropCycleRequest,
@@ -508,6 +509,10 @@ export class Esp32Client {
 
   async getCalibrationRates(): Promise<CalibrationRates> {
     return this.getEnveloped<CalibrationRates>("/api/v1/calibration/rate");
+  }
+
+  async listCalibrations(): Promise<{ calibrations: CalibrationApiRecord[] }> {
+    return this.getEnveloped<{ calibrations: CalibrationApiRecord[] }>("/api/v1/calibration");
   }
 
   async saveCalibrationRate(componentId: string, rateMlPerSec: number, version?: number, calibrationId?: string, operator = "technician"): Promise<any> {

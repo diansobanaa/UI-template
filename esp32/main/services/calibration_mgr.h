@@ -97,6 +97,7 @@ float calibration_mgr_get_flow_fert_pulses_per_l(void);
 bool calibration_mgr_is_flow_fert_calibrated(void);
 esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l);
 esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj);
+esp_err_t calibration_mgr_populate_records_json(cJSON *out_array);
 
 /* Canonical Mixing & Dosing hardware test execution via protocol_mixing */
 esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *config);

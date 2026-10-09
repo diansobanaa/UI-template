@@ -557,7 +557,62 @@ export class LocalStoreClient {
   /* ---------------- Calibrations ---------------- */
 
   async listCalibrations(complexId: string): Promise<{ complexId: string; calibrations: CalibrationApiRecord[] }> {
-    const list = getJson<CalibrationApiRecord[]>(`calibrations:${complexId}`, []);
+    let list = getJson<CalibrationApiRecord[]>(`calibrations:${complexId}`, []);
+    if ((!list || list.length === 0) && isDirectEsp32Enabled()) {
+      try {
+        const espCal = await esp32Client.listCalibrations();
+        if (espCal && Array.isArray(espCal.calibrations) && espCal.calibrations.length > 0) {
+          list = espCal.calibrations;
+          setJson(`calibrations:${complexId}`, list);
+          return { complexId, calibrations: list };
+        }
+      } catch { }
+
+      try {
+        const rates = await esp32Client.getCalibrationRates();
+        if (rates) {
+          if (Array.isArray(rates.records) && rates.records.length > 0) {
+            list = rates.records;
+            setJson(`calibrations:${complexId}`, list);
+            return { complexId, calibrations: list };
+          }
+          const synth: CalibrationApiRecord[] = [];
+          const addPump = (id: string, rateVal: number) => {
+            if (rateVal > 0) {
+              synth.push({
+                calibrationId: `cal-${id}`,
+                complexId,
+                componentId: id,
+                calibrationType: id.includes("submersible") || id.includes("raw") ? "PUMP_RATE" : "DOSING_RATE",
+                version: 1,
+                state: "CALIBRATED",
+                createdAtMs: Date.now(),
+                validFromMs: Date.now(),
+                validUntilMs: Date.now() + 30 * 86400000,
+                operator: "device",
+                parameters: {
+                  rateMlPerSec: rateVal,
+                  flowRateMlMin: rateVal * 60.0,
+                  after: `${(rateVal * 60.0).toFixed(1)} ml/min`,
+                },
+              });
+            }
+          };
+          if (rates.dosingRates) {
+            for (const [cid, rval] of Object.entries(rates.dosingRates)) {
+              addPump(cid, Number(rval) || 0);
+            }
+          }
+          if (rates.rateDosingAMlSec && !synth.some(s => s.componentId === "pump_dosing_a")) addPump("pump_dosing_a", rates.rateDosingAMlSec);
+          if (rates.rateDosingBMlSec && !synth.some(s => s.componentId === "pump_dosing_b")) addPump("pump_dosing_b", rates.rateDosingBMlSec);
+          if (rates.rateRawWaterPumpMlSec && !synth.some(s => s.componentId === "pump_submersible")) addPump("pump_submersible", rates.rateRawWaterPumpMlSec);
+          if (synth.length > 0) {
+            list = synth;
+            setJson(`calibrations:${complexId}`, list);
+          }
+        }
+      } catch { }
+    }
     return { complexId, calibrations: list };
   }
 

@@ -962,6 +962,27 @@ paths:
                 $ref: "#/components/schemas/EventResponse"
 
   /api/v1/calibration:
+    get:
+      tags: [Calibration]
+      operationId: listCalibrations
+      summary: List all persistent calibration records from NVS
+      responses:
+        "200":
+          description: List of persistent calibration records
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/EnvelopeBase"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          calibrations:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/CalibrationRecord"
     post:
       tags: [Calibration]
       operationId: startCalibration
@@ -3337,6 +3358,11 @@ components:
           description: "@deprecated Use rateRawWaterPumpMlSec. Well pump is 220V AC, not 12V raw water pump."
         flowRawPulsesPerL: { type: number, minimum: 0 }
         flowFertPulsesPerL: { type: number, minimum: 0 }
+        records:
+          type: array
+          description: "Persistent calibration records stored in NVS"
+          items:
+            $ref: "#/components/schemas/CalibrationRecord"
 
     SetCalibrationRateRequest:
       type: object

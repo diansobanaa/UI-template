@@ -948,6 +948,7 @@ export interface CalibrationRates {
   flowRawPulsesPerL: number;
   flowFertPulsesPerL: number;
   dosingRates?: Record<string, number>;
+  records?: CalibrationApiRecord[];
 }
 
 export interface SetCalibrationRateRequest {

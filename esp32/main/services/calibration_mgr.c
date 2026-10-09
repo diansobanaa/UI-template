@@ -11,6 +11,8 @@
 #include "hal/hardware_registry.h"
 #include "hal/sensor_hal.h"
 #include "services/event_mgr.h"
+#include <time.h>
+#include <sys/time.h>
 #include <string.h>
 #include <strings.h>
 #include <stdlib.h>
@@ -522,9 +524,16 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
     copy_str(r->calibration_type, sizeof(r->calibration_type), "DOSING_RATE");
     r->version = eff_version;
     r->state = state;
-    r->created_at_ms = esp_timer_get_time() / 1000LL;
-    r->valid_from_ms = r->created_at_ms;
-    r->valid_until_ms = valid_until_ms > 0 ? valid_until_ms : (r->created_at_ms + (int64_t)30 * 86400000LL);
+    time_t now_sec = time(NULL);
+    if (now_sec >= 1704067200) {
+        r->created_at_ms = (int64_t)now_sec * 1000LL;
+        r->valid_from_ms = r->created_at_ms;
+        r->valid_until_ms = valid_until_ms > 0 ? valid_until_ms : (r->created_at_ms + (int64_t)30 * 86400000LL);
+    } else {
+        r->created_at_ms = (int64_t)esp_timer_get_time() / 1000LL;
+        r->valid_from_ms = 0;
+        r->valid_until_ms = 0;
+    }
     copy_str(r->operator_id, sizeof(r->operator_id), operator_id && operator_id[0] ? operator_id : "device");
     r->rate_ml_sec = rate_ml_sec;
     r->has_rate = true;
@@ -570,9 +579,12 @@ esp_err_t calibration_mgr_get_record_exact(const char *component_id, const char 
 esp_err_t calibration_mgr_is_usable(const calibration_record_t *record)
 {
     if (!record || !state_usable(record->state)) return ESP_ERR_INVALID_STATE;
-    const int64_t now = esp_timer_get_time()/1000LL;
-    if (record->valid_from_ms > 0 && now < record->valid_from_ms) return ESP_ERR_INVALID_STATE;
-    if (record->valid_until_ms > 0 && now > record->valid_until_ms) return ESP_ERR_INVALID_STATE;
+    time_t now_s = time(NULL);
+    if (now_s >= 1704067200) {
+        const int64_t now_ms = (int64_t)now_s * 1000LL;
+        if (record->valid_from_ms >= 1704067200000LL && now_ms < record->valid_from_ms) return ESP_ERR_INVALID_STATE;
+        if (record->valid_until_ms >= 1704067200000LL && now_ms > record->valid_until_ms) return ESP_ERR_INVALID_STATE;
+    }
     if (record->has_rate && record->rate_ml_sec <= 0) return ESP_ERR_INVALID_STATE;
     if (record->has_pulses_per_liter && record->pulses_per_liter <= 0) return ESP_ERR_INVALID_STATE;
     return ESP_OK;
@@ -631,6 +643,56 @@ esp_err_t calibration_mgr_populate_dosing_rates_json(cJSON *out_obj)
     return ESP_OK;
 }
 
+esp_err_t calibration_mgr_populate_records_json(cJSON *out_array)
+{
+    if (!out_array || !s_mutex) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+    for (size_t i = 0; i < s_record_count; ++i) {
+        const calibration_record_t *r = &s_records[i];
+        if (!record_in_current_complex(r)) continue;
+        if (record_superseded_locked(i)) continue;
+        cJSON *o = cJSON_CreateObject();
+        if (!o) continue;
+        cJSON_AddStringToObject(o, "calibrationId", r->calibration_id);
+        cJSON_AddStringToObject(o, "componentId", r->component_id);
+        cJSON_AddStringToObject(o, "complexId", r->complex_id);
+        cJSON_AddStringToObject(o, "calibrationType", r->calibration_type);
+        cJSON_AddNumberToObject(o, "version", r->version);
+        cJSON_AddStringToObject(o, "state", state_name(r->state));
+        cJSON_AddNumberToObject(o, "createdAtMs", (double)r->created_at_ms);
+        cJSON_AddNumberToObject(o, "validFromMs", (double)r->valid_from_ms);
+        cJSON_AddNumberToObject(o, "validUntilMs", (double)r->valid_until_ms);
+        cJSON_AddStringToObject(o, "operator", r->operator_id);
+        cJSON *params = cJSON_AddObjectToObject(o, "parameters");
+        if (r->has_rate) {
+            cJSON_AddNumberToObject(o, "rateMlPerSec", r->rate_ml_sec);
+            cJSON_AddNumberToObject(o, "flowRateMlMin", r->rate_ml_sec * 60.0);
+            if (params) {
+                cJSON_AddNumberToObject(params, "rateMlPerSec", r->rate_ml_sec);
+                cJSON_AddNumberToObject(params, "flowRateMlMin", r->rate_ml_sec * 60.0);
+                char after_buf[32];
+                snprintf(after_buf, sizeof(after_buf), "%.1f ml/min", r->rate_ml_sec * 60.0);
+                cJSON_AddStringToObject(params, "after", after_buf);
+            }
+        }
+        if (r->has_linear) {
+            cJSON_AddNumberToObject(o, "slope", r->slope);
+            cJSON_AddNumberToObject(o, "offset", r->offset);
+            if (params) {
+                cJSON_AddNumberToObject(params, "slope", r->slope);
+                cJSON_AddNumberToObject(params, "offset", r->offset);
+            }
+        }
+        if (r->has_pulses_per_liter) {
+            cJSON_AddNumberToObject(o, "pulsesPerLiter", r->pulses_per_liter);
+            if (params) cJSON_AddNumberToObject(params, "pulsesPerLiter", r->pulses_per_liter);
+        }
+        cJSON_AddItemToArray(out_array, o);
+    }
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
 esp_err_t calibration_mgr_set_rate_ml_per_sec(actuator_id_t pump_id, float rate_ml_sec)
 {
     const char *canonical = pump_id == ACTUATOR_DOSING_A ? "pump_dosing_a" :
@@ -666,7 +728,18 @@ esp_err_t calibration_mgr_apply_linear(const char *component_id, const char *cal
     copy_str(r->complex_id, sizeof(r->complex_id), complex_id);
     copy_str(r->calibration_type, sizeof(r->calibration_type), calibration_type);
     copy_str(r->operator_id, sizeof(r->operator_id), operator_id ? operator_id : "device");
-    r->version=version; r->state=state; r->created_at_ms=esp_timer_get_time()/1000LL; r->valid_from_ms=r->created_at_ms; r->valid_until_ms=valid_until_ms; r->slope=slope; r->offset=offset; r->has_linear=true;
+    r->version=version; r->state=state;
+    time_t now_sec = time(NULL);
+    if (now_sec >= 1704067200) {
+        r->created_at_ms = (int64_t)now_sec * 1000LL;
+        r->valid_from_ms = r->created_at_ms;
+        r->valid_until_ms = valid_until_ms > 0 ? valid_until_ms : (r->created_at_ms + (int64_t)30 * 86400000LL);
+    } else {
+        r->created_at_ms = (int64_t)esp_timer_get_time() / 1000LL;
+        r->valid_from_ms = 0;
+        r->valid_until_ms = 0;
+    }
+    r->slope=slope; r->offset=offset; r->has_linear=true;
     esp_err_t err=persist_locked();
     if (err != ESP_OK) {
         memset(r, 0, sizeof(*r));
@@ -698,7 +771,17 @@ esp_err_t calibration_mgr_set_flow_pulses_calibration(const char *component_id, 
     copy_str(r->complex_id,sizeof(r->complex_id),complex_id);
     copy_str(r->calibration_type,sizeof(r->calibration_type),"FLOW");
     copy_str(r->operator_id,sizeof(r->operator_id),operator_id ? operator_id : "device");
-    r->version=version; r->state=state; r->created_at_ms=esp_timer_get_time()/1000LL; r->valid_from_ms=r->created_at_ms; r->valid_until_ms=valid_until_ms;
+    r->version=version; r->state=state;
+    time_t now_sec = time(NULL);
+    if (now_sec >= 1704067200) {
+        r->created_at_ms = (int64_t)now_sec * 1000LL;
+        r->valid_from_ms = r->created_at_ms;
+        r->valid_until_ms = valid_until_ms > 0 ? valid_until_ms : (r->created_at_ms + (int64_t)30 * 86400000LL);
+    } else {
+        r->created_at_ms = (int64_t)esp_timer_get_time() / 1000LL;
+        r->valid_from_ms = 0;
+        r->valid_until_ms = 0;
+    }
     r->pulses_per_liter=pulses_per_liter; r->has_pulses_per_liter=true;
     if(has_linear){r->slope=slope; r->offset=offset; r->has_linear=true;}
     const float old_raw_pulses = s_flow_raw_pulses_per_l;

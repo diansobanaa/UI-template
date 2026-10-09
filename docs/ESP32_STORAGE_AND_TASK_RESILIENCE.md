@@ -89,3 +89,23 @@ the error and logged "Saved"; the in-memory record then disappeared at reboot / 
   previously persisted record. If the JSON still exceeds 4000 bytes the API returns `CALIBRATION_SAVE_FAILED` (422).
 - `POST /api/v1/calibration/rate` flow-pulse-only requests now return an error when persistence fails.
 - Log markers: `Calibration persisted: N records, B bytes` / `Calibration NOT persisted (0x.., B bytes)`.
+
+## Calibration Reboot Retention & UI Refresh Hydration (SP-CALIBRATION-PERSIST-001)
+
+### Root Cause Analysis of "Disappearing After Refresh"
+When calibration records were saved in previous firmware iterations, logs confirmed NVS persistence (`STORAGE_MGR: Saved calib_json to NVS`). However, refreshing the browser or rebooting the ESP32 caused the values to disappear or revert to default rates. Two root causes were identified:
+
+1. **Clock Domain Conflict Across Boots (`calibration_mgr_is_usable()`)**:
+   - Monotonic boot uptime (`esp_timer_get_time() / 1000LL`) was previously stored in `valid_from_ms` and `valid_until_ms`.
+   - On firmware restart or device reboot, `now` resets to ~0 ms (boot uptime), whereas the restored NVS record held `valid_from_ms` from a previous boot session (e.g. 791,292,000 ms).
+   - In `calibration_mgr_is_usable()`, `now < record->valid_from_ms` evaluated to `true`, causing `calibration_mgr_get_rate()` to immediately treat the restored record as expired/unusable and return 0.0 or defaults across reboots.
+   - **Resolution**: Aligned timestamp domain with synchronized POSIX wall-clock time (`time(NULL) >= 1704067200` Jan 1 2024). When the RTC/SNTP is unsynchronized at calibration time, `valid_from_ms` and `valid_until_ms` are initialized to 0. `calibration_mgr_is_usable()` only invalidates `valid_from_ms` when both the record timestamp and current clock are in the valid epoch (> Jan 1, 2024).
+
+2. **Unassigned State in `calibration_mgr_set_dosing_rate()`**:
+   - `r->state` was not assigned the requested `state` argument in the dosing rate helper, defaulting or remaining uncalibrated.
+   - **Resolution**: Explicitly set `r->state = state;` (`CAL_RECORD_CALIBRATED`).
+
+3. **Authoritative NVS Records Export & Direct ESP32 UI Hydration**:
+   - Added `GET /api/v1/calibration` endpoint (returning `{ calibrations: [...] }`) and populated the `records` array in `GET /api/v1/calibration/rate`.
+   - Updated `src/lib/api/local-store-client.ts` and `src/lib/services.ts` so that in Direct ESP32 mode (`VITE_ENABLE_PYTHON_BACKEND=false`), the UI hydration path fetches durable records directly from ESP32 NVS instead of falling back to empty local state.
+   - Sanitized timestamps below Jan 1 2024 in the UI formatter so device calibration badges display active status and valid timestamps rather than "Belum Dikalibrasi".

@@ -1,5 +1,72 @@
+## SP-CALIBRATION-PERSIST-001
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Fix calibration data disappearing after browser refresh or device reboot. Implement end-to-end fix across firmware, OpenAPI contract, and frontend, flash to device, and verify complete save-read-refresh-reboot round trip.
+- **Confirmed Root Causes**:
+  1. *Clock Domain Conflict across Boots (`calibration_mgr_is_usable()`)*: Monotonic boot uptime (`esp_timer_get_time() / 1000LL`) was previously stored in `valid_from_ms` / `valid_until_ms`. When saved to NVS and restored on the next boot, `now` restarted at ~0 ms (boot uptime), whereas `valid_from_ms` was thousands or millions of milliseconds from the previous boot. Consequently, `now < record->valid_from_ms` evaluated to `true`, causing `calibration_mgr_get_rate()` to reject valid records on reboot and return 0.0 or defaults.
+  2. *Unassigned State in Dosing Rate Helper (`calibration_mgr_set_dosing_rate()`)*: `r->state` was not assigned the requested `state` parameter, leaving records uncalibrated or failing `state_usable()`.
+  3. *UI Hydration in Direct ESP32 Mode*: `localStoreClient.listCalibrations()` and `calibrationService.loadAuthoritative()` did not fetch durable records directly from the ESP32 NVS endpoint in Direct ESP32 mode, causing empty/default forms upon browser refresh.
+- **Implemented**:
+  - `esp32/main/services/calibration_mgr.c`:
+    - Aligned timestamp domain to synchronized POSIX wall-clock time (`time(NULL) >= 1704067200`). Guarded against monotonic uptime resets across reboots.
+    - Set `r->state = state;` (`CAL_RECORD_CALIBRATED`) in `calibration_mgr_set_dosing_rate()`.
+    - Added `calibration_mgr_populate_records_json()` to export authoritative NVS records.
+  - `esp32/main/http/api_calibration_handlers.c`:
+    - Added `GET /api/v1/calibration` endpoint.
+    - Populated `records` array in `GET /api/v1/calibration/rate`.
+  - `contracts/UI_ESP32_OPENAPI.yaml` & `UI_ESP32_OPENAPI.yaml`:
+    - Added `GET /api/v1/calibration` and `records` property in `CalibrationRates` schema.
+  - `src/lib/api/contracts.ts` & `src/lib/api/esp32-client.ts`:
+    - Typed `records?: CalibrationApiRecord[]` in `CalibrationRates` and added `listCalibrations()`.
+  - `src/lib/api/local-store-client.ts` & `src/lib/services.ts`:
+    - Hydrated authoritative calibration records from live ESP32 (`listCalibrations` & `getCalibrationRates`).
+    - Handled legacy timestamps and updated active calibration badges and due dates ("Terkalibrasi Aktif" rather than "Belum Dikalibrasi").
+  - `scripts/test_storage_calibration_hardening.mjs`:
+    - Added static assertions for clock domain sanity, state assignment, and records export.
+  - `scripts/test_calibration_roundtrip_e2e.mjs` & `scripts/test_frontend_load_authoritative_e2e.mjs`:
+    - Full automated hardware roundtrip tests.
+- **Verification**:
+  - `npm run test:storage-calibration`: PASS.
+  - `npm test`: PASS (28/28 API contract checks).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (singlefile production bundle built in 9.52s).
+  - `scripts/build_esp32.ps1`: PASS (48% app partition free).
+  - `scripts/flash_esp32.ps1`: PASS (flashed to ESP32-S3 on COM3; image hashes verified; hard reset via RTS).
+  - **Live Hardware E2E Round Trip** (`scripts/test_calibration_roundtrip_e2e.mjs` against 192.168.0.101):
+    - Initial records: 6.
+    - Save calibration: `pump_dosing_a: 29.0 ml/min` (`0.48333 ml/sec`). Status: `APPLIED`.
+    - Immediate read-back: `29.0 ml/min` verified.
+    - Hardware reboot triggered via `POST /api/v1/system/reboot`.
+    - Boot ID changed: `3e626017-c17d-4ab3-b6bd-0000a488b8a6`.
+    - Post-reboot read-back: `pump_dosing_a: 29.0 ml/min` persisted across reboot!
+    - Refresh/Authoritative UI hydration (`scripts/test_frontend_load_authoritative_e2e.mjs`):
+      - All 3 pumps loaded: `pump_dosing_a: 29.0 ml/min`, `pump_dosing_b: 120.0 ml/min`, `pump_submersible: 1800.0 ml/min`.
+      - Badges: Active formatted date/time, "Terkalibrasi Aktif".
+      - History tab: 6 records intact.
+- **Changed files**:
+  - `esp32/main/services/calibration_mgr.c`
+  - `esp32/main/services/calibration_mgr.h`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `UI_ESP32_OPENAPI.yaml`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/lib/api/local-store-client.ts`
+  - `src/lib/services.ts`
+  - `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`
+  - `scripts/test_storage_calibration_hardening.mjs`
+  - `scripts/test_calibration_roundtrip_e2e.mjs`
+  - `scripts/test_frontend_load_authoritative_e2e.mjs`
+  - `dist/index.html`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Git commit**: `1972541`
+- **Known issues**: None. Calibration save, read-back, browser refresh hydration, and reboot persistence are fully operational and verified on physical hardware.
+- **Next action**: System is stable and ready for user operation.
+
 ## SP-CALIBRATION-NVS-SIZE-001
 - Status: IMPLEMENTED & BUILD-VERIFIED; hardware validation pending. See AI_HANDOVER.md.
+
 
 ## SP-CALIBRATION-NVS-READBACK-001
 - **Date**: 2026-10-10

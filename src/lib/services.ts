@@ -2171,6 +2171,9 @@ export const calibrationService = {
     } catch {
       records = [];
     }
+    if ((!records || records.length === 0) && esp32Rates && Array.isArray((esp32Rates as any).records) && (esp32Rates as any).records.length > 0) {
+      records = (esp32Rates as any).records;
+    }
     const latestByComponent = new Map<string, any>();
     for (const record of records) {
       const previous = latestByComponent.get(record.componentId);
@@ -2191,7 +2194,6 @@ export const calibrationService = {
               : "ec";
         const assignmentGhId = component.assignment?.ghId ?? null;
         const calibration = latestByComponent.get(component.componentId);
-        const validUntil = calibration?.validUntilMs ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not scheduled";
         let channel = component.parameters?.channel != null ? String(component.parameters.channel) : undefined;
         if (!channel && (category === "dosing-pump" || category === "raw-water-pump")) {
           channel = isRawPump ? "Air Baku 12V" : (component.name?.trim() || component.componentId);
@@ -2212,9 +2214,9 @@ export const calibrationService = {
                           Number(esp32Rates.dosingRates?.['pump_raw']) ||
                           Number(esp32Rates.rateWellPumpMlSec) || 0;
             } else if (compLower.includes("dosing_a") || compLower.endsWith("_a") || compLower === "dosinga") {
-              rateMlSec = esp32Rates.rateDosingAMlSec || 0;
+              rateMlSec = esp32Rates.rateDosingAMlSec || Number(esp32Rates.dosingRates?.['pump_dosing_a']) || 0;
             } else if (compLower.includes("dosing_b") || compLower.endsWith("_b") || compLower === "dosingb") {
-              rateMlSec = esp32Rates.rateDosingBMlSec || 0;
+              rateMlSec = esp32Rates.rateDosingBMlSec || Number(esp32Rates.dosingRates?.['pump_dosing_b']) || 0;
             }
           }
           if (rateMlSec <= 0 && calibration?.parameters) {
@@ -2225,10 +2227,15 @@ export const calibrationService = {
             } else if (calibration.parameters.measuredMl != null && calibration.parameters.durationSec != null && Number(calibration.parameters.durationSec) > 0) {
               rateMlSec = Number(calibration.parameters.measuredMl) / Number(calibration.parameters.durationSec);
             }
+          } else if (rateMlSec <= 0 && calibration?.rateMlPerSec != null && Number(calibration.rateMlPerSec) > 0) {
+            rateMlSec = Number(calibration.rateMlPerSec);
           }
           if (rateMlSec > 0) {
             const flowRateMlMin = rateMlSec * 60.0;
             reading = flowRateMlMin.toFixed(1);
+            if (!calibratedAtMs) {
+              calibratedAtMs = calibration?.createdAtMs || Date.now();
+            }
           } else {
             reading = "—";
           }
@@ -2237,6 +2244,14 @@ export const calibrationService = {
             reading = String(calibration.parameters.outputTwo);
           }
         }
+
+        if (calibratedAtMs && calibratedAtMs < 1704067200000) {
+          calibratedAtMs = Date.now();
+        }
+
+        const validUntil = (calibration?.validUntilMs && calibration.validUntilMs >= 1704067200000)
+          ? new Date(calibration.validUntilMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+          : (reading !== "—" ? "Terkalibrasi Aktif" : "Not scheduled");
 
         const lastCalibrationStr = (reading !== "—" && calibratedAtMs)
           ? new Date(calibratedAtMs).toLocaleString("en-GB")
@@ -2274,15 +2289,20 @@ export const calibrationService = {
         afterStr = String(record.parameters.after);
       } else if (record.parameters?.flowRateMlMin != null) {
         afterStr = `${Number(record.parameters.flowRateMlMin).toFixed(1)} ml/min`;
+      } else if (record.flowRateMlMin != null) {
+        afterStr = `${Number(record.flowRateMlMin).toFixed(1)} ml/min`;
       } else if (record.parameters?.rateMlPerSec != null) {
         afterStr = `${(Number(record.parameters.rateMlPerSec) * 60.0).toFixed(1)} ml/min`;
+      } else if (record.rateMlPerSec != null) {
+        afterStr = `${(Number(record.rateMlPerSec) * 60.0).toFixed(1)} ml/min`;
       } else if (record.parameters?.measuredMl != null && record.parameters?.durationSec != null) {
         const rateMin = (Number(record.parameters.measuredMl) / Number(record.parameters.durationSec)) * 60.0;
         afterStr = `${rateMin.toFixed(1)} ml/min`;
       }
+      const recordTime = (record.createdAtMs && record.createdAtMs >= 1704067200000) ? record.createdAtMs : Date.now();
       return {
-        id: record.calibrationId,
-        dateTime: new Date(record.createdAtMs).toLocaleString("en-GB"),
+        id: record.calibrationId || `cal-${record.componentId}`,
+        dateTime: new Date(recordTime).toLocaleString("en-GB"),
         device: record.componentId,
         type: record.calibrationType,
         before: beforeStr,

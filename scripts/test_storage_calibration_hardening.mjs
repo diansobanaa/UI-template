@@ -46,3 +46,10 @@ assert.match(fs.readFileSync(path.join(root, "esp32/main/http/api_calibration_ha
   assert.ok(rec(99).length * 15 > 4000, "unbounded history overflows at ~15 records (original defect)");
 }
 console.log("calibration NVS size-bound checks: PASS");
+
+// SP-CALIBRATION-PERSIST-001: Clock domain sanity across reboots, state assignment, and records export.
+assert.match(calibration, /r->state = state;/);
+assert.match(calibration, /record->valid_from_ms >= 1704067200000LL && now_ms < record->valid_from_ms/);
+assert.match(calibration, /esp_err_t calibration_mgr_populate_records_json\(cJSON \*out_array\)/);
+assert.match(fs.readFileSync(path.join(root, "esp32/main/http/api_calibration_handlers.c"), "utf8"), /uri="\/api\/v1\/calibration",\.method=HTTP_GET/);
+console.log("calibration clock domain & records export checks: PASS");

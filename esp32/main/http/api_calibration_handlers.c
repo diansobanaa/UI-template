@@ -359,14 +359,33 @@ static esp_err_t api_calibration_get_rate_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", calibration_mgr_get_flow_raw_pulses_per_l());
     cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", calibration_mgr_get_flow_fert_pulses_per_l());
 
+    cJSON *records_arr = cJSON_AddArrayToObject(resp, "records");
+    (void)calibration_mgr_populate_records_json(records_arr);
+
+    return http_send_enveloped_response(req, 200, NULL, resp);
+}
+
+static esp_err_t api_calibration_list_handler(httpd_req_t *req)
+{
+    cJSON *arr = cJSON_CreateArray();
+    (void)calibration_mgr_populate_records_json(arr);
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddItemToObject(resp, "calibrations", arr);
     return http_send_enveloped_response(req, 200, NULL, resp);
 }
 
 static esp_err_t api_calibration_record_get_handler(httpd_req_t *req)
 {
-    char query[384]={0}, component[48]={0}, type[32]={0}, cal_id[48]={0}, version_s[24]={0};
     size_t qlen=httpd_req_get_url_query_len(req);
-    if(qlen==0 || qlen>=sizeof(query)) { http_send_error(req,400,"QUERY_REQUIRED","componentId, calibrationType, calibrationId and version are required.",NULL); return ESP_FAIL; }
+    if(qlen==0) {
+        cJSON *arr = cJSON_CreateArray();
+        (void)calibration_mgr_populate_records_json(arr);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddItemToObject(resp, "calibrations", arr);
+        return http_send_enveloped_response(req, 200, NULL, resp);
+    }
+    char query[384]={0}, component[48]={0}, type[32]={0}, cal_id[48]={0}, version_s[24]={0};
+    if(qlen>=sizeof(query)) { http_send_error(req,400,"QUERY_REQUIRED","componentId, calibrationType, calibrationId and version are required.",NULL); return ESP_FAIL; }
     if(httpd_req_get_url_query_str(req,query,sizeof(query))!=ESP_OK) return ESP_FAIL;
     if(httpd_query_key_value(query,"componentId",component,sizeof(component))!=ESP_OK ||
        httpd_query_key_value(query,"calibrationType",type,sizeof(type))!=ESP_OK ||
@@ -507,6 +526,7 @@ static esp_err_t api_calibration_test_mixing_stop_handler(httpd_req_t *req)
 void register_api_calibration_handlers(httpd_handle_t server)
 {
     httpd_uri_t a={.uri="/api/v1/calibration",.method=HTTP_POST,.handler=api_calibration_start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
+    httpd_uri_t get_cal={.uri="/api/v1/calibration",.method=HTTP_GET,.handler=api_calibration_list_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&get_cal);
     httpd_uri_t del={.uri="/api/v1/calibration",.method=HTTP_DELETE,.handler=api_calibration_stop_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&del);
     httpd_uri_t st={.uri="/api/v1/calibration/status",.method=HTTP_GET,.handler=api_calibration_status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&st);
     httpd_uri_t r={.uri="/api/v1/calibration/rate",.method=HTTP_POST,.handler=api_calibration_set_rate_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&r);

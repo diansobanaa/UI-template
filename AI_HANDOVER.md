@@ -1,4 +1,64 @@
-# AI HANDOVER - SP-CALIBRATION-NVS-SIZE-001 (latest)
+# AI HANDOVER - SP-CALIBRATION-PERSIST-001 (latest)
+
+## Status
+The persistent production bug where calibration data disappeared after browser refresh or ESP32 reboot is **RESOLVED, FLASHED TO PHYSICAL HARDWARE (COM3), AND END-TO-END VERIFIED**.
+
+## Root Causes Identified and Fixed
+1. **Clock Domain Reset Across Boots (`esp32/main/services/calibration_mgr.c`)**:
+   - Monotonic boot uptime (`esp_timer_get_time() / 1000LL`) was previously stored in `valid_from_ms` / `valid_until_ms`.
+   - On firmware restart or device reboot, `now` resets to ~0 ms (boot uptime), whereas the restored NVS record held `valid_from_ms` from a previous boot session (e.g. 791,292,000 ms).
+   - In `calibration_mgr_is_usable()`, `now < record->valid_from_ms` evaluated to `true`, causing `calibration_mgr_get_rate()` to immediately treat the restored record as expired/unusable and return 0.0 or defaults across reboots.
+   - **Fix**: Aligned timestamp domain to synchronized POSIX wall-clock time (`time(NULL) >= 1704067200` Jan 1 2024). When the RTC/SNTP is unsynchronized at calibration time, `valid_from_ms` and `valid_until_ms` are initialized to 0. `calibration_mgr_is_usable()` only invalidates `valid_from_ms` when both the record timestamp and current clock are in the valid epoch (> Jan 1, 2024).
+2. **Missing State Assignment in `calibration_mgr_set_dosing_rate()`**:
+   - `r->state` was not assigned the requested `state` parameter, leaving records uncalibrated or failing `state_usable()`.
+   - **Fix**: Explicitly set `r->state = state;` (`CAL_RECORD_CALIBRATED`).
+3. **Missing Authoritative Records Retrieval Endpoint & Frontend Hydration**:
+   - The UI calibration view needs the authoritative NVS records to display history, timestamps, badges, and status.
+   - **Fix**: Exposed `GET /api/v1/calibration` on ESP32, and also populated the `records` array in `GET /api/v1/calibration/rate`.
+   - In Direct ESP32 mode (`VITE_ENABLE_PYTHON_BACKEND=false`), `loadAuthoritative()` and `localStoreClient.listCalibrations()` now fetch authoritative calibration records directly from ESP32 (`GET /api/v1/calibration` / `esp32Client.listCalibrations()` & `esp32Client.getCalibrationRates().records`).
+   - Sanitized legacy monotonic timestamps in frontend formatters so device badges correctly display active calibration status rather than "Belum Dikalibrasi".
+
+## Verification Evidence
+- `npm run test:storage-calibration`: PASS.
+- `npm test`: PASS (all 28 canonical endpoints verified).
+- `npx tsc --noEmit`: PASS (0 errors).
+- `npm run build`: PASS (singlefile production bundle built cleanly).
+- ESP-IDF Firmware build (`scripts/build_esp32.ps1`): PASS.
+- Flashed to ESP32 on `COM3` via `scripts/flash_esp32.ps1`: PASS (non-destructive, NVS preserved, hard reset via RTS).
+- **Physical Device E2E Verification** (`scripts/test_calibration_roundtrip_e2e.mjs` against live ESP32 at `192.168.0.101`):
+  - Read initial state: 6 records.
+  - Saved `pump_dosing_a: 29.0 ml/min` (`0.48333 ml/sec`). Status: `APPLIED` (Version 108).
+  - Immediate read-back: `0.48333 ml/sec` (`29.0 ml/min`).
+  - Hardware reboot triggered via `POST /api/v1/system/reboot`.
+  - Device restarted with new Boot ID (`3e626017-c17d-4ab3-b6bd-0000a488b8a6`).
+  - Post-reboot read-back: `pump_dosing_a: 29.0 ml/min` persisted across reboot!
+- **Frontend Hydration Verification** (`scripts/test_frontend_load_authoritative_e2e.mjs`):
+  - All 3 pumps hydrated correctly (`pump_dosing_a: 29.0 ml/min`, `pump_dosing_b: 120.0 ml/min`, `pump_submersible: 1800.0 ml/min`).
+  - `lastCalibrationText`: Active formatted date/time, NOT "Belum Dikalibrasi".
+  - `due`: "Terkalibrasi Aktif" / future due date, NOT "Not scheduled".
+  - History tab: 6 records intact.
+
+## Files Modified
+- `esp32/main/services/calibration_mgr.c`
+- `esp32/main/services/calibration_mgr.h`
+- `esp32/main/http/api_calibration_handlers.c`
+- `contracts/UI_ESP32_OPENAPI.yaml`
+- `UI_ESP32_OPENAPI.yaml`
+- `src/lib/api/contracts.ts`
+- `src/lib/api/esp32-client.ts`
+- `src/lib/api/local-store-client.ts`
+- `src/lib/services.ts`
+- `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`
+- `scripts/test_storage_calibration_hardening.mjs`
+- `scripts/test_calibration_roundtrip_e2e.mjs`
+- `scripts/test_frontend_load_authoritative_e2e.mjs`
+- `dist/index.html`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+- **Git Commit**: `1972541`
+
+# AI HANDOVER - SP-CALIBRATION-NVS-SIZE-001
+
 
 ## Status
 Firmware hardening for calibration NVS size bounding and atomic rollback (commit `ced8110`) has been **BUILT AND FLASHED** to the ESP32-S3 on `COM3`. Hashes of all partitions (bootloader, app, partition table, ota_data) verified and chip hard-reset via RTS.
