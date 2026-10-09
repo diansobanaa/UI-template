@@ -37,7 +37,7 @@
   - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
   - `scripts/test_connection_liveness.mjs`
   - `scripts/test_frontend_polling_improvements.mjs`
-- **Git Commit**: Pending commit at safe point.
+- **Git Commit**: `e4b16c3`
 - **Next Action**: Perform runtime validation on live ESP32 hardware to measure accept 113 error frequency.
 
 ## SP-SENSOR-RETRY-MAX10-001

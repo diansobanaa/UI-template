@@ -41,7 +41,7 @@ Frontend polling overlap elimination and controller target deduplication fully i
    - `scripts/test_frontend_polling_improvements.mjs`
    - `AI_PROGRESS.md`
    - `AI_HANDOVER.md`
-9. **Git Commit**: Pending commit at safe point.
+9. **Git Commit**: `e4b16c3`
 10. **Next Action**: Execute runtime validation on physical ESP32 to monitor `httpd_accept_conn: error in accept (113)` logs before and after fix.
 
 ---
