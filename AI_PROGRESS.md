@@ -17,7 +17,8 @@
   - `git diff --check`: PASS.
 - **Changed files**: `esp32/main/storage/storage_mgr.c`, `esp32/main/services/calibration_mgr.c`, `scripts/test_storage_calibration_hardening.mjs`, `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
 - **Known issue**: The save/read/refresh round trip is software-verified but still needs a controlled physical ESP32 calibration save, reboot, and GET `/api/v1/calibration/rate` observation. No firmware was flashed by this task.
-- **Next action**: Flash only if requested/approved, then capture persistence success/readback logs across a reboot without erasing NVS.
+- **Physical verification**: Firmware flashed to COM3 with image hashes verified and hard reset via RTS. After reboot, `/api/v1/health` and `/api/v1/status` returned HTTP 200 with `RUNNING`/`HEALTHY`; `/api/v1/calibration/rate` returned persisted rates for `pump_dosing_a`, `pump_dosing_b`, and `pump_submersible` without changing calibration values.
+- **Next action**: If a fresh write-path test is required, save one controlled calibration value and verify the new persistence/read-back log; current reboot readback confirms existing NVS retention.
 
 ## SP-ACTUATOR-CENTRAL-001
 - **Date**: 2026-10-09

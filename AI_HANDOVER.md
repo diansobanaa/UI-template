@@ -1,8 +1,9 @@
 # AI HANDOVER — SP-CALIBRATION-NVS-READBACK-001 (latest)
 
 ## Status
-Calibration persistence hardening is implemented and build-verified. The
-firmware has not been flashed by this task.
+Calibration persistence hardening is implemented, build-verified, and flashed
+to the ESP32 on COM3. Image hashes were verified and the board was hard-reset
+via RTS.
 
 ## Confirmed root cause and path
 The UI saves dosing calibration through
@@ -32,12 +33,16 @@ empty/default readings at the device-authoritative boundary.
 - TypeScript check: PASS.
 - Frontend build: PASS.
 - ESP-IDF build: PASS; 48% app partition free.
+- Physical reboot/readback: PASS. `/api/v1/health` and `/api/v1/status`
+  returned HTTP 200 with `RUNNING`/`HEALTHY`; `/api/v1/calibration/rate`
+  returned retained rates for `pump_dosing_a`, `pump_dosing_b`, and
+  `pump_submersible`. Existing calibration values were not modified by the
+  verification.
 
 ## Remaining validation
-Run a controlled physical test: save a calibration, confirm the new
-persisted/read-back logs, reboot without erasing NVS, then query
-`GET /api/v1/calibration/rate` and refresh the calibration UI. Do not claim
-physical durability until that test passes.
+The existing NVS retention path is physically verified across the firmware
+reboot. A fresh save-path test remains optional if exact new-write logs are
+needed; it must use a controlled calibration value and must not erase NVS.
 
 # AI HANDOVER - SP-ACTUATOR-CENTRAL-001
 
