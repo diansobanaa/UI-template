@@ -5629,3 +5629,37 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 - ESP32 build script: PASS.
 - ESP32 flash via COM3: PASS — data hash verified and hard reset via RTS.
 - Physical acceptance tests remain pending: valid ZJ-B1 flow, no-pulse failure, Lower Float interlock, and Well Pump manual/scheduled control.
+
+## AI HANDOVER — SP-CONNECTIVITY-CONSISTENCY-001
+
+### Status
+**Implemented and software-verified; live device validation pending**
+
+### Root cause and behavior
+- The global footer reads `complex.esp32.online`, while greenhouse cards/detail
+  pages read `greenhouse.online`.
+- Hydration could retain a stale GH boolean from a backend/local mirror even
+  when the mapped parent controller was online. Runtime liveness propagation
+  already synchronized children after probe transitions, but hydration paths
+  were inconsistent.
+- `greenhouse.online` now consistently means parent-controller connectivity.
+  Telemetry freshness and GH operational/health state remain independent; this
+  change does not fabricate telemetry or turn stale telemetry into a fault.
+- A GH whose `complexId` has no known parent remains unchanged rather than
+  being assigned a guessed controller state.
+
+### Changes
+- Added `synchronizeGreenhouseControllerConnectivity()` to
+  `src/lib/operational-state.ts` and applied it to reconstructed direct
+  snapshots and legacy backend-context snapshots.
+- Added required scenario checks to `scripts/test_connection_liveness.mjs`
+  and exposed them as `npm run test:connectivity`.
+- Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`.
+
+### Verification
+- `npm run test:connectivity`: PASS.
+- `npm test`: PASS, 28/28 API contract checks.
+- `npx tsc --noEmit`: PASS.
+- `npm run build`: PASS.
+- `git diff --check`: PASS.
+- Physical controller/GH telemetry scenario validation remains pending.

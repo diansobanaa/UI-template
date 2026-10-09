@@ -13,6 +13,9 @@ const connMonitorSrc = fs.readFileSync("src/components/ConnectionMonitor.tsx", "
 const opStateSrc = fs.readFileSync("src/lib/operational-state.ts", "utf8");
 const appFooterSrc = fs.readFileSync("src/components/layout/AppFooter.tsx", "utf8");
 const appHeaderSrc = fs.readFileSync("src/components/layout/AppHeader.tsx", "utf8");
+const realtimeSrc = fs.readFileSync("src/lib/realtime.ts", "utf8");
+const greenhouseCardSrc = fs.readFileSync("src/components/ui/GreenhouseOverviewCard.tsx", "utf8");
+const greenhousePageSrc = fs.readFileSync("src/app/greenhouse/[ghId]/page.tsx", "utf8");
 
 // A. HEALTH_TIMEOUT_MS isolation check
 assert(
@@ -86,6 +89,12 @@ assert(!connMonitorSrc.includes("navigator.onLine"), "FAIL: navigator.onLine mus
 assert(!connMonitorSrc.includes("hydrateOperationalState"), "FAIL: monitor must not trigger full hydration");
 console.log("  ✓ Test 11 (Contract): 5 s poll, 2-failure threshold, one-shot chime, non-dismissible banner, cross-tab bus, fresh-frame WS evidence.");
 
+assert(opStateSrc.includes("synchronizeGreenhouseControllerConnectivity"), "FAIL: hydration must reconcile GH connectivity from its parent controller");
+assert(greenhouseCardSrc.includes('greenhouse.online ? "Online" : "Offline"'), "FAIL: GH card online label source changed unexpectedly");
+assert(greenhousePageSrc.includes('gh.online ? "ONLINE" : "OFFLINE"'), "FAIL: GH detail online label source changed unexpectedly");
+assert(realtimeSrc.includes("greenhouse.online"), "FAIL: GH realtime state must retain controller connectivity semantics");
+console.log("  ✓ Test 12 (Contract): controller liveness and GH labels use the reconciled parent-controller state.");
+
 // ----------------------------------------------------------------------------
 // 2. Behavioral Unit Simulation
 // ----------------------------------------------------------------------------
@@ -148,6 +157,24 @@ function getControllerTargetsMock(list) {
 
 const consecutiveFailures = new Map();
 let inFlight = false;
+
+function synchronizeGreenhouseControllerConnectivity(snapshot) {
+  const onlineByComplex = new Map(snapshot.complexes.map(c => [c.id, c.esp32.online]));
+  return {
+    ...snapshot,
+    greenhouses: snapshot.greenhouses.map(g => {
+      const controllerOnline = onlineByComplex.get(g.complexId);
+      return controllerOnline === undefined ? g : { ...g, online: controllerOnline };
+    })
+  };
+}
+
+function greenhouseLabels(greenhouse) {
+  return {
+    card: greenhouse.online ? "Online" : "Offline",
+    detail: greenhouse.online ? "ONLINE" : "OFFLINE"
+  };
+}
 
 async function monitorTick(probeResults) {
   if (inFlight) {
@@ -218,6 +245,43 @@ assert.strictEqual(consecutiveFailures.get("esp32-A"), 0);
 assert.strictEqual(complexes[0].esp32.online, true, "Controller A must recover to online");
 assert.strictEqual(complexes[0].operationalStatus, "LIVE");
 assert.strictEqual(greenhouses[0].online, true, "GH-01 must recover to online");
+
+// --- Required consistency scenarios ---
+const healthyWithStaleMirror = synchronizeGreenhouseControllerConnectivity({
+  complexes: [{ id: "complex-01", esp32: { online: true } }],
+  greenhouses: [{ id: "gh-01", complexId: "complex-01", online: false, telemetry: { stale: true } }]
+});
+assert.strictEqual(healthyWithStaleMirror.greenhouses[0].online, true, "Healthy parent controller must clear stale mirrored GH offline state");
+assert.deepStrictEqual(greenhouseLabels(healthyWithStaleMirror.greenhouses[0]), { card: "Online", detail: "ONLINE" });
+
+const staleTelemetry = {
+  ...healthyWithStaleMirror.greenhouses[0],
+  telemetry: { stale: true }
+};
+assert.strictEqual(staleTelemetry.online, true, "Stale GH telemetry must not become controller OFFLINE");
+
+const offlineController = synchronizeGreenhouseControllerConnectivity({
+  complexes: [{ id: "complex-01", esp32: { online: false } }],
+  greenhouses: [{ id: "gh-01", complexId: "complex-01", online: true }]
+});
+assert.strictEqual(offlineController.greenhouses[0].online, false, "Controller outage must propagate to every child GH");
+assert.deepStrictEqual(greenhouseLabels(offlineController.greenhouses[0]), { card: "Offline", detail: "OFFLINE" });
+
+const mixedComplexes = synchronizeGreenhouseControllerConnectivity({
+  complexes: [
+    { id: "complex-01", esp32: { online: true } },
+    { id: "complex-02", esp32: { online: false } }
+  ],
+  greenhouses: [
+    { id: "gh-01", complexId: "complex-01", online: false },
+    { id: "gh-02", complexId: "complex-02", online: true },
+    { id: "gh-missing", complexId: "missing-complex", online: false }
+  ]
+});
+assert.strictEqual(mixedComplexes.greenhouses[0].online, true);
+assert.strictEqual(mixedComplexes.greenhouses[1].online, false);
+assert.strictEqual(mixedComplexes.greenhouses[2].online, false, "Unknown parent mapping must not be guessed");
+console.log("  ✓ Test 13 (Behavior): healthy/reconnected, stale telemetry, offline, mixed controllers, and missing-parent scenarios preserve distinct labels.");
 console.log("  ✓ Test 4: Recovery -> health success returns to online=true, failure count=0");
 
 // --- Test 7: Single-flight concurrency protection ---

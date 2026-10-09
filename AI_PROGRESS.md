@@ -5702,6 +5702,32 @@ None — audit only.
   - `npx vite build`: PASS (0 errors, 911.26 kB bundle).
 - **Current safe point**: SP-CONNECTION-MONITOR-EMPTY-STATE-SUPPRESSION.
 
+## SP-CONNECTIVITY-CONSISTENCY-001
+- **Date**: 2026-10-10
+- **Status**: `IMPLEMENTED & VERIFIED; LIVE TELEMETRY VALIDATION PENDING`
+- **Objective**: Resolve contradictory controller/GH connectivity labels without conflating controller liveness, telemetry freshness, or GH operational health.
+- **Confirmed root cause**:
+  - The footer reads `complex.esp32.online`.
+  - GH cards/detail pages read the separate `greenhouse.online` field.
+  - Hydration could preserve a stale backend/local GH boolean even when the mapped parent complex controller was online; runtime liveness propagation existed but did not cover every hydration result.
+  - GH `online` is controller connectivity only. Telemetry stream freshness and health/equipment states remain separate and are not changed by this fix.
+- **Implemented**:
+  - Added `synchronizeGreenhouseControllerConnectivity()` in `src/lib/operational-state.ts`.
+  - Applied it to direct reconstructed snapshots and legacy backend-context snapshots.
+  - Unknown complex mappings remain unchanged instead of being guessed.
+  - Added connectivity scenario coverage and `npm run test:connectivity`.
+  - Updated canonical telemetry architecture documentation.
+- **Verification**:
+  - `npm run test:connectivity`: PASS, including healthy/reconnect, stale telemetry, controller offline, mixed controllers, missing parent, labels, and existing liveness/chime cases.
+  - `npm test`: PASS, 28/28 API contract checks.
+  - `npx tsc --noEmit`: PASS.
+  - `npm run build`: PASS.
+  - `git diff --check`: PASS.
+  - Hardware/live API telemetry validation: PENDING.
+- **Changed files**: `src/lib/operational-state.ts`, `scripts/test_connection_liveness.mjs`, `package.json`, `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`, generated `dist/index.html`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues**: No live device/backend session was available to prove the exact screenshot state transition; telemetry freshness is still represented by telemetry snapshot state, not by the controller-connectivity badge.
+- **Next action**: Commit this software safe point, then observe one healthy controller with one stale/missing GH telemetry stream and confirm UI labels remain distinct.
+
 ## SP-ONBOARDING-CREATE-CONTINUE-FIX — Resolution of Onboarding "Create & Continue" Blocker
 - **Date**: 2026-09-19
 - **Objective**: Fix issue where clicking "Create & continue" in Complex Onboarding (`/onboarding/complex`) fails to advance to Step 2 (Discover ESP32 controller).

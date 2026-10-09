@@ -20,6 +20,21 @@ let version = 0;
 const listeners = new Set<() => void>();
 let inFlightHydration: Promise<void> | null = null;
 
+function synchronizeGreenhouseControllerConnectivity(nextSnapshot: Snapshot): Snapshot {
+  const onlineByComplex = new Map(
+    nextSnapshot.complexes.map((complex) => [complex.id, complex.esp32.online]),
+  );
+  return {
+    ...nextSnapshot,
+    greenhouses: nextSnapshot.greenhouses.map((greenhouse) => {
+      const controllerOnline = onlineByComplex.get(greenhouse.complexId);
+      return controllerOnline === undefined || greenhouse.online === controllerOnline
+        ? greenhouse
+        : { ...greenhouse, online: controllerOnline };
+    }),
+  };
+}
+
 export function subscribeOperationalState(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -847,7 +862,7 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
         discoveryMetadata.authorityStatus = "LIVE";
       }
 
-      snapshot = reconstructed;
+      snapshot = synchronizeGreenhouseControllerConnectivity(reconstructed);
       loaded = true;
       loadError = null;
       const activeComplexCount = snapshot.complexes.filter((c) => c.status === "Active").length;
@@ -860,10 +875,10 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
     if (isPythonBackendEnabled()) {
       try {
         const remote = await apiGet<Snapshot>("/context");
-        snapshot = {
+        snapshot = synchronizeGreenhouseControllerConnectivity({
           complexes: Array.isArray(remote.complexes) ? remote.complexes : [],
           greenhouses: Array.isArray(remote.greenhouses) ? remote.greenhouses : [],
-        };
+        });
         loaded = true;
         loadError = null;
         const activeComplexCount = snapshot.complexes.filter((c) => c.status === "Active").length;
