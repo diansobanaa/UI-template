@@ -37,11 +37,13 @@ static void set_state(transfer_state_t new_state)
 static void turn_off_actuators(void)
 {
     if (s_ctx.source_component_id[0]) {
-        actuator_hal_set_by_component_id(s_ctx.source_component_id, false);
+        actuator_hal_request_component(s_ctx.source_component_id, false,
+                                       ACTUATOR_SOURCE_TRANSFER, "transfer_stop");
         actuator_hal_release_component(s_ctx.source_component_id, ACTUATOR_OWNER_TRANSFER);
     }
     if (s_ctx.destination_component_id[0]) {
-        actuator_hal_set_by_component_id(s_ctx.destination_component_id, false);
+        actuator_hal_request_component(s_ctx.destination_component_id, false,
+                                       ACTUATOR_SOURCE_TRANSFER, "transfer_stop");
         actuator_hal_release_component(s_ctx.destination_component_id, ACTUATOR_OWNER_TRANSFER);
     }
 }
@@ -74,7 +76,9 @@ static void transfer_worker_task(void *pvParameters)
                             ESP_LOGI(TAG, "Transfer duration reached. Moving to DRAINING.");
                             // Turn off source pump, leave dest_valve open if any
                             if (s_ctx.source_component_id[0]) {
-                                actuator_hal_set_by_component_id(s_ctx.source_component_id, false);
+                                actuator_hal_request_component(s_ctx.source_component_id, false,
+                                                               ACTUATOR_SOURCE_TRANSFER,
+                                                               "transfer_source_complete");
                                 actuator_hal_release_component(s_ctx.source_component_id, ACTUATOR_OWNER_TRANSFER);
                             }
                             s_ctx.draining_start_tick = current_tick;
@@ -173,16 +177,22 @@ esp_err_t transfer_mgr_start(const char *source_component_id, const char *destin
         xSemaphoreGive(s_mutex);
         return err;
     }
-    err = actuator_hal_set_by_component_id(destination_component_id, true);
+    err = actuator_hal_request_component(destination_component_id, true,
+                                         ACTUATOR_SOURCE_TRANSFER,
+                                         "transfer_destination_on");
     if (err != ESP_OK) {
         actuator_hal_release_component(source_component_id, ACTUATOR_OWNER_TRANSFER);
         actuator_hal_release_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
         xSemaphoreGive(s_mutex);
         return err;
     }
-    err = actuator_hal_set_by_component_id(source_component_id, true);
+    err = actuator_hal_request_component(source_component_id, true,
+                                         ACTUATOR_SOURCE_TRANSFER,
+                                         "transfer_source_on");
     if (err != ESP_OK) {
-        actuator_hal_set_by_component_id(destination_component_id, false);
+        actuator_hal_request_component(destination_component_id, false,
+                                       ACTUATOR_SOURCE_TRANSFER,
+                                       "transfer_rollback");
         actuator_hal_release_component(source_component_id, ACTUATOR_OWNER_TRANSFER);
         actuator_hal_release_component(destination_component_id, ACTUATOR_OWNER_TRANSFER);
         xSemaphoreGive(s_mutex);

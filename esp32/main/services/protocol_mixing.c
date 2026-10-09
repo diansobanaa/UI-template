@@ -105,11 +105,15 @@ const char *mixing_phase_to_string(mixing_phase_t phase)
 static esp_err_t set_actuator_state(const char *component_id, bool on)
 {
     if (!component_id || !component_id[0]) return ESP_ERR_INVALID_ARG;
-    esp_err_t err = actuator_hal_set_by_component_id(component_id, on);
+    esp_err_t err = actuator_hal_request_component(component_id, on,
+                                                   ACTUATOR_SOURCE_FERTIGATION,
+                                                   on ? "mixing_on" : "mixing_off");
     if (err != ESP_OK) {
         actuator_id_t fallback_aid = ACTUATOR_MAX_COUNT;
         if (actuator_hal_find_id_by_component_id(component_id, &fallback_aid) == ESP_OK) {
-            err = actuator_hal_set(fallback_aid, on);
+            err = actuator_hal_request(fallback_aid, on,
+                                       ACTUATOR_SOURCE_FERTIGATION,
+                                       on ? "mixing_on_legacy" : "mixing_off_legacy");
         }
     }
     return err;
@@ -162,10 +166,14 @@ static esp_err_t set_scoped_actuator_state(scoped_actuator_t *act, bool on)
     }
     esp_err_t err = ESP_FAIL;
     if (act->acquired_by_component) {
-        err = actuator_hal_set_by_component_id(act->component_id, on);
+        err = actuator_hal_request_component(act->component_id, on,
+                                             ACTUATOR_SOURCE_FERTIGATION,
+                                             on ? "scoped_on" : "scoped_off");
     }
     if (err != ESP_OK && act->acquired_by_fallback && act->fallback_aid < ACTUATOR_MAX_COUNT) {
-        err = actuator_hal_set(act->fallback_aid, on);
+        err = actuator_hal_request(act->fallback_aid, on,
+                                   ACTUATOR_SOURCE_FERTIGATION,
+                                   on ? "scoped_on_legacy" : "scoped_off_legacy");
     }
     if (err == ESP_OK) {
         act->is_on = on;

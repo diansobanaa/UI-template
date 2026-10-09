@@ -212,7 +212,9 @@ static void stop_all(void) {
   stop_component(s_batch.delivery_pump_id);
   for (uint32_t i = 0; i < s_batch.routing_valve_count; i++) {
     if (s_batch.routing_valve_ids[i][0]) {
-      actuator_hal_set_by_component_id(s_batch.routing_valve_ids[i], false);
+      actuator_hal_request_component(s_batch.routing_valve_ids[i], false,
+                                     ACTUATOR_SOURCE_FERTIGATION,
+                                     "fertigation_route_close");
       actuator_hal_release_component(s_batch.routing_valve_ids[i],
                                      ACTUATOR_OWNER_FERTIGATION);
     }
@@ -1980,8 +1982,9 @@ static void task(void *arg) {
           if (actuator_hal_acquire_component(s_batch.routing_valve_ids[i],
                                              ACTUATOR_OWNER_FERTIGATION) !=
                   ESP_OK ||
-              actuator_hal_set_by_component_id(s_batch.routing_valve_ids[i],
-                                               true) != ESP_OK) {
+              actuator_hal_request_component(s_batch.routing_valve_ids[i], true,
+                                             ACTUATOR_SOURCE_FERTIGATION,
+                                             "fertigation_route_open") != ESP_OK) {
             stop_all();
             s_state = FERT_STATE_FAULTED;
             s_run_end_ms = wallclock_ms();
@@ -2033,8 +2036,9 @@ static void task(void *arg) {
       /* Close and release routing valves */
       for (uint32_t i = 0; i < s_batch.routing_valve_count; i++) {
         if (s_batch.routing_valve_ids[i][0]) {
-          actuator_hal_set_by_component_id(s_batch.routing_valve_ids[i],
-                                           false);
+          actuator_hal_request_component(s_batch.routing_valve_ids[i], false,
+                                         ACTUATOR_SOURCE_FERTIGATION,
+                                         "fertigation_route_close");
           actuator_hal_release_component(s_batch.routing_valve_ids[i],
                                          ACTUATOR_OWNER_FERTIGATION);
         }
@@ -2759,7 +2763,9 @@ esp_err_t fertigation_mgr_trigger_distribution(const char *gh_id,
     xSemaphoreGive(s_mutex);
     return ESP_ERR_INVALID_STATE;
   }
-  if (actuator_hal_set_by_component_id(slot->delivery_pump_id, true) !=
+  if (actuator_hal_request_component(slot->delivery_pump_id, true,
+                                     ACTUATOR_SOURCE_FERTIGATION,
+                                     "fertigation_delivery_start") !=
       ESP_OK) {
     actuator_hal_release_component(slot->delivery_pump_id,
                                    ACTUATOR_OWNER_FERTIGATION);

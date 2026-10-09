@@ -3291,7 +3291,9 @@ esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
       if (!currently_on) {
         if (owner == ACTUATOR_OWNER_NONE || owner == ACTUATOR_OWNER_SCHEDULER) {
           (void)actuator_hal_acquire_component(comp_id, ACTUATOR_OWNER_SCHEDULER);
-          esp_err_t set_err = actuator_hal_set_by_component_id(comp_id, true);
+          esp_err_t set_err = actuator_hal_request_component(comp_id, true,
+                                                             ACTUATOR_SOURCE_SCHEDULER,
+                                                             "schedule_window_start");
           if (set_err == ESP_OK) {
             ESP_LOGI(TAG, "AUTO Schedule activated: Fan '%s' ON (sched '%s', %u s remaining)",
                      comp_id, sched_id, (unsigned)rem_sec);

@@ -19,6 +19,17 @@ typedef enum {
 } actuator_owner_t;
 
 typedef enum {
+    ACTUATOR_SOURCE_STARTUP = 0,
+    ACTUATOR_SOURCE_MANUAL,
+    ACTUATOR_SOURCE_SCHEDULER,
+    ACTUATOR_SOURCE_FERTIGATION,
+    ACTUATOR_SOURCE_TRANSFER,
+    ACTUATOR_SOURCE_CALIBRATION,
+    ACTUATOR_SOURCE_SAFETY,
+    ACTUATOR_SOURCE_ALARM
+} actuator_source_t;
+
+typedef enum {
     ACTUATOR_WELL_PUMP = 0,
     ACTUATOR_DIST_PUMP,
     ACTUATOR_RAW_SUBMERSIBLE,
@@ -57,6 +68,20 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on);
  * @brief Turn an actuator ON or OFF by logical component ID with dynamic registry resolution and lifecycle checks.
  */
 esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on);
+
+/**
+ * @brief Authoritative actuator request boundary with traceable source and reason.
+ *
+ * All normal actuator requests should use this API. The legacy setters remain
+ * compatibility aliases and still execute through the same physical boundary.
+ */
+esp_err_t actuator_hal_request(actuator_id_t id, bool on,
+                               actuator_source_t source, const char *reason);
+esp_err_t actuator_hal_request_component(const char *component_id, bool on,
+                                         actuator_source_t source, const char *reason);
+
+/** Drive all compile-time actuator outputs inactive before full firmware init. */
+esp_err_t actuator_hal_bootstrap_safe_off(void);
 
 /**
  * @brief Get current physical and logical state of an actuator.

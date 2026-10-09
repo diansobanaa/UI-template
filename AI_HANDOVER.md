@@ -1,3 +1,40 @@
+# AI HANDOVER - SP-ACTUATOR-CENTRAL-001
+
+## Current status
+Centralized actuator control is implemented and build-verified. The firmware
+HAL is the only module with actuator GPIO writes. The duplicate early-boot
+writer was removed from `main.c` and replaced with
+`actuator_hal_bootstrap_safe_off()`.
+
+### Important implementation details
+- Normal callers use `actuator_hal_request_component()` or
+  `actuator_hal_request()` with source and reason.
+- Every request through those APIs emits an `ACTUATOR_REQUEST` event. Existing
+  transition events and the bounded/deferred event manager remain in use.
+- Legacy `actuator_hal_set*` compatibility functions still converge on the HAL.
+- Alarm buzzer control remains a privileged `actuator_hal_buzzer_set_raw()`
+  path owned by `alarm_mgr`; it still writes only inside `actuator_hal.c`.
+- Dynamic I2C actuators remain unsupported until a physical driver exists.
+
+### Verification
+- `npm run test:actuators`: PASS.
+- ESP-IDF build via `powershell.exe -ExecutionPolicy Bypass -File .\scripts\build_esp32.ps1`: PASS; `agrotech_esp32.bin`, 48% app free.
+- `npm test`: PASS, 28/28 endpoint contract tests.
+- `npx tsc --noEmit`: PASS.
+- `npm run build`: PASS.
+
+### Changed files
+`esp32/main/hal/actuator_hal.c`, `esp32/main/hal/actuator_hal.h`,
+`esp32/main/main.c`, actuator service callers,
+`docs/ACTUATOR_CONTROL_ARCHITECTURE.md`,
+`docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`,
+`scripts/test_actuator_centralization.mjs`, and `package.json`.
+
+### Known issues / next action
+Software cannot verify motor rotation from a GPIO write, and PCA9685/I2C
+actuator output is still intentionally unsupported. Runtime hardware
+observation is the next action if physical verification is required.
+
 # AI HANDOVER - SP-POLL-OVERLAP-002
 
 ## Current status

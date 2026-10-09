@@ -256,10 +256,14 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
         if (err != ESP_OK) return err;
     }
 
-    err = actuator_hal_set_by_component_id(component_id, true);
+    err = actuator_hal_request_component(component_id, true,
+                                         ACTUATOR_SOURCE_CALIBRATION,
+                                         "calibration_start");
     if (err != ESP_OK) {
         if (fallback_aid < ACTUATOR_MAX_COUNT || actuator_hal_find_id_by_component_id(component_id, &fallback_aid) == ESP_OK) {
-            err = actuator_hal_set(fallback_aid, true);
+            err = actuator_hal_request(fallback_aid, true,
+                                       ACTUATOR_SOURCE_CALIBRATION,
+                                       "calibration_start_legacy");
         }
         if (err != ESP_OK) {
             actuator_hal_release_component(component_id, ACTUATOR_OWNER_CALIBRATION);
@@ -301,20 +305,28 @@ static void calibration_worker_task(void *arg)
                 }
             }
             if (actuator_hal_is_emergency_stopped()) {
-                actuator_hal_set_by_component_id(s_ctx.component_id, false);
+                actuator_hal_request_component(s_ctx.component_id, false,
+                                               ACTUATOR_SOURCE_SAFETY,
+                                               "calibration_emergency_stop");
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
                 if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
-                    actuator_hal_set(s_ctx.pump_id, false);
+                    actuator_hal_request(s_ctx.pump_id, false,
+                                         ACTUATOR_SOURCE_SAFETY,
+                                         "calibration_emergency_stop_legacy");
                     actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
                 }
                 copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "EMERGENCY_STOP");
                 s_ctx.state = CALIBRATION_STATE_ERROR;
                 s_ctx.remaining_sec = 0;
             } else if (elapsed >= s_ctx.duration_sec) {
-                actuator_hal_set_by_component_id(s_ctx.component_id, false);
+                actuator_hal_request_component(s_ctx.component_id, false,
+                                               ACTUATOR_SOURCE_CALIBRATION,
+                                               "calibration_complete");
                 actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
                 if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
-                    actuator_hal_set(s_ctx.pump_id, false);
+                    actuator_hal_request(s_ctx.pump_id, false,
+                                         ACTUATOR_SOURCE_CALIBRATION,
+                                         "calibration_complete_legacy");
                     actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
                 }
                 s_ctx.state = CALIBRATION_STATE_COMPLETE;
@@ -365,10 +377,14 @@ esp_err_t calibration_mgr_stop(void)
     if (!s_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
     if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
-        actuator_hal_set_by_component_id(s_ctx.component_id, false);
+        actuator_hal_request_component(s_ctx.component_id, false,
+                                       ACTUATOR_SOURCE_MANUAL,
+                                       "calibration_operator_stop");
         actuator_hal_release_component(s_ctx.component_id, ACTUATOR_OWNER_CALIBRATION);
         if (s_ctx.pump_id < ACTUATOR_MAX_COUNT) {
-            actuator_hal_set(s_ctx.pump_id, false);
+            actuator_hal_request(s_ctx.pump_id, false,
+                                 ACTUATOR_SOURCE_MANUAL,
+                                 "calibration_operator_stop_legacy");
             actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
         }
         copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "STOPPED_BY_OPERATOR");

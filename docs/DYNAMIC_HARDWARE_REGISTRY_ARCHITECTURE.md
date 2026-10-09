@@ -123,7 +123,7 @@ The `components.json` file on ESP32 Flash defines the array of components recogn
   "components": [
     { "componentId": "pump_well",        "name": "Well Pump",            "supportedTypeId": "pump-12v-dc", "role": "WELL_PUMP",        "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 1, "polarity": "ACTIVE_LOW" }, "parameters": {} },
     { "componentId": "pump_dist",        "name": "Distribution Pump",    "supportedTypeId": "pump-12v-dc", "role": "DIST_PUMP",        "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 2, "polarity": "ACTIVE_LOW" }, "parameters": {} },
-    { "componentId": "pump_submersible", "name": "Raw Submersible Pump", "supportedTypeId": "pump-12v-dc", "role": "RAW_SUBMERSIBLE", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 4, "polarity": "ACTIVE_LOW" }, "parameters": {} },
+    { "componentId": "pump_submersible", "name": "Raw Submersible Pump", "supportedTypeId": "pump-12v-dc", "role": "RAW_SUBMERSIBLE", "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 4, "polarity": "ACTIVE_HIGH" }, "parameters": {} },
     { "componentId": "pump_dosing_a",    "name": "Dosing Pump A",        "supportedTypeId": "pump-12v-dc", "role": "DOSING_A",          "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 5, "polarity": "ACTIVE_HIGH" }, "parameters": {} },
     { "componentId": "pump_dosing_b",    "name": "Dosing Pump B",        "supportedTypeId": "pump-12v-dc", "role": "DOSING_B",          "lifecycleState": "COMMISSIONED", "deploymentStatus": "APPLIED", "assignment": { "complexId": "complex-08" }, "wiring": { "interface": "GPIO", "gpio": 6, "polarity": "ACTIVE_HIGH" }, "parameters": {} }
     /* =========================================================================
@@ -298,8 +298,8 @@ To eliminate tedious, error-prone manual GPIO entry for standard factory panels,
    - Core panel actuators are pre-mapped to authoritative pins without requiring user configuration:
      - `Well Pump`: Relay Ch 1 (GPIO 1, `ACTIVE_LOW`, role `WELL_PUMP`)
      - `Distribution Pump`: Relay Ch 2 (GPIO 2, `ACTIVE_LOW`, role `DIST_PUMP`)
-     - `Raw Submersible Pump`: Relay Ch 4 (GPIO 4, `ACTIVE_LOW`, role `RAW_SUBMERSIBLE`)
-     - `Dosing Pumps A & B`: MOSFET Ch 1 & 2 (GPIO 5 & 6, `ACTIVE_LOW`, roles `DOSING_A`, `DOSING_B`)
+     - `Raw Submersible Pump`: MOSFET Output 1 (GPIO 4, `ACTIVE_HIGH`, role `RAW_SUBMERSIBLE`)
+     - `Dosing Pumps A & B`: MOSFET Outputs 2 & 3 (GPIO 5 & 6, `ACTIVE_HIGH`, roles `DOSING_A`, `DOSING_B`)
      - Optional Toggle: `Greenhouse Blower Fan` (Relay Ch 3, GPIO 10, `ACTIVE_LOW`, role `BLOWER_FAN`)
    - Operator clicks **`[ Deploy Standard Baseline ]`**: The UI constructs the canonical configuration payload, transmits via `PUT /api/v1/configuration`, and automatically re-discovers inventory, advancing directly to `5 Detected components (Ready)`.
 2. **Hardware Management Portal (`/equipment`):**
@@ -319,7 +319,7 @@ To eliminate arbitrary, error-prone GPIO pin selection and simplify hardware com
    - All state, active inventory, and configurations reload dynamically when switching complexes (`?complex=<id>`).
 2. **Shared Facility vs. Per-Greenhouse (GH) Logic:**
    - **Shared Facility Resources (`ghId: null`):**
-     - Actuators and sensors serving the entire complex or central mixing station are scoped to the complex level: Deep Well Pump (GPIO 1), Raw Submersible (GPIO 4), Dosing Pump A (GPIO 5), Dosing Pump B (GPIO 6), Cabinet Cooling Fan (GPIO 7), Mixing Tank Pump (GPIO 40), Alarm Buzzer via MOSFET (GPIO 18), Raw Flow Meter ZJ-B1 (GPIO 15), Mixing Temp DS18B20 (GPIO 17), and Lower Float Switch (GPIO 38).
+     - Actuators and sensors serving the entire complex or central mixing station are scoped to the complex level: Deep Well Pump (GPIO 1), Raw Submersible (GPIO 4), Dosing Pump A (GPIO 5), Dosing Pump B (GPIO 6), Mixing Tank Pump (GPIO 40), Alarm Buzzer via MOSFET (GPIO 18), Raw Flow Meter ZJ-B1 (GPIO 15), Mixing Temp DS18B20 (GPIO 17), and Lower Float Switch (GPIO 38). The cabinet cooling fan is PSU-direct and is not MCU-controlled.
      - Marked with `🏢 Shared Facility (Semua GH)`.
    - **Greenhouse-Specific Equipment (`ghId: "gh-01"`, etc.):**
      - Hardware physically located inside or dedicated to a specific greenhouse: Greenhouse Blower Fans (GPIO 10) and Distribution Booster Pumps (GPIO 2).

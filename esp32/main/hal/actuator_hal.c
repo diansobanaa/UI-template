@@ -9,6 +9,7 @@
 #include "hal/hardware_registry.h"
 #include "services/alarm_mgr.h"
 #include "esp_timer.h"
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "ACTUATOR_HAL";
@@ -39,6 +40,36 @@ static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
 
 static bool s_emergency_stop_latched = false;
 static SemaphoreHandle_t s_lock = NULL;
+
+static const char *source_name(actuator_source_t source)
+{
+    switch (source) {
+        case ACTUATOR_SOURCE_STARTUP: return "STARTUP";
+        case ACTUATOR_SOURCE_MANUAL: return "MANUAL";
+        case ACTUATOR_SOURCE_SCHEDULER: return "SCHEDULER";
+        case ACTUATOR_SOURCE_FERTIGATION: return "FERTIGATION";
+        case ACTUATOR_SOURCE_TRANSFER: return "TRANSFER";
+        case ACTUATOR_SOURCE_CALIBRATION: return "CALIBRATION";
+        case ACTUATOR_SOURCE_SAFETY: return "SAFETY";
+        case ACTUATOR_SOURCE_ALARM: return "ALARM";
+        default: return "UNKNOWN";
+    }
+}
+
+static void log_request(const char *component_id, bool requested_on,
+                        actuator_source_t source, const char *reason,
+                        esp_err_t result)
+{
+    char message[128];
+    const bool success = result == ESP_OK;
+    snprintf(message, sizeof(message),
+             "requested=%s source=%s reason=%s result=%s err=0x%x",
+             requested_on ? "ON" : "OFF", source_name(source),
+             reason && reason[0] ? reason : "unspecified",
+             success ? "SUCCESS" : "REJECTED", (unsigned)result);
+    (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "ACTUATOR_REQUEST",
+                        message, component_id ? component_id : "");
+}
 
 #define MAX_DYNAMIC_RUNTIME 64
 typedef struct {
@@ -76,6 +107,46 @@ static void runtime_set_locked(const char *component_id, bool on, actuator_owner
 }
 
 static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fallback);
+
+esp_err_t actuator_hal_bootstrap_safe_off(void)
+{
+    const struct {
+        gpio_num_t pin;
+        uint8_t active_level;
+    } outputs[] = {
+        { PIN_OUT_WELL_PUMP, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_DIST_PUMP, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_RAW_SUBMERSIBLE, RAW_SUBMERSIBLE_ACTIVE_LEVEL },
+        { PIN_OUT_DOSING_A, DOSING_ACTIVE_LEVEL },
+        { PIN_OUT_DOSING_B, DOSING_ACTIVE_LEVEL },
+        { PIN_OUT_COOLING_FAN, COOLING_FAN_ACTIVE_LEVEL },
+        { PIN_OUT_BLOWER_FAN, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_MIXING_PUMP, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_BUZZER, BUZZER_ACTIVE_LEVEL },
+        { PIN_OUT_ERROR_LAMP, RELAY_ACTIVE_LEVEL },
+    };
+    esp_err_t result = ESP_OK;
+    for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); ++i) {
+        if (outputs[i].pin < 0) continue;
+        const int off_level = !outputs[i].active_level;
+        gpio_config_t config = {
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = off_level ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+            .pull_down_en = off_level ? GPIO_PULLDOWN_DISABLE : GPIO_PULLDOWN_ENABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+            .pin_bit_mask = 1ULL << outputs[i].pin,
+        };
+        esp_err_t err = gpio_config(&config);
+        if (err != ESP_OK) {
+            result = err;
+            ESP_LOGE(TAG, "Failed to configure GPIO %d safe OFF (err=0x%x)",
+                     (int)outputs[i].pin, (unsigned)err);
+            continue;
+        }
+        gpio_set_level(outputs[i].pin, off_level);
+    }
+    return result;
+}
 
 esp_err_t actuator_hal_init(void)
 {
@@ -242,6 +313,7 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         ESP_LOGW(TAG, "Direct actuator_hal_set for buzzer blocked: alarm_mgr is authoritative owner.");
         return ESP_ERR_NOT_SUPPORTED;
     }
+
     if (!s_lock) return ESP_ERR_INVALID_STATE;
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -327,6 +399,15 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
     return ESP_OK;
 }
 
+esp_err_t actuator_hal_request(actuator_id_t id, bool on,
+                               actuator_source_t source, const char *reason)
+{
+    esp_err_t err = actuator_hal_set(id, on);
+    const char *component_id = (id < ACTUATOR_MAX_COUNT) ? s_actuators[id].name : "invalid";
+    log_request(component_id, on, source, reason, err);
+    return err;
+}
+
 esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
 {
     if (!component_id || component_id[0] == '\0') return ESP_ERR_INVALID_ARG;
@@ -342,6 +423,7 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
             xSemaphoreGive(s_lock);
             return ESP_ERR_NOT_FOUND;
         }
+
     }
 
     if (on && s_emergency_stop_latched) {
@@ -444,6 +526,14 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         telemetry_mgr_trigger_transition("ACTUATOR_STATE_CHANGE");
     }
     return ESP_OK;
+}
+
+esp_err_t actuator_hal_request_component(const char *component_id, bool on,
+                                         actuator_source_t source, const char *reason)
+{
+    esp_err_t err = actuator_hal_set_by_component_id(component_id, on);
+    log_request(component_id, on, source, reason, err);
+    return err;
 }
 
 esp_err_t actuator_hal_acquire(actuator_id_t id, actuator_owner_t owner)

@@ -35,15 +35,15 @@ static esp_err_t well_pump_apply_relay(bool on, actuator_owner_t owner)
     esp_err_t err = ESP_OK;
     if (on) {
         (void)actuator_hal_acquire_component("pump_well", owner);
-        err = actuator_hal_set_by_component_id("pump_well", true);
+        err = actuator_hal_request_component("pump_well", true, ACTUATOR_SOURCE_MANUAL, "well_pump_on");
         if (err != ESP_OK) {
             /* Fallback to direct actuator ID if component registry lookup differs */
-            err = actuator_hal_set(ACTUATOR_WELL_PUMP, true);
+            err = actuator_hal_request(ACTUATOR_WELL_PUMP, true, ACTUATOR_SOURCE_MANUAL, "well_pump_on_legacy");
         }
     } else {
-        err = actuator_hal_stop_component("pump_well", owner);
+        err = actuator_hal_request_component("pump_well", false, ACTUATOR_SOURCE_SAFETY, "well_pump_off");
         if (err != ESP_OK) {
-            err = actuator_hal_set(ACTUATOR_WELL_PUMP, false);
+            err = actuator_hal_request(ACTUATOR_WELL_PUMP, false, ACTUATOR_SOURCE_SAFETY, "well_pump_off_legacy");
         }
         (void)actuator_hal_release_component("pump_well", owner);
     }

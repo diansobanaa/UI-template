@@ -507,7 +507,9 @@ static void component_timed_task(void *pvParameters) {
     return;
   }
   int64_t start_us = 0;
-  esp_err_t err = actuator_hal_set_by_component_id(command->component_id, true);
+  esp_err_t err = actuator_hal_request_component(command->component_id, true,
+                                                 ACTUATOR_SOURCE_MANUAL,
+                                                 "command_timed_start");
   if (err == ESP_OK) {
     start_us = esp_timer_get_time();
     while (((esp_timer_get_time() - start_us) / 1000000LL) <
@@ -518,7 +520,9 @@ static void component_timed_task(void *pvParameters) {
         break;
       }
     }
-    (void)actuator_hal_set_by_component_id(command->component_id, false);
+    (void)actuator_hal_request_component(command->component_id, false,
+                                         ACTUATOR_SOURCE_SAFETY,
+                                         "command_timed_stop");
   }
   if (acquired)
     (void)actuator_hal_release_component(command->component_id, owner);

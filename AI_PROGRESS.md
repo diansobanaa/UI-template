@@ -1,3 +1,29 @@
+## SP-ACTUATOR-CENTRAL-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & VERIFIED` (static exclusivity PASS, firmware build PASS, frontend type/build PASS, API contract tests PASS)
+- **Objective**: Enforce one authoritative actuator output boundary with traceable requests and remove the duplicate startup GPIO writer.
+- **Audit**:
+  - Confirmed actuator outputs are GPIO 1, 2, 4, 5, 6, 10, 18, and 40; cooling fan GPIO 7 and error lamp are unmapped in firmware.
+  - Confirmed all actuator-capable GPIO writes are in `esp32/main/hal/actuator_hal.c` after migration; DHT22, sensor, TFT, MicroSD, and button writes are non-actuator peripherals.
+  - Identified and removed duplicate `main.c` boot safe-off writes.
+  - Confirmed dynamic I2C actuator entries have no physical PCA9685 driver and remain rejected rather than falsely treated as physically safe.
+- **Implemented**:
+  - Added `actuator_hal_request*` APIs with source/reason/result audit events.
+  - Moved bootstrap safe-off into `actuator_hal_bootstrap_safe_off()`.
+  - Routed manual, scheduler, fertigation, mixing, transfer, calibration, command, and well-pump operations through the request API.
+  - Corrected dynamic registry documentation for active-high MOSFET outputs and PSU-direct cooling fan.
+  - Added `docs/ACTUATOR_CONTROL_ARCHITECTURE.md` and `scripts/test_actuator_centralization.mjs`.
+- **Verification**:
+  - `npm run test:actuators`: PASS.
+  - `powershell.exe -ExecutionPolicy Bypass -File .\scripts\build_esp32.ps1`: PASS; 48% app partition free.
+  - `npm test`: PASS; 28/28 API endpoints.
+  - `npx tsc --noEmit`: PASS.
+  - `npm run build`: PASS.
+  - `git diff --check`: PASS.
+- **Changed files**: `esp32/main/hal/actuator_hal.c`, `esp32/main/hal/actuator_hal.h`, `esp32/main/main.c`, actuator service callers, `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`, `docs/DYNAMIC_HARDWARE_REGISTRY_ARCHITECTURE.md`, `scripts/test_actuator_centralization.mjs`, `package.json`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issues**: GPIO commands cannot verify motor rotation; dynamic I2C actuator hardware output remains unsupported; privileged alarm buzzer path is intentionally retained inside the HAL.
+- **Next action**: Runtime hardware observation may verify commanded state against physical load behavior; software safe point is complete.
+
 ## SP-POLL-OVERLAP-002
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (Firmware Build PASS, ESP32 Flash PASS, Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)
@@ -8295,4 +8321,3 @@ Physical verification remains BLOCKED pending real ESP32-S3, router, phone, TFT,
   - `scripts/test_sensor_fallback_matrix.mjs`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
-
