@@ -1,3 +1,24 @@
+## SP-CALIBRATION-NVS-READBACK-001
+- **Date**: 2026-10-10
+- **Status**: `IMPLEMENTED & BUILD-VERIFIED; ESP32 RESTART VALIDATION PENDING`
+- **Objective**: Investigate calibration loss after refresh and make the save path report success only when NVS persistence is confirmed.
+- **Confirmed root cause**: `storage_mgr_save_calibration()` ignored `nvs_set_str()` and `nvs_commit()` results and always logged success after an open handle. The API could therefore return `APPLIED` and emit a persisted event even when the submitted JSON was not durably stored. Startup also silently discarded missing, invalid, incompatible, or unreadable calibration data.
+- **Implemented**:
+  - Checked NVS open, set, and commit errors.
+  - Read `calib_json` back from the same `agrotech` namespace/key and compared it with the submitted JSON before returning `ESP_OK`.
+  - Added explicit diagnostics for missing/read-failed calibration data and invalid JSON/unsupported schema versions.
+  - Updated canonical storage documentation and regression assertions.
+- **Verification**:
+  - `node scripts/test_storage_calibration_hardening.mjs`: PASS.
+  - `npm test`: PASS (28/28 API contract checks).
+  - `npx tsc --noEmit`: PASS.
+  - `npm run build`: PASS.
+  - `powershell.exe -ExecutionPolicy Bypass -File .\scripts\build_esp32.ps1`: PASS; 48% app partition free.
+  - `git diff --check`: PASS.
+- **Changed files**: `esp32/main/storage/storage_mgr.c`, `esp32/main/services/calibration_mgr.c`, `scripts/test_storage_calibration_hardening.mjs`, `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`, `AI_PROGRESS.md`, `AI_HANDOVER.md`.
+- **Known issue**: The save/read/refresh round trip is software-verified but still needs a controlled physical ESP32 calibration save, reboot, and GET `/api/v1/calibration/rate` observation. No firmware was flashed by this task.
+- **Next action**: Flash only if requested/approved, then capture persistence success/readback logs across a reboot without erasing NVS.
+
 ## SP-ACTUATOR-CENTRAL-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & VERIFIED` (static exclusivity PASS, firmware build PASS, frontend type/build PASS, API contract tests PASS)

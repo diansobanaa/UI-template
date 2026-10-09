@@ -1,3 +1,44 @@
+# AI HANDOVER — SP-CALIBRATION-NVS-READBACK-001 (latest)
+
+## Status
+Calibration persistence hardening is implemented and build-verified. The
+firmware has not been flashed by this task.
+
+## Confirmed root cause and path
+The UI saves dosing calibration through
+`POST /api/v1/calibration/rate`. The ESP32 handler updates
+`calibration_mgr` and serializes the complete record set to NVS namespace
+`agrotech`, key `calib_json`. `storage_mgr_save_calibration()` previously
+ignored `nvs_set_str()` and `nvs_commit()` failures and logged `Saved` anyway.
+This allowed a success-shaped `APPLIED` response/event while startup
+`calibration_mgr` could not restore the record. On refresh, the UI loads rates
+from `GET /api/v1/calibration/rate`; missing startup records therefore became
+empty/default readings at the device-authoritative boundary.
+
+## Changes
+- `esp32/main/storage/storage_mgr.c`: propagate open/set/commit failures and
+  verify the exact NVS string immediately after commit; distinguish missing and
+  read failures.
+- `esp32/main/services/calibration_mgr.c`: log failed/missing loads and reject
+  unsupported schema versions without fabricating a record.
+- `scripts/test_storage_calibration_hardening.mjs`: regression assertions for
+  write/read-back failure handling and invalid/incompatible data diagnostics.
+- `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`: document the authoritative
+  NVS namespace/key and three-stage persistence verification.
+
+## Verification
+- Targeted storage/calibration checks: PASS.
+- API contract tests: PASS (28/28).
+- TypeScript check: PASS.
+- Frontend build: PASS.
+- ESP-IDF build: PASS; 48% app partition free.
+
+## Remaining validation
+Run a controlled physical test: save a calibration, confirm the new
+persisted/read-back logs, reboot without erasing NVS, then query
+`GET /api/v1/calibration/rate` and refresh the calibration UI. Do not claim
+physical durability until that test passes.
+
 # AI HANDOVER - SP-ACTUATOR-CENTRAL-001
 
 ## Current status

@@ -1071,17 +1071,26 @@ esp_err_t storage_mgr_load_calibration(char *out_buf, size_t max_len, size_t *ou
     if (!out_buf || max_len == 0) return ESP_ERR_INVALID_ARG;
 
     nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
-        size_t len = max_len;
-        esp_err_t err = nvs_get_str(handle, "calib_json", out_buf, &len);
-        nvs_close(handle);
-        if (err == ESP_OK) {
-            if (out_len) *out_len = len;
-            ESP_LOGI(TAG, "Loaded calib_json from NVS (%u bytes)", (unsigned)len);
-            return ESP_OK;
-        }
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Calibration load failed: NVS open (0x%x)", err);
+        return err;
     }
-    return ESP_ERR_NOT_FOUND;
+
+    size_t len = max_len;
+    err = nvs_get_str(handle, "calib_json", out_buf, &len);
+    nvs_close(handle);
+    if (err == ESP_OK) {
+        if (out_len) *out_len = len;
+        ESP_LOGI(TAG, "Calibration read back from NVS (%u bytes)", (unsigned)len);
+        return ESP_OK;
+    }
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Calibration data missing from NVS");
+    } else {
+        ESP_LOGE(TAG, "Calibration load failed: NVS read (0x%x)", err);
+    }
+    return err;
 }
 
 esp_err_t storage_mgr_save_calibration(const char *json_str)
@@ -1089,12 +1098,47 @@ esp_err_t storage_mgr_save_calibration(const char *json_str)
     if (!json_str) return ESP_ERR_INVALID_ARG;
 
     nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        nvs_set_str(handle, "calib_json", json_str);
-        nvs_commit(handle);
-        nvs_close(handle);
-        ESP_LOGI(TAG, "Saved calib_json to NVS");
-        return ESP_OK;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Calibration persistence failed: NVS open (0x%x)", err);
+        return err;
     }
-    return ESP_FAIL;
+
+    err = nvs_set_str(handle, "calib_json", json_str);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Calibration persistence failed: NVS set (0x%x)", err);
+        nvs_close(handle);
+        return err;
+    }
+    err = nvs_commit(handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Calibration persistence failed: NVS commit (0x%x)", err);
+        nvs_close(handle);
+        return err;
+    }
+
+    size_t expected_len = strlen(json_str) + 1;
+    size_t stored_len = 0;
+    err = nvs_get_str(handle, "calib_json", NULL, &stored_len);
+    if (err == ESP_OK && stored_len == expected_len) {
+        char *stored = malloc(stored_len);
+        if (!stored) {
+            err = ESP_ERR_NO_MEM;
+        } else {
+            err = nvs_get_str(handle, "calib_json", stored, &stored_len);
+            if (err == ESP_OK && strcmp(stored, json_str) != 0) {
+                err = ESP_ERR_INVALID_RESPONSE;
+            }
+            free(stored);
+        }
+    } else if (err == ESP_OK) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+    nvs_close(handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Calibration read-back failed after NVS commit (0x%x)", err);
+        return err;
+    }
+    ESP_LOGI(TAG, "Calibration persisted and read back from NVS (%u bytes)", (unsigned)expected_len);
+    return ESP_OK;
 }

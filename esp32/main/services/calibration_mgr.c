@@ -208,13 +208,24 @@ static void load_persisted(void)
     char *buf = (char *)malloc(4096);
     if (!buf) return;
     size_t len = 0;
-    if (storage_mgr_load_calibration(buf, 4096, &len) != ESP_OK) {
+    esp_err_t load_err = storage_mgr_load_calibration(buf, 4096, &len);
+    if (load_err != ESP_OK) {
+        ESP_LOGW(TAG, "Calibration load did not restore a record (0x%x)", load_err);
         free(buf);
         return;
     }
     cJSON *root = cJSON_ParseWithLength(buf, len);
     free(buf);
-    if (!root) return;
+    if (!root) {
+        ESP_LOGE(TAG, "Calibration data invalid: JSON parse failed");
+        return;
+    }
+    cJSON *schema = cJSON_GetObjectItem(root, "schemaVersion");
+    if (schema && cJSON_IsNumber(schema) && schema->valueint > 3) {
+        ESP_LOGE(TAG, "Calibration data incompatible: schemaVersion=%d", schema->valueint);
+        cJSON_Delete(root);
+        return;
+    }
     cJSON *raw = cJSON_GetObjectItem(root, "flowRawPulsesPerL");
     cJSON *fert = cJSON_GetObjectItem(root, "flowFertPulsesPerL");
     if (raw && cJSON_IsNumber(raw) && raw->valuedouble > 0) s_flow_raw_pulses_per_l = (float)raw->valuedouble;
@@ -245,6 +256,7 @@ static void load_persisted(void)
                 calibration_type_supported(r->calibration_type) && r->version > 0 && r->calibration_id[0]) ++s_record_count;
         }
     }
+    ESP_LOGI(TAG, "Calibration data restored: %u valid records", (unsigned)s_record_count);
     cJSON_Delete(root);
 }
 

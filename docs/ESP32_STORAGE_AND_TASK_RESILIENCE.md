@@ -48,6 +48,21 @@ after emergency/completion OFF transitions.
 The mixing/dosing protocol remains on its separate 6144-byte `mix_test` worker.
 No actuator safety interlock or emergency OFF path was removed.
 
+## Calibration persistence verification
+
+Calibration records are stored under the `agrotech` NVS namespace at the
+`calib_json` key. A calibration save is only successful after all three
+storage stages succeed: `nvs_set_str`, `nvs_commit`, and an immediate
+read-back comparison against the submitted JSON. A failure at any stage is
+returned to the HTTP handler, so it cannot be reported as `APPLIED` or emit a
+persisted calibration event.
+
+Startup load reports missing NVS data, NVS read failures, invalid JSON, and
+unsupported schema versions separately. Valid records are loaded into the
+calibration manager before the `/api/v1/calibration/rate` endpoint serves
+rates. This verifies software durability; retention and response behavior
+still require a controlled ESP32 restart test.
+
 ## Confirmed findings and remaining hypotheses
 
 - Confirmed: the observed `mk_persist` watchdog backtrace entered SPIFFS
