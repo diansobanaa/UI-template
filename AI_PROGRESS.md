@@ -22,7 +22,7 @@
   - `npm test`: PASS (28/28 OpenAPI endpoints).
   - `npx tsc --noEmit`: PASS (0 errors).
   - `npm run build`: PASS (bundled cleanly).
-- **Git Commit**: Pending commit at safe point.
+- **Git Commit**: `aba57e4`
 - **Next Action**: Monitor serial console and `/api/v1/diagnostics/httpd` to record error 113 diagnostic output under physical hardware load.
 
 ## SP-POLL-OVERLAP-001

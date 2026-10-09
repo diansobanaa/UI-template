@@ -30,7 +30,7 @@ Diagnostic instrumentation and endpoint deduplication refined across ESP32 firmw
    - `npm test`: PASS (28/28 OpenAPI endpoints).
    - `npx tsc --noEmit`: PASS (0 errors).
    - `npm run build`: PASS.
-7. **Git Commit**: Pending commit at safe point.
+7. **Git Commit**: `aba57e4`
 8. **Next Action**: Run live observation and query `GET /api/v1/diagnostics/httpd` to correlate accept errors with active socket counts.
 
 ---
