@@ -5689,3 +5689,27 @@ silicon can complete a valid DHT22 transaction. Read-phase logs remain needed.
 ### Next action
 Run the ESP-IDF firmware build and static checks. Flash only after explicit
 user request.
+
+## AI HANDOVER — SP-FLASH-GPIO41-DIAGNOSTIC-001
+
+### Status
+GPIO 41 diagnostic firmware flashed and verified; serial runtime observation
+pending.
+
+### Flash verification
+- Flash script: `scripts/flash_esp32.ps1`
+- Port: `COM3`
+- Application version: `4a19a63`
+- Application, bootloader, partition, and OTA data hashes: verified
+- Hard reset via RTS: successful
+- Full erase: not performed; NVS/Wi-Fi/binding state preserved
+
+### Next action
+Capture serial logs after boot and inspect:
+- `DHT22 GPIO initialization verified on GPIO 41`, or the initialization error
+  with ESP-IDF name/code.
+- DHT22 read phase timeout, checksum, range, retry, or success messages.
+
+A successful GPIO initialization message verifies software configuration was
+accepted, not that the external sensor, pull-up, wiring, or GPIO silicon is
+healthy.

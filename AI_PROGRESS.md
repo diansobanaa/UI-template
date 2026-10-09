@@ -5740,6 +5740,20 @@ None — audit only.
 - **Known limitation**: A successful GPIO configuration log proves software configuration was accepted, not that the external sensor, pull-up, cable, or silicon pin can exchange valid DHT22 data.
 - **Next action**: Run ESP-IDF firmware build and static checks, then flash only if explicitly requested.
 
+## SP-FLASH-GPIO41-DIAGNOSTIC-001
+- **Date**: 2026-10-10
+- **Status**: `FLASH COMPLETE & VERIFIED; SERIAL OBSERVATION PENDING`
+- **Objective**: Flash the GPIO 41/DHT22 initialization diagnostic firmware to the connected ESP32-S3.
+- **Completed**:
+  - Flashed application version `4a19a63` through `COM3`.
+  - Preserved NVS/Wi-Fi/binding state by not erasing the full flash.
+- **Verification**:
+  - Application, bootloader, partition, and OTA data hashes verified.
+  - Hard reset via RTS completed successfully.
+  - Firmware build and flash command exited successfully.
+- **Known issue**: No serial monitor observation has yet confirmed the GPIO 41 initialization and DHT22 read-phase logs.
+- **Next action**: Capture boot/runtime serial output and inspect `DHT22 GPIO initialization ...` plus subsequent Phase/CRC/read-success messages.
+
 ## SP-ONBOARDING-CREATE-CONTINUE-FIX — Resolution of Onboarding "Create & Continue" Blocker
 - **Date**: 2026-09-19
 - **Objective**: Fix issue where clicking "Create & continue" in Complex Onboarding (`/onboarding/complex`) fails to advance to Step 2 (Discover ESP32 controller).
