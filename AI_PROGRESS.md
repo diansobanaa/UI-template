@@ -1,3 +1,6 @@
+## SP-CALIBRATION-NVS-SIZE-001
+- Status: IMPLEMENTED & BUILD-VERIFIED; hardware validation pending. See AI_HANDOVER.md.
+
 ## SP-CALIBRATION-NVS-READBACK-001
 - **Date**: 2026-10-10
 - **Status**: `IMPLEMENTED & BUILD-VERIFIED; ESP32 RESTART VALIDATION PENDING`
@@ -8455,3 +8458,4 @@ Physical verification remains BLOCKED pending real ESP32-S3, router, phone, TFT,
   - `scripts/test_sensor_fallback_matrix.mjs`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
+

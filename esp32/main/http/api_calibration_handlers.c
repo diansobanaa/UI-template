@@ -157,11 +157,17 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     cJSON *j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulsesPerL");
     if (!j_flow_raw) j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulses");
     cJSON *j_flow_fert = cJSON_GetObjectItem(target, "flowFertPulsesPerL");
+    esp_err_t flow_err = ESP_OK;
     if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) {
-        (void)calibration_mgr_set_flow_raw_pulses_per_l((float)j_flow_raw->valuedouble);
+        flow_err = calibration_mgr_set_flow_raw_pulses_per_l((float)j_flow_raw->valuedouble);
     }
-    if (j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) {
-        (void)calibration_mgr_set_flow_fert_pulses_per_l((float)j_flow_fert->valuedouble);
+    if (flow_err == ESP_OK && j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) {
+        flow_err = calibration_mgr_set_flow_fert_pulses_per_l((float)j_flow_fert->valuedouble);
+    }
+    if (flow_err != ESP_OK) {
+        cJSON_Delete(json);
+        http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Flow calibration was not persisted.", NULL);
+        return ESP_FAIL;
     }
 
     cJSON *comp = cJSON_GetObjectItem(target, "componentId");

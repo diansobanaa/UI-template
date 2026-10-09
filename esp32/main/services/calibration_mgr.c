@@ -162,6 +162,31 @@ static int find_exact_record_locked(const char *component_id, const char *type, 
     return -1;
 }
 
+/* Records with >=2 newer versions of the same complex/component/type are superseded. */
+static bool record_superseded_locked(size_t i)
+{
+    int newer = 0;
+    const calibration_record_t *a = &s_records[i];
+    for (size_t j = 0; j < s_record_count; ++j) {
+        const calibration_record_t *b = &s_records[j];
+        if (j != i && b->version > a->version && strcmp(a->complex_id, b->complex_id) == 0 &&
+            strcmp(a->component_id, b->component_id) == 0 && strcasecmp(a->calibration_type, b->calibration_type) == 0) newer++;
+    }
+    return newer >= 2;
+}
+
+static void compact_superseded_locked(void)
+{
+    size_t w = 0;
+    for (size_t i = 0; i < s_record_count; ++i) {
+        if (record_superseded_locked(i)) continue;
+        if (w != i) s_records[w] = s_records[i];
+        w++;
+    }
+    for (size_t i = w; i < s_record_count; ++i) memset(&s_records[i], 0, sizeof(s_records[i]));
+    s_record_count = w;
+}
+
 static esp_err_t persist_locked(void)
 {
     cJSON *root = cJSON_CreateObject();
@@ -171,6 +196,7 @@ static esp_err_t persist_locked(void)
     cJSON_AddNumberToObject(root, "flowFertPulsesPerL", s_flow_fert_pulses_per_l);
     cJSON *records = cJSON_AddArrayToObject(root, "records");
     for (size_t i = 0; i < s_record_count; ++i) {
+        if (record_superseded_locked(i)) continue;
         const calibration_record_t *r = &s_records[i];
         cJSON *item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "calibrationId", r->calibration_id);
@@ -195,6 +221,12 @@ static esp_err_t persist_locked(void)
     cJSON_Delete(root);
     if (!json) return ESP_ERR_NO_MEM;
     esp_err_t err = storage_mgr_save_calibration(json);
+    if (err == ESP_OK) {
+        compact_superseded_locked();
+        ESP_LOGI(TAG, "Calibration persisted: %u records, %u bytes", (unsigned)s_record_count, (unsigned)strlen(json));
+    } else {
+        ESP_LOGE(TAG, "Calibration NOT persisted (0x%x, %u bytes); in-memory change will be rolled back", err, (unsigned)strlen(json));
+    }
     free(json);
     return err;
 }
@@ -455,6 +487,8 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
     }
 
     int idx = -1;
+    bool replaced = false;
+    calibration_record_t replaced_backup;
     if (s_record_count < MAX_CAL_RECORDS) {
         idx = (int)s_record_count++;
     } else {
@@ -467,6 +501,8 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
                 idx = (int)i;
             }
         }
+        replaced_backup = s_records[idx];
+        replaced = true;
     }
 
     calibration_record_t *r = &s_records[idx];
@@ -477,7 +513,8 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
     copy_str(r->component_id, sizeof(r->component_id), component_id);
     const char *complex_id = device_complex_id();
     if (!complex_id) {
-        if (idx == (int)s_record_count - 1) s_record_count--;
+        if (replaced) *r = replaced_backup;
+        else if (idx == (int)s_record_count - 1) s_record_count--;
         xSemaphoreGive(s_mutex);
         return ESP_ERR_INVALID_STATE;
     }
@@ -493,8 +530,12 @@ esp_err_t calibration_mgr_set_dosing_rate(const char *component_id, float rate_m
     r->has_rate = true;
     esp_err_t err = persist_locked();
     if (err != ESP_OK) {
-        memset(r, 0, sizeof(*r));
-        if (idx == (int)s_record_count - 1) s_record_count--;
+        if (replaced) {
+            *r = replaced_backup; /* never destroy a previously valid record */
+        } else {
+            memset(r, 0, sizeof(*r));
+            if (idx == (int)s_record_count - 1) s_record_count--;
+        }
     }
     xSemaphoreGive(s_mutex);
     if (err == ESP_OK) {
@@ -727,10 +768,10 @@ esp_err_t calibration_mgr_record_json_exact(const char *component_id, const char
 
 float calibration_mgr_get_flow_raw_pulses_per_l(void) { return s_flow_raw_pulses_per_l; }
 bool calibration_mgr_is_flow_raw_calibrated(void) { return s_flow_raw_pulses_per_l > 0.0f; }
-esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; s_flow_raw_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); xSemaphoreGive(s_mutex); return e; }
+esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; float old=s_flow_raw_pulses_per_l; s_flow_raw_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); if(e!=ESP_OK)s_flow_raw_pulses_per_l=old; xSemaphoreGive(s_mutex); return e; }
 float calibration_mgr_get_flow_fert_pulses_per_l(void) { return s_flow_fert_pulses_per_l; }
 bool calibration_mgr_is_flow_fert_calibrated(void) { return s_flow_fert_pulses_per_l > 0.0f; }
-esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; s_flow_fert_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); xSemaphoreGive(s_mutex); return e; }
+esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; float old=s_flow_fert_pulses_per_l; s_flow_fert_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); if(e!=ESP_OK)s_flow_fert_pulses_per_l=old; xSemaphoreGive(s_mutex); return e; }
 
 /* -------------------------------------------------------------
  * Canonical Mixing & Dosing hardware test execution via protocol_mixing

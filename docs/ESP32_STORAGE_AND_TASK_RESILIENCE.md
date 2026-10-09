@@ -75,3 +75,17 @@ still require a controlled ESP32 restart test.
   longer represented by the 2560-byte setting.
 - Not yet measured on hardware: actual SPIFFS free bytes/fragmentation,
   worst-case bounded-write latency, and post-fix calibration high-water mark.
+
+## Calibration NVS size bound (SP-CALIBRATION-NVS-SIZE-001)
+
+`calib_json` is one NVS string; ESP-IDF caps a string at 4000 bytes including NUL. Each record is ~270-330 bytes, and every
+save appends a new version, so roughly the 15th save failed with `ESP_ERR_NVS_VALUE_TOO_LONG` (the earlier firmware ignored
+the error and logged "Saved"; the in-memory record then disappeared at reboot / was never restorable).
+
+- Only the latest and previous version per complex/component/calibration type are persisted
+  (`record_superseded_locked()` in `calibration_mgr.c`). Older versions are dropped from RAM only after the NVS write and
+  read-back succeed (`compact_superseded_locked()`); versions two or more behind can no longer be looked up by exact version.
+- A failed write rolls back RAM (including the replaced-oldest-record path and flow pulse caches) and never erases the
+  previously persisted record. If the JSON still exceeds 4000 bytes the API returns `CALIBRATION_SAVE_FAILED` (422).
+- `POST /api/v1/calibration/rate` flow-pulse-only requests now return an error when persistence fails.
+- Log markers: `Calibration persisted: N records, B bytes` / `Calibration NOT persisted (0x.., B bytes)`.

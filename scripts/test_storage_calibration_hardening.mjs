@@ -31,3 +31,18 @@ assert.match(calibration, /Calibration data invalid: JSON parse failed/);
 assert.match(calibration, /Calibration data incompatible: schemaVersion/);
 
 console.log("storage/calibration hardening static checks: PASS");
+
+// SP-CALIBRATION-NVS-SIZE-001: NVS strings are capped at 4000 bytes; unbounded history made saves fail.
+assert.match(calibration, /static bool record_superseded_locked/);
+assert.match(calibration, /compact_superseded_locked\(\);/);
+assert.match(calibration, /replaced_backup = s_records\[idx\]/);
+assert.match(calibration, /\*r = replaced_backup/);
+assert.match(calibration, /Calibration NOT persisted/);
+assert.match(fs.readFileSync(path.join(root, "esp32/main/http/api_calibration_handlers.c"), "utf8"), /Flow calibration was not persisted/);
+{
+  // Budget model: 3 pumps + 2 flow components, latest+previous version each, with a long complexId.
+  const rec = (i) => JSON.stringify({ calibrationId: `cal-pump_dosing_a-v${i}`, componentId: "pump_dosing_a", complexId: "complex-0123456789abcdef", calibrationType: "DOSING_RATE", version: i, state: "CALIBRATED", createdAtMs: 791292123, validFromMs: 791292123, validUntilMs: 3383292123, operator: "technician", rateMlPerSec: 1.666667, pulsesPerLiter: 450.5 });
+  assert.ok(rec(99).length * 5 * 2 + 120 < 4000, "bounded history must fit one NVS string");
+  assert.ok(rec(99).length * 15 > 4000, "unbounded history overflows at ~15 records (original defect)");
+}
+console.log("calibration NVS size-bound checks: PASS");
