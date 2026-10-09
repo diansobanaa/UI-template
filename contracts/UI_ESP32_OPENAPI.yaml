@@ -2327,7 +2327,9 @@ components:
                   type: object
                   additionalProperties: true
                   properties:
-                    temperatureC: { type: number, description: "Ambient air temperature in Celsius from DHT22 or tank water temperature" }
+                    temperatureC: { type: number, nullable: true, description: "Ambient air temperature in Celsius from DHT22 (backward compatibility)" }
+                    temperatureAirC: { type: number, nullable: true, description: "Ambient air temperature in Celsius from DHT22" }
+                    temperatureWaterC: { type: number, nullable: true, description: "Tank/irrigation water temperature in Celsius from DS18B20" }
                     humidityPct: { type: number, nullable: true, description: "Relative humidity percentage (0-100% RH) from DHT22" }
                     flowRawZjb1Lpm: { type: number }
                     totalLitersRawZjb1: { type: number }

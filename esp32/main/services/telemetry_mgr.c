@@ -610,16 +610,15 @@ static void telemetry_sampler_task(void *pvParameters)
         s_snapshot.temp_water_valid = (sensors.temp_state == SENSOR_STATE_VALID);
         s_snapshot.temperature_water_c = sensors.temperature_c;
 
-        /* Air temperature & Humidity from DHT22: Latch last valid reading */
+        /* Air temperature & Humidity from DHT22 */
         if (sensors.dht22_state == SENSOR_STATE_VALID) {
             s_snapshot.temperature_c = sensors.dht22_temperature_c;
             s_snapshot.temp_valid = true;
             s_snapshot.humidity_pct = sensors.dht22_humidity_rh;
             s_snapshot.humidity_valid = true;
-        } else if (!s_snapshot.temp_valid) {
-            /* Only set invalid if we have never acquired a valid reading yet */
-            s_snapshot.humidity_valid = false;
+        } else {
             s_snapshot.temp_valid = false;
+            s_snapshot.humidity_valid = false;
         }
 
         s_snapshot.light_lux = 0.0f;
@@ -768,15 +767,21 @@ cJSON *telemetry_mgr_get_history_json(const char *greenhouse_id, const char *aft
             snprintf(time_str, sizeof(time_str), "%02d:%02d", min_of_day / 60, min_of_day % 60);
             cJSON_AddStringToObject(slot_obj, "time", time_str);
             cJSON_AddBoolToObject(slot_obj, "valid", hist->buckets[s].valid);
-            if (hist->buckets[s].valid) {
+            if (hist->buckets[s].valid && hist->buckets[s].temp_air_valid) {
                 cJSON_AddNumberToObject(slot_obj, "temperatureC", hist->buckets[s].temp_air);
                 cJSON_AddNumberToObject(slot_obj, "temperatureAirC", hist->buckets[s].temp_air);
-                cJSON_AddNumberToObject(slot_obj, "temperatureWaterC", hist->buckets[s].temp_water);
-                cJSON_AddNumberToObject(slot_obj, "humidityPct", hist->buckets[s].humidity);
             } else {
                 cJSON_AddNullToObject(slot_obj, "temperatureC");
                 cJSON_AddNullToObject(slot_obj, "temperatureAirC");
+            }
+            if (hist->buckets[s].valid && hist->buckets[s].temp_water_valid) {
+                cJSON_AddNumberToObject(slot_obj, "temperatureWaterC", hist->buckets[s].temp_water);
+            } else {
                 cJSON_AddNullToObject(slot_obj, "temperatureWaterC");
+            }
+            if (hist->buckets[s].valid && hist->buckets[s].humidity_valid) {
+                cJSON_AddNumberToObject(slot_obj, "humidityPct", hist->buckets[s].humidity);
+            } else {
                 cJSON_AddNullToObject(slot_obj, "humidityPct");
             }
             cJSON_AddItemToArray(daily_arr, slot_obj);

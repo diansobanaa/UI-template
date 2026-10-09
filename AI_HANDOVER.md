@@ -1,24 +1,43 @@
-# AI HANDOVER - SP-SENSOR-TEMP-SEPARATION-001
+# AI HANDOVER - SP-SENSOR-DECOUPLING-001
 
 ## Current status
-Water Temperature Serial Logging & Air vs Water Temperature Decoupling complete and verified:
-1. **Serial Logging for Water Temperature**:
-   - In `esp32/main/hal/sensor_hal.c`, added `ESP_LOGI(TAG, "DS18B20 read success on GPIO %d: Water Temp=%.2f C", PIN_IN_TEMP_DS18B20, temp_val);` when reading is valid.
-   - Added `ESP_LOGW` retry warning on conversion/read failure.
-2. **Device Status Payload Separation**:
-   - In `esp32/main/http/api_device_handlers.c`, `temperatureC` and `temperatureAirC` are strictly assigned from DHT22 (`sensors.dht22_temperature_c`).
-   - `temperatureWaterC` is strictly assigned from DS18B20 (`sensors.temperature_c`).
-3. **Frontend Presentation Fallback Removal**:
-   - In `src/lib/telemetry-presentation.ts`, removed fallback in `samplesForMetric` that previously returned DS18B20 water temperature under `metricId === "temperature"` when DHT22 was disconnected.
-   - In `currentForMetric` and `daily24hPoints`, Air Temperature strictly evaluates `temperatureAirC` and returns `null` (`–`) if DHT22 is unplugged or invalid.
-   - In `src/lib/api/telemetry-stream.ts` and `src/lib/api/esp32-client.ts`, decoupled `sensor_dht22` from generic `temperatureC`.
-4. **Verifications**:
-   - `idf.py build`: PASS (binary generated, 0 warnings/errors in our code).
-   - `npm run build`: PASS.
-   - `npm test`: PASS.
-5. **Git Commit**: Pending commit.
+Forensic audit and elimination of incorrect environmental sensor fallback complete and verified on live ESP32-S3 hardware:
+1. **Root Cause Resolved**:
+   - Hardware State: DHT22 (air temp/humidity) physically disconnected; DS18B20 (water temp) connected (~26.8°C - 27.1°C).
+   - Firmware: Removed stale latch in `sensor_hal.c` (`s_has_valid_dht`) and `telemetry_mgr.c` (`temp_valid`). Added consecutive fail streak threshold to transition DHT22 state to `SENSOR_STATE_UNAVAILABLE`.
+   - Firmware Status API: In `api_device_handlers.c`, `/api/v1/status` `sensors.temperatureAirC` and `sensors.temperatureC` are populated from DHT22 only (`null` when disconnected), and `sensors.temperatureWaterC` from DS18B20 (`26.8°C`).
+   - Telemetry Daily Buckets: In `telemetry_store.c` / `telemetry_store.h`, added independent `temp_air_valid`, `temp_water_valid`, and `humidity_valid` flags. Buckets with missing air temperature now emit `null`, eliminating the artificial `0.0–0.0 °C` range.
+   - Frontend State Reconciliation: In `operational-state.ts`, separated `temperatureAirC` and `waterTemperatureC` during status reconciliation, preventing `espStatus.sensors.temperatureC` from overwriting `g.telemetry.temperatureC`.
+   - Frontend Presentation: In `telemetry-presentation.ts`, removed cross-sensor fallback for Air Temperature; water sensors are strictly excluded from Air Temperature samples.
+   - UI Cards & 24H Matrix: In `src/app/page.tsx` and `src/app/greenhouse/[ghId]/page.tsx`, removed `?? gh.telemetry.temperatureC` fallback; guarded min/max ranges with `{item.min !== null && item.max !== null ? ... : "–"}`.
+2. **Verifications on Live Hardware (ESP32-S3 COM3 / 192.168.0.101)**:
+   - `idf.py build` & flash via COM3: PASS.
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm test`: PASS (All 28 endpoints verified against OpenAPI).
+   - `GET /api/v1/telemetry/current`: `temperatureAirC: null`, `temperatureWaterC: 26.8125`, `humidityPct: null`.
+   - `GET /api/v1/status`: `sensors.temperatureC: null`, `sensors.temperatureAirC: null`, `sensors.temperatureWaterC: 26.8125`, `sensors.humidityPct: null`.
+   - `GET /api/v1/telemetry/history`: 5-min buckets show `temperatureAirC: null`, `temperatureWaterC: 26.8125`, `humidityPct: null`.
+   - Presentation test (`scripts/test_ui_metric_rendering.mjs`): PASS.
+   - Regression test suite (`scripts/test_sensor_fallback_matrix.mjs`): 4/4 test scenarios PASS.
+3. **Changed Files**:
+   - `esp32/main/hal/sensor_hal.c`
+   - `esp32/main/services/telemetry_mgr.c`
+   - `esp32/main/storage/telemetry_store.c`
+   - `esp32/main/storage/telemetry_store.h`
+   - `esp32/main/http/api_device_handlers.c`
+   - `contracts/UI_ESP32_OPENAPI.yaml`
+   - `src/lib/api/contracts.ts`
+   - `src/lib/operational-state.ts`
+   - `src/lib/telemetry-presentation.ts`
+   - `src/app/page.tsx`
+   - `src/app/greenhouse/[ghId]/page.tsx`
+   - `scripts/test_ui_metric_rendering.mjs`
+   - `scripts/test_sensor_fallback_matrix.mjs`
+   - `AI_PROGRESS.md`
+   - `AI_HANDOVER.md`
 
 ---
+
 
 # AI HANDOVER - SP-CALIBRATION-MIXING-TEST-001
 

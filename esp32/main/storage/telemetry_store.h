@@ -43,11 +43,17 @@ typedef struct __attribute__((packed)) {
 /* 5-minute bucket in RAM */
 typedef struct {
     bool     valid;
+    bool     temp_air_valid;
+    bool     temp_water_valid;
+    bool     humidity_valid;
     float    temp_air;
     float    temp_water;
     float    humidity;
     float    temp_air_min;
     float    temp_air_max;
+    uint16_t sample_count_air;
+    uint16_t sample_count_water;
+    uint16_t sample_count_hum;
     uint16_t sample_count;
     int64_t  timestamp_ms;
 } telemetry_daily_bucket_t;

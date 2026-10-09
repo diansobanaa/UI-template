@@ -386,9 +386,20 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
             if (espStatus.sensors) {
               for (const g of reconstructed.greenhouses) {
                 if (g.complexId === devComplexId) {
-                  if (espStatus.sensors.temperatureC !== undefined) g.telemetry.temperatureC = espStatus.sensors.temperatureC;
-                  if (espStatus.sensors.humidityPct !== undefined) g.telemetry.humidityPct = espStatus.sensors.humidityPct;
-                  if (espStatus.sensors.floatLowerOk !== undefined) g.telemetry.tankPct = espStatus.sensors.floatLowerOk ? 100 : 0;
+                  if (espStatus.sensors.temperatureAirC !== undefined) {
+                    g.telemetry.temperatureC = (espStatus.sensors.temperatureAirC as number | null);
+                  } else if (espStatus.sensors.temperatureC !== undefined && espStatus.sensors.temperatureWaterC === undefined) {
+                    g.telemetry.temperatureC = (espStatus.sensors.temperatureC as number | null);
+                  }
+                  if (espStatus.sensors.temperatureWaterC !== undefined) {
+                    g.telemetry.waterTemperatureC = (espStatus.sensors.temperatureWaterC as number | null);
+                  }
+                  if (espStatus.sensors.humidityPct !== undefined) {
+                    g.telemetry.humidityPct = (espStatus.sensors.humidityPct as number | null);
+                  }
+                  if (espStatus.sensors.floatLowerOk !== undefined) {
+                    g.telemetry.tankPct = espStatus.sensors.floatLowerOk ? 100 : 0;
+                  }
                 }
               }
             }

@@ -1485,9 +1485,9 @@ function GreenhouseContent() {
               const Icon = item.id === "temperature" || item.id === "waterTemperature" ? Thermometer : item.id === "humidity" ? Droplets : item.id === "light" ? Sun : isTank ? Waves : Wind;
               const displayValue =
                 item.id === "waterTemperature"
-                  ? formatMetricValue(item.current, "waterTemperature")
+                  ? formatMetricValue(item.current ?? gh.telemetry.waterTemperatureC, "waterTemperature")
                   : item.id === "temperature"
-                    ? formatMetricValue(item.current ?? gh.telemetry.temperatureC, "temperature")
+                    ? formatMetricValue(item.current ?? (gh.telemetry.temperatureC !== gh.telemetry.waterTemperatureC ? gh.telemetry.temperatureC : null), "temperature")
                     : item.id === "humidity"
                       ? formatMetricValue(item.current ?? gh.telemetry.humidityPct, "humidity")
                       : item.id === "light"
@@ -1542,7 +1542,9 @@ function GreenhouseContent() {
                     <AreaChart points={itemPoints} color={item.color} height={44} compact={true} />
                   </div>
                   <div className="mt-1 text-[10px] font-medium text-slate-300 truncate">
-                    {formatMetricValue(item.min, item.id)} – {formatMetricValue(item.max, item.id)} {item.id === "light" ? "klux" : item.unit}
+                    {item.min !== null && item.max !== null
+                      ? `${formatMetricValue(item.min, item.id)} – ${formatMetricValue(item.max, item.id)} ${item.id === "light" ? "klux" : item.unit}`
+                      : "–"}
                   </div>
                 </button>
               );
@@ -1641,7 +1643,9 @@ function GreenhouseContent() {
                             {displayVal} <span className="text-xs font-medium text-slate-400">{item.unit}</span>
                           </div>
                           <div className="text-[9px] text-slate-400">
-                            {formatMetricValue(item.min, item.id)} – {formatMetricValue(item.max, item.id)}
+                            {item.min !== null && item.max !== null
+                              ? `${formatMetricValue(item.min, item.id)} – ${formatMetricValue(item.max, item.id)}`
+                              : "–"}
                           </div>
                         </div>
                       </div>

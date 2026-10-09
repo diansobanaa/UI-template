@@ -710,6 +710,8 @@ export interface StatusResponse {
   actuators: Record<string, unknown> & { components?: Array<Record<string, unknown>> };
   sensors: {
     temperatureC?: number | null;
+    temperatureAirC?: number | null;
+    temperatureWaterC?: number | null;
     humidityPct?: number | null;
     floatLowerOk?: boolean;
     tamperLoopOk?: boolean;

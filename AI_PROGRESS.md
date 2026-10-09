@@ -8107,4 +8107,74 @@ Physical verification remains BLOCKED pending real ESP32-S3, router, phone, TFT,
   - Note: opening/closing the COM3 capture script pulses DTR/RTS and resets the board - that is harness-induced, not firmware.
 - **Known Remaining (out of scope)**: internal RAM still tight after Wi-Fi up (~11KB free, occasional `esp-aes: Failed to allocate memory`); `runtimeState=EMERGENCY_STOP` / `health=CRITICAL` from the pre-existing `TAMPER_LOOP_OPEN` condition.
 - **Changed Files**: `esp32/main/main.c`, `esp32/main/network/network_mgr.c`, `esp32/sdkconfig`, `esp32/sdkconfig.defaults`, `AI_PROGRESS.md`
-- **Next Safe Point**: SP-TFT-CALIB-001 (Calibration & UI enhancement).
+- **Next Safe Point**: SP-SENSOR-DECOUPLING-001 (Audit & fix incorrect environmental sensor fallback).
+
+## SP-SENSOR-DECOUPLING-001 — Forensic Audit & Elimination of Cross-Sensor Fallback and Stale History Fabrications
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED ON LIVE HARDWARE (ESP32-S3 COM3 / 192.168.0.101)`
+- **Objective**:
+  - Perform an end-to-end audit and fix of the environmental telemetry pipeline from ESP32 firmware to Web UI.
+  - Fix physical condition where DHT22 (air temperature & humidity) is disconnected while DS18B20 (water temperature) is operational (~27.1°C).
+  - Eliminate all cross-sensor fallback where water temperature was substituted for missing air temperature.
+  - Eliminate 24H environmental history zero-valued ranges (`0.0–0.0 °C` / `– – – °C`).
+  - Eliminate firmware stale latching in `sensor_hal.c` and `telemetry_mgr.c`.
+- **Root Cause Analysis**:
+  1. **ESP32 Firmware Status Endpoint**: In `api_device_handlers.c`, `/api/v1/status` `sensors.temperatureC` was populated with `sensors.temperature_c` (DS18B20 water temperature) even when DHT22 was disconnected.
+  2. **ESP32 Telemetry Snapshot Latch**: In `telemetry_mgr.c:619`, `else if (!s_snapshot.temp_valid)` permanently latched `temp_valid = true` after a single valid read, never reverting to false upon disconnect.
+  3. **ESP32 Sensor HAL Stale Latch**: In `sensor_hal.c`, `s_has_valid_dht` retained `SENSOR_STATE_VALID` indefinitely after read timeout and overrode `sensor_hal_get_component_sample()`.
+  4. **ESP32 Daily History 288-Slot Cache**: In `telemetry_store.c`, 5-minute buckets had a single shared `b->valid` flag. Because DS18B20 was valid, `b->valid` became true and `temp_air` defaulted to `0.0f`, emitting `"temperatureAirC": 0.0` in `/api/v1/telemetry/history`.
+  5. **Frontend Client Reconciliation**: In `src/lib/operational-state.ts:389`, `g.telemetry.temperatureC` was overwritten with `espStatus.sensors.temperatureC` (water temperature).
+  6. **Frontend Presentation Filter**: In `src/lib/telemetry-presentation.ts:48`, `samplesForMetric("temperature")` only excluded DS18B20 if `hasDht` was true; when DHT22 was absent, it accepted DS18B20 samples.
+  7. **Frontend UI Environmental Cards**: In `page.tsx:1490` and `greenhouse/[ghId]/page.tsx:1641`, `displayValue` used `item.current ?? gh.telemetry.temperatureC`, which evaluated to the contaminated 27.1°C reading. Min/max range unconditionally printed `formatMetricValue(min) – formatMetricValue(max)`, rendering `0.0–0.0 °C` or `– – – °C`.
+- **Completed Work**:
+  - `esp32/main/hal/sensor_hal.c`:
+    - Added `s_dht22_fail_streak`. When consecutive read failures >= 2, drop `s_has_valid_dht` and transition `dht22_state` to `SENSOR_STATE_UNAVAILABLE`.
+    - In `sensor_hal_get_component_sample()`: removed `|| s_has_valid_dht` override; return `has_value = false` when state is not valid.
+  - `esp32/main/services/telemetry_mgr.c`:
+    - In `telemetry_sampler_task()`: immediately set `temp_valid = false` and `humidity_valid = false` when `dht22_state != SENSOR_STATE_VALID`.
+    - In `telemetry_mgr_get_history_json()`: emit `null` for `temperatureAirC` and `humidityPct` when their specific validity flags are false.
+  - `esp32/main/storage/telemetry_store.h` & `telemetry_store.c`:
+    - Added `temp_air_valid`, `temp_water_valid`, `humidity_valid`, and independent sample counters to `telemetry_daily_bucket_t`.
+    - Prevented unmeasured metrics from defaulting to `0.0f`.
+  - `esp32/main/http/api_device_handlers.c`:
+    - Mapped `/api/v1/status` `sensors.temperatureAirC` and `sensors.temperatureC` strictly from DHT22, and `sensors.temperatureWaterC` from DS18B20.
+  - `contracts/UI_ESP32_OPENAPI.yaml` & `src/lib/api/contracts.ts`:
+    - Added `temperatureAirC` and `temperatureWaterC` nullable properties to `StatusResponse.sensors`.
+  - `src/lib/operational-state.ts`:
+    - Strictly decoupled `temperatureAirC` and `temperatureWaterC` during status reconciliation.
+  - `src/lib/telemetry-presentation.ts`:
+    - In `samplesForMetric("temperature")`: unconditionally excluded water sensors (`ds18b20`, `water`, `temp_ds`).
+    - In `currentForMetric("temperature")`: strictly returned `temperatureAirC`, returning `null` when missing.
+  - `src/app/page.tsx` & `src/app/greenhouse/[ghId]/page.tsx`:
+    - Removed cross-sensor fallback for Air Temperature display value.
+    - Guarded min/max range rendering with `{item.min !== null && item.max !== null ? ... : "–"}`.
+  - `scripts/test_ui_metric_rendering.mjs` & `scripts/test_sensor_fallback_matrix.mjs`:
+    - Created and executed comprehensive regression suite verifying null/disconnected, valid, zero, and reconnection states.
+- **Verification**:
+  - TypeScript build (`npx tsc --noEmit`): PASS (0 errors).
+  - Unit/Contract tests (`npm test`): PASS.
+  - Firmware build (`scripts/build_esp32.ps1`): PASS (`agrotech_esp32.bin`).
+  - Firmware flash to COM3: PASS.
+  - Live ESP32 REST API (`192.168.0.101`):
+    - `GET /api/v1/telemetry/current`: `temperatureAirC: null`, `temperatureWaterC: 26.8125`, `humidityPct: null`.
+    - `GET /api/v1/status`: `sensors.temperatureC: null`, `sensors.temperatureAirC: null`, `sensors.temperatureWaterC: 26.8125`, `sensors.humidityPct: null`.
+    - `GET /api/v1/telemetry/history`: 5-min buckets show `temperatureAirC: null`, `temperatureWaterC: 26.8125`, `humidityPct: null`.
+  - UI Presentation check: `node scripts/test_ui_metric_rendering.mjs`: PASS.
+  - Matrix regression test: `node scripts/test_sensor_fallback_matrix.mjs`: PASS (4/4 tests).
+- **Changed Files**:
+  - `esp32/main/hal/sensor_hal.c`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/storage/telemetry_store.c`
+  - `esp32/main/storage/telemetry_store.h`
+  - `esp32/main/http/api_device_handlers.c`
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `src/lib/api/contracts.ts`
+  - `src/lib/operational-state.ts`
+  - `src/lib/telemetry-presentation.ts`
+  - `src/app/page.tsx`
+  - `src/app/greenhouse/[ghId]/page.tsx`
+  - `scripts/test_ui_metric_rendering.mjs`
+  - `scripts/test_sensor_fallback_matrix.mjs`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+

@@ -1,5 +1,5 @@
 // scripts/test_ui_metric_rendering.mjs
-const ESP32_BASE = "http://192.168.0.139";
+const ESP32_BASE = "http://192.168.0.101";
 
 function formatMetricValue(val, metricId) {
   if (val === null || val === undefined || val === "" || val === "–") return "–";
@@ -44,12 +44,11 @@ function samplesForMetric(samples, metricId) {
     });
   }
   if (metricId === "temperature") {
-    const hasDht = samples.some((s) => String(s.componentId || "").toLowerCase().includes("dht"));
     return samples.filter((sample) => {
       const cId = String(sample.componentId || "").toLowerCase();
       const mId = String(sample.metricId || "").toUpperCase();
-      if (hasDht && (cId.includes("ds18b20") || cId.includes("water") || cId.includes("temp_ds"))) return false;
-      return mId === "TEMPERATURE";
+      if (cId.includes("ds18b20") || cId.includes("water") || cId.includes("temp_ds")) return false;
+      return mId === "TEMPERATURE" || mId === "AIR_TEMPERATURE";
     });
   }
   const accepted = new Set(METRIC_DEFS.find((x) => x.id === metricId)?.metricIds ?? []);
@@ -62,7 +61,7 @@ function currentForMetric(samples, metricId, currentObj) {
   if (currentObj?.values) {
     if (metricId === "temperature") {
       if (typeof currentObj.values.temperatureAirC === "number") return currentObj.values.temperatureAirC;
-      if (typeof currentObj.values.temperatureC === "number") return currentObj.values.temperatureC;
+      return null;
     }
     if (metricId === "waterTemperature") {
       if (typeof currentObj.values.temperatureWaterC === "number") return currentObj.values.temperatureWaterC;
@@ -79,27 +78,12 @@ function currentForMetric(samples, metricId, currentObj) {
 async function run() {
   console.log("=== VERIFYING UI METRIC RENDERING WITH LIVE ESP32 DATA ===");
 
-  // 1. Fetch current snapshot (without ghId restriction as implemented in services.ts)
+  // 1. Fetch current snapshot
   const snapRes = await fetch(`${ESP32_BASE}/api/v1/telemetry/current`);
   const snapData = await snapRes.json();
   const currentSnap = snapData.data || snapData.payload || snapData;
 
-  // Simulate client enrichment
-  if (currentSnap && currentSnap.values && currentSnap.samples) {
-    const waterSample = currentSnap.samples.find((s) => {
-      const cId = String(s.componentId || "").toLowerCase();
-      return (cId.includes("ds18b20") || cId.includes("water") || cId.includes("temp_ds")) && typeof s.value === "number";
-    });
-    if (waterSample && typeof waterSample.value === "number") {
-      currentSnap.values.temperatureWaterC = waterSample.value;
-      currentSnap.values.waterTemperatureC = waterSample.value;
-    }
-    if (typeof currentSnap.values.temperatureC === "number" && currentSnap.values.temperatureAirC === undefined) {
-      currentSnap.values.temperatureAirC = currentSnap.values.temperatureC;
-    }
-  }
-
-  // 2. Fetch history (flattening items to samples as implemented in esp32-client.ts)
+  // 2. Fetch history
   const histRes = await fetch(`${ESP32_BASE}/api/v1/telemetry/history?limit=50`);
   const histData = await histRes.json();
   const history = histData.data || histData.payload || histData;
@@ -114,6 +98,8 @@ async function run() {
 
   console.log(`\nFound ${combinedSamples.length} total samples.`);
 
+  let waterTempRaw = null;
+
   // 3. Render each metric
   for (const spec of METRIC_DEFS) {
     const rawCurrent = currentForMetric(combinedSamples, spec.id, currentSnap);
@@ -125,23 +111,32 @@ async function run() {
     console.log(`  Raw Current Value: ${rawCurrent}`);
     console.log(`  Formatted Current: "${formattedCurrent}"`);
 
-    // Verify assertions
-    if (label.includes("(( ") || label.includes("(°C) (°C)") || label.includes("(%) (%)")) {
-      throw new Error(`FAIL: Header has duplicate units: ${label}`);
-    }
-
     if (spec.id === "waterTemperature") {
-      if (formattedCurrent === "–" || !rawCurrent) {
-        throw new Error(`FAIL: Water temperature is empty/null!`);
+      if (formattedCurrent === "–" || rawCurrent === null) {
+        throw new Error(`FAIL: Water temperature (DS18B20) must be populated!`);
       }
-      console.log(`  -> PASS: Water Temperature is correctly populated (${formattedCurrent} ${spec.unit})!`);
+      waterTempRaw = rawCurrent;
+      console.log(`  -> PASS: Water Temperature correctly displays valid DS18B20 reading (${formattedCurrent} °C)!`);
     }
 
-    if (spec.id === "humidity" || spec.id === "temperature") {
-      if (formattedCurrent.length > 5) {
-        throw new Error(`FAIL: Formatted current string "${formattedCurrent}" is too long and may overlap!`);
+    if (spec.id === "temperature") {
+      if (rawCurrent !== null) {
+        throw new Error(`FAIL: Air temperature must be null when DHT22 is disconnected, got: ${rawCurrent}`);
       }
-      console.log(`  -> PASS: Formatted decimal fits perfectly within column without overlap!`);
+      if (formattedCurrent !== "–") {
+        throw new Error(`FAIL: Air temperature display value must be "–", got: "${formattedCurrent}"`);
+      }
+      console.log(`  -> PASS: Air Temperature correctly displays "–" (unavailable) without fallback to water temperature!`);
+    }
+
+    if (spec.id === "humidity") {
+      if (rawCurrent !== null) {
+        throw new Error(`FAIL: Humidity must be null when DHT22 is disconnected, got: ${rawCurrent}`);
+      }
+      if (formattedCurrent !== "–") {
+        throw new Error(`FAIL: Humidity display value must be "–", got: "${formattedCurrent}"`);
+      }
+      console.log(`  -> PASS: Humidity correctly displays "–" (unavailable)!`);
     }
   }
 

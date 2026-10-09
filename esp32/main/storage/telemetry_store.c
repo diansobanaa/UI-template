@@ -89,6 +89,9 @@ static void reset_daily_history(int date_int)
     s_daily_history.has_data = false;
     for (int i = 0; i < TELEMETRY_DAILY_SLOTS; i++) {
         s_daily_history.buckets[i].valid = false;
+        s_daily_history.buckets[i].temp_air_valid = false;
+        s_daily_history.buckets[i].temp_water_valid = false;
+        s_daily_history.buckets[i].humidity_valid = false;
     }
     ESP_LOGI(TAG, "Initialized fresh 288-slot RAM history for date: %08d", date_int);
 }
@@ -153,30 +156,48 @@ static void update_daily_cache_from_record(const telemetry_record_t *rec)
     bool temp_water_valid = (rec->flags & TELEMETRY_FLAG_TEMP_WATER_VALID) != 0;
     bool hum_valid = (rec->flags & TELEMETRY_FLAG_HUM_VALID) != 0;
 
-    if (!b->valid) {
-        b->valid = true;
-        b->temp_air = temp_air_valid ? rec->temperature_air_c : 0.0f;
-        b->temp_water = temp_water_valid ? rec->temperature_water_c : 0.0f;
-        b->humidity = hum_valid ? rec->humidity_pct : 0.0f;
-        b->temp_air_min = temp_air_valid ? rec->temperature_air_c : 999.0f;
-        b->temp_air_max = temp_air_valid ? rec->temperature_air_c : -999.0f;
-        b->sample_count = 1;
-        b->timestamp_ms = rec->timestamp_ms;
-    } else {
-        uint16_t c = b->sample_count;
-        if (temp_air_valid) {
-            b->temp_air = (b->temp_air * c + rec->temperature_air_c) / (c + 1);
+    b->valid = true;
+    b->timestamp_ms = rec->timestamp_ms;
+    b->sample_count++;
+
+    if (temp_air_valid) {
+        if (!b->temp_air_valid) {
+            b->temp_air_valid = true;
+            b->temp_air = rec->temperature_air_c;
+            b->temp_air_min = rec->temperature_air_c;
+            b->temp_air_max = rec->temperature_air_c;
+            b->sample_count_air = 1;
+        } else {
+            uint16_t ca = b->sample_count_air;
+            b->temp_air = (b->temp_air * ca + rec->temperature_air_c) / (ca + 1);
             if (rec->temperature_air_c < b->temp_air_min) b->temp_air_min = rec->temperature_air_c;
             if (rec->temperature_air_c > b->temp_air_max) b->temp_air_max = rec->temperature_air_c;
+            b->sample_count_air++;
         }
-        if (temp_water_valid) {
-            b->temp_water = (b->temp_water * c + rec->temperature_water_c) / (c + 1);
+    }
+
+    if (temp_water_valid) {
+        if (!b->temp_water_valid) {
+            b->temp_water_valid = true;
+            b->temp_water = rec->temperature_water_c;
+            b->sample_count_water = 1;
+        } else {
+            uint16_t cw = b->sample_count_water;
+            b->temp_water = (b->temp_water * cw + rec->temperature_water_c) / (cw + 1);
+            b->sample_count_water++;
         }
-        if (hum_valid) {
-            b->humidity = (b->humidity * c + rec->humidity_pct) / (c + 1);
+    }
+
+    if (hum_valid) {
+        if (!b->humidity_valid) {
+            b->humidity_valid = true;
+            b->humidity = rec->humidity_pct;
+            b->sample_count_hum = 1;
+        } else {
+            uint16_t ch = b->sample_count_hum;
+            b->humidity = (b->humidity * ch + rec->humidity_pct) / (ch + 1);
+            b->sample_count_hum++;
         }
-        b->sample_count++;
-        b->timestamp_ms = rec->timestamp_ms;
     }
 
     if (temp_air_valid) {
