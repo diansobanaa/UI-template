@@ -863,7 +863,15 @@ esp_err_t sensor_hal_init(void) {
 #endif
 
   /* 5. Configure DHT22 Environmental Sensor Pin */
-  dht22_init((gpio_num_t)PIN_IN_DHT22);
+  esp_err_t dht22_init_err = dht22_init((gpio_num_t)PIN_IN_DHT22);
+  if (dht22_init_err != ESP_OK) {
+    ESP_LOGE(TAG, "DHT22 GPIO initialization failed on GPIO %d: %s (0x%x)",
+             PIN_IN_DHT22, esp_err_to_name(dht22_init_err),
+             (unsigned)dht22_init_err);
+  } else {
+    ESP_LOGI(TAG, "DHT22 GPIO initialization verified on GPIO %d",
+             PIN_IN_DHT22);
+  }
   s_current_readings.dht22_state = SENSOR_STATE_UNAVAILABLE;
 
   /* Seed initial sample timestamp at boot so safety monitor sees fresh readings before first periodic poll */

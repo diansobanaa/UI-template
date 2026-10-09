@@ -1844,6 +1844,9 @@ OPERATOR ACTIONS:
 4. **Graceful Degradation Without Mock Data**:
    - When the physical DHT22 sensor is disconnected or unreadable, `quality: BAD` and `measurementType: UNAVAILABLE` with `value: null` are emitted.
    - Both Web UI and TFT render the unavailable state (`--.-` / `--%`) without mock numbers, NaN, or system faults.
+   - Firmware checks the `dht22_init()` result for GPIO 41 and logs the
+     ESP-IDF error name/code when GPIO initialization fails. This diagnostic
+     failure does not disable unrelated actuator or safety services.
 
 ---
 
@@ -1944,5 +1947,4 @@ State updates stream automatically over WebSocket (`/api/v1/telemetry/stream`) a
 - **RAM-First Execution**: Retry counters and failure states are maintained exclusively in internal RAM. Counters are deliberately not written to Flash/NVS on every polling attempt to prevent flash memory wear.
 - **Local Autonomy**: All retry limits and backoffs are computed locally on the ESP32 without relying on backend or cloud connectivity.
 - **Reboot Behavior**: Upon controller reboot, RAM is cleanly initialized. The sensor starts in `ONLINE`/`UNAVAILABLE` and begins a fresh acquisition attempt. If the hardware is disconnected, it executes 1 initial attempt and up to 10 automatic retries before safely halting at `RETRY_EXHAUSTED`, strictly preventing uncontrolled infinite retry loops.
-
 

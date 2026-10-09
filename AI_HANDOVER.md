@@ -5663,3 +5663,29 @@ The continuous reboot loop ("TFT restart terus") is fixed and verified on physic
 - `npm run build`: PASS.
 - `git diff --check`: PASS.
 - Physical controller/GH telemetry scenario validation remains pending.
+
+## AI HANDOVER — SP-GPIO41-DIAGNOSTIC-001
+
+### Status
+System-side GPIO 41 diagnostic instrumentation added; firmware build pending.
+
+### Change
+`sensor_hal_init()` now checks the return value from `dht22_init()` on
+`PIN_IN_DHT22` (GPIO 41). It logs a success message or the ESP-IDF error name
+and numeric code. The code does not alter DHT22 timing, retry policy, pin
+mapping, actuator behavior, or safety interlocks.
+
+### Interpretation
+A successful initialization log confirms the ESP-IDF GPIO configuration was
+accepted. It does not prove that the DHT22, pull-up, cable, or physical GPIO
+silicon can complete a valid DHT22 transaction. Read-phase logs remain needed.
+
+### Changed files
+- `esp32/main/hal/sensor_hal.c`
+- `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+
+### Next action
+Run the ESP-IDF firmware build and static checks. Flash only after explicit
+user request.

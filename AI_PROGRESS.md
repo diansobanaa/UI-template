@@ -5728,6 +5728,18 @@ None — audit only.
 - **Known issues**: No live device/backend session was available to prove the exact screenshot state transition; telemetry freshness is still represented by telemetry snapshot state, not by the controller-connectivity badge.
 - **Next action**: Commit this software safe point, then observe one healthy controller with one stale/missing GH telemetry stream and confirm UI labels remain distinct.
 
+## SP-GPIO41-DIAGNOSTIC-001
+- **Date**: 2026-10-10
+- **Status**: `IMPLEMENTED; BUILD VERIFICATION PENDING`
+- **Objective**: Improve system-side evidence for possible GPIO 41/DHT22 failure without changing sensor timing, pin assignment, or safety behavior.
+- **Change**:
+  - `sensor_hal_init()` now checks `dht22_init()` on GPIO 41.
+  - Logs either successful GPIO initialization or the ESP-IDF error name/code.
+  - Initialization failure remains isolated to DHT22; unrelated actuator and safety services continue.
+- **Documentation**: Updated `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`.
+- **Known limitation**: A successful GPIO configuration log proves software configuration was accepted, not that the external sensor, pull-up, cable, or silicon pin can exchange valid DHT22 data.
+- **Next action**: Run ESP-IDF firmware build and static checks, then flash only if explicitly requested.
+
 ## SP-ONBOARDING-CREATE-CONTINUE-FIX — Resolution of Onboarding "Create & Continue" Blocker
 - **Date**: 2026-09-19
 - **Objective**: Fix issue where clicking "Create & continue" in Complex Onboarding (`/onboarding/complex`) fails to advance to Step 2 (Discover ESP32 controller).
