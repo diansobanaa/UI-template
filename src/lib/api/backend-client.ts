@@ -81,6 +81,17 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   const timeoutMs = init.timeoutMs ?? config.requestTimeoutMs;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (init.signal) {
+    if (init.signal.aborted) {
+      window.clearTimeout(timeout);
+      controller.abort();
+    } else {
+      init.signal.addEventListener("abort", () => {
+        window.clearTimeout(timeout);
+        controller.abort();
+      }, { once: true });
+    }
+  }
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
@@ -143,19 +154,19 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   }
 }
 
-export function apiGet<T>(path: string, config?: HardwarePortConfig, options?: { timeoutMs?: number }): Promise<T> {
+export function apiGet<T>(path: string, config?: HardwarePortConfig, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
   return request<T>(path, { ...options }, config);
 }
 
-export function apiPost<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number }): Promise<T> {
+export function apiPost<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
   return request<T>(path, { method: "POST", body: JSON.stringify(body), ...options }, config);
 }
 
-export function apiPut<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number }): Promise<T> {
+export function apiPut<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
   return request<T>(path, { method: "PUT", body: JSON.stringify(body), ...options }, config);
 }
 
-export function apiPatch<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number }): Promise<T> {
+export function apiPatch<T>(path: string, body: unknown, config?: HardwarePortConfig, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
   return request<T>(path, { method: "PATCH", body: JSON.stringify(body), ...options }, config);
 }
 

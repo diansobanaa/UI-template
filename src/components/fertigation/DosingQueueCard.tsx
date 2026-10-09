@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Layers, 
   Droplets, 
@@ -26,10 +26,16 @@ export const DosingQueueCard: React.FC<DosingQueueCardProps> = ({ currentGhId, c
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [manualSyncing, setManualSyncing] = useState<boolean>(false);
 
+  const inFlightRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+
   const fetchStatus = async () => {
+    if (inFlightRef.current || !isMountedRef.current) return;
+    inFlightRef.current = true;
     try {
       const data = await esp32Client.getFertigationStatus();
-      if (data) {
+      if (data && isMountedRef.current) {
         // Map raw or enriched response to authoritative DosingBatchRuntimeSnapshot
         const normalized: DosingBatchRuntimeSnapshot = {
           batchId: data.batchId || data.runId || 'IDLE',
@@ -55,7 +61,7 @@ export const DosingQueueCard: React.FC<DosingQueueCardProps> = ({ currentGhId, c
       }
     } catch {
       // Fallback: provide clean idle state if device is connecting
-      if (!snapshot) {
+      if (!snapshot && isMountedRef.current) {
         setSnapshot({
           batchId: 'NONE',
           ghId: currentGhId || 'gh-a',
@@ -69,15 +75,45 @@ export const DosingQueueCard: React.FC<DosingQueueCardProps> = ({ currentGhId, c
         });
       }
     } finally {
-      setLoading(false);
-      setManualSyncing(false);
+      inFlightRef.current = false;
+      if (isMountedRef.current) {
+        setLoading(false);
+        setManualSyncing(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 3000);
-    return () => clearInterval(interval);
+    isMountedRef.current = true;
+
+    const scheduleNext = () => {
+      if (!isMountedRef.current) return;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = setTimeout(() => {
+        void pollCycle();
+      }, 3000);
+    };
+
+    const pollCycle = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        await fetchStatus();
+      } finally {
+        if (isMountedRef.current) {
+          scheduleNext();
+        }
+      }
+    };
+
+    void pollCycle();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
   }, []);
 
   const handleManualSync = () => {

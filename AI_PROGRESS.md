@@ -1,3 +1,45 @@
+## SP-POLL-OVERLAP-001
+- **Date**: 2026-10-09
+- **Status**: `COMPLETE & FULLY VERIFIED` (Frontend Build PASS, test_frontend_polling_improvements 12/12 PASS, test_connection_liveness PASS, tsc PASS)
+- **Objective**: Implement Frontend Polling Overlap Elimination & Controller Target Deduplication (ESP32 HTTP Accept Error 113 Audit Phase 1):
+  1. Conclusively proved errno 113 maps to `ECONNABORTED` (`ERR_ABRT`) in ESP-IDF v5.5.5 / Newlib, triggered when clients abort connections during handshake or when lwIP TCP PCB/netconn pools are exhausted.
+  2. Implemented non-overlapping polling scheduling: Replaced unconditional `setInterval` with self-scheduling delayed polling (`scheduleNext` executed in `finally` after request completion) across `ConnectionMonitor.tsx`, `FertigationQueueDashboard.tsx`, `DosingQueueCard.tsx`, `AlarmManagerOverlay.tsx`, and `WellPumpControlCard.tsx`.
+  3. Preserved timeouts strictly: `HEALTH_TIMEOUT_MS = 2500 ms` and `POLL_INTERVAL_MS = 5000 ms` maintained without modification.
+  4. Controller Target Deduplication: Implemented `normalizeEndpoint` and `deduplicateControllerTargets` in `ConnectionMonitor.tsx`. Multiple complexes/targets resolving to the same physical ESP32 host/port are collapsed into a single probe per cycle, with health and emergency-stop results mapped to all associated UI entries.
+  5. Eliminated concurrent socket bursts: Replaced concurrent `Promise.allSettled([getFertigationStatus(), getFertigationQueue()])` in `FertigationQueueDashboard.tsx` with sequential querying and embedded batch reuse.
+  6. Lifecycle & Abort Cleanup: Added `AbortSignal` chaining to `src/lib/api/backend-client.ts` and `esp32-client.ts`. Component unmount cleans up pending timers and aborts in-flight fetch requests.
+  7. Zero Firmware Networking Changes: No modifications to lwIP pools, backlog, or timeouts; firmware network configuration preserved.
+- **Implemented**:
+  - `src/lib/api/backend-client.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/components/ConnectionMonitor.tsx`
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`
+  - `src/components/fertigation/DosingQueueCard.tsx`
+  - `src/components/AlarmManagerOverlay.tsx`
+  - `src/components/WellPumpControlCard.tsx`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `scripts/test_connection_liveness.mjs`
+  - `scripts/test_frontend_polling_improvements.mjs`
+- **Verification**:
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (`dist/index.html` bundled cleanly).
+  - `node scripts/test_frontend_polling_improvements.mjs`: PASS (12/12 tests).
+  - `node scripts/test_connection_liveness.mjs`: PASS (all tests).
+  - `npm test`: PASS (28/28 endpoints).
+- **Changed Files**:
+  - `src/lib/api/backend-client.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/components/ConnectionMonitor.tsx`
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`
+  - `src/components/fertigation/DosingQueueCard.tsx`
+  - `src/components/AlarmManagerOverlay.tsx`
+  - `src/components/WellPumpControlCard.tsx`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `scripts/test_connection_liveness.mjs`
+  - `scripts/test_frontend_polling_improvements.mjs`
+- **Git Commit**: Pending commit at safe point.
+- **Next Action**: Perform runtime validation on live ESP32 hardware to measure accept 113 error frequency.
+
 ## SP-SENSOR-RETRY-MAX10-001
 - **Date**: 2026-10-09
 - **Status**: `COMPLETE & FULLY VERIFIED` (ESP-IDF Firmware Build PASS, test_sensor_retry_max10 17/17 PASS, verify_e2e_contracts 4/4 PASS, npx tsc PASS)

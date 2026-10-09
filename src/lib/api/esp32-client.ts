@@ -77,7 +77,7 @@ export class Esp32Client {
     };
   }
 
-  private async getEnveloped<T>(path: string, options?: { timeoutMs?: number; endpoint?: string }): Promise<T> {
+  private async getEnveloped<T>(path: string, options?: { timeoutMs?: number; endpoint?: string; signal?: AbortSignal }): Promise<T> {
     const targetUrl = options?.endpoint
       ? `${options.endpoint.replace(/\/$/, "")}${path}`
       : this.path(path);
@@ -85,7 +85,7 @@ export class Esp32Client {
     return res.data;
   }
 
-  private async postEnveloped<T>(path: string, body: unknown, options?: { timeoutMs?: number; endpoint?: string }): Promise<T> {
+  private async postEnveloped<T>(path: string, body: unknown, options?: { timeoutMs?: number; endpoint?: string; signal?: AbortSignal }): Promise<T> {
     const targetUrl = options?.endpoint
       ? `${options.endpoint.replace(/\/$/, "")}${path}`
       : this.path(path);
@@ -113,7 +113,7 @@ export class Esp32Client {
 
   /* -------------------------- Device & System -------------------------- */
 
-  async getHealth(options?: { timeoutMs?: number; endpoint?: string }): Promise<HealthResponse> {
+  async getHealth(options?: { timeoutMs?: number; endpoint?: string; signal?: AbortSignal }): Promise<HealthResponse> {
     const timeoutMs = options?.timeoutMs ?? HEALTH_TIMEOUT_MS;
     return this.getEnveloped<HealthResponse>("/api/v1/health", { ...options, timeoutMs });
   }

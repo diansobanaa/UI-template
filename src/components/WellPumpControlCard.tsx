@@ -24,12 +24,17 @@ export function WellPumpControlCard({
   const [countdownSec, setCountdownSec] = useState<number>(0);
 
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inFlightRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
   const complex = complexService.get(complexId);
 
   const fetchStatus = useCallback(async () => {
+    if (inFlightRef.current || !isMountedRef.current) return;
+    inFlightRef.current = true;
     try {
       const data = await fertigationService.getWellPumpDetails();
-      if (data) {
+      if (data && isMountedRef.current) {
         setDetails(data);
         setIsOnline(true);
         setError(null);
@@ -40,19 +45,45 @@ export function WellPumpControlCard({
         }
       }
     } catch {
-      setIsOnline(false);
+      if (isMountedRef.current) setIsOnline(false);
     } finally {
-      setLoading(false);
+      inFlightRef.current = false;
+      if (isMountedRef.current) setLoading(false);
     }
   }, []);
 
-  // Periodic polling every 2.5 seconds
+  // Periodic polling scheduled 2.5s after previous request completes (non-overlapping)
   useEffect(() => {
-    void fetchStatus();
-    const interval = setInterval(() => {
-      void fetchStatus();
-    }, 2500);
-    return () => clearInterval(interval);
+    isMountedRef.current = true;
+
+    const scheduleNext = () => {
+      if (!isMountedRef.current) return;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = setTimeout(() => {
+        void pollCycle();
+      }, 2500);
+    };
+
+    const pollCycle = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        await fetchStatus();
+      } finally {
+        if (isMountedRef.current) {
+          scheduleNext();
+        }
+      }
+    };
+
+    void pollCycle();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
   }, [fetchStatus]);
 
   // Client-side smooth countdown decrement

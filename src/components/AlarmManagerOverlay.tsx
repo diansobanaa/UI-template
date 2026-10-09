@@ -89,11 +89,14 @@ export function AlarmManagerOverlay() {
       })
     );
 
+  const isMountedRef = useRef(true);
+
   const fetchAlarms = useCallback(async () => {
-    if (!isDirectEsp32Enabled() || isFetchingRef.current) return;
+    if (!isDirectEsp32Enabled() || isFetchingRef.current || !isMountedRef.current) return;
     isFetchingRef.current = true;
     try {
       const data = await esp32Client.getAlarms({ endpoint, timeoutMs: 3000 });
+      if (!isMountedRef.current) return;
       setAlarmData((prev) => {
         if (!prev) return data;
         const prevAlarms = prev.activeAlarms || [];
@@ -117,11 +120,36 @@ export function AlarmManagerOverlay() {
   }, [endpoint]);
 
   useEffect(() => {
-    fetchAlarms();
-    const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 5000 : 8000;
-    pollTimerRef.current = setInterval(fetchAlarms, intervalMs);
+    isMountedRef.current = true;
+
+    const scheduleNext = () => {
+      if (!isMountedRef.current) return;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      const intervalMs = (alarmData?.activeAlarms?.length ?? 0) > 0 ? 5000 : 8000;
+      pollTimerRef.current = setTimeout(() => {
+        void pollCycle();
+      }, intervalMs);
+    };
+
+    const pollCycle = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        await fetchAlarms();
+      } finally {
+        if (isMountedRef.current) {
+          scheduleNext();
+        }
+      }
+    };
+
+    void pollCycle();
+
     return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      isMountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
   }, [fetchAlarms, alarmData?.activeAlarms?.length]);
 

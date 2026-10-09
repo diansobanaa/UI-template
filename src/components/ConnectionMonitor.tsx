@@ -63,6 +63,70 @@ export function getControllerTargets(complexes: Complex[]): ControllerTarget[] {
   return Array.from(targetMap.values());
 }
 
+export interface DedupedProbeTarget {
+  probeKey: string;
+  endpoint?: string;
+  deviceId?: string;
+  targets: ControllerTarget[];
+  complexIds: string[];
+}
+
+export function normalizeEndpoint(endpoint?: string): string | undefined {
+  if (!endpoint) return undefined;
+  const trimmed = endpoint.trim();
+  if (!trimmed) return undefined;
+  try {
+    const hasProto = trimmed.startsWith("http://") || trimmed.startsWith("https://");
+    const url = new URL(hasProto ? trimmed : `http://${trimmed}`);
+    const port = (url.port === "80" && url.protocol === "http:") || (url.port === "443" && url.protocol === "https:") ? "" : url.port ? `:${url.port}` : "";
+    const path = url.pathname.replace(/\/+$/, "");
+    return `${url.protocol}//${url.hostname.toLowerCase()}${port}${path}`;
+  } catch {
+    return trimmed.toLowerCase().replace(/\/+$/, "");
+  }
+}
+
+export function deduplicateControllerTargets(targets: ControllerTarget[]): DedupedProbeTarget[] {
+  const groupMap = new Map<string, DedupedProbeTarget>();
+
+  for (const target of targets) {
+    const normEndpoint = normalizeEndpoint(target.endpoint);
+    const normDeviceId = target.deviceId?.trim().toLowerCase();
+
+    const probeKey = normEndpoint
+      ? `ep:${normEndpoint}`
+      : normDeviceId
+      ? `dev:${normDeviceId}`
+      : `key:${target.key}`;
+
+    const existing = groupMap.get(probeKey);
+    if (existing) {
+      existing.targets.push(target);
+      for (const id of target.complexIds) {
+        if (!existing.complexIds.includes(id)) {
+          existing.complexIds.push(id);
+        }
+      }
+      if (!existing.endpoint && target.endpoint) {
+        existing.endpoint = target.endpoint;
+      }
+      if (!existing.deviceId && target.deviceId) {
+        existing.deviceId = target.deviceId;
+      }
+    } else {
+      groupMap.set(probeKey, {
+        probeKey,
+        endpoint: target.endpoint,
+        deviceId: target.deviceId,
+        targets: [target],
+        complexIds: [...target.complexIds],
+      });
+    }
+  }
+
+  return Array.from(groupMap.values());
+}
+
 /** Liveness policy: probe every 5 s, OFFLINE after 2 consecutive failures. */
 export const POLL_INTERVAL_MS = 5000;
 export const OFFLINE_FAILURE_THRESHOLD = 2;
@@ -257,14 +321,18 @@ export function ConnectionMonitor() {
       Notification.requestPermission().catch(() => {});
     }
 
-    const probeTarget = async (target: ControllerTarget) => {
+    const probeGroup = async (group: DedupedProbeTarget, signal: AbortSignal) => {
       let healthy = false;
       let emergencyStopped: boolean | undefined;
 
       if (isDirectEsp32Enabled()) {
         // Primary: lightweight direct GET /api/v1/health.
         try {
-          const healthRes = await esp32Client.getHealth({ endpoint: target.endpoint, timeoutMs: HEALTH_TIMEOUT_MS });
+          const healthRes = await esp32Client.getHealth({
+            endpoint: group.endpoint,
+            timeoutMs: HEALTH_TIMEOUT_MS,
+            signal,
+          });
           healthy = true;
           if (healthRes?.runtimeState) emergencyStopped = healthRes.runtimeState === "EMERGENCY_STOP";
         } catch {
@@ -273,7 +341,7 @@ export function ConnectionMonitor() {
           healthy =
             telemetryStreamManager.getStatus().isConnected &&
             Date.now() - ws.at < WS_FRESH_MS &&
-            (!target.deviceId || !ws.deviceId || ws.deviceId === target.deviceId);
+            (!group.deviceId || !ws.deviceId || ws.deviceId === group.deviceId);
         }
       } else if (isPythonBackendEnabled()) {
         // Python mirror only when the UI is not talking to the ESP32 directly; in direct mode it would
@@ -283,7 +351,7 @@ export function ConnectionMonitor() {
           const matching =
             ctx && Array.isArray(ctx.complexes)
               ? ctx.complexes.find(
-                  (rc) => (target.deviceId && rc.esp32?.deviceId === target.deviceId) || target.complexIds.includes(rc.id),
+                  (rc) => (group.deviceId && rc.esp32?.deviceId === group.deviceId) || group.complexIds.includes(rc.id),
                 )
               : undefined;
           if (matching?.esp32?.online) {
@@ -294,40 +362,63 @@ export function ConnectionMonitor() {
           // Backend unreachable
         }
       }
-      return { target, healthy, emergencyStopped };
+      return { group, healthy, emergencyStopped };
     };
 
-    const tick = async () => {
+    let isCancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeAbortController: AbortController | null = null;
+
+    const scheduleNext = () => {
+      if (isCancelled) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(() => {
+        void runCycle();
+      }, POLL_INTERVAL_MS);
+    };
+
+    const runCycle = async () => {
       // Single-flight guard: never overlap health requests.
       if (healthRequestInFlight.current) return;
+      if (isCancelled) return;
       healthRequestInFlight.current = true;
+      activeAbortController = new AbortController();
+
       try {
         const currentTargets = getControllerTargets(getOperationalSnapshot().complexes);
+        const dedupedGroups = deduplicateControllerTargets(currentTargets);
         const failures = consecutiveHealthFailures.current;
         for (const key of Array.from(failures.keys())) {
           if (!currentTargets.some((t) => t.key === key)) failures.delete(key);
         }
 
-        // Parallel probes keep the cycle bounded by one timeout regardless of controller count.
-        const results = await Promise.all(currentTargets.map(probeTarget));
+        // Parallel probes only for genuinely distinct controllers/endpoints
+        const results = await Promise.all(
+          dedupedGroups.map((group) => probeGroup(group, activeAbortController!.signal))
+        );
+
+        if (isCancelled) return;
+
         let anyTargetOffline = false;
 
-        for (const { target, healthy, emergencyStopped } of results) {
-          if (healthy) {
-            failures.set(target.key, 0);
-            for (const cId of target.complexIds) {
-              updateComplexRuntime(cId, {
-                online: true,
-                ...(emergencyStopped !== undefined ? { emergencyStopped } : {}),
-              });
-            }
-          } else {
-            const next = (failures.get(target.key) || 0) + 1;
-            failures.set(target.key, next);
-            if (next >= OFFLINE_FAILURE_THRESHOLD) {
-              anyTargetOffline = true;
+        for (const { group, healthy, emergencyStopped } of results) {
+          for (const target of group.targets) {
+            if (healthy) {
+              failures.set(target.key, 0);
               for (const cId of target.complexIds) {
-                updateComplexRuntime(cId, { online: false });
+                updateComplexRuntime(cId, {
+                  online: true,
+                  ...(emergencyStopped !== undefined ? { emergencyStopped } : {}),
+                });
+              }
+            } else {
+              const next = (failures.get(target.key) || 0) + 1;
+              failures.set(target.key, next);
+              if (next >= OFFLINE_FAILURE_THRESHOLD) {
+                anyTargetOffline = true;
+                for (const cId of target.complexIds) {
+                  updateComplexRuntime(cId, { online: false });
+                }
               }
             }
           }
@@ -336,13 +427,25 @@ export function ConnectionMonitor() {
         setGlobalOffline(anyTargetOffline);
       } finally {
         healthRequestInFlight.current = false;
+        activeAbortController = null;
+        if (!isCancelled) {
+          scheduleNext();
+        }
       }
     };
 
-    void tick();
-    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    void runCycle();
+
     return () => {
-      clearInterval(interval);
+      isCancelled = true;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      if (activeAbortController) {
+        activeAbortController.abort();
+        activeAbortController = null;
+      }
       cancelChime();
     };
   }, [hasBoundController]);

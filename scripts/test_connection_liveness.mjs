@@ -74,7 +74,7 @@ console.log("  ✓ Test 10 (Contract): UI footer and header render Offline/Stale
 // G. TASK #5: fast liveness + one-shot chime + persistent banner
 assert(connMonitorSrc.includes("export const POLL_INTERVAL_MS = 5000"), "FAIL: poll interval must be 5000 ms");
 assert(connMonitorSrc.includes("export const OFFLINE_FAILURE_THRESHOLD = 2"), "FAIL: offline threshold must be 2");
-assert(connMonitorSrc.includes("setInterval(tick, POLL_INTERVAL_MS)"), "FAIL: polling must use POLL_INTERVAL_MS");
+assert(connMonitorSrc.includes("POLL_INTERVAL_MS") && (connMonitorSrc.includes("scheduleNext") || connMonitorSrc.includes("setTimeout")), "FAIL: polling must use safe non-overlapping schedule with POLL_INTERVAL_MS");
 assert(!/setInterval\(\s*playPulse/.test(connMonitorSrc), "FAIL: continuous alarm loop must be removed");
 assert(!connMonitorSrc.includes("animate-bounce"), "FAIL: offline banner must not bounce");
 assert(!connMonitorSrc.includes("dismissAlarm") && !connMonitorSrc.includes("TUTUP"), "FAIL: offline banner must not be dismissible");

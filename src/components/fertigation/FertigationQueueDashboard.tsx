@@ -101,8 +101,10 @@ function FertigationQueueDashboardComponent({
   };
 
 
-  // Poll authoritative ESP32 fertigation status & queue every 3s
+  // Poll authoritative ESP32 fertigation status & queue every 3s (non-overlapping)
   const inFlightRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
   const [isAwaitingQueueSync, setIsAwaitingQueueSync] = useState(false);
   const [syncCountdown, setSyncCountdown] = useState(15);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -119,6 +121,7 @@ function FertigationQueueDashboardComponent({
 
   const fetchStatus = async (isManual = false) => {
     if (inFlightRef.current && !isManual) return;
+    if (!isMountedRef.current && !isManual) return;
     inFlightRef.current = true;
     if (isManual) {
       setRefreshing(true);
@@ -130,20 +133,6 @@ function FertigationQueueDashboardComponent({
       setIsAwaitingQueueSync(false);
     }
     try {
-      const [statusRes, queueRes] = await Promise.allSettled([
-        esp32Client.getFertigationStatus(),
-        esp32Client.getFertigationQueue(),
-      ]);
-
-      let stVal: any = null;
-      let qBatches: any[] = [];
-
-      if (statusRes.status === "fulfilled" && statusRes.value) {
-        stVal = statusRes.value;
-        setLiveStatus(stVal);
-        setOffline(false);
-      }
-
       // Authoritative queuedBatches extraction helper (direct or enveloped)
       const extractBatches = (resVal: any): any[] => {
         if (!resVal) return [];
@@ -153,23 +142,52 @@ function FertigationQueueDashboardComponent({
         return [];
       };
 
-      const qFromQueue = extractBatches(queueRes.status === "fulfilled" ? queueRes.value : null);
-      const qFromStatus = extractBatches(statusRes.status === "fulfilled" ? statusRes.value : null);
-      qBatches = qFromQueue.length > 0 ? qFromQueue : qFromStatus;
-      setLiveQueue(qBatches);
+      // Query status first. Standard ESP32 firmware attaches queuedBatches directly in status.
+      let stVal: any = null;
+      let qBatches: any[] = [];
 
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
+      try {
+        const statusData = await esp32Client.getFertigationStatus();
+        if (statusData && isMountedRef.current) {
+          stVal = statusData;
+          setLiveStatus(stVal);
+          setOffline(false);
+          qBatches = extractBatches(statusData);
+        }
+      } catch (stErr) {
+        if (!isManual) console.debug("[FertigationQueueDashboard] status poll notice:", stErr);
       }
-      setIsAwaitingQueueSync(false);
-      setSyncCountdown(0);
+
+      // If status did not return queued batches, query /fertigation/queue sequentially (never in parallel)
+      if (qBatches.length === 0 && isMountedRef.current) {
+        try {
+          const queueData = await esp32Client.getFertigationQueue();
+          if (queueData && isMountedRef.current) {
+            qBatches = extractBatches(queueData);
+          }
+        } catch (qErr) {
+          if (!isManual) console.debug("[FertigationQueueDashboard] queue poll notice:", qErr);
+        }
+      }
+
+      if (isMountedRef.current) {
+        setLiveQueue(qBatches);
+
+        if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+        setIsAwaitingQueueSync(false);
+        setSyncCountdown(0);
+      }
     } catch {
-      setOffline(true);
+      if (isMountedRef.current) setOffline(true);
     } finally {
       inFlightRef.current = false;
-      setLoading(false);
-      if (isManual) setRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        if (isManual) setRefreshing(false);
+      }
     }
   };
 
@@ -198,9 +216,36 @@ function FertigationQueueDashboardComponent({
   };
 
   useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(() => fetchStatus(false), 3000);
-    return () => clearInterval(interval);
+    isMountedRef.current = true;
+
+    const scheduleNext = () => {
+      if (!isMountedRef.current) return;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = setTimeout(() => {
+        void pollCycle();
+      }, 3000);
+    };
+
+    const pollCycle = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        await fetchStatus(false);
+      } finally {
+        if (isMountedRef.current) {
+          scheduleNext();
+        }
+      }
+    };
+
+    void pollCycle();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
   }, [effectiveComplexId]);
 
   // Greenhouses belonging to active complex

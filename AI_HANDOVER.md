@@ -1,3 +1,51 @@
+# AI HANDOVER - SP-POLL-OVERLAP-001
+
+## Current status
+Frontend polling overlap elimination and controller target deduplication fully implemented, built, and verified across React/Vite UI without changing firmware networking configuration or request timeouts:
+1. **Confirmed Errno 113 Mapping**:
+   - Conclusively proved using the active compiler toolchain (`xtensa-esp32s3-elf-gcc -E -dM`) that in ESP-IDF v5.5.5 / Newlib, `113` is `#define ECONNABORTED 113` (`ERR_ABRT`).
+   - In lwIP, `ERR_ABRT` is posted to `acceptmbox` when a client sends TCP RST before `accept()` completes, or when `newpcb == NULL` (`MEMP_NUM_TCP_PCB = 16` exhausted) or `newconn == NULL` (`MEMP_NUM_NETCONN = 16` exhausted).
+2. **Non-Overlapping Polling Strategy**:
+   - Eliminated unconditional `setInterval` polling loops across `ConnectionMonitor.tsx`, `FertigationQueueDashboard.tsx`, `DosingQueueCard.tsx`, `AlarmManagerOverlay.tsx`, and `WellPumpControlCard.tsx`.
+   - Polling loops now self-schedule via `setTimeout` in the `finally` block of asynchronous request handlers (`scheduleNext`), ensuring that the next polling cycle is scheduled only after the prior cycle has finished or timed out.
+   - Added active `inFlight` request guards (`useRef(false)`) preventing overlapping triggers for identical logical operations.
+3. **Controller Target Deduplication**:
+   - Implemented `normalizeEndpoint()` and `deduplicateControllerTargets()` in `ConnectionMonitor.tsx`.
+   - When multiple complexes or targets point to the same physical ESP32 host/port (e.g., `http://192.168.1.50/api/v1/health`), they are collapsed into a single probe group.
+   - Probing is executed once per cycle via `Promise.all` across genuinely unique physical destinations; probe results are broadcast to all associated complex IDs and UI components.
+4. **Eliminated Concurrent Socket Bursts**:
+   - In `FertigationQueueDashboard.tsx`, replaced simultaneous dual-endpoint requests (`Promise.allSettled([getFertigationStatus(), getFertigationQueue()])`) with sequential querying and embedded batch extraction from status, cutting concurrent socket demand in half.
+5. **Lifecycle Cleanup & Cancellation**:
+   - Added `AbortSignal` propagation in `backend-client.ts` and `esp32-client.ts`.
+   - Component unmounting immediately cancels scheduled timers and aborts in-flight fetch requests, preventing orphaned callbacks from updating unmounted state.
+6. **Preserved Invariants**:
+   - `HEALTH_TIMEOUT_MS = 2500 ms` and `POLL_INTERVAL_MS = 5000 ms` strictly preserved.
+   - No firmware networking configuration modified; no socket limits or lwIP pool sizes changed.
+   - Persistent WebSocket stream `/api/v1/telemetry/stream` fully preserved and operational.
+7. **Verifications**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm run build`: PASS (`dist/index.html` bundled cleanly).
+   - `node scripts/test_frontend_polling_improvements.mjs`: PASS (12/12 tests).
+   - `node scripts/test_connection_liveness.mjs`: PASS (all tests).
+   - `npm test`: PASS (28/28 OpenAPI endpoints).
+8. **Changed Files**:
+   - `src/lib/api/backend-client.ts`
+   - `src/lib/api/esp32-client.ts`
+   - `src/components/ConnectionMonitor.tsx`
+   - `src/components/fertigation/FertigationQueueDashboard.tsx`
+   - `src/components/fertigation/DosingQueueCard.tsx`
+   - `src/components/AlarmManagerOverlay.tsx`
+   - `src/components/WellPumpControlCard.tsx`
+   - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+   - `scripts/test_connection_liveness.mjs`
+   - `scripts/test_frontend_polling_improvements.mjs`
+   - `AI_PROGRESS.md`
+   - `AI_HANDOVER.md`
+9. **Git Commit**: Pending commit at safe point.
+10. **Next Action**: Execute runtime validation on physical ESP32 to monitor `httpd_accept_conn: error in accept (113)` logs before and after fix.
+
+---
+
 # AI HANDOVER - SP-SENSOR-RETRY-MAX10-001
 
 ## Current status
