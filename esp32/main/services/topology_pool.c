@@ -1357,3 +1357,35 @@ esp_err_t topology_pool_reconcile_peer(cJSON *peer_pool, cJSON **out_result) {
   xSemaphoreGive(s_pool_mutex);
   return ESP_OK;
 }
+
+bool topology_pool_has_greenhouse(const char *gh_id) {
+  if (!gh_id || !gh_id[0])
+    return true;
+  if (!s_initialized)
+    topology_pool_init();
+  if (!s_pool_mutex)
+    return false;
+
+  bool found = false;
+  xSemaphoreTake(s_pool_mutex, portMAX_DELAY);
+  if (s_active_pool) {
+    cJSON *ghs = cJSON_GetObjectItem(s_active_pool, "greenhouses");
+    if (ghs && cJSON_IsArray(ghs)) {
+      cJSON *gh = NULL;
+      cJSON_ArrayForEach(gh, ghs) {
+        cJSON *id = cJSON_GetObjectItem(gh, "ghId");
+        if (!id)
+          id = cJSON_GetObjectItem(gh, "id");
+        if (id && cJSON_IsString(id) && strcmp(id->valuestring, gh_id) == 0) {
+          cJSON *state = cJSON_GetObjectItem(gh, "state");
+          if (!state || !cJSON_IsString(state) || strcmp(state->valuestring, "TOMBSTONED") != 0) {
+            found = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+  xSemaphoreGive(s_pool_mutex);
+  return found;
+}

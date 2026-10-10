@@ -1,3 +1,40 @@
+## SP-GH-LIGHTING-VALIDATION-FIX-003
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Fix Web UI "Turn ON" lighting command rejection (`Command rejected by device safety/validation policy`) caused by strict `active_config_has_gh` checks on board-level actuators and lack of topology-pool greenhouse resolution.
+- **Root Cause & Implemented Work**:
+  1. **Root Cause Identified**:
+     - Web UI `setLighting` sent contextual `targetGhId: gh.id` (e.g. `gh-01`).
+     - `command_mgr.c` executed `active_config_has_gh(cmd->target_gh_id)` unconditionally for all command types. Because `storage_mgr_load_config` lacked top-level greenhouses and greenhouses reside in the topology pool, `active_config_has_gh` returned `false`, rejecting the command with 404 (`UNKNOWN_TARGET_GH`).
+     - Furthermore, `api_command_handlers.c` did not pass a receipt pointer to `command_mgr_submit`, causing early validation rejections to fall back to the generic error message `"Command rejected by device safety/validation policy."`
+  2. **Firmware Fixes**:
+     - `esp32/main/services/topology_pool.h` & `topology_pool.c`: Added and implemented `topology_pool_has_greenhouse(const char *gh_id)` to query the active, non-tombstoned topology pool.
+     - `esp32/main/services/command_mgr.c`:
+       - `active_config_has_gh`: Added topology pool check and nested payload inspection for greenhouses and component assignments.
+       - `normalize_and_validate_command`: Restricted strict `active_config_has_gh` enforcement to commands that require a target GH (such as `CMD_TYPE_FERTIGATION_BATCH`). Board-level/complex-wide actuators (like `gh_lighting`, well pump, alarm buzzer) accept contextual `targetGhId` without error.
+       - `command_mgr_submit`: Populated `out_receipt` with exact `result_code` and `message` on validation failures.
+     - `esp32/main/http/api_command_handlers.c`: Heap-allocated `command_item_t receipt` passed directly to `command_mgr_submit` in `handler_post_command` and `handler_post_emergency_stop`, propagating exact error codes/messages to HTTP clients and optimizing stack usage.
+  3. **Verification Evidence**:
+     - Physical ESP32 on COM3 rebuilt (`build_esp32.ps1`) and flashed (`flash_esp32.ps1`).
+     - Live REST verification against ESP32 (`192.168.0.101`):
+       - `POST /api/v1/commands` with `targetGhId: "gh-01"`, `componentId: "gh_lighting"`, `type: "LIGHT_ON"`, `source: "WEB_UI"` -> **202 ACCEPTED** (`lighting: true`).
+       - `POST /api/v1/commands` with `targetGhId: "gh-01"`, `componentId: "gh_lighting"`, `type: "LIGHT_OFF"`, `source: "WEB_UI"` -> **202 ACCEPTED** (`lighting: false`).
+       - `fan_blower` manual `FAN_ON` and `FAN_STOP` -> **202 ACCEPTED** (`blowerFan: true` -> `blowerFan: false`).
+     - Automated test suites:
+       - `test_lighting_and_blower_integration.py`: PASS (35/35 checks).
+       - `test_schedule_timeline_integration.py`: PASS (all 5 check suites).
+       - `test_task9c_blower_fan.py`: PASS (34/34 checks).
+- **Changed Files**:
+  - `esp32/main/services/topology_pool.h`
+  - `esp32/main/services/topology_pool.c`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Action**: Commit stable safe point and report resolution to user.
+
 ## SP-GH-LIGHTING-TIMELINE-002
 - **Date**: 2026-10-10
 - **Status**: `COMPLETE & HARDWARE-VERIFIED`

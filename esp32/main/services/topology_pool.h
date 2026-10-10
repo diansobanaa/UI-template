@@ -64,6 +64,11 @@ esp_err_t topology_pool_bind_complex(const char *complex_id, const char *device_
  */
 esp_err_t topology_pool_calculate_hash(cJSON *pool, char *out_hash, size_t max_len);
 
+/**
+ * @brief Check if a greenhouse ID exists and is active in the topology pool.
+ */
+bool topology_pool_has_greenhouse(const char *gh_id);
+
 #ifdef __cplusplus
 }
 #endif

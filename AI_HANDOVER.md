@@ -1,4 +1,36 @@
-# AI HANDOVER - SP-GH-LIGHTING-TIMELINE-002 (latest)
+# AI HANDOVER - SP-GH-LIGHTING-VALIDATION-FIX-003 (latest)
+
+## Status
+The Web UI Turn ON lighting failure (`Command rejected by device safety/validation policy`) is **RESOLVED, FLASHED TO PHYSICAL HARDWARE (COM3), TESTED, AND VERIFIED LIVE AT 192.168.0.101**.
+
+## Incident Root Cause
+1. Web UI `esp32Client.setLighting` passes contextual greenhouse metadata (`targetGhId: gh.id`, e.g. `"gh-01"`).
+2. Firmware `command_mgr.c` enforced `active_config_has_gh` globally across all commands. Because `storage_mgr_load_config` stores greenhouses within the topology pool or within nested configuration payloads, `active_config_has_gh("gh-01")` returned `false`.
+3. Actuators like `gh_lighting`, well pump, and buzzer are controller-level (complex-wide) hardware components with `assignment.gh_id = ""`. Enforcing that `targetGhId` exists as a specific greenhouse zone rejected manual web controls with HTTP 404 (`UNKNOWN_TARGET_GH`).
+4. In `api_command_handlers.c`, `command_mgr_submit` was called with `NULL` for `out_receipt`, masking early validation failures behind the generic fallback `"Command rejected by device safety/validation policy."`.
+
+## Implemented Fixes
+1. **Topology Pool Greenhouse Resolution**:
+   - `esp32/main/services/topology_pool.h` & `topology_pool.c`: Implemented `topology_pool_has_greenhouse(const char *gh_id)` to query the active, non-tombstoned topology pool.
+2. **Contextual Greenhouse Validation Policy**:
+   - `esp32/main/services/command_mgr.c`:
+     - `active_config_has_gh`: Validates against canonical topology pool, hardware registry, and configuration envelopes.
+     - `normalize_and_validate_command`: Enforces strict greenhouse presence only for commands requiring a specific GH zone (`CMD_TYPE_FERTIGATION_BATCH`). Board-level/complex-wide components accept contextual greenhouse IDs without rejection.
+     - `command_mgr_submit`: Fills `out_receipt` on all rejection paths.
+3. **HTTP Error Transparency & Stack Conservation**:
+   - `esp32/main/http/api_command_handlers.c`: Heap-allocates `command_item_t receipt` and passes it to `command_mgr_submit`, propagating precise error codes and messages directly to the HTTP client.
+
+## Live Verification Results
+- Physical ESP32 on COM3 rebuilt and flashed cleanly.
+- `POST /api/v1/commands` with `targetGhId: "gh-01"`, `componentId: "gh_lighting"`, `type: "LIGHT_ON"`, `source: "WEB_UI"` -> **202 ACCEPTED**, physical relay ON (`lighting: true`).
+- `POST /api/v1/commands` with `targetGhId: "gh-01"`, `componentId: "gh_lighting"`, `type: "LIGHT_OFF"`, `source: "WEB_UI"` -> **202 ACCEPTED**, physical relay OFF (`lighting: false`).
+- Blower Fan `FAN_ON` and `FAN_STOP` -> **202 ACCEPTED** (`blowerFan: true` -> `blowerFan: false`).
+- Test scripts:
+  - `python scripts/test_lighting_and_blower_integration.py`: PASS (35/35 checks).
+  - `python scripts/test_schedule_timeline_integration.py`: PASS (all 5 check suites).
+  - `python scripts/test_task9c_blower_fan.py`: PASS (34/34 checks).
+
+# AI HANDOVER - SP-GH-LIGHTING-TIMELINE-002
 
 ## Status
 The Greenhouse (GH) Lighting Control, Schedule Timeline integration, and dedicated Blower Fan GPIO migration are **COMPLETE, FLASHED TO PHYSICAL ESP32 (COM3), LIVE HARDWARE VERIFIED AT 192.168.0.101, TYPECHECKED (0 ERRORS), TESTED (ALL PASS), AND CANONICALLY DOCUMENTED**.

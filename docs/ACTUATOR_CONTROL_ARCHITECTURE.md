@@ -43,6 +43,8 @@ The repository-wide audit found these actuator-capable physical paths:
   Lighting commands affect exclusively Relay IN3 (GPIO 10).
   Blower fan commands affect exclusively MOSFET Module #4 (GPIO 7).
   Cabinet fan is unassigned from MCU control (GPIO -1, direct PSU +/-).
+- Command Routing & Contextual Greenhouse Metadata:
+  Board-level / complex-wide actuators (such as `gh_lighting`, `pump_well`, and `buzzer_alarm` whose hardware assignments are complex-level without specific GH binding) accept commands originating from any greenhouse UI view containing contextual `targetGhId`. The firmware validation policy permits contextual `targetGhId` for board-level components and enforces strict GH presence only for commands requiring a specific GH zone (e.g. `CMD_TYPE_FERTIGATION_BATCH`). Greenhouse validation checks the canonical topology pool (`topology_pool_has_greenhouse`) as well as the active configuration payload. All command validation failures populate the command receipt with exact error codes and descriptions returned to the HTTP client.
 - Dynamic GPIO registry outputs: initialized, validated, and driven by
   `actuator_hal.c`.
 - Startup safe-off: previously duplicated in `main.c`; now delegated to

@@ -272,20 +272,23 @@ esp_err_t handler_emergency_stop(httpd_req_t *req)
     strncpy(cmd->command_id, command_id, sizeof(cmd->command_id) - 1);
     strncpy(cmd->source, "HTTP", sizeof(cmd->source) - 1);
     cmd->type = CMD_TYPE_EMERGENCY_STOP;
-    esp_err_t err = command_mgr_submit(cmd, NULL);
-    if (err != ESP_OK) {
-        free(cmd);
-        cJSON_Delete(body);
-        return http_send_error(req, command_error_http_status(err, "EMERGENCY_STOP_FAILED"), "EMERGENCY_STOP_FAILED", reason ? reason : "Emergency stop request failed.", req_id);
-    }
-    (void)reason;
     command_item_t *receipt = calloc(1, sizeof(command_item_t));
     if (!receipt) {
         free(cmd);
         cJSON_Delete(body);
         return http_send_error(req, 500, "NO_MEM", "Out of memory for receipt", req_id);
     }
-    if (command_mgr_get(cmd->command_id, receipt) != ESP_OK) *receipt = *cmd;
+    esp_err_t err = command_mgr_submit(cmd, receipt);
+    if (err != ESP_OK) {
+        const char *code = receipt->result_code[0] ? receipt->result_code : "EMERGENCY_STOP_FAILED";
+        const char *message = receipt->message[0] ? receipt->message : (reason ? reason : "Emergency stop request failed.");
+        int status = command_error_http_status(err, code);
+        free(receipt);
+        free(cmd);
+        cJSON_Delete(body);
+        return http_send_error(req, status, code, message, req_id);
+    }
+    (void)reason;
     cJSON *root = command_receipt_json(receipt);
     free(receipt);
     free(cmd);
@@ -323,29 +326,24 @@ esp_err_t handler_post_command(httpd_req_t *req)
         return http_send_error(req, command_error_http_status(err, parse_code), parse_code[0] ? parse_code : "VALIDATION_FAILED", parse_message[0] ? parse_message : "Invalid command", req_id);
     }
 
-    err = command_mgr_submit(cmd, NULL);
-    if (err != ESP_OK) {
-        command_item_t *cached = calloc(1, sizeof(command_item_t));
-        const char *code = "COMMAND_REJECTED";
-        const char *message = "Command rejected by device safety/validation policy.";
-        if (cached && command_mgr_get(cmd->command_id, cached) == ESP_OK && cached->result_code[0]) {
-            code = cached->result_code;
-            message = cached->message;
-        }
-        int status = command_error_http_status(err, code);
-        free(cached);
-        free(cmd);
-        cJSON_Delete(body);
-        return http_send_error(req, status, code, message, req_id);
-    }
-
     command_item_t *receipt = calloc(1, sizeof(command_item_t));
     if (!receipt) {
         free(cmd);
         cJSON_Delete(body);
         return http_send_error(req, 500, "NO_MEM", "Out of memory for receipt", req_id);
     }
-    if (command_mgr_get(cmd->command_id, receipt) != ESP_OK) *receipt = *cmd;
+
+    err = command_mgr_submit(cmd, receipt);
+    if (err != ESP_OK) {
+        const char *code = receipt->result_code[0] ? receipt->result_code : "COMMAND_REJECTED";
+        const char *message = receipt->message[0] ? receipt->message : "Command rejected by device safety/validation policy.";
+        int status = command_error_http_status(err, code);
+        free(receipt);
+        free(cmd);
+        cJSON_Delete(body);
+        return http_send_error(req, status, code, message, req_id);
+    }
+
     cJSON *root = command_receipt_json(receipt);
     free(receipt);
     free(cmd);

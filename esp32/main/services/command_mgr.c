@@ -18,6 +18,7 @@
 #include "services/safety_monitor.h"
 #include "services/transfer_mgr.h"
 #include "storage/storage_mgr.h"
+#include "services/topology_pool.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,10 @@ static bool active_config_has_gh(const char *gh_id) {
   if (!gh_id || !gh_id[0])
     return true;
 
+  /* Check canonical topology pool */
+  if (topology_pool_has_greenhouse(gh_id))
+    return true;
+
   /* Check hardware registry assignments: if any registered component belongs to this GH, it is valid */
   const size_t comp_count = hardware_registry_get_count();
   for (size_t i = 0; i < comp_count; i++) {
@@ -104,7 +109,10 @@ static bool active_config_has_gh(const char *gh_id) {
   bool found = false;
   if (storage_mgr_load_config(buf, COMMAND_CONFIG_MAX, &len) == ESP_OK) {
     cJSON *root = cJSON_ParseWithLength(buf, len);
+    cJSON *payload = root ? cJSON_GetObjectItem(root, "payload") : NULL;
     cJSON *ghs = root ? cJSON_GetObjectItem(root, "greenhouses") : NULL;
+    if (!ghs && payload)
+      ghs = cJSON_GetObjectItem(payload, "greenhouses");
     if (ghs && cJSON_IsArray(ghs)) {
       cJSON *gh = NULL;
       cJSON_ArrayForEach(gh, ghs) {
@@ -114,6 +122,22 @@ static bool active_config_has_gh(const char *gh_id) {
         if (id && cJSON_IsString(id) && strcmp(id->valuestring, gh_id) == 0) {
           found = true;
           break;
+        }
+      }
+    }
+    if (!found) {
+      cJSON *comps = root ? cJSON_GetObjectItem(root, "components") : NULL;
+      if (!comps && payload)
+        comps = cJSON_GetObjectItem(payload, "components");
+      if (comps && cJSON_IsArray(comps)) {
+        cJSON *c = NULL;
+        cJSON_ArrayForEach(c, comps) {
+          cJSON *asgn = cJSON_GetObjectItem(c, "assignment");
+          cJSON *gid = asgn ? cJSON_GetObjectItem(asgn, "ghId") : NULL;
+          if (gid && cJSON_IsString(gid) && strcmp(gid->valuestring, gh_id) == 0) {
+            found = true;
+            break;
+          }
         }
       }
     }
@@ -188,16 +212,18 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
                                   cmd->type == CMD_TYPE_DOSING_RUN;
   const bool target_gh_required = cmd->type == CMD_TYPE_FERTIGATION_BATCH;
 
-  if (target_gh_required && !cmd->target_gh_id[0]) {
-    copy_str(code, code_len, "TARGET_GH_REQUIRED");
-    copy_str(message, message_len, "This command requires a target GH.");
-    return ESP_ERR_INVALID_ARG;
-  }
-  if (cmd->target_gh_id[0] && !active_config_has_gh(cmd->target_gh_id)) {
-    copy_str(code, code_len, "UNKNOWN_TARGET_GH");
-    copy_str(message, message_len,
-             "Target GH is not present in the active configuration.");
-    return ESP_ERR_NOT_FOUND;
+  if (target_gh_required) {
+    if (!cmd->target_gh_id[0]) {
+      copy_str(code, code_len, "TARGET_GH_REQUIRED");
+      copy_str(message, message_len, "This command requires a target GH.");
+      return ESP_ERR_INVALID_ARG;
+    }
+    if (!active_config_has_gh(cmd->target_gh_id)) {
+      copy_str(code, code_len, "UNKNOWN_TARGET_GH");
+      copy_str(message, message_len,
+               "Target GH is not present in the active configuration.");
+      return ESP_ERR_NOT_FOUND;
+    }
   }
   if (lifecycle_control)
     return ESP_OK;
@@ -821,6 +847,14 @@ esp_err_t command_mgr_submit(const command_item_t *cmd,
   if (validation != ESP_OK) {
     log_command_event(LOG_LEVEL_WARNING, code[0] ? code : "COMMAND_REJECTED",
                       message[0] ? message : "Command rejected.", normalized);
+    if (out_receipt) {
+      *out_receipt = *normalized;
+      out_receipt->status = CMD_STATUS_REJECTED;
+      copy_str(out_receipt->result_code, sizeof(out_receipt->result_code),
+               code[0] ? code : "COMMAND_REJECTED");
+      copy_str(out_receipt->message, sizeof(out_receipt->message),
+               message[0] ? message : "Command rejected.");
+    }
     free(normalized);
     return validation;
   }
@@ -834,6 +868,14 @@ esp_err_t command_mgr_submit(const command_item_t *cmd,
           LOG_LEVEL_WARNING, "COMMAND_ID_REUSE",
           "Command ID was already used with different physical semantics.",
           normalized);
+      if (out_receipt) {
+        *out_receipt = *normalized;
+        out_receipt->status = CMD_STATUS_REJECTED;
+        copy_str(out_receipt->result_code, sizeof(out_receipt->result_code),
+                 "COMMAND_ID_REUSE");
+        copy_str(out_receipt->message, sizeof(out_receipt->message),
+                 "Command ID was already used with different physical semantics.");
+      }
       free(normalized);
       return ESP_ERR_INVALID_ARG;
     }
