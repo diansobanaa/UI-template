@@ -56,6 +56,7 @@ class TelemetryStreamManager {
       this.ws.onopen = () => {
         this.isConnecting = false;
         this.isConnected = true;
+        this.emitConnection();
         this.backoffDelayMs = 2000; // Reset backoff on successful connect
         try {
           this.ws?.send(JSON.stringify({ type: "subscribe" }));
@@ -194,13 +195,28 @@ class TelemetryStreamManager {
     });
   }
 
+  private connListeners = new Set<() => void>();
+
+  private emitConnection(): void {
+    this.connListeners.forEach((fn) => fn());
+  }
+
+  subscribeConnection(fn: () => void): () => void {
+    this.connListeners.add(fn);
+    return () => {
+      this.connListeners.delete(fn);
+    };
+  }
+
   private handleError(): void {
     this.isConnected = false;
+    this.emitConnection();
     this.scheduleReconnect();
   }
 
   private handleClose(): void {
     this.isConnected = false;
+    this.emitConnection();
     this.scheduleReconnect();
   }
 
@@ -267,7 +283,13 @@ export function useTelemetryStream(onBatchReceived?: TelemetryBatchListener) {
       setStatus(telemetryStreamManager.getStatus());
       callbackRef.current?.(batch);
     });
-    return unsubscribe;
+    const unsubConn = telemetryStreamManager.subscribeConnection(() =>
+      setStatus(telemetryStreamManager.getStatus())
+    );
+    return () => {
+      unsubscribe();
+      unsubConn();
+    };
   }, []);
 
   return status;

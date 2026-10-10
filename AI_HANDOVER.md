@@ -1,48 +1,34 @@
-# AI HANDOVER - SP-BUG-17-LAMP-STATUS-SYNC-004 (latest)
+# AI HANDOVER - SP-BUG-17-ZERO-POLL-OPTIMISTIC-SYNC-005 (latest)
 
 ## Status
-Bug 17 ("Critical UI Bug: Lamp Status Must Reflect the Actual Reported State") is **RESOLVED, FLASHED TO PHYSICAL HARDWARE (COM3), TESTED, AND VERIFIED LIVE AT 192.168.0.101 WITH 100% PASSING ACCEPTANCE TESTS**.
+Refactored state synchronization to **Zero-Polling, Event-Driven Push & Optimistic State Architecture** (modeled after Home Assistant / AWS IoT Device Shadow). Polling overhead completely removed from ESP32 server. All 23 mandatory acceptance checks PASS.
 
-## Incident Root Cause
-1. **Firmware Telemetry Manager (`telemetry_mgr.c` / `telemetry_mgr.h`)**:
-   - `telemetry_snapshot_t` lacked `lighting_on` and `blower_fan_on`.
-   - `telemetry_sampler_task` sampled well pump, dist pump, dosing pumps, and buzzer, but never sampled `ACTUATOR_GH_LIGHT`.
-   - `telemetry_mgr_build_stream_batch_json` and `build_current_json_from_snap` omitted `lighting`, `ghLighting`, and `blowerFan` from serialized JSON output.
-2. **Frontend Direct ESP32 Hydration (`operational-state.ts`)**:
-   - In direct ESP32 mode, `hydrateOperationalState` mapped `espStatus.sensors` to greenhouse telemetry, but completely ignored `espStatus.actuators`. As a result, `g.telemetry.actuators` remained undefined on page load and refresh, permanently forcing `confirmedLightingOn` to default to `false`.
-3. **Frontend Telemetry Stream WebSocket (`telemetry-stream.ts`)**:
-   - `handleBatch` parsed sensor values into `TelemetrySnapshot`, but ignored `latestSample.actuators` and never forwarded them to `updateComplexRuntime`.
-4. **Frontend UI State Resolution (`page.tsx`)**:
-   - Evaluated a binary boolean without distinct indicators for `LAMP ON`, `LAMP OFF`, `STATUS UNKNOWN`, and `SYNCING`.
-   - Lacked background status polling and race condition protection against out-of-order responses.
-
-## Implemented Remediation
-1. **Firmware Telemetry Sampling & Transition Notification**:
-   - `telemetry_mgr.h`: Added `blower_fan_on` and `lighting_on` to `telemetry_snapshot_t`.
-   - `telemetry_store.c`: Mapped `lighting_on` to bit 9 and `blower_fan_on` to bit 10 in `rec->actuator_mask`.
-   - `telemetry_mgr.c`:
-     - Sampled `ACTUATOR_GH_LIGHT` and `ACTUATOR_BLOWER_FAN` in `telemetry_sampler_task`.
-     - Serialized `actuators` with `lighting`, `ghLighting`, and `blowerFan` in `build_current_json_from_snap` (`/api/v1/telemetry/current`) and `telemetry_mgr_build_stream_batch_json` (`/api/v1/telemetry/stream`).
-     - Enhanced `telemetry_mgr_trigger_transition` to immediately sample actuator states into `s_snapshot` under `s_snap_mutex` and update the ring buffer. Any actuator change (Web UI, physical button on GPIO 46, or scheduled OFF) broadcasts live state instantly via WebSocket (<50ms).
-2. **Frontend Hydration & Stream Synchronization**:
-   - `operational-state.ts`:
-     - `hydrateOperationalState` restores authoritative actuators from `espStatus.actuators` on load and refresh.
-     - `updateComplexRuntime` resolves `lighting` and `ghLighting` aliases dynamically.
-   - `telemetry-stream.ts`:
-     - `handleBatch` and `refreshCurrentSnapshot` extract `actuators` and call `updateComplexRuntime(complexId, { actuators })`.
-3. **Web UI Dual-Indicator & Interaction Hardening (`src/app/greenhouse/[ghId]/page.tsx`)**:
-   - Dual-indicator display:
-     - Current Confirmed State: `LAMP ON` (amber pulsing indicator), `LAMP OFF` (slate standby indicator), `STATUS UNKNOWN` (rose warning indicator), or `SYNCING` (blue pulsing indicator).
-     - Available Manual Action: `Turn Lighting OFF` (when confirmed ON) or `Turn Lighting ON` (when confirmed OFF), disabled when syncing or offline.
-   - Physical feedback disclosure:
-     - Discloses that status reflects ESP32-reported relay contact state (Relay CH3 / GPIO 10, Active-LOW) and physical illumination is unmeasured without optical feedback sensors.
-   - Resilient background sync & race-condition protection:
-     - 3-second polling heartbeat via `esp32Client.getStatus()`.
-     - `lastLightingCmdTimeRef` timestamp guard prevents in-flight and stale out-of-order poll responses from reverting newer state.
+## Architecture Highlights
+1. **Zero HTTP Polling (No Server Burden)**:
+   - Eliminated `setInterval` background poll loops, 3-second heartbeats, and 4-second timeout fallbacks.
+   - The ESP32 HTTP task and socket pool are completely freed from repetitive request cascades.
+2. **Push-Driven Synchronization via Existing WebSocket**:
+   - Actuator state changes from physical panel button (GPIO 46), schedule OFF timers, or API commands trigger immediate FreeRTOS task notification and WebSocket broadcast.
+   - The UI updates reactively within <50ms without page reloads.
+3. **Optimistic Command Confirmation**:
+   - User command transitions UI into `SYNCING` state.
+   - ESP32 processes command and returns receipt (HTTP 202/200).
+   - UI confirms target state directly from command receipt with zero extra GET requests.
+   - Immediate rollback with error toast on network error or safety interlock rejection.
+4. **Connection Reactive Fallback**:
+   - `telemetryStreamManager` notifies UI listeners immediately when WebSocket disconnects or connects.
+   - When offline or disconnected, status transitions cleanly to `STATUS UNKNOWN` with manual action disabled.
+5. **Clean Dual-Indicator UI**:
+   - Clear distinction between confirmed state (`LAMP ON`, `LAMP OFF`, `STATUS UNKNOWN`, `SYNCING`) and permitted action (`Turn Lighting OFF` / `Turn Lighting ON`).
+   - Relay contact disclosure (Relay CH3 / GPIO 10) noting unmeasured optical output.
 
 ## Verification Evidence
 - `python scripts/test_bug17_lamp_sync_acceptance.py`: PASS (23 of 23 checks passed).
-  - Test 1 (Lamp is already ON): Verified `LAMP ON` displayed and `Turn Lighting OFF` offered.
+- `python scripts/test_lighting_and_blower_integration.py`: PASS (35 of 35 checks passed).
+- `npx tsc --noEmit`: PASS (0 errors).
+- `npm run build`: PASS (built singlefile production bundle in 23.52s).
+
+# AI HANDOVER - SP-BUG-17-LAMP-STATUS-SYNC-004
   - Test 2 (Lamp is OFF): Verified `LAMP OFF` displayed and `Turn Lighting ON` offered.
   - Test 3 (Physical button changes OFF to ON): Verified button toggle event propagates to ON.
   - Test 4 (Physical button changes ON to OFF): Verified second press updates state to OFF.

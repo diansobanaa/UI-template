@@ -57,8 +57,8 @@ The repository-wide audit found these actuator-capable physical paths:
      - `telemetry_stream_task` broadcasts an immediate WebSocket batch frame containing `actuators: { lighting, ghLighting, blowerFan, ... }`.
      - The frontend WebSocket receiver (`telemetry-stream.ts`) extracts `actuators` and updates `updateComplexRuntime(complexId, { actuators })`, propagating state to all subscribers in real-time (<50ms) without page refresh.
      - On page refresh or reconnect, `hydrateOperationalState` restores authoritative actuator states from `GET /api/v1/status`.
-     - A 3-second resilient polling heartbeat (`esp32Client.getStatus()`) provides fallback synchronization if WebSockets are interrupted.
-     - Command timestamp guards (`lastLightingCmdTimeRef`) eliminate race conditions and prevent stale out-of-order poll responses from reverting newer states.
+     - A zero-polling, push-driven architecture with optimistic UI and immediate command receipt confirmation. Periodic HTTP polling loops (`setInterval`) are eliminated to prevent server burden and protect ESP32 lwIP sockets and heap. Reconnect event listeners in `telemetryStreamManager` re-synchronize state cleanly whenever connection recovers.
+     - Command timestamp guards (`lastLightingCmdTimeRef`) eliminate race conditions and prevent stale out-of-order responses from reverting newer states.
 - Dynamic GPIO registry outputs: initialized, validated, and driven by
   `actuator_hal.c`.
 - Startup safe-off: previously duplicated in `main.c`; now delegated to

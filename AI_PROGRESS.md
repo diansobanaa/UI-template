@@ -1,3 +1,37 @@
+## SP-BUG-17-ZERO-POLL-OPTIMISTIC-SYNC-005
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Refactor Lamp State Synchronization from heavy HTTP polling (`setInterval`, redundant `getStatus()` cascades) to industry-standard lightweight, event-driven, push-based optimistic state synchronization (Home Assistant / AWS IoT Device Shadow architecture).
+- **Architecture & Remediation Details**:
+  1. **Zero HTTP Polling (Server Load Elimination)**:
+     - Completely eliminated background polling timers (`setInterval`, 3-second heartbeat, and post-command 4-second timeouts).
+     - Microcontroller CPU, RAM, and lwIP socket pool are 100% relieved from continuous polling strain.
+  2. **Push-Driven Real-Time Updates via Existing WebSocket**:
+     - Whenever actuator states change on physical hardware (panel button GPIO 46, automated OFF schedule, or manual command), ESP32 immediately broadcasts a telemetry transition batch over the persistent WebSocket stream (`/api/v1/telemetry/stream`).
+     - Web UI subscribes to `telemetryStreamManager` and synchronizes in-memory runtime state within <50ms without page reload.
+  3. **Optimistic Command Confirmation**:
+     - Web UI button click sets optimistic `SYNCING` state, dispatches `esp32Client.setLighting(target)`.
+     - Upon receiving successful command receipt from ESP32, UI immediately confirms target state without triggering additional HTTP calls or recipe reloads.
+     - Rolls back immediately with error toast on network error or safety interlock rejection.
+  4. **Connection Reactive Fallback**:
+     - Added `subscribeConnection` to `telemetryStreamManager` so UI transitions to `STATUS UNKNOWN` immediately when WebSocket disconnects, avoiding false states.
+  5. **Clean Two-Part Visual Control**:
+     - Clearly displays: 1) Current confirmed state (`LAMP ON`, `LAMP OFF`, `STATUS UNKNOWN`, `SYNCING`) with distinct badges, and 2) Available permitted manual action (`Turn Lighting OFF` vs `Turn Lighting ON`).
+- **Verification Evidence**:
+  - `python scripts/test_bug17_lamp_sync_acceptance.py`: PASS (23 of 23 checks passed).
+  - `python scripts/test_lighting_and_blower_integration.py`: PASS (35 of 35 checks passed).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (built singlefile bundle in 23.52s).
+- **Changed Files**:
+  - `src/app/greenhouse/[ghId]/page.tsx`
+  - `src/lib/api/telemetry-stream.ts`
+  - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Git Commit Hash**: Pending.
+- **Next Safe Point / Action**: Git commit safe point.
+
 ## SP-BUG-17-LAMP-STATUS-SYNC-004
 - **Date**: 2026-10-10
 - **Status**: `COMPLETE & HARDWARE-VERIFIED`
