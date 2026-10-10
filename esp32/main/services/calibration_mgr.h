@@ -90,6 +90,9 @@ esp_err_t calibration_mgr_set_flow_pulses_calibration(const char *component_id, 
                                        calibration_record_state_t state, const char *operator_id,
                                        int64_t valid_until_ms, const char *calibration_id);
 
+#define ZJB1_PULSES_PER_LITER_DEFAULT   660.0f
+#define FS400A_PULSES_PER_LITER_DEFAULT 288.0f
+
 float calibration_mgr_get_flow_raw_pulses_per_l(void);
 bool calibration_mgr_is_flow_raw_calibrated(void);
 esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l);

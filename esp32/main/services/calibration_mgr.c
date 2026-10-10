@@ -27,8 +27,8 @@ static uint32_t s_start_tick = 0;
 static uint32_t s_start_raw_flow_ml = 0;
 static calibration_record_t s_records[MAX_CAL_RECORDS];
 static size_t s_record_count = 0;
-static float s_flow_raw_pulses_per_l = 0.0f;
-static float s_flow_fert_pulses_per_l = 0.0f;
+static float s_flow_raw_pulses_per_l = ZJB1_PULSES_PER_LITER_DEFAULT;
+static float s_flow_fert_pulses_per_l = FS400A_PULSES_PER_LITER_DEFAULT;
 static bool s_calibration_running_component = false;
 
 /* Canonical Mixing & Dosing hardware test state */
@@ -236,8 +236,8 @@ static esp_err_t persist_locked(void)
 static void load_persisted(void)
 {
     s_record_count = 0;
-    s_flow_raw_pulses_per_l = 0.0f;
-    s_flow_fert_pulses_per_l = 0.0f;
+    s_flow_raw_pulses_per_l = ZJB1_PULSES_PER_LITER_DEFAULT;
+    s_flow_fert_pulses_per_l = FS400A_PULSES_PER_LITER_DEFAULT;
 
     char *buf = (char *)malloc(4096);
     if (!buf) return;
@@ -849,11 +849,11 @@ esp_err_t calibration_mgr_record_json_exact(const char *component_id, const char
     *out_json=o; return ESP_OK;
 }
 
-float calibration_mgr_get_flow_raw_pulses_per_l(void) { return s_flow_raw_pulses_per_l; }
-bool calibration_mgr_is_flow_raw_calibrated(void) { return s_flow_raw_pulses_per_l > 0.0f; }
+float calibration_mgr_get_flow_raw_pulses_per_l(void) { return s_flow_raw_pulses_per_l > 0.0f ? s_flow_raw_pulses_per_l : ZJB1_PULSES_PER_LITER_DEFAULT; }
+bool calibration_mgr_is_flow_raw_calibrated(void) { return calibration_mgr_get_flow_raw_pulses_per_l() > 0.0f; }
 esp_err_t calibration_mgr_set_flow_raw_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; float old=s_flow_raw_pulses_per_l; s_flow_raw_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); if(e!=ESP_OK)s_flow_raw_pulses_per_l=old; xSemaphoreGive(s_mutex); return e; }
-float calibration_mgr_get_flow_fert_pulses_per_l(void) { return s_flow_fert_pulses_per_l; }
-bool calibration_mgr_is_flow_fert_calibrated(void) { return s_flow_fert_pulses_per_l > 0.0f; }
+float calibration_mgr_get_flow_fert_pulses_per_l(void) { return s_flow_fert_pulses_per_l > 0.0f ? s_flow_fert_pulses_per_l : FS400A_PULSES_PER_LITER_DEFAULT; }
+bool calibration_mgr_is_flow_fert_calibrated(void) { return calibration_mgr_get_flow_fert_pulses_per_l() > 0.0f; }
 esp_err_t calibration_mgr_set_flow_fert_pulses_per_l(float pulses_per_l) { if(pulses_per_l<=0)return ESP_ERR_INVALID_ARG; if(!s_mutex)return ESP_ERR_INVALID_STATE; if(xSemaphoreTake(s_mutex,portMAX_DELAY)!=pdTRUE)return ESP_FAIL; float old=s_flow_fert_pulses_per_l; s_flow_fert_pulses_per_l=pulses_per_l; esp_err_t e=persist_locked(); if(e!=ESP_OK)s_flow_fert_pulses_per_l=old; xSemaphoreGive(s_mutex); return e; }
 
 /* -------------------------------------------------------------

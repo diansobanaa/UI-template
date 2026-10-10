@@ -109,3 +109,38 @@ When calibration records were saved in previous firmware iterations, logs confir
    - Added `GET /api/v1/calibration` endpoint (returning `{ calibrations: [...] }`) and populated the `records` array in `GET /api/v1/calibration/rate`.
    - Updated `src/lib/api/local-store-client.ts` and `src/lib/services.ts` so that in Direct ESP32 mode (`VITE_ENABLE_PYTHON_BACKEND=false`), the UI hydration path fetches durable records directly from ESP32 NVS instead of falling back to empty local state.
    - Sanitized timestamps below Jan 1 2024 in the UI formatter so device calibration badges display active status and valid timestamps rather than "Belum Dikalibrasi".
+
+## Flow Meter Nominal Calibration & Mixing Protocol Pre-Check Resilience (SP-FLOW-CALIB-001)
+
+### Root Cause Analysis of `[MIXING_CALIBRATION_MISSING] Raw water flow sensor (ZJ-B1) has no valid pulse calibration`
+During mixing & dosing hardware execution (`protocol_mixing`), Step 3 of the pre-check verifies that the raw water flow sensor has valid pulse calibration:
+```c
+if (!calibration_mgr_is_flow_raw_calibrated() || calibration_mgr_get_flow_raw_pulses_per_l() <= 0.0f) {
+    result.status = MIXING_RESULT_CALIBRATION_MISSING;
+    // ...
+}
+```
+When fresh hardware or uncalibrated NVS was read at startup:
+1. `s_flow_raw_pulses_per_l` and `s_flow_fert_pulses_per_l` were initialized to `0.0f` in `calibration_mgr.c`.
+2. `sensor_hal` set `raw_zjb1_calibrated = false` when `calibration_mgr_is_flow_raw_calibrated()` returned false.
+3. The UI mixing test modal (`TestMixingModal.tsx`) did not expose flow pulse status or an initialization action, causing tests to immediately fail with `MIXING_CALIBRATION_MISSING`.
+4. In `hardware_registry.c` and `api_calibration_handlers.c`, explicit component IDs `flow_raw_zjb1` and `flow_fert_fs400a` were missing from alias lookup tables.
+
+### Resolution & Safeguards
+1. **Nominal Factory Defaults**:
+   - `#define ZJB1_PULSES_PER_LITER_DEFAULT 660.0f` (DN15 G1/2" Hall turbine: $F = 11 \times Q$ Hz).
+   - `#define FS400A_PULSES_PER_LITER_DEFAULT 288.0f` (G1" Hall turbine: $F = 4.8 \times Q$ Hz).
+   - `calibration_mgr_init()` and `load_persisted()` initialize flow pulses to nominal defaults if NVS contains 0 or is unwritten.
+   - `calibration_mgr_is_flow_raw_calibrated()` and `calibration_mgr_is_flow_fert_calibrated()` safely report true when valid positive pulse factors are active.
+2. **Sensor HAL Alignment**:
+   - `sensor_hal.c` uses `ZJB1_PULSES_PER_LITER_DEFAULT` (660.0f) and falls back safely to nominal defaults if dynamic query returns non-positive values.
+3. **Component ID & API Aliasing**:
+   - Added `flow_raw_zjb1` and `flow_fert_fs400a` component ID recognition to `hardware_registry.c` and `api_calibration_handlers.c`.
+4. **UI Proactive Readiness & Recovery**:
+   - `TestMixingModal.tsx` queries `calibrationService.getRates()` upon opening.
+   - Displays real-time pulse factor and calibration badge (`660 pulsa/L (Terkalibrasi)`).
+   - If pulse calibration is zero or unverified, disables proceed button and provides a 1-click `Inisialisasi Pulsa ZJ-B1 (660 pulsa/L)` button.
+   - In case of `MIXING_CALIBRATION_MISSING` error, provides an inline recovery button to initialize default calibration and retry.
+5. **Physical Interlock Preservation**:
+   - Actuator emergency stop checks, scoped safe-stop, dosing OFF verification, and progress-based no-flow stall detection (15s grace period) remain strictly enforced.
+

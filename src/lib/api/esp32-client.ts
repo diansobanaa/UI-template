@@ -526,6 +526,13 @@ export class Esp32Client {
     });
   }
 
+  async saveFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/calibration/rate", {
+      flowRawPulsesPerL: rawPulsesPerL,
+      flowFertPulsesPerL: fertPulsesPerL ?? 288.0,
+    });
+  }
+
   async startMixingTest(request: MixingTestRequest): Promise<MixingTestStatus> {
     return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing", request);
   }

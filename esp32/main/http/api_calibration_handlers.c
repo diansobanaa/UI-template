@@ -197,6 +197,7 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     if (comp && cJSON_IsString(comp) &&
         (strcasecmp(comp->valuestring, "sensor_flow_raw") == 0 ||
          strcasecmp(comp->valuestring, "flow_raw") == 0 ||
+         strcasecmp(comp->valuestring, "flow_raw_zjb1") == 0 ||
          strcasecmp(comp->valuestring, "RAW_FLOW") == 0 ||
          strcasecmp(comp->valuestring, "flow-meter-zjb1") == 0)) {
         double pval = 0;
@@ -212,9 +213,36 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
             }
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddStringToObject(resp, "status", "APPLIED");
-            cJSON_AddStringToObject(resp, "componentId", "sensor_flow_raw");
+            cJSON_AddStringToObject(resp, "componentId", comp->valuestring);
             cJSON_AddNumberToObject(resp, "pulsesPerLiter", pval);
             cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", pval);
+            return http_send_enveloped_response(req, 200, NULL, resp);
+        }
+    }
+
+    // If target is fertigation delivery flow sensor
+    if (comp && cJSON_IsString(comp) &&
+        (strcasecmp(comp->valuestring, "sensor_flow_fert") == 0 ||
+         strcasecmp(comp->valuestring, "flow_fert") == 0 ||
+         strcasecmp(comp->valuestring, "flow_fert_fs400a") == 0 ||
+         strcasecmp(comp->valuestring, "FERT_FLOW") == 0 ||
+         strcasecmp(comp->valuestring, "flow-meter-fs400a") == 0)) {
+        double pval = 0;
+        if (ppl && cJSON_IsNumber(ppl) && ppl->valuedouble > 0) pval = ppl->valuedouble;
+        else if (rate && cJSON_IsNumber(rate) && rate->valuedouble > 0) pval = rate->valuedouble;
+        else if (j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) pval = j_flow_fert->valuedouble;
+        if (pval > 0) {
+            esp_err_t ferr = calibration_mgr_set_flow_fert_pulses_per_l((float)pval);
+            cJSON_Delete(json);
+            if (ferr != ESP_OK) {
+                http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Failed to save flow calibration.", NULL);
+                return ESP_FAIL;
+            }
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "status", "APPLIED");
+            cJSON_AddStringToObject(resp, "componentId", comp->valuestring);
+            cJSON_AddNumberToObject(resp, "pulsesPerLiter", pval);
+            cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", pval);
             return http_send_enveloped_response(req, 200, NULL, resp);
         }
     }

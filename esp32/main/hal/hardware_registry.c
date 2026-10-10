@@ -856,9 +856,10 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
     }
 
     if (strcasecmp(component_id, "sensor_flow_raw") == 0 || strcasecmp(component_id, "flow_raw") == 0 ||
-        strcasecmp(component_id, "RAW_FLOW") == 0 || strcasecmp(component_id, "flow_meter_zjb1") == 0) {
+        strcasecmp(component_id, "flow_raw_zjb1") == 0 || strcasecmp(component_id, "RAW_FLOW") == 0 ||
+        strcasecmp(component_id, "flow_meter_zjb1") == 0 || strcasecmp(component_id, "flow-meter-zjb1") == 0) {
         memset(out_info, 0, sizeof(*out_info));
-        strncpy(out_info->component_id, "sensor_flow_raw", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->component_id, "flow_raw_zjb1", sizeof(out_info->component_id) - 1);
         strncpy(out_info->name, "Flow Meter ZJ-B1", sizeof(out_info->name) - 1);
         strncpy(out_info->role, "FLOW_RAW", sizeof(out_info->role) - 1);
         strncpy(out_info->supported_type_id, "flow-meter-zjb1", sizeof(out_info->supported_type_id) - 1);
@@ -866,6 +867,23 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
         out_info->wiring.interface = HW_INTERFACE_GPIO;
         out_info->wiring.gpio = PIN_IN_FLOW_RAW_ZJB1; // GPIO 15
+        strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        return ESP_OK;
+    }
+
+    if (strcasecmp(component_id, "sensor_flow_fert") == 0 || strcasecmp(component_id, "flow_fert") == 0 ||
+        strcasecmp(component_id, "flow_fert_fs400a") == 0 || strcasecmp(component_id, "FERT_FLOW") == 0 ||
+        strcasecmp(component_id, "flow_meter_fs400a") == 0 || strcasecmp(component_id, "flow-meter-fs400a") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "flow_fert_fs400a", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Flow Meter FS400A", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "FLOW_FERT", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "flow-meter-fs400a", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_IN_FLOW_FERT_FS400A; // GPIO 16
         strncpy(out_info->wiring.polarity, "ACTIVE_HIGH", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
         return ESP_OK;

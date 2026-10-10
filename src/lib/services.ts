@@ -14,7 +14,7 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, MixingTestRequest, MixingTestStatus } from "./api/contracts";
+import type { CalibrationRates, CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, MixingTestRequest, MixingTestStatus } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
 import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
@@ -2439,6 +2439,27 @@ export const calibrationService = {
       }
     }
     return { state: "IDLE", remaining_sec: 0 };
+  },
+  async getRates(): Promise<CalibrationRates | null> {
+    if (isDirectEsp32Enabled()) {
+      try {
+        return await esp32Client.getCalibrationRates();
+      } catch (err) {
+        console.warn("[calibrationService] Failed to fetch calibration rates:", err);
+        return null;
+      }
+    }
+    return {
+      rateDosingAMlSec: 25.0,
+      rateDosingBMlSec: 25.0,
+      flowRawPulsesPerL: 660.0,
+      flowFertPulsesPerL: 288.0,
+    };
+  },
+  async setFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number): Promise<void> {
+    if (isDirectEsp32Enabled()) {
+      await esp32Client.saveFlowPulses(rawPulsesPerL, fertPulsesPerL);
+    }
   },
   async startMixingTest(request: MixingTestRequest): Promise<MixingTestStatus> {
     if (isDirectEsp32Enabled()) {

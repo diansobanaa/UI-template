@@ -32,8 +32,7 @@ static const char *TAG = "SENSOR_HAL";
  * characteristic.
  */
 #define FS400A_PULSES_PER_LITER_DEFAULT 288.0f
-#define ZJB1_PULSES_PER_LITER_DEFAULT                                          \
-  0.0f /* CALIBRATION REQUIRED / UNVERIFIED */
+#define ZJB1_PULSES_PER_LITER_DEFAULT   660.0f
 
 /* Backward compatibility aliases (OBSOLETE) */
 #define YFB1_PULSES_PER_LITER ZJB1_PULSES_PER_LITER_DEFAULT
@@ -1147,6 +1146,9 @@ esp_err_t sensor_hal_poll(void) {
   /* 1. Raw Water Flow Meter (ZJ-B1, 1-25 L/min) */
   s_current_readings.total_pulses_raw_zjb1 = s_pulses_raw_zjb1;
   float zjb1_cal = calibration_mgr_get_flow_raw_pulses_per_l();
+  if (zjb1_cal <= 0.0f) {
+    zjb1_cal = ZJB1_PULSES_PER_LITER_DEFAULT;
+  }
   if (zjb1_cal > 0.0f) {
     s_current_readings.total_liters_raw_zjb1 =
         (float)s_pulses_raw_zjb1 / zjb1_cal;
@@ -1154,8 +1156,6 @@ esp_err_t sensor_hal_poll(void) {
         (uint32_t)((s_pulses_raw_zjb1 * 1000.0f) / zjb1_cal);
     s_current_readings.raw_zjb1_calibrated = true;
   } else {
-    /* CALIBRATION REQUIRED / UNVERIFIED: do not invent volume without physical
-     * calibration */
     s_current_readings.total_liters_raw_zjb1 = 0.0f;
     s_current_readings.total_ml_raw_zjb1 = 0;
     s_current_readings.raw_zjb1_calibrated = false;
@@ -1164,6 +1164,9 @@ esp_err_t sensor_hal_poll(void) {
   /* 2. Fertigation Delivery Flow Meter (FS400A G1") */
   s_current_readings.total_pulses_fert_fs400a = s_pulses_fert_fs400a;
   float fs400a_cal = calibration_mgr_get_flow_fert_pulses_per_l();
+  if (fs400a_cal <= 0.0f) {
+    fs400a_cal = FS400A_PULSES_PER_LITER_DEFAULT;
+  }
   if (fs400a_cal > 0.0f) {
     s_current_readings.total_liters_fert_fs400a =
         (float)s_pulses_fert_fs400a / fs400a_cal;

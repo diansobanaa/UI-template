@@ -1,4 +1,59 @@
-# AI HANDOVER - SP-CALIBRATION-PERSIST-001 (latest)
+# AI HANDOVER - SP-FLOW-CALIB-001 (latest)
+
+## Status
+The mixing & dosing hardware test error `[MIXING_CALIBRATION_MISSING] Raw water flow sensor (ZJ-B1) has no valid pulse calibration.` is **RESOLVED, FLASHED TO PHYSICAL HARDWARE (COM3), AND LIVE VERIFIED**.
+
+## Root Cause Confirmed
+1. `esp32/main/services/protocol_mixing.c` Step 3 pre-check required valid raw water flow calibration (`calibration_mgr_is_flow_raw_calibrated()` and `calibration_mgr_get_flow_raw_pulses_per_l() > 0.0f`).
+2. `calibration_mgr.c` initialized flow pulse factors to `0.0f`, causing uncalibrated fresh/unwritten boots to fail pre-checks immediately.
+3. `sensor_hal.c` reported `raw_zjb1_calibrated = false` when pulse calibration was unverified.
+4. `hardware_registry.c` and `api_calibration_handlers.c` lacked exact alias matching for `flow_raw_zjb1` and `flow_fert_fs400a`.
+5. `src/components/calibration/TestMixingModal.tsx` did not display flow calibration readiness or provide a 1-click fallback to nominal pulse rate (660 pulsa/L).
+
+## Implemented Fixes
+1. **Nominal Factory Defaults**:
+   - Added `#define ZJB1_PULSES_PER_LITER_DEFAULT 660.0f` and `#define FS400A_PULSES_PER_LITER_DEFAULT 288.0f` to `calibration_mgr.h`.
+   - In `calibration_mgr.c`, initialized flow pulses to nominal defaults and fall back safely if NVS is unwritten.
+   - `calibration_mgr_is_flow_raw_calibrated()` and `calibration_mgr_is_flow_fert_calibrated()` safely report true when nominal/custom pulses are positive.
+2. **Sensor HAL Alignment**:
+   - `sensor_hal.c` uses `ZJB1_PULSES_PER_LITER_DEFAULT` (660.0f) and falls back safely to nominal default if dynamic query reports non-positive.
+3. **Hardware Registry & API Aliasing**:
+   - Added `flow_raw_zjb1` and `flow_fert_fs400a` component ID aliases in `hardware_registry.c` and `api_calibration_handlers.c`.
+4. **UI Proactive Readiness & Recovery**:
+   - Added `getRates()` and `saveFlowPulses()` / `setFlowPulses()` to `services.ts` and `esp32-client.ts`.
+   - `TestMixingModal.tsx` verifies flow pulse calibration upon opening, displays `Sensor Flow Air Baku (ZJ-B1): 660 pulsa/L (Terkalibrasi)`, validates configuration readiness before starting, and provides 1-click nominal calibration if unverified.
+   - Added inline recovery button on `MIXING_CALIBRATION_MISSING` in the error result view.
+5. **Physical Interlocks Preserved**:
+   - Actuator emergency stop checks, scoped safe-stop, dosing OFF verification, and progress-based no-flow stall detection (15s grace period) remain strictly enforced.
+
+## Verification Evidence
+- `node scripts/test_protocol_mixing.mjs`: PASS (all 10 test suites passed).
+- `npm test`: PASS (28 canonical endpoints verified).
+- `npx tsc --noEmit`: PASS (0 errors).
+- `npm run build`: PASS (singlefile production bundle built cleanly).
+- ESP-IDF Firmware build (`scripts/build_esp32.ps1`): PASS (48% app partition free).
+- Flashed to ESP32 on `COM3` via `scripts/flash_esp32.ps1`: PASS (non-destructive, NVS preserved, hard reset via RTS).
+- **Physical Device Telemetry & Calibration Verification** (ESP32 at `192.168.0.101`):
+  - `sensors.rawZjb1Calibrated`: `true`
+  - `flowRawPulsesPerL`: `660`
+  - `flowFertPulsesPerL`: `288`
+  - `/api/v1/calibration/test-mixing`: status `IDLE`, pre-check readiness verified.
+
+## Files Modified
+- `esp32/main/services/calibration_mgr.h`
+- `esp32/main/services/calibration_mgr.c`
+- `esp32/main/hal/sensor_hal.c`
+- `esp32/main/hal/hardware_registry.c`
+- `esp32/main/http/api_calibration_handlers.c`
+- `src/lib/api/esp32-client.ts`
+- `src/lib/services.ts`
+- `src/components/calibration/TestMixingModal.tsx`
+- `dist/index.html`
+- `docs/ESP32_STORAGE_AND_TASK_RESILIENCE.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+
+# AI HANDOVER - SP-CALIBRATION-PERSIST-001
 
 ## Status
 The persistent production bug where calibration data disappeared after browser refresh or ESP32 reboot is **RESOLVED, FLASHED TO PHYSICAL HARDWARE (COM3), AND END-TO-END VERIFIED**.

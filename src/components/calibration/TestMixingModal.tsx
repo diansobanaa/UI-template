@@ -59,7 +59,11 @@ export function TestMixingModal({
   const [stopping, setStopping] = useState<boolean>(false);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize channel selections when modal opens or devices change
+  // Flow meter calibration state
+  const [flowRawPulses, setFlowRawPulses] = useState<number | null>(null);
+  const [isInitializingFlow, setIsInitializingFlow] = useState<boolean>(false);
+
+  // Initialize channel selections & fetch flow pulse rate when modal opens
   useEffect(() => {
     if (!open) {
       if (pollTimerRef.current) {
@@ -72,6 +76,16 @@ export function TestMixingModal({
       setStopping(false);
       return;
     }
+
+    let isSubscribed = true;
+    calibrationService
+      .getRates()
+      .then((rates) => {
+        if (isSubscribed && rates) {
+          setFlowRawPulses(rates.flowRawPulsesPerL ?? null);
+        }
+      })
+      .catch(() => {});
 
     const initSelections: Record<
       string,
@@ -86,6 +100,10 @@ export function TestMixingModal({
       };
     });
     setChannelSelections(initSelections);
+
+    return () => {
+      isSubscribed = false;
+    };
   }, [open, devices]);
 
   // Clean up poll timer on unmount
@@ -96,6 +114,20 @@ export function TestMixingModal({
       }
     };
   }, []);
+
+  const handleInitFlowPulse = async () => {
+    setIsInitializingFlow(true);
+    try {
+      await calibrationService.setFlowPulses(660.0, 288.0);
+      setFlowRawPulses(660.0);
+      setErrorMessage(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMessage(`Gagal inisialisasi pulsa sensor flow: ${msg}`);
+    } finally {
+      setIsInitializingFlow(false);
+    }
+  };
 
   // Validation
   const selectedChannels: MixingTestChannelRequest[] = Object.entries(
@@ -108,12 +140,14 @@ export function TestMixingModal({
     }));
 
   const hasInvalidVolume = selectedChannels.some((ch) => ch.targetVolumeMl <= 0);
+  const isFlowReady = rawWaterTargetMl <= 0 || flowRawPulses === null || flowRawPulses > 0;
   const isConfigValid =
     rawWaterTargetMl > 0 &&
     thresholdPercent >= 0 &&
     thresholdPercent <= 100 &&
     postMixDurationSec >= 0 &&
-    !hasInvalidVolume;
+    !hasInvalidVolume &&
+    isFlowReady;
 
   const handleStartTest = async () => {
     setErrorMessage(null);
@@ -350,6 +384,50 @@ export function TestMixingModal({
                   />
                   <p className="mt-1 text-[11px] text-slate-400">Agitasi pasca-isi</p>
                 </div>
+              </div>
+
+              {/* Flow Sensor Calibration Status */}
+              <div className="pt-2 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  {flowRawPulses !== null && flowRawPulses > 0 ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span className="text-slate-700">
+                        Sensor Flow Air Baku (ZJ-B1):{" "}
+                        <strong className="text-emerald-700 font-semibold">
+                          {flowRawPulses} pulsa/L
+                        </strong>{" "}
+                        (Terkalibrasi)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span className="text-amber-800 font-medium">
+                        Sensor Flow Air Baku (ZJ-B1) belum terkalibrasi pulsa (&le; 0).
+                      </span>
+                    </>
+                  )}
+                </div>
+                {(!flowRawPulses || flowRawPulses <= 0) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isInitializingFlow || !isOnline}
+                    onClick={handleInitFlowPulse}
+                    className="h-7 text-xs border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100"
+                  >
+                    {isInitializingFlow ? (
+                      <>
+                        <RefreshCcw className="mr-1 h-3 w-3 animate-spin" />
+                        Menyimpan...
+                      </>
+                    ) : (
+                      "Inisialisasi Pulsa ZJ-B1 (660 pulsa/L)"
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -609,6 +687,30 @@ export function TestMixingModal({
                 <div className="text-[11px] text-red-600">
                   Fase: {formatPhase(status?.phase)}
                 </div>
+                {status?.errorCode === "MIXING_CALIBRATION_MISSING" && (
+                  <div className="pt-2 flex justify-center">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="primary"
+                      disabled={isInitializingFlow || !isOnline}
+                      onClick={async () => {
+                        await handleInitFlowPulse();
+                        setStep("CONFIG");
+                      }}
+                      className="bg-red-600 hover:bg-red-700 text-white shadow"
+                    >
+                      {isInitializingFlow ? (
+                        <>
+                          <RefreshCcw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          Menginisialisasi Pulsa...
+                        </>
+                      ) : (
+                        "Inisialisasi Pulsa (660 pulsa/L) & Ulangi"
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
