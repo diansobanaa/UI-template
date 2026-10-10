@@ -55,6 +55,7 @@ Bug 17 ("Critical UI Bug: Lamp Status Must Reflect the Actual Reported State") i
 - `npx tsc --noEmit`: PASS (0 errors).
 - `npm run build`: PASS (built singlefile production bundle in 10.18s).
 - Flashed to physical ESP32 on `COM3` and verified live at `192.168.0.101`.
+- **Git Commit Hash**: `8934de3`
 
 # AI HANDOVER - SP-GH-LIGHTING-VALIDATION-FIX-003
 
