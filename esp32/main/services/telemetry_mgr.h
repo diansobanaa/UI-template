@@ -36,6 +36,8 @@ typedef struct {
     bool dosing_a_on;
     bool dosing_b_on;
     bool fan_on;
+    bool blower_fan_on;
+    bool lighting_on;
     bool error_lamp_on;
     bool buzzer_on;
 } telemetry_snapshot_t;

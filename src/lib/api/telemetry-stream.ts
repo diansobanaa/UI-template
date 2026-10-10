@@ -15,6 +15,7 @@ import { esp32Client } from "./esp32-client";
 import type { TelemetrySnapshot, TelemetryStreamBatch } from "./contracts";
 import { telemetryService } from "@/lib/services";
 import { deviceClock } from "@/lib/device-clock";
+import { updateComplexRuntime } from "@/lib/operational-state";
 import { useEffect, useState, useRef } from "react";
 
 export type TelemetryBatchListener = (batch: TelemetryStreamBatch) => void;
@@ -175,6 +176,12 @@ class TelemetryStreamManager {
       };
 
       telemetryService.updateFromStreamSnapshot(snapshot);
+
+      if ((latestSample as any)?.actuators && batch.complexId) {
+        updateComplexRuntime(batch.complexId, {
+          actuators: (latestSample as any).actuators,
+        });
+      }
     }
 
     // Notify registered UI component listeners
@@ -214,6 +221,11 @@ class TelemetryStreamManager {
       const snap = await esp32Client.getCurrentTelemetry();
       if (snap) {
         telemetryService.updateFromStreamSnapshot(snap);
+        if ((snap as any)?.actuators && (snap.complexId || (snap as any).ghId)) {
+          updateComplexRuntime(snap.complexId || "", {
+            actuators: (snap as any).actuators,
+          });
+        }
       }
     } catch {
       // Non-fatal on transient network error

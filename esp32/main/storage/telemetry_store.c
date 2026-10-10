@@ -129,6 +129,8 @@ static void snapshot_to_record(const telemetry_snapshot_t *snap, telemetry_recor
     if (snap->fan_on) mask |= (1U << 6);
     if (snap->error_lamp_on) mask |= (1U << 7);
     if (snap->buzzer_on) mask |= (1U << 8);
+    if (snap->lighting_on) mask |= (1U << 9);
+    if (snap->blower_fan_on) mask |= (1U << 10);
     rec->actuator_mask = mask;
 
     rec->crc32 = esp_rom_crc32_le(0, (const uint8_t *)rec, offsetof(telemetry_record_t, crc32));

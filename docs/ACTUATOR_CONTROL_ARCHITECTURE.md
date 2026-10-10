@@ -45,6 +45,20 @@ The repository-wide audit found these actuator-capable physical paths:
   Cabinet fan is unassigned from MCU control (GPIO -1, direct PSU +/-).
 - Command Routing & Contextual Greenhouse Metadata:
   Board-level / complex-wide actuators (such as `gh_lighting`, `pump_well`, and `buzzer_alarm` whose hardware assignments are complex-level without specific GH binding) accept commands originating from any greenhouse UI view containing contextual `targetGhId`. The firmware validation policy permits contextual `targetGhId` for board-level components and enforces strict GH presence only for commands requiring a specific GH zone (e.g. `CMD_TYPE_FERTIGATION_BATCH`). Greenhouse validation checks the canonical topology pool (`topology_pool_has_greenhouse`) as well as the active configuration payload. All command validation failures populate the command receipt with exact error codes and descriptions returned to the HTTP client.
+- Lamp Status Reporting & Real-Time State Synchronization (Bug 17 Resolution):
+  1. Dual-Indicator Display:
+     - The UI displays two distinct pieces of information:
+       a) Current confirmed lamp/relay state: `LAMP ON` (active energized), `LAMP OFF` (de-energized standby), `STATUS UNKNOWN` (controller unreachable/stale), or `SYNCING` (command in-flight).
+       b) Available manual action permitted from that state: `Turn Lighting OFF` (when confirmed ON) or `Turn Lighting ON` (when confirmed OFF), disabled when status is unconfirmed/syncing.
+     - Physical feedback disclosure: The reported status explicitly denotes the ESP32-reported relay contact state (Relay CH3 / GPIO 10, Active-LOW); physical illumination is disclosed as unverified without optical lux feedback sensors.
+  2. Multi-Source Synchronization:
+     - Firmware triggers `telemetry_mgr_trigger_transition("ACTUATOR_STATE_CHANGE")` upon any actuator state alteration (manual Web UI command, physical control-box momentary toggle button on GPIO 46, or scheduled OFF execution).
+     - `telemetry_mgr_trigger_transition` immediately samples all actuator states into `s_snapshot` under `s_snap_mutex`, writes to the RAM ring buffer, and signals `telemetry_stream_task`.
+     - `telemetry_stream_task` broadcasts an immediate WebSocket batch frame containing `actuators: { lighting, ghLighting, blowerFan, ... }`.
+     - The frontend WebSocket receiver (`telemetry-stream.ts`) extracts `actuators` and updates `updateComplexRuntime(complexId, { actuators })`, propagating state to all subscribers in real-time (<50ms) without page refresh.
+     - On page refresh or reconnect, `hydrateOperationalState` restores authoritative actuator states from `GET /api/v1/status`.
+     - A 3-second resilient polling heartbeat (`esp32Client.getStatus()`) provides fallback synchronization if WebSockets are interrupted.
+     - Command timestamp guards (`lastLightingCmdTimeRef`) eliminate race conditions and prevent stale out-of-order poll responses from reverting newer states.
 - Dynamic GPIO registry outputs: initialized, validated, and driven by
   `actuator_hal.c`.
 - Startup safe-off: previously duplicated in `main.c`; now delegated to

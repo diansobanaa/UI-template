@@ -433,6 +433,26 @@ async function doHydrateOperationalState(providedIp?: string): Promise<void> {
                 }
               }
             }
+
+            if (espStatus.actuators) {
+              for (const g of reconstructed.greenhouses) {
+                if (g.complexId === devComplexId) {
+                  const lightingVal = espStatus.actuators.lighting !== undefined
+                    ? Boolean(espStatus.actuators.lighting)
+                    : espStatus.actuators.ghLighting !== undefined
+                    ? Boolean(espStatus.actuators.ghLighting)
+                    : g.telemetry.actuators?.lighting;
+                  const blowerVal = espStatus.actuators.blowerFan !== undefined
+                    ? Boolean(espStatus.actuators.blowerFan)
+                    : g.telemetry.actuators?.blowerFan;
+                  g.telemetry.actuators = {
+                    ...(g.telemetry.actuators || {}),
+                    ...(lightingVal !== undefined ? { lighting: lightingVal } : {}),
+                    ...(blowerVal !== undefined ? { blowerFan: blowerVal } : {}),
+                  };
+                }
+              }
+            }
           }
         } catch (directErr) {
           console.warn("[operational-state] Direct ESP32 live status reconciliation failed:", directErr);
@@ -1042,7 +1062,7 @@ export function updateComplexRuntime(complexId: string, data: {
   emergencyStopped?: boolean;
   device?: { firmwareVersion?: string; hardwareModel?: string };
   configuration?: { version?: number };
-  actuators?: Record<string, boolean>;
+  actuators?: Record<string, any>;
   sensors?: { temperatureC?: number | null; humidityPct?: number | null; floatLowerOk?: boolean };
 }): void {
   const complex = snapshot.complexes.find((item) => item.id === complexId);
@@ -1105,7 +1125,12 @@ export function updateComplexRuntime(complexId: string, data: {
       }
       if (data.actuators) {
         const prevAct = updated.telemetry.actuators || {};
-        const nextLight = data.actuators.lighting !== undefined ? Boolean(data.actuators.lighting) : prevAct.lighting;
+        const lightingVal = data.actuators.lighting !== undefined
+          ? Boolean(data.actuators.lighting)
+          : data.actuators.ghLighting !== undefined
+          ? Boolean(data.actuators.ghLighting)
+          : prevAct.lighting;
+        const nextLight = lightingVal;
         const nextBlower = data.actuators.blowerFan !== undefined ? Boolean(data.actuators.blowerFan) : prevAct.blowerFan;
         if (prevAct.lighting !== nextLight || prevAct.blowerFan !== nextBlower) {
           updated.telemetry.actuators = {

@@ -32,6 +32,8 @@ import {
   Wheat,
   Wrench,
   Lightbulb,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionCard, ViewAllButton } from "@/components/ui/cards";
@@ -61,7 +63,7 @@ import { CropCycleModals } from "@/components/ui/CropCycleModals";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { AddLightingScheduleDrawer } from "@/components/schedule/AddLightingScheduleDrawer";
 import { scheduleService } from "@/lib/services";
-import { refreshOperationalState } from "@/lib/operational-state";
+import { refreshOperationalState, updateComplexRuntime } from "@/lib/operational-state";
 
 const RANGE_OPTIONS: { id: RangeId; label: string }[] = [
   { id: "24H", label: "24 Hours" },
@@ -1232,7 +1234,57 @@ function GreenhouseContent() {
   const [editLighting, setEditLighting] = useState<LightingSchedule | null>(null);
   const [blowerPending, setBlowerPending] = useState(false);
 
-  const confirmedLightingOn = Boolean(gh?.telemetry?.actuators?.lighting);
+  // Track command sequence/request timestamp to prevent stale out-of-order overwrites
+  const lastLightingCmdTimeRef = useRef<number>(0);
+
+  // Status polling effect: guarantees live sync (3s interval) even if WebSocket drops or during reconnect
+  useEffect(() => {
+    if (!complex?.id) return;
+    let cancelled = false;
+
+    const pollStatus = async () => {
+      try {
+        const espStatus = await esp32Client.getStatus();
+        if (cancelled || !espStatus) return;
+        const now = Date.now();
+        // If an in-flight command was initiated less than 1.5s ago, wait for command's own reconciliation
+        if (now - lastLightingCmdTimeRef.current < 1500) return;
+
+        if (espStatus.actuators) {
+          updateComplexRuntime(complex.id, {
+            online: espStatus.network?.connected ?? true,
+            actuators: espStatus.actuators,
+          });
+        }
+      } catch {
+        // Non-fatal, status will retry next cycle
+      }
+    };
+
+    const intervalId = setInterval(pollStatus, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [complex?.id]);
+
+  type LampReportedState = "ON" | "OFF" | "SYNCING" | "UNKNOWN";
+
+  const rawRelayState = useMemo(() => {
+    const act = gh?.telemetry?.actuators;
+    if (!act) return undefined;
+    if (act.lighting !== undefined) return Boolean(act.lighting);
+    if (act.ghLighting !== undefined) return Boolean(act.ghLighting);
+    return undefined;
+  }, [gh?.telemetry?.actuators]);
+
+  const lampReportedState: LampReportedState = useMemo(() => {
+    if (lightingPending) return "SYNCING";
+    if (!gh?.online || rawRelayState === undefined) return "UNKNOWN";
+    return rawRelayState ? "ON" : "OFF";
+  }, [lightingPending, gh?.online, rawRelayState]);
+
+  const confirmedLightingOn = lampReportedState === "ON";
   const confirmedBlowerOn = Boolean(gh?.telemetry?.actuators?.blowerFan);
 
   const lightingSchedules = useMemo(() => {
@@ -1242,26 +1294,56 @@ function GreenhouseContent() {
 
   const handleLightingToggle = async () => {
     if (lightingPending || !gh || !complex) return;
-    const targetState = !confirmedLightingOn;
+    if (lampReportedState === "UNKNOWN") {
+      toast("Status controller tidak tersedia. Silakan periksa koneksi ESP32.", "error");
+      return;
+    }
+
+    const targetState = lampReportedState !== "ON";
+    const cmdTime = Date.now();
+    lastLightingCmdTimeRef.current = cmdTime;
     setLightingPending(true);
+
     try {
       const res = await esp32Client.setLighting(targetState, {
         targetGhId: gh.id,
         targetComplexId: complex.id,
       });
+
       if (res && (res as any).error) {
         toast(`Gagal mengubah lampu: ${(res as any).error}`, "error");
+        // Reconcile status immediately on error to restore true device state
+        try {
+          const freshStatus = await esp32Client.getStatus();
+          if (freshStatus?.actuators) {
+            updateComplexRuntime(complex.id, { actuators: freshStatus.actuators });
+          }
+        } catch {}
       } else {
         toast(
           targetState
-            ? "Lampu Greenhouse dinyalakan (Manual ON terkonfirmasi)"
-            : "Lampu Greenhouse dimatikan (OFF terkonfirmasi)",
+            ? "Perintah ON terkirim — relay kontak terkonfirmasi"
+            : "Perintah OFF terkirim — relay kontak terkonfirmasi",
           "success"
         );
+        // Authoritative reconciliation: fetch confirmed status from ESP32
+        try {
+          const freshStatus = await esp32Client.getStatus();
+          if (freshStatus?.actuators && lastLightingCmdTimeRef.current <= cmdTime) {
+            updateComplexRuntime(complex.id, { actuators: freshStatus.actuators });
+          }
+        } catch {}
         await refreshOperationalState();
       }
     } catch (err: any) {
       toast(`Gagal mengirim perintah lampu: ${err?.message || "Kesalahan jaringan"}`, "error");
+      // Recover status from controller
+      try {
+        const freshStatus = await esp32Client.getStatus();
+        if (freshStatus?.actuators) {
+          updateComplexRuntime(complex.id, { actuators: freshStatus.actuators });
+        }
+      } catch {}
     } finally {
       setLightingPending(false);
     }
@@ -2620,54 +2702,143 @@ function GreenhouseContent() {
           iconTone="amber"
           subtitle="Manual ON Only • Dedicated OFF Schedules • Relay CH3 (GPIO 10)"
           action={
-            <Button
-              size="sm"
-              variant={confirmedLightingOn ? "danger" : "primary"}
-              onClick={handleLightingToggle}
-              disabled={lightingPending || !gh.online}
-              className="gap-2"
-            >
-              <Lightbulb className={`h-4 w-4 ${confirmedLightingOn ? "text-amber-200 fill-amber-300" : ""}`} />
-              {lightingPending
-                ? "Mengirim perintah..."
-                : confirmedLightingOn
-                ? "Turn Lighting OFF"
-                : "Turn Lighting ON"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide uppercase border ${
+                  lampReportedState === "ON"
+                    ? "border-amber-400/50 bg-amber-500/20 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.3)]"
+                    : lampReportedState === "OFF"
+                    ? "border-slate-700 bg-slate-800/80 text-slate-300"
+                    : lampReportedState === "SYNCING"
+                    ? "border-blue-500/50 bg-blue-500/20 text-blue-300 animate-pulse"
+                    : "border-rose-500/50 bg-rose-500/20 text-rose-300"
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    lampReportedState === "ON"
+                      ? "bg-amber-400 animate-pulse"
+                      : lampReportedState === "OFF"
+                      ? "bg-slate-500"
+                      : lampReportedState === "SYNCING"
+                      ? "bg-blue-400 animate-ping"
+                      : "bg-rose-500"
+                  }`}
+                />
+                {lampReportedState === "ON"
+                  ? "LAMP ON"
+                  : lampReportedState === "OFF"
+                  ? "LAMP OFF"
+                  : lampReportedState === "SYNCING"
+                  ? "SYNCING"
+                  : "STATUS UNKNOWN"}
+              </span>
+
+              <Button
+                size="sm"
+                variant={
+                  lampReportedState === "ON"
+                    ? "danger"
+                    : lampReportedState === "OFF"
+                    ? "primary"
+                    : "ghost"
+                }
+                onClick={handleLightingToggle}
+                disabled={lampReportedState === "SYNCING" || lampReportedState === "UNKNOWN" || !gh.online}
+                className="gap-2"
+                id="btn-lighting-toggle"
+              >
+                {lampReportedState === "SYNCING" ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-blue-300" />
+                ) : (
+                  <Lightbulb
+                    className={`h-4 w-4 ${
+                      lampReportedState === "ON"
+                        ? "text-amber-200 fill-amber-300"
+                        : "text-slate-400"
+                    }`}
+                  />
+                )}
+                {lampReportedState === "SYNCING"
+                  ? "Syncing..."
+                  : lampReportedState === "UNKNOWN"
+                  ? "Status Unknown"
+                  : lampReportedState === "ON"
+                  ? "Turn Lighting OFF"
+                  : "Turn Lighting ON"}
+              </Button>
+            </div>
           }
         >
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/50 p-3.5">
               <div className="flex items-center gap-3">
-                <div className={`grid h-10 w-10 place-items-center rounded-xl border transition-all ${
-                  confirmedLightingOn
-                    ? "border-amber-400/50 bg-amber-400/20 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.5)]"
-                    : "border-white/10 bg-white/[0.04] text-slate-500"
-                }`}>
-                  <Lightbulb className={`h-5 w-5 ${confirmedLightingOn ? "fill-amber-300 text-amber-200" : ""}`} />
+                <div
+                  className={`grid h-12 w-12 place-items-center rounded-xl border transition-all ${
+                    lampReportedState === "ON"
+                      ? "border-amber-400/60 bg-amber-400/25 text-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.45)]"
+                      : lampReportedState === "OFF"
+                      ? "border-white/10 bg-white/[0.04] text-slate-500"
+                      : lampReportedState === "SYNCING"
+                      ? "border-blue-400/40 bg-blue-500/15 text-blue-300 animate-pulse"
+                      : "border-rose-500/40 bg-rose-500/15 text-rose-300"
+                  }`}
+                >
+                  {lampReportedState === "SYNCING" ? (
+                    <RefreshCw className="h-6 w-6 animate-spin text-blue-300" />
+                  ) : lampReportedState === "UNKNOWN" ? (
+                    <AlertCircle className="h-6 w-6 text-rose-400" />
+                  ) : (
+                    <Lightbulb
+                      className={`h-6 w-6 ${
+                        lampReportedState === "ON" ? "fill-amber-300 text-amber-200" : ""
+                      }`}
+                    />
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-slate-100">
-                      Status Lampu: {confirmedLightingOn ? "HIDUP (ON)" : "MATI (OFF)"}
+                      {lampReportedState === "ON"
+                        ? "LAMP ON (Relay Aktif)"
+                        : lampReportedState === "OFF"
+                        ? "LAMP OFF (Relay Standby)"
+                        : lampReportedState === "SYNCING"
+                        ? "SYNCING (Menunggu Konfirmasi)"
+                        : "STATUS UNKNOWN (Tidak Terhubung)"}
                     </span>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      confirmedLightingOn
-                        ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
-                        : "bg-slate-800 text-slate-400 border border-slate-700"
-                    }`}>
-                      {confirmedLightingOn ? "Aktif" : "Standby"}
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        lampReportedState === "ON"
+                          ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
+                          : lampReportedState === "OFF"
+                          ? "bg-slate-800 text-slate-400 border border-slate-700"
+                          : lampReportedState === "SYNCING"
+                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      }`}
+                    >
+                      {lampReportedState === "ON"
+                        ? "Terkonfirmasi ON"
+                        : lampReportedState === "OFF"
+                        ? "Terkonfirmasi OFF"
+                        : lampReportedState === "SYNCING"
+                        ? "Memproses"
+                        : "Offline / Stale"}
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-slate-400">
                     Output: Relay Modul CH3 (GPIO 10, Active-LOW) • Tombol Fisik: GPIO 46
+                  </p>
+                  <p className="text-[11px] text-slate-500 italic mt-0.5">
+                    * Status merefleksikan kontak relay yang dilaporkan ESP32. Iluminasi lampu fisik tidak diukur (sensor feedback lux tidak terpasang).
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-2.5 text-[11px] text-amber-300/90">
-              <span className="font-semibold">Aturan Kontrol:</span> Lampu hanya dapat dinyalakan (ON) secara manual lewat tombol UI ini atau tombol fisik di panel ESP32. Tidak ada jadwal otomatis yang dapat menyalakan lampu. Jadwal otomatis hanya untuk mematikan lampu (OFF).
+              <span className="font-semibold">Aturan Kontrol & Sinkronisasi:</span> Lampu hanya dapat dinyalakan (ON) secara manual melalui tombol Web UI ini atau tombol fisik panel ESP32 (GPIO 46). Perubahan dari tombol fisik atau jadwal otomatis OFF disinkronkan secara langsung (real-time stream). Jadwal otomatis hanya diizinkan untuk mematikan lampu (OFF).
             </div>
 
             {/* Dedicated Lighting Schedules List */}

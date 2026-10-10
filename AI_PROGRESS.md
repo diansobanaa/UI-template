@@ -1,3 +1,56 @@
+## SP-BUG-17-LAMP-STATUS-SYNC-004
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Fix Bug 17: "Critical UI Bug: Lamp Status Must Reflect the Actual Reported State". Resolve state synchronization divergence across Web UI, physical button (GPIO 46), scheduled OFF, and authoritative ESP32 telemetry/status reports.
+- **Root Cause & Full Pipeline Remediation**:
+  1. **ESP32 Firmware Telemetry Manager (`telemetry_mgr.c` & `telemetry_mgr.h`)**:
+     - `telemetry_snapshot_t` lacked `lighting_on` and `blower_fan_on`.
+     - `telemetry_sampler_task` never sampled `ACTUATOR_GH_LIGHT`.
+     - `telemetry_mgr_build_stream_batch_json` and `build_current_json_from_snap` omitted `lighting`, `ghLighting`, and `blowerFan` from serialized JSON.
+     - *Fix*: Added `lighting_on` and `blower_fan_on` to `telemetry_snapshot_t`, sampled them in `telemetry_sampler_task`, serialized them in `build_current_json_from_snap` and `telemetry_mgr_build_stream_batch_json`, and hooked `telemetry_mgr_trigger_transition` to immediately refresh `s_snapshot` under mutex so transitions broadcast fresh states instantly via WebSocket.
+  2. **Storage Telemetry Store (`telemetry_store.c`)**:
+     - *Fix*: Added bits 9 (`lighting_on`) and 10 (`blower_fan_on`) to `rec->actuator_mask`.
+  3. **Frontend Direct ESP32 Hydration (`operational-state.ts`)**:
+     - Direct ESP32 hydration parsed `sensors` but completely ignored `espStatus.actuators`, leaving `g.telemetry.actuators` undefined on page load and refresh.
+     - *Fix*: Populated `g.telemetry.actuators` from `espStatus.actuators` in `hydrateOperationalState`, and enhanced `updateComplexRuntime` to resolve `lighting` and `ghLighting` aliases.
+  4. **Frontend Telemetry Stream WebSocket (`telemetry-stream.ts`)**:
+     - Ignored `sample.actuators` from stream batches.
+     - *Fix*: Updated `handleBatch` and `refreshCurrentSnapshot` to forward `actuators` directly to `updateComplexRuntime(complexId, { actuators })`.
+  5. **Web UI Dual-Indicator & Control Hardening (`page.tsx`)**:
+     - *Fix*: Decoupled current reported state (`LAMP ON`, `LAMP OFF`, `STATUS UNKNOWN`, `SYNCING`) from permitted manual action (`Turn Lighting OFF` vs `Turn Lighting ON`).
+     - Added physical relay disclosure (Relay CH3 / GPIO 10, Active-LOW) and explicitly disclosed that physical illumination is unmeasured without optical feedback.
+     - Added 3-second background polling heartbeat (`esp32Client.getStatus()`) and command timestamp guard (`lastLightingCmdTimeRef`) to prevent out-of-order race conditions.
+  6. **Canonical Documentation**:
+     - Updated `docs/ACTUATOR_CONTROL_ARCHITECTURE.md` documenting dual-indicator display, multi-source synchronization, and transition broadcasting.
+- **Verification Evidence**:
+  - `python scripts/test_bug17_lamp_sync_acceptance.py`: PASS (23 of 23 checks passed).
+    - Test 1 (Lamp is already ON): PASS.
+    - Test 2 (Lamp is OFF): PASS.
+    - Test 3 (Physical button changes OFF to ON): PASS.
+    - Test 4 (Physical button changes ON to OFF): PASS.
+    - Test 5 (Scheduled OFF execution & scheduled ON forbidden): PASS.
+    - Test 6 (Refresh and reconnect): PASS.
+    - Test 7 (Status unavailable / UNKNOWN): PASS.
+    - Test 8 (Concurrent / stale update protection): PASS.
+  - `python scripts/test_lighting_and_blower_integration.py`: PASS (35 of 35 checks passed).
+  - `python scripts/test_schedule_timeline_integration.py`: PASS (all 5 check suites passed).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (built singlefile production bundle in 10.18s).
+  - Flashed to physical ESP32 on `COM3` and verified live at `192.168.0.101`.
+- **Changed Files**:
+  - `esp32/main/services/telemetry_mgr.h`
+  - `esp32/main/services/telemetry_mgr.c`
+  - `esp32/main/storage/telemetry_store.c`
+  - `src/lib/operational-state.ts`
+  - `src/lib/api/telemetry-stream.ts`
+  - `src/app/greenhouse/[ghId]/page.tsx`
+  - `scripts/test_bug17_lamp_sync_acceptance.py`
+  - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Action**: Create git safe point commit.
+
 ## SP-GH-LIGHTING-VALIDATION-FIX-003
 - **Date**: 2026-10-10
 - **Status**: `COMPLETE & HARDWARE-VERIFIED`

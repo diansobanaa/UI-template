@@ -86,6 +86,38 @@ extern void telemetry_stream_on_transition(const char *reason);
 void telemetry_mgr_trigger_transition(const char *reason)
 {
     ESP_LOGI(TAG, "Telemetry cadence transition triggered: %s", reason ? reason : "unknown");
+    if (s_snap_mutex && xSemaphoreTake(s_snap_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        s_snapshot.well_pump_on = actuator_hal_get_state(ACTUATOR_WELL_PUMP);
+        s_snapshot.dist_pump_on = actuator_hal_get_state(ACTUATOR_DIST_PUMP);
+        s_snapshot.raw_submersible_on = actuator_hal_get_state(ACTUATOR_RAW_SUBMERSIBLE);
+        s_snapshot.mixing_pump_on = actuator_hal_get_state(ACTUATOR_MIXING_PUMP);
+        s_snapshot.dosing_a_on = actuator_hal_get_state(ACTUATOR_DOSING_A);
+        s_snapshot.dosing_b_on = actuator_hal_get_state(ACTUATOR_DOSING_B);
+        s_snapshot.fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
+        s_snapshot.blower_fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
+        s_snapshot.lighting_on = actuator_hal_get_state(ACTUATOR_GH_LIGHT);
+        s_snapshot.error_lamp_on = actuator_hal_get_state(ACTUATOR_ERROR_LAMP);
+        s_snapshot.buzzer_on = actuator_hal_get_state(ACTUATOR_BUZZER);
+        xSemaphoreGive(s_snap_mutex);
+
+        if (s_ring_mutex && xSemaphoreTake(s_ring_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (s_ring_count > 0) {
+                size_t latest_idx = (s_ring_head + TELEMETRY_RING_CAPACITY - 1) % TELEMETRY_RING_CAPACITY;
+                s_ring_buffer[latest_idx].well_pump_on = s_snapshot.well_pump_on;
+                s_ring_buffer[latest_idx].dist_pump_on = s_snapshot.dist_pump_on;
+                s_ring_buffer[latest_idx].raw_submersible_on = s_snapshot.raw_submersible_on;
+                s_ring_buffer[latest_idx].mixing_pump_on = s_snapshot.mixing_pump_on;
+                s_ring_buffer[latest_idx].dosing_a_on = s_snapshot.dosing_a_on;
+                s_ring_buffer[latest_idx].dosing_b_on = s_snapshot.dosing_b_on;
+                s_ring_buffer[latest_idx].fan_on = s_snapshot.fan_on;
+                s_ring_buffer[latest_idx].blower_fan_on = s_snapshot.blower_fan_on;
+                s_ring_buffer[latest_idx].lighting_on = s_snapshot.lighting_on;
+                s_ring_buffer[latest_idx].error_lamp_on = s_snapshot.error_lamp_on;
+                s_ring_buffer[latest_idx].buzzer_on = s_snapshot.buzzer_on;
+            }
+            xSemaphoreGive(s_ring_mutex);
+        }
+    }
     telemetry_stream_on_transition(reason);
 }
 
@@ -289,6 +321,19 @@ static cJSON *build_current_json_from_snap(const char *greenhouse_id, const tele
         cJSON_AddItemToArray(component_states, state);
     }
 
+    /* Direct actuators summary */
+    cJSON *actuators = cJSON_AddObjectToObject(root, "actuators");
+    cJSON_AddBoolToObject(actuators, "wellPump", snap->well_pump_on);
+    cJSON_AddBoolToObject(actuators, "distPump", snap->dist_pump_on);
+    cJSON_AddBoolToObject(actuators, "rawSubmersible", snap->raw_submersible_on);
+    cJSON_AddBoolToObject(actuators, "mixingPump", snap->mixing_pump_on);
+    cJSON_AddBoolToObject(actuators, "dosingA", snap->dosing_a_on);
+    cJSON_AddBoolToObject(actuators, "dosingB", snap->dosing_b_on);
+    cJSON_AddBoolToObject(actuators, "coolingFan", snap->fan_on);
+    cJSON_AddBoolToObject(actuators, "blowerFan", snap->blower_fan_on);
+    cJSON_AddBoolToObject(actuators, "lighting", snap->lighting_on);
+    cJSON_AddBoolToObject(actuators, "ghLighting", snap->lighting_on);
+
     cJSON *values = cJSON_AddObjectToObject(root, "values");
     if (snap->temp_valid) {
         cJSON_AddNumberToObject(values, "temperatureC", snap->temperature_c);
@@ -435,6 +480,9 @@ cJSON *telemetry_mgr_build_stream_batch_json(const char *greenhouse_id, uint64_t
         cJSON_AddBoolToObject(actuators, "dosingA", item->dosing_a_on);
         cJSON_AddBoolToObject(actuators, "dosingB", item->dosing_b_on);
         cJSON_AddBoolToObject(actuators, "coolingFan", item->fan_on);
+        cJSON_AddBoolToObject(actuators, "blowerFan", item->blower_fan_on);
+        cJSON_AddBoolToObject(actuators, "lighting", item->lighting_on);
+        cJSON_AddBoolToObject(actuators, "ghLighting", item->lighting_on);
 
         cJSON_AddItemToArray(samples_arr, sample_obj);
         gathered++;
@@ -475,6 +523,9 @@ cJSON *telemetry_mgr_build_stream_batch_json(const char *greenhouse_id, uint64_t
             cJSON_AddBoolToObject(actuators, "dosingA", latest.dosing_a_on);
             cJSON_AddBoolToObject(actuators, "dosingB", latest.dosing_b_on);
             cJSON_AddBoolToObject(actuators, "coolingFan", latest.fan_on);
+            cJSON_AddBoolToObject(actuators, "blowerFan", latest.blower_fan_on);
+            cJSON_AddBoolToObject(actuators, "lighting", latest.lighting_on);
+            cJSON_AddBoolToObject(actuators, "ghLighting", latest.lighting_on);
 
             cJSON_AddItemToArray(samples_arr, sample_obj);
         }
@@ -652,6 +703,8 @@ static void telemetry_sampler_task(void *pvParameters)
         s_snapshot.dosing_a_on = actuator_hal_get_state(ACTUATOR_DOSING_A);
         s_snapshot.dosing_b_on = actuator_hal_get_state(ACTUATOR_DOSING_B);
         s_snapshot.fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
+        s_snapshot.blower_fan_on = actuator_hal_get_state(ACTUATOR_BLOWER_FAN);
+        s_snapshot.lighting_on = actuator_hal_get_state(ACTUATOR_GH_LIGHT);
         s_snapshot.error_lamp_on = actuator_hal_get_state(ACTUATOR_ERROR_LAMP);
         s_snapshot.buzzer_on = actuator_hal_get_state(ACTUATOR_BUZZER);
         telemetry_snapshot_t copy_snap = s_snapshot;
