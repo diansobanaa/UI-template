@@ -27,6 +27,7 @@ Refactored state synchronization to **Zero-Polling, Event-Driven Push & Optimist
 - `python scripts/test_lighting_and_blower_integration.py`: PASS (35 of 35 checks passed).
 - `npx tsc --noEmit`: PASS (0 errors).
 - `npm run build`: PASS (built singlefile production bundle in 23.52s).
+- **Git Commit Hash**: `e552edd`
 
 # AI HANDOVER - SP-BUG-17-LAMP-STATUS-SYNC-004
   - Test 2 (Lamp is OFF): Verified `LAMP OFF` displayed and `Turn Lighting ON` offered.
