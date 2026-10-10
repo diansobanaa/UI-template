@@ -2372,6 +2372,7 @@ components:
                     dosingB: { type: boolean }
                     coolingFan: { type: boolean }
                     blowerFan: { type: boolean, description: "Greenhouse Blower Fans AC state" }
+                    lighting: { type: boolean, description: "Greenhouse Lighting relay output state" }
                     errorLamp: { type: boolean }
                     components:
                       type: array

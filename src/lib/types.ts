@@ -97,6 +97,13 @@ export interface Telemetry {
   waterDeltaPct: number | null;
   hstDays: number;
   hspDays: number | null;
+  actuators?: {
+    blowerFan?: boolean;
+    coolingFan?: boolean;
+    lighting?: boolean;
+    wellPump?: boolean;
+    [actuatorId: string]: boolean | undefined;
+  };
   sensorRetries?: {
     dht22?: SensorRetryInfo;
     ds18b20?: SensorRetryInfo;
@@ -150,6 +157,7 @@ export interface Greenhouse {
   recipes: Recipe[];
   fertigationSchedules: FertigationSchedule[];
   fanSchedules: FanSchedule[];
+  lightingSchedules?: LightingSchedule[];
   currentRun: CurrentFertigation | null;
   queue: QueueEntry[];
   history: FertigationRunRow[];
@@ -340,6 +348,22 @@ export interface FanSchedule {
   onAboveC?: number;
   offBelowC?: number;
   repeat: RepeatMode;
+  enabled: boolean;
+  status: ScheduleStatus;
+  activationState?: ScheduleActivationState;
+  blockedReasons?: ScheduleBlockedReason[];
+  lastRun: string | null;
+  nextRun: string | null;
+}
+
+export interface LightingSchedule {
+  id: Id;
+  ghId: Id;
+  name: string;
+  time: string; // "HH:MM" dedicated OFF time
+  offTime?: string; // alias for backwards compatibility
+  repeat: RepeatMode;
+  action?: "off" | "LIGHTING_OFF";
   enabled: boolean;
   status: ScheduleStatus;
   activationState?: ScheduleActivationState;

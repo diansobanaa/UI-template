@@ -94,7 +94,7 @@ This document specifies the exact mapping from the physical pins of each discret
 | **4-Ch Relay** | **GND** | Module Ground | **ESP32 GND & 5V PSU GND** | Common Ground | Ground Return | 0V Reference | **VERIFIED** |
 | **4-Ch Relay** | **IN1** | Channel 1 Opto Trigger | **ESP32 GPIO 1** (Right-15) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED (Well Pump AC 220V)** |
 | **4-Ch Relay** | **IN2** | Channel 2 Opto Trigger | **ESP32 GPIO 2** (Right-13) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED (Distribution Pump AC 220V)** |
-| **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger | **ESP32 GPIO 10** (Left-16) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE (Blower Fans Contactor Trigger)** |
+| **4-Ch Relay** | **IN3** | Channel 3 Opto Trigger | **ESP32 GPIO 10** (Left-16) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE (Greenhouse Lighting 220V AC, Manual-ON Only)** |
 | **4-Ch Relay** | **IN4** | Channel 4 Opto Trigger | **ESP32 GPIO 40** (Right-8) | Digital Logic | Input (from MCU) | Active-LOW (0V=ON) | **VERIFIED SAFE (Mixing Pond Pumps 220V)** |
 | **4-Ch Relay** | **VCC** | Optocoupler Anode Supply| **+5V DC Rail** | DC Power | Power Input | 5.0V DC Nominal | **VERIFIED** |
 | **4-Ch Relay** | **JD-VCC** | Relay Coil Power | *Bridged to VCC via Jumper* | DC Power | Power Input | 5.0V DC (via Jumper)| **VERIFIED** |
@@ -122,10 +122,10 @@ This document specifies the exact mapping from the physical pins of each discret
 | **MOSFET #3** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #3** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
 | **MOSFET #3** | **OUT+ / OUT-**| DC Load Terminals | Dosing Pump B (pH/Buffer) | DC Load Switch | Power Output | Switched 12V DC | **VERIFIED** |
-| **MOSFET #4** | **TRIG-PWM** | Gate Trigger / PWM Input | **UNASSIGNED / RESERVED** (GPIO 7 disabled)| Digital Logic | None (MCU Control Disabled) | N/A | **UNASSIGNED / RESERVED** |
-| **MOSFET #4** | **GND** | Logic Ground Return | Disconnected | Ground Return | None | 0V Ground | **UNASSIGNED** |
-| **MOSFET #4** | **VIN+ / VIN-**| DC Power Input Terminals | Disconnected / Reserved | DC Power Rail | None | N/A | **RESERVED** |
-| **MOSFET #4** | **OUT+ / OUT-**| DC Load Terminals | Cabinet Exhaust Fan wired direct to PSU 1 (+/-)| Direct DC Power | Power Rail | Continuous 12V DC | **DIRECT PSU POWER (NOT MCU CONTROLLED)** |
+| **MOSFET #4** | **TRIG-PWM** | Gate Trigger / PWM Input | **ESP32 GPIO 7** (Left-7) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED READY (Greenhouse Blower Fans, Deferred Hardware)** |
+| **MOSFET #4** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
+| **MOSFET #4** | **VIN+ / VIN-**| DC Power Input Terminals | 12V DC Rail from PSU 1 | DC Power Rail | Power Supply | 12V DC & GND_12V | **VERIFIED** |
+| **MOSFET #4** | **OUT+ / OUT-**| DC Load Terminals | Solder-ready terminals for Greenhouse Blower Fans | DC Load Switch | Power Output | Switched 12V DC | **SOLDER-READY (DEFERRED HARDWARE)** |
 | **MOSFET #5** | **TRIG-PWM** | Gate Trigger Input | **ESP32 GPIO 18** (Left-11) | Digital Logic | Input (from MCU) | Active-HIGH (3.3V=ON, 0V=OFF) | **VERIFIED SAFE (Active Buzzer 5V)** |
 | **MOSFET #5** | **GND** | Logic Ground Return | **ESP32 GND** (Common Ground) | Ground Return | Return to MCU | 0V Ground | **VERIFIED** |
 | **MOSFET #5** | **VIN+ / VIN-**| DC Power Input Terminals | 5V DC Rail (LM2596 OUT+) | DC Power Rail | Power Supply | 5V DC & GND_LV | **VERIFIED** |
@@ -156,12 +156,15 @@ This document specifies the exact mapping from the physical pins of each discret
 | **Button 1 (MODE)** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
 | **Button 2 (MAN A)**| Terminal 1 | **Manual Well Pump Toggle** (5-Min Auto-Off)  | **ESP32 GPIO 39** (Right-9) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE** |
 | **Button 2 (MAN A)**| Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
+| **Button Lighting** | Terminal 1 | **Manual Greenhouse Lighting Toggle** | **ESP32 GPIO 46** (Left-14) | Tactile Switch | Input | Active-LOW (0=Push) | **VERIFIED SAFE (PULL-UP)** |
+| **Button Lighting** | Terminal 2 | Ground Return | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
 | **Button 4 (RETIRED)**| Terminal 1 | **Retired Button 4** (Repurposed for DHT22) | **ESP32 GPIO 41** (Right-7) | Digital Single-Wire | Input/Output | Single-Wire Bus (DHT22) | **REPURPOSED TO DHT22** |
 | **Button 4 (RETIRED)**| Terminal 2 | Ground Return (DHT22 GND)                    | **ESP32 GND** | Ground Return | Ground | 0V Reference | **VERIFIED** |
 
 *Button Functional Rules:*
 - **Button 1 (GPIO 0):** Advances ST7735 display to the next diagnostic view on each press (Diagnostic $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle.
 - **Button 2 (GPIO 39):** Manual toggle for Deep Well Pump. State 1 (OFF $\to$ ON) starts a non-blocking 5-minute software timer. State 2 (ON $\to$ OFF) shuts down immediately and cancels the timer. If 5 minutes elapses, automatically turns OFF. Strictly blocked if Lower Float is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched.
+- **Button Lighting (GPIO 46):** Manual toggle for Greenhouse Lighting. Configured with internal pull-up (HIGH when open). Pressing momentarily triggers a single toggle event through the central `actuator_hal_request(ACTUATOR_GH_LIGHT)` path. Debounced, held press does not repeatedly toggle.
 - **Button 3 (GPIO 40):** RETIRED. GPIO 40 repurposed for 220V AC Mixing Pump Relay IN4 control. Physical button must be disconnected.
 - **Button 4 (GPIO 41):** Repurposed to DHT22 / AM2302 digital single-wire environmental sensor input (air temp & RH). Physical button disconnected.
 

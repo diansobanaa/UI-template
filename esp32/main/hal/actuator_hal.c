@@ -32,8 +32,9 @@ static actuator_descriptor_t s_actuators[ACTUATOR_MAX_COUNT] = {
     [ACTUATOR_DOSING_A]        = { .name = "Dosing Pump A",    .gpio = PIN_OUT_DOSING_A,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
     [ACTUATOR_DOSING_B]        = { .name = "Dosing Pump B",    .gpio = PIN_OUT_DOSING_B,        .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = DOSING_ACTIVE_LEVEL },
     [ACTUATOR_COOLING_FAN]     = { .name = "Cooling Fan (PSU Direct)", .gpio = -1,                      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = 0 },
-    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_BLOWER_FAN]      = { .name = "Blower Fan",       .gpio = PIN_OUT_BLOWER_FAN,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = BLOWER_ACTIVE_LEVEL },
     [ACTUATOR_MIXING_PUMP]     = { .name = "Mixing Pump",      .gpio = PIN_OUT_MIXING_PUMP,     .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
+    [ACTUATOR_GH_LIGHT]        = { .name = "Greenhouse Lighting", .gpio = PIN_OUT_GH_LIGHT,    .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = LIGHTING_ACTIVE_LEVEL },
     [ACTUATOR_ERROR_LAMP]      = { .name = "Error Lamp",       .gpio = PIN_OUT_ERROR_LAMP,      .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = RELAY_ACTIVE_LEVEL },
     [ACTUATOR_BUZZER]          = { .name = "Alarm Buzzer",     .gpio = PIN_OUT_BUZZER,          .state = false, .owner = ACTUATOR_OWNER_NONE, .active_level = BUZZER_ACTIVE_LEVEL },
 };
@@ -120,8 +121,9 @@ esp_err_t actuator_hal_bootstrap_safe_off(void)
         { PIN_OUT_DOSING_A, DOSING_ACTIVE_LEVEL },
         { PIN_OUT_DOSING_B, DOSING_ACTIVE_LEVEL },
         { PIN_OUT_COOLING_FAN, COOLING_FAN_ACTIVE_LEVEL },
-        { PIN_OUT_BLOWER_FAN, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_BLOWER_FAN, BLOWER_ACTIVE_LEVEL },
         { PIN_OUT_MIXING_PUMP, RELAY_ACTIVE_LEVEL },
+        { PIN_OUT_GH_LIGHT, LIGHTING_ACTIVE_LEVEL },
         { PIN_OUT_BUZZER, BUZZER_ACTIVE_LEVEL },
         { PIN_OUT_ERROR_LAMP, RELAY_ACTIVE_LEVEL },
     };
@@ -220,6 +222,7 @@ static const char *actuator_role_for_id(actuator_id_t id)
         case ACTUATOR_COOLING_FAN: return NULL;
         case ACTUATOR_BLOWER_FAN: return "BLOWER_FAN";
         case ACTUATOR_MIXING_PUMP: return "MIXING_PUMP";
+        case ACTUATOR_GH_LIGHT: return "GH_LIGHT";
         case ACTUATOR_ERROR_LAMP: return "ERROR_LAMP";
         case ACTUATOR_BUZZER: return "BUZZER";
         default: return NULL;
@@ -249,6 +252,12 @@ static bool actuator_role_matches(actuator_id_t id, const char *role)
          strcasecmp(role, "dosingB") == 0)) return true;
     if (id == ACTUATOR_DIST_PUMP && (strcasecmp(role, "DIST_PUMP") == 0 || strcasecmp(role, "DISTRIBUTION_PUMP") == 0)) return true;
     if (id == ACTUATOR_MIXING_PUMP && (strcasecmp(role, "MIX_PUMP") == 0 || strcasecmp(role, "MIXING_PUMP") == 0 || strcasecmp(role, "MIXING_POND_PUMPS") == 0 || strcasecmp(role, "MIXING_POND_PUMP") == 0)) return true;
+    if (id == ACTUATOR_GH_LIGHT &&
+        (strcasecmp(role, "GH_LIGHT") == 0 ||
+         strcasecmp(role, "LIGHTING") == 0 ||
+         strcasecmp(role, "gh_lighting") == 0 ||
+         strcasecmp(role, "gh_light") == 0 ||
+         strcasecmp(role, "light") == 0)) return true;
     if (id == ACTUATOR_ERROR_LAMP && (strcasecmp(role, "ALARM_LAMP") == 0 || strcasecmp(role, "ERROR_BEACON") == 0 || strcasecmp(role, "ERROR_LAMP") == 0)) return true;
     if (id == ACTUATOR_BUZZER && (strcasecmp(role, "ALARM_BUZZER") == 0 || strcasecmp(role, "BUZZER") == 0)) return true;
     if (id == ACTUATOR_BLOWER_FAN &&
@@ -289,6 +298,13 @@ static uint8_t resolve_active_level(const hw_component_info_t *info, uint8_t fal
          * physically N-channel MOSFET gate drivers and MUST operate Active-HIGH (1=ON, 0=OFF).
          * Even if legacy SPIFFS JSON or old config has ACTIVE_LOW, override to ACTIVE_HIGH
          * to prevent dangerous physical pump / fan / buzzer activation at boot. */
+        if (strcmp(info->role, "GH_LIGHT") == 0 || strcmp(info->role, "LIGHTING") == 0 ||
+            info->wiring.gpio == PIN_OUT_GH_LIGHT) {
+            return RELAY_ACTIVE_LEVEL; /* 0 = Active-LOW */
+        }
+        if (strcmp(info->role, "BLOWER_FAN") == 0 || info->wiring.gpio == PIN_OUT_BLOWER_FAN) {
+            return BLOWER_ACTIVE_LEVEL; /* 1 = Active-HIGH */
+        }
         if (strcmp(info->role, "RAW_SUBMERSIBLE") == 0 || strcmp(info->role, "RAW_SUBMERSIBLE_PUMP_1") == 0 ||
             strcmp(info->role, "DOSING_A") == 0 || strcmp(info->role, "DOSING_B") == 0 ||
             strcmp(info->role, "COOLING_FAN") == 0 || strcmp(info->role, "BUZZER") == 0 ||
@@ -342,9 +358,14 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
             ESP_LOGI(TAG, "Static actuator '%s' -> %s (GPIO %d)",
                      s_actuators[id].name, on ? "ON" : "OFF", (int)s_actuators[id].gpio);
             xSemaphoreGive(s_lock);
-            if (was_on != on && id == ACTUATOR_BUZZER) {
-                (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
-                                    on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", "buzzer");
+            if (was_on != on) {
+                if (id == ACTUATOR_BUZZER) {
+                    (void)event_mgr_log(LOG_LEVEL_INFO, "ALARM", on ? "ALARM_BUZZER_ON" : "ALARM_BUZZER_OFF",
+                                        on ? "Alarm buzzer activated." : "Alarm buzzer deactivated.", "buzzer");
+                } else if (id == ACTUATOR_GH_LIGHT) {
+                    (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "LIGHTING_ON" : "LIGHTING_OFF",
+                                        on ? "Greenhouse lighting switched ON." : "Greenhouse lighting switched OFF.", "gh_lighting");
+                }
             }
             return ESP_OK;
         }
@@ -394,6 +415,9 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
         } else if (id == ACTUATOR_COOLING_FAN || id == ACTUATOR_BLOWER_FAN) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "FAN_STARTED" : "FAN_STOPPED",
                                 on ? "Fan switched ON." : "Fan switched OFF.", comp_info.component_id);
+        } else if (id == ACTUATOR_GH_LIGHT) {
+            (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "LIGHTING_ON" : "LIGHTING_OFF",
+                                on ? "Greenhouse lighting switched ON." : "Greenhouse lighting switched OFF.", comp_info.component_id);
         }
     }
     return ESP_OK;
@@ -402,6 +426,12 @@ esp_err_t actuator_hal_set(actuator_id_t id, bool on)
 esp_err_t actuator_hal_request(actuator_id_t id, bool on,
                                actuator_source_t source, const char *reason)
 {
+    if (id == ACTUATOR_GH_LIGHT && on && source != ACTUATOR_SOURCE_MANUAL) {
+        ESP_LOGW(TAG, "Blocked lighting ON: only manual ON is permitted (source=%d, reason=%s)",
+                 (int)source, reason ? reason : "unknown");
+        log_request("gh_lighting", on, source, reason, ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t err = actuator_hal_set(id, on);
     const char *component_id = (id < ACTUATOR_MAX_COUNT) ? s_actuators[id].name : "invalid";
     log_request(component_id, on, source, reason, err);
@@ -521,6 +551,9 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
         } else if (strcasestr(role, "FAN") || strcasestr(role, "BLOWER")) {
             (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "FAN_STARTED" : "FAN_STOPPED",
                                 on ? "Configured fan switched ON." : "Configured fan switched OFF.", component_id);
+        } else if (strcasestr(role, "LIGHT") || strcasestr(component_id, "light")) {
+            (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", on ? "LIGHTING_ON" : "LIGHTING_OFF",
+                                on ? "Greenhouse lighting switched ON." : "Greenhouse lighting switched OFF.", component_id);
         }
         extern void telemetry_mgr_trigger_transition(const char *reason);
         telemetry_mgr_trigger_transition("ACTUATOR_STATE_CHANGE");
@@ -531,6 +564,21 @@ esp_err_t actuator_hal_set_by_component_id(const char *component_id, bool on)
 esp_err_t actuator_hal_request_component(const char *component_id, bool on,
                                          actuator_source_t source, const char *reason)
 {
+    actuator_id_t act_id = ACTUATOR_MAX_COUNT;
+    bool is_lighting = false;
+    if (component_id) {
+        if (actuator_hal_find_id_by_component_id(component_id, &act_id) == ESP_OK && act_id == ACTUATOR_GH_LIGHT) {
+            is_lighting = true;
+        } else if (strcasestr(component_id, "light") != NULL) {
+            is_lighting = true;
+        }
+    }
+    if (is_lighting && on && source != ACTUATOR_SOURCE_MANUAL) {
+        ESP_LOGW(TAG, "Blocked component '%s' lighting ON: only manual ON is permitted (source=%d, reason=%s)",
+                 component_id ? component_id : "?", (int)source, reason ? reason : "unknown");
+        log_request(component_id ? component_id : "gh_lighting", on, source, reason, ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t err = actuator_hal_set_by_component_id(component_id, on);
     log_request(component_id, on, source, reason, err);
     return err;
@@ -659,6 +707,12 @@ esp_err_t actuator_hal_find_id_by_component_id(const char *component_id, actuato
         *out_id = ACTUATOR_MIXING_PUMP;
         return ESP_OK;
     }
+    if (strcasecmp(component_id, "gh_lighting") == 0 || strcasecmp(component_id, "lighting") == 0 ||
+        strcasecmp(component_id, "GH_LIGHT") == 0 || strcasecmp(component_id, "gh_light") == 0 ||
+        strcasecmp(component_id, "light") == 0) {
+        *out_id = ACTUATOR_GH_LIGHT;
+        return ESP_OK;
+    }
     if (strcasecmp(component_id, "buzzer") == 0 || strcasecmp(component_id, "BUZZER") == 0 || strcasecmp(component_id, "ALARM_BUZZER") == 0) {
         *out_id = ACTUATOR_BUZZER;
         return ESP_OK;
@@ -755,7 +809,9 @@ esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t
     esp_err_t err = hardware_registry_find_by_id(component_id, &info);
     if (err != ESP_OK) { xSemaphoreGive(s_lock); return err; }
     component_runtime_state_t *state = runtime_find_locked(component_id, false);
-    if (state && state->owner != ACTUATOR_OWNER_NONE && state->owner != owner && owner != ACTUATOR_OWNER_SAFETY) {
+    bool is_light = (strcasestr(info.role, "LIGHT") != NULL || strcasestr(component_id, "light") != NULL);
+    if (state && state->owner != ACTUATOR_OWNER_NONE && state->owner != owner && owner != ACTUATOR_OWNER_SAFETY &&
+        !(owner == ACTUATOR_OWNER_SCHEDULER && is_light)) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -771,7 +827,7 @@ esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t
         hw_component_info_t mapped;
         if (resolve_configured_actuator((actuator_id_t)i, &mapped) == ESP_OK && strcmp(mapped.component_id, component_id) == 0) {
             s_actuators[i].state = false;
-            if (s_actuators[i].owner == owner || owner == ACTUATOR_OWNER_SAFETY) s_actuators[i].owner = ACTUATOR_OWNER_NONE;
+            if (s_actuators[i].owner == owner || owner == ACTUATOR_OWNER_SAFETY || is_light) s_actuators[i].owner = ACTUATOR_OWNER_NONE;
         }
     }
     xSemaphoreGive(s_lock);
@@ -782,6 +838,9 @@ esp_err_t actuator_hal_stop_component(const char *component_id, actuator_owner_t
                           strcasestr(info.supported_type_id, "FAN") || strcasestr(info.supported_type_id, "BLOWER"))) {
         (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "FAN_STOPPED",
                             "Configured fan stopped.", info.component_id);
+    } else if (was_on && (strcasestr(info.role, "LIGHT") || strcasestr(info.component_id, "light"))) {
+        (void)event_mgr_log(LOG_LEVEL_INFO, "ACTUATOR", "LIGHTING_OFF",
+                            "Greenhouse lighting stopped.", info.component_id);
     }
     return ESP_OK;
 }

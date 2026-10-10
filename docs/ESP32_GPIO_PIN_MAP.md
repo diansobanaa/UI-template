@@ -21,10 +21,10 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Left-4** | **4** | Raw Submersible Pump 1 Trigger | MOSFET Module #1 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Raw Submersible Pump 1 via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
 | **Left-5** | **5** | Dosing Pump A Trigger | MOSFET Module #2 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump A (Nutrient) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
 | **Left-6** | **6** | Dosing Pump B Trigger | MOSFET Module #3 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE | Standard clean GPIO. Controls 12V DC Dosing Pump B (pH/Buffer) via N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW. |
-| **Left-7** | **7** | *UNASSIGNED (DIRECT PSU FAN)* | Disconnected / Reserved | GPIO Digital Out | Unassigned (MCU Control Disabled) | **UNASSIGNED / RESERVED** | Cabinet/Internal Box Fan is powered directly from PSU +/- and is NOT controlled by ESP32 MCU. PIN_OUT_COOLING_FAN is set to -1 in firmware. |
+| **Left-7** | **7** | Greenhouse Blower Fan Output | MOSFET Module #4 | GPIO Digital Out | Output (Active-HIGH) | VERIFIED SAFE (DEFERRED HARDWARE) | Dedicated Greenhouse Blower Fan output (GPIO 7). Gate trigger for N-channel MOSFET module. High = ON, Low = OFF. Safe boot default = LOW (OFF). Note: Physical blower fan hardware is not installed yet; GPIO is fully integrated in firmware/API/UI and solder-ready. |
 | **Left-12** | **8** | I2C SDA (Data) | RTC DS3231 | I2C Bus | Bi-directional | VERIFIED SAFE | Dedicated I2C Data line (+ 4.7kΩ pull-up to 3.3V). |
 | **Left-15** | **9** | I2C SCL (Clock) | RTC DS3231 | I2C Bus | Output | VERIFIED SAFE | Dedicated I2C Clock line (+ 4.7kΩ pull-up to 3.3V). |
-| **Left-16** | **10** | Greenhouse Blower Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Standard clean GPIO. Drives 4-Ch Relay IN3 triggering contactor for 2x 220V AC Greenhouse circulation blower fans. |
+| **Left-16** | **10** | Greenhouse Lighting AC Trigger | 4-Ch Relay Board IN3 | GPIO Digital Out | Output (Active-LOW) | VERIFIED SAFE | Dedicated Greenhouse Lighting output. Controls 220V AC GH lighting via 4-Ch Relay Board Ch 3 (IN3). Low = ON, High = OFF. Safe boot default = HIGH (OFF). Manual-ON only; OFF-only schedule. |
 | **Left-17** | **11** | Shared SPI SCK | TFT ST7735 & MicroSD | SPI Clock | Output | VERIFIED SAFE | Shared SPI2_HOST clock for TFT display and MicroSD Card Module. |
 | **Left-18** | **12** | Shared SPI MOSI | TFT ST7735 & MicroSD | SPI Master Out | Output | VERIFIED SAFE | Shared SPI2_HOST data out for TFT display and MicroSD Card Module. |
 | **Left-19** | **13** | Shared SPI MISO | MicroSD Card Module | SPI Master In | Input | VERIFIED SAFE | Shared SPI2_HOST data in from MicroSD Card Module (EasyWare EP000094). |
@@ -49,7 +49,7 @@ The following table accounts for every GPIO (0 to 48) on the ESP32-S3-WROOM-1-N1
 | **Right-2** | **43** | *RESERVED: UART0 TXD* | USB-UART Bridge | Console UART | Output | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
 | **Right-3** | **44** | *RESERVED: UART0 RXD* | USB-UART Bridge | Console UART | Input | **RESERVED (CONSOLE COM)** | Flashing and real-time monitoring console (COM3). |
 | **Right-15** | **45** | *RESERVED: Strapping VDD* | SoC Internal | Strapping (VDD_SPI)| N/A | **FATAL (DO NOT USE)** | Pulling HIGH drops Flash voltage to 1.8V, bricking boot. |
-| **Left-14** | **46** | *RESERVED: Strapping ROM* | SoC Internal | Strapping (ROM Log)| N/A | **HIGH RISK (DO NOT USE)** | Pulling HIGH alters ROM bootloader debug logging. |
+| **Left-14** | **46** | Greenhouse Lighting Manual Toggle | Push Button / Momentary | GPIO Digital In | Input (Active-LOW) | VERIFIED SAFE (PULL-UP) | Physical momentary toggle button for Greenhouse Lighting. Configured with internal pull-up (reads HIGH when released). Pressing connects to GND (LOW). Safe at boot (HIGH = normal ROM log). Debounced in firmware. Routes to central actuator_hal_request entry point. |
 | **Right-17** | **47** | **Anti-Theft Tamper Loop** | Physical Pump Chassis / Cable Loop | Digital Input | Input (Active-HIGH trip) | **VERIFIED SAFE (SECURITY)** | Closed loop to GND through pump cable/chassis. Cut/open = 1, triggers Supervised Tamper Warning ("PERIKSA POMPA") + buzzer alert without global shutdown. Restores to TAMPER OK when closed. |
 | **Right-16** | **48** | MicroSD Chip Select | MicroSD Card Module (EasyWare EP000094) | SPI Chip Select | Output (Active-LOW) | ACCEPTABLE WITH CAVEAT | Dedicated MicroSD CS line. Caveat: Drives onboard WS2812 DIN line. Firmware explicitly clears WS2812 (RGB=0,0,0) at boot and after SPI mount probes to prevent persistent white illumination. |
 
@@ -65,16 +65,16 @@ Pin 3 : RST / EN (Chip Reset)
 Pin 4 : GPIO4  -> Raw Submersible Pump 1 (MOSFET #1)
 Pin 5 : GPIO5  -> Dosing Pump A (MOSFET #2)
 Pin 6 : GPIO6  -> Dosing Pump B (MOSFET #3)
-Pin 7 : GPIO7  -> [UNASSIGNED: Cabinet Fan powered directly from PSU +/-]
+Pin 7 : GPIO7  -> Greenhouse Blower Fan Output (MOSFET #4 Gate, Active-HIGH)
 Pin 8 : GPIO15 -> Raw Water Flow Meter ZJ-B1 (Transfer to Mixing Tank)
 Pin 9 : GPIO16 -> Fertigation Flow Meter FS400A (G1" Delivery)
 Pin 10: GPIO17 -> Temperature Sensor DS18B20 (1-Wire)
 Pin 11: GPIO18 -> Active Alarm Buzzer (MOSFET #5)
 Pin 12: GPIO8  -> RTC DS3231 SDA (I2C Data)
 Pin 13: GPIO3  -> [FORBIDDEN: Strapping JTAG]
-Pin 14: GPIO46 -> [FORBIDDEN: Strapping ROM]
+Pin 14: GPIO46 -> Greenhouse Lighting Manual Toggle Button (Active-LOW, Internal Pull-Up)
 Pin 15: GPIO9  -> RTC DS3231 SCL (I2C Clock)
-Pin 16: GPIO10 -> Greenhouse Blower Fans Contactor (4-Ch Relay IN3)
+Pin 16: GPIO10 -> Greenhouse Lighting Output (4-Ch Relay IN3, Active-LOW)
 Pin 17: GPIO11 -> Shared SPI SCK (TFT & MicroSD)
 Pin 18: GPIO12 -> Shared SPI MOSI (TFT & MicroSD)
 Pin 19: GPIO13 -> Shared SPI MISO (MicroSD Adapter EasyWare EP000094)
@@ -133,4 +133,5 @@ Pin 22: GND (Common Signal Ground)
 |---|:---:|:---:|---|---|
 | **Button 1 (`PIN_BTN_MODE`)** | **GPIO 0** | Input (Active-LOW, 0=Press) | **TFT Display Screen Switch**: Press cycles forward through ST7735 screens (Home/Overview $\to$ Sensors $\to$ Actuators $\to$ Network/Time). Disconnected from old Auto/Manual mode toggle. | Must remain OPEN/HIGH during chip reset/boot. |
 | **Button 2 (`PIN_BTN_MANUAL_A`)** | **GPIO 39** | Input (Active-LOW, 0=Press) | **Manual Well Pump Toggle (5-Min Auto-Shutoff)**:<br>• *State 1 (OFF):* Turns Well Pump ON + starts 5-min non-blocking FreeRTOS timer.<br>• *State 2 (ON via button):* Turns Well Pump OFF immediately + cancels 5-min timer.<br>• *Timer Expiry:* Auto-turns Well Pump OFF after 5 minutes. | **SAFETY INTERLOCK:** Strictly blocked if Lower Float Switch is DRY (`PIN_IN_FLOAT_LOWER` = 0) or Emergency Stop is latched. |
+| **Button 3 (`PIN_BTN_LIGHTING`)** | **GPIO 46** | Input (Active-LOW, 0=Press) | **Manual Greenhouse Lighting Toggle**:<br>• Momentary push button: Press triggers single toggle event (OFF $\to$ ON, or ON $\to$ OFF).<br>• Held button does not produce repeat toggles (debounced).<br>• Routes directly to central `actuator_hal_request(ACTUATOR_GH_LIGHT)`. | Configured with internal pull-up (HIGH when released). Safe at boot. Respects emergency stop and safety interlocks. |
 | **Button 4 (RETIRED) / DHT22 (`PIN_IN_DHT22`)** | **GPIO 41** | Digital Single-Wire Bus | **Greenhouse Temp & Humidity Sensor (DHT22 / AM2302)**:<br>• Repurposed exclusively to DHT22 environmental sensor input.<br>• Physical push button disconnected, `button_hal` polling disabled (`PIN_BTN_RESERVED = -1`). | Built-in module pull-up; 3-second non-blocking sample interval. |

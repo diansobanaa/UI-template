@@ -31,6 +31,7 @@ import {
   Wind,
   Wheat,
   Wrench,
+  Lightbulb,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionCard, ViewAllButton } from "@/components/ui/cards";
@@ -53,10 +54,14 @@ import { getCropTimelineConfig } from "@/lib/cropTimelineConfig";
 import type { RangeId } from "./range-types";
 import { greenhouseRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
-import type { Greenhouse } from "@/lib/types";
+import type { Greenhouse, LightingSchedule } from "@/lib/types";
 import type { TelemetryHistoryResponse, TelemetrySnapshot } from "@/lib/api/contracts";
 import { useTelemetryStream } from "@/lib/api/telemetry-stream";
 import { CropCycleModals } from "@/components/ui/CropCycleModals";
+import { esp32Client } from "@/lib/api/esp32-client";
+import { AddLightingScheduleDrawer } from "@/components/schedule/AddLightingScheduleDrawer";
+import { scheduleService } from "@/lib/services";
+import { refreshOperationalState } from "@/lib/operational-state";
 
 const RANGE_OPTIONS: { id: RangeId; label: string }[] = [
   { id: "24H", label: "24 Hours" },
@@ -1222,6 +1227,102 @@ function GreenhouseContent() {
     }
   };
 
+  const [lightingPending, setLightingPending] = useState(false);
+  const [lightingDrawerOpen, setLightingDrawerOpen] = useState(false);
+  const [editLighting, setEditLighting] = useState<LightingSchedule | null>(null);
+  const [blowerPending, setBlowerPending] = useState(false);
+
+  const confirmedLightingOn = Boolean(gh?.telemetry?.actuators?.lighting);
+  const confirmedBlowerOn = Boolean(gh?.telemetry?.actuators?.blowerFan);
+
+  const lightingSchedules = useMemo(() => {
+    if (!gh) return [];
+    return scheduleService.lightingForGh(gh.id);
+  }, [gh?.id, gh?.lightingSchedules]);
+
+  const handleLightingToggle = async () => {
+    if (lightingPending || !gh || !complex) return;
+    const targetState = !confirmedLightingOn;
+    setLightingPending(true);
+    try {
+      const res = await esp32Client.setLighting(targetState, {
+        targetGhId: gh.id,
+        targetComplexId: complex.id,
+      });
+      if (res && (res as any).error) {
+        toast(`Gagal mengubah lampu: ${(res as any).error}`, "error");
+      } else {
+        toast(
+          targetState
+            ? "Lampu Greenhouse dinyalakan (Manual ON terkonfirmasi)"
+            : "Lampu Greenhouse dimatikan (OFF terkonfirmasi)",
+          "success"
+        );
+        await refreshOperationalState();
+      }
+    } catch (err: any) {
+      toast(`Gagal mengirim perintah lampu: ${err?.message || "Kesalahan jaringan"}`, "error");
+    } finally {
+      setLightingPending(false);
+    }
+  };
+
+  const handleBlowerToggle = async () => {
+    if (blowerPending || !gh || !complex) return;
+    const targetState = !confirmedBlowerOn;
+    setBlowerPending(true);
+    try {
+      const res = await esp32Client.setBlower(targetState, {
+        targetGhId: gh.id,
+        targetComplexId: complex.id,
+      });
+      if (res && (res as any).error) {
+        toast(`Gagal mengubah blower: ${(res as any).error}`, "error");
+      } else {
+        toast(
+          targetState
+            ? "Blower dinyalakan (GPIO 7 terkonfirmasi)"
+            : "Blower dimatikan (GPIO 7 terkonfirmasi)",
+          "success"
+        );
+        await refreshOperationalState();
+      }
+    } catch (err: any) {
+      toast(`Gagal mengirim perintah blower: ${err?.message || "Kesalahan jaringan"}`, "error");
+    } finally {
+      setBlowerPending(false);
+    }
+  };
+
+  const handleLightingSubmit = async (input: Omit<LightingSchedule, "id">, initial: LightingSchedule | null) => {
+    if (initial) {
+      await scheduleService.updateLighting(initial.id, input);
+      toast(`Jadwal lampu "${input.name}" diperbarui`, "success");
+    } else {
+      await scheduleService.createLighting(input);
+      toast(`Jadwal lampu "${input.name}" dibuat`, "success");
+    }
+    setLightingDrawerOpen(false);
+  };
+
+  const handleLightingToggleEnabled = async (id: string, enabled: boolean) => {
+    try {
+      await scheduleService.updateLighting(id, { enabled, status: enabled ? "scheduled" : "disabled" });
+      toast(enabled ? "Jadwal lampu diaktifkan" : "Jadwal lampu dinonaktifkan", "info");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
+  const handleLightingDelete = async (id: string, name: string) => {
+    try {
+      await scheduleService.deleteLighting(id);
+      toast(`Jadwal "${name}" dihapus`, "info");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
   const handleDeleteCurrentGh = async () => {
     if (!gh) return;
     setDeletingGh(true);
@@ -1330,8 +1431,13 @@ function GreenhouseContent() {
     },
     {
       name: "Blower Fans",
-      status: findEqStatus(/fan|blower/i),
-      detail: "Ventilation AC",
+      status: (gh.telemetry?.actuators?.blowerFan ? "OK" : findEqStatus(/fan|blower/i)) as "OK" | "OFFLINE",
+      detail: gh.telemetry?.actuators?.blowerFan ? "Active ON (GPIO 7)" : "Ventilation AC (GPIO 7 • Wiring Deferred)",
+    },
+    {
+      name: "Greenhouse Lighting",
+      status: (gh.telemetry?.actuators?.lighting ? "OK" : (gh.online ? "OK" : "OFFLINE")) as "OK" | "OFFLINE",
+      detail: gh.telemetry?.actuators?.lighting ? "Active ON (Relay CH3)" : "Manual ON / Sched OFF (Relay CH3)",
     },
     {
       name: "Alarm Buzzer",
@@ -2504,6 +2610,204 @@ function GreenhouseContent() {
         </SectionCard>
       </div>
 
+      {/* ---------------- Actuators & Environmental Controls ---------------- */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Lighting Control Card */}
+        <SectionCard
+          className="gh-surface !border-0 !shadow-none bg-[#0b2027]"
+          title="Greenhouse Lighting"
+          icon={Lightbulb}
+          iconTone="amber"
+          subtitle="Manual ON Only • Dedicated OFF Schedules • Relay CH3 (GPIO 10)"
+          action={
+            <Button
+              size="sm"
+              variant={confirmedLightingOn ? "danger" : "primary"}
+              onClick={handleLightingToggle}
+              disabled={lightingPending || !gh.online}
+              className="gap-2"
+            >
+              <Lightbulb className={`h-4 w-4 ${confirmedLightingOn ? "text-amber-200 fill-amber-300" : ""}`} />
+              {lightingPending
+                ? "Mengirim perintah..."
+                : confirmedLightingOn
+                ? "Turn Lighting OFF"
+                : "Turn Lighting ON"}
+            </Button>
+          }
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/50 p-3.5">
+              <div className="flex items-center gap-3">
+                <div className={`grid h-10 w-10 place-items-center rounded-xl border transition-all ${
+                  confirmedLightingOn
+                    ? "border-amber-400/50 bg-amber-400/20 text-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.5)]"
+                    : "border-white/10 bg-white/[0.04] text-slate-500"
+                }`}>
+                  <Lightbulb className={`h-5 w-5 ${confirmedLightingOn ? "fill-amber-300 text-amber-200" : ""}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-100">
+                      Status Lampu: {confirmedLightingOn ? "HIDUP (ON)" : "MATI (OFF)"}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      confirmedLightingOn
+                        ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
+                        : "bg-slate-800 text-slate-400 border border-slate-700"
+                    }`}>
+                      {confirmedLightingOn ? "Aktif" : "Standby"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Output: Relay Modul CH3 (GPIO 10, Active-LOW) • Tombol Fisik: GPIO 46
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-2.5 text-[11px] text-amber-300/90">
+              <span className="font-semibold">Aturan Kontrol:</span> Lampu hanya dapat dinyalakan (ON) secara manual lewat tombol UI ini atau tombol fisik di panel ESP32. Tidak ada jadwal otomatis yang dapat menyalakan lampu. Jadwal otomatis hanya untuk mematikan lampu (OFF).
+            </div>
+
+            {/* Dedicated Lighting Schedules List */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold text-slate-300">
+                  Jadwal Matikan Lampu ({lightingSchedules.length})
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setEditLighting(null); setLightingDrawerOpen(true); }}
+                  className="gap-1 text-xs text-amber-300 hover:text-amber-200"
+                >
+                  <Plus className="h-3 w-3" /> Tambah Jadwal OFF
+                </Button>
+              </div>
+
+              {lightingSchedules.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/10 p-3 text-center text-xs text-slate-500">
+                  Belum ada jadwal OFF untuk greenhouse ini. Klik &ldquo;Tambah Jadwal OFF&rdquo; di atas.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {lightingSchedules.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between rounded-lg border border-white/5 bg-slate-900/40 px-3 py-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3.5 w-3.5 text-amber-400" />
+                        <span className="font-semibold text-slate-200">{s.name}</span>
+                        <span className="text-slate-500">•</span>
+                        <span className="font-mono text-amber-300">{s.time}</span>
+                        <span className="text-slate-500">({s.repeat})</span>
+                        <span className="rounded bg-amber-400/10 px-1.5 py-0.2 text-[10px] font-semibold text-amber-300">
+                          OFF only
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleLightingToggleEnabled(s.id, !s.enabled)}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold transition ${
+                            s.enabled
+                              ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                              : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                          }`}
+                        >
+                          {s.enabled ? "Enabled" : "Disabled"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleLightingDelete(s.id, s.name)}
+                          className="text-slate-500 hover:text-red-400 p-1"
+                          title="Hapus jadwal"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="text-[10px] text-slate-500 italic">
+              *Catatan Verifikasi: Status menampilkan kondisi relay yang diperintahkan controller. Konfirmasi visual lampu fisik tetap mengacu pada lampu greenhouse sebenarnya.
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* Blower Fan Control Card */}
+        <SectionCard
+          className="gh-surface !border-0 !shadow-none bg-[#0b2027]"
+          title="Ventilation Blower Fan"
+          icon={Wind}
+          iconTone="sky"
+          subtitle="Ventilation Actuator • Dedicated MOSFET Output (GPIO 7)"
+          action={
+            <Button
+              size="sm"
+              variant={confirmedBlowerOn ? "danger" : "secondary"}
+              onClick={handleBlowerToggle}
+              disabled={blowerPending || !gh.online}
+              className="gap-2"
+            >
+              <Wind className={`h-4 w-4 ${confirmedBlowerOn ? "text-sky-300" : ""}`} />
+              {blowerPending
+                ? "Mengirim perintah..."
+                : confirmedBlowerOn
+                ? "Turn Blower OFF"
+                : "Turn Blower ON"}
+            </Button>
+          }
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/50 p-3.5">
+              <div className="flex items-center gap-3">
+                <div className={`grid h-10 w-10 place-items-center rounded-xl border transition-all ${
+                  confirmedBlowerOn
+                    ? "border-sky-400/50 bg-sky-400/20 text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.4)]"
+                    : "border-white/10 bg-white/[0.04] text-slate-500"
+                }`}>
+                  <Wind className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-100">
+                      Status Blower: {confirmedBlowerOn ? "MENYALA (ON)" : "STANDBY (OFF)"}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      confirmedBlowerOn
+                        ? "bg-sky-400/20 text-sky-300 border border-sky-400/30"
+                        : "bg-slate-800 text-slate-400 border border-slate-700"
+                    }`}>
+                      {confirmedBlowerOn ? "Aktif" : "Standby"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Output: GPIO 7 (MOSFET Driver Stage, Active-HIGH)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-sky-500/20 bg-sky-950/20 p-2.5 text-[11px] text-sky-300/90">
+              <span className="font-semibold">Integrasi GPIO 7 Siap:</span> Aktuator blower telah terhubung ke GPIO 7 pada firmware dan UI. Saat instalasi hardware fisik blower dilakukan di masa mendatang, cukup sambungkan kabel trigger blower ke pin GPIO 7 tanpa perlu perubahan kode program.
+            </div>
+
+            <div className="rounded-lg border border-white/5 bg-slate-900/30 p-3 text-xs text-slate-400">
+              <div className="font-semibold text-slate-300">Independensi Blower &amp; Lampu:</div>
+              <p className="mt-1">
+                Perintah atau jadwal blower hanya mengontrol GPIO 7 dan tidak mempengaruhi relay lampu IN3 (GPIO 10). Sebaliknya, kontrol lampu hanya mempengaruhi Relay IN3 dan tidak menyentuh sinyal GPIO 7.
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
       {/* ---------------- Equipment ---------------- */}
       <SectionCard className="gh-surface !border-0 !shadow-none bg-[#0b2027]" title="GH Hardware &amp; Capability" icon={Wrench} iconTone="slate" realtime={ghRealtimeState} subtitle="Dedicated hardware reported by the Complex controller">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-9">
@@ -2552,6 +2856,15 @@ function GreenhouseContent() {
                   await fertigationService.addObservation(gh.id, { ...draft, ghId: gh.id });
                   toast(`Observation for ${draft.plantId} saved`, "success");
                 }}
+              />
+
+              <AddLightingScheduleDrawer
+                open={lightingDrawerOpen}
+                onClose={() => setLightingDrawerOpen(false)}
+                ghId={gh.id}
+                ghCode={gh.code}
+                initial={editLighting}
+                onSubmit={handleLightingSubmit}
               />
 
               <ConfirmDialog

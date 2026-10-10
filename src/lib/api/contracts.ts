@@ -1141,6 +1141,8 @@ export interface TelemetryStreamBatch {
       dosingA: boolean;
       dosingB: boolean;
       coolingFan: boolean;
+      blowerFan?: boolean;
+      lighting?: boolean;
     };
     dht22RetryState?: "ONLINE" | "RETRYING" | "RETRY_EXHAUSTED" | "UNAVAILABLE" | "STALE";
     dht22RetryCount?: number;

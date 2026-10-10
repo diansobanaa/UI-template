@@ -11,6 +11,7 @@ extern "C" {
 typedef enum {
     BUTTON_MODE = 0,
     BUTTON_MANUAL_A,
+    BUTTON_LIGHTING,
     BUTTON_RESERVED,
     BUTTON_MAX_COUNT
 } button_id_t;

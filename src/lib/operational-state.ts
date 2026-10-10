@@ -1095,13 +1095,26 @@ export function updateComplexRuntime(complexId: string, data: {
   }
 
   const ghs = snapshot.greenhouses.filter((item) => item.complexId === complexId);
-  if (ghs.length && (data.online !== undefined || data.sensors)) {
+  if (ghs.length && (data.online !== undefined || data.sensors || data.actuators)) {
     for (const greenhouse of ghs) {
       let ghChanged = false;
       const updated = structuredClone(greenhouse);
       if (data.online !== undefined && updated.online !== data.online) {
         updated.online = data.online;
         ghChanged = true;
+      }
+      if (data.actuators) {
+        const prevAct = updated.telemetry.actuators || {};
+        const nextLight = data.actuators.lighting !== undefined ? Boolean(data.actuators.lighting) : prevAct.lighting;
+        const nextBlower = data.actuators.blowerFan !== undefined ? Boolean(data.actuators.blowerFan) : prevAct.blowerFan;
+        if (prevAct.lighting !== nextLight || prevAct.blowerFan !== nextBlower) {
+          updated.telemetry.actuators = {
+            ...prevAct,
+            lighting: nextLight,
+            blowerFan: nextBlower,
+          };
+          ghChanged = true;
+        }
       }
       if (data.sensors) {
         if (data.sensors.temperatureC !== undefined && updated.telemetry.temperatureC !== data.sensors.temperatureC) {

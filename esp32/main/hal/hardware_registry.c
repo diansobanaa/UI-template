@@ -98,6 +98,7 @@ static int expected_gpio_for_component(const char *role, const char *type)
        the validator allows this when interface=I2C (see hardware_registry_validate_component_json). */
     /* Cabinet cooling fan is powered directly from PSU +/- (no MCU GPIO control) */
     if (strcmp(r, "BLOWER_FAN") == 0) return PIN_OUT_BLOWER_FAN;
+    if (strcmp(r, "GH_LIGHT") == 0 || strcmp(r, "LIGHTING") == 0 || strcmp(r, "GH_LIGHTING") == 0) return PIN_OUT_GH_LIGHT;
     if (strcmp(r, "MIXING_PUMP") == 0 || strcmp(r, "MIX_PUMP") == 0 || strcmp(r, "MIXING_POND_PUMP") == 0 || strcmp(r, "MIXING_POND_PUMPS") == 0) return PIN_OUT_MIXING_PUMP;
     if (strcmp(r, "ERROR_LAMP") == 0 || strcmp(r, "ALARM_LAMP") == 0 || strcmp(r, "ERROR_BEACON") == 0) return PIN_OUT_ERROR_LAMP;
     if (strcmp(r, "BUZZER") == 0 || strcmp(r, "ALARM_BUZZER") == 0 || strcmp(t, "active-buzzer") == 0) return PIN_OUT_BUZZER;
@@ -125,6 +126,7 @@ static bool expected_role_is_actuator(const char *role)
            strcmp(role, "DOSING_E") == 0 || strcmp(role, "DOSING_F") == 0 ||
            strcmp(role, "DOSING_G") == 0 ||
            strcmp(role, "COOLING_FAN") == 0 || strcmp(role, "BLOWER_FAN") == 0 ||
+           strcmp(role, "GH_LIGHT") == 0 || strcmp(role, "LIGHTING") == 0 || strcmp(role, "GH_LIGHTING") == 0 ||
            strcmp(role, "MIXING_PUMP") == 0 || strcmp(role, "MIX_PUMP") == 0 ||
            strcmp(role, "ERROR_LAMP") == 0 || strcmp(role, "ALARM_LAMP") == 0 || strcmp(role, "ERROR_BEACON") == 0 ||
            strcmp(role, "BUZZER") == 0 || strcmp(role, "ALARM_BUZZER") == 0;
@@ -831,10 +833,29 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
         out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
         out_info->wiring.interface = HW_INTERFACE_GPIO;
-        out_info->wiring.gpio = PIN_OUT_BLOWER_FAN; // GPIO 10 (Relay CH3)
-        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->wiring.gpio = PIN_OUT_BLOWER_FAN; // GPIO 7
+        strncpy(out_info->wiring.polarity, BLOWER_ACTIVE_LEVEL ? "ACTIVE_HIGH" : "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
         out_info->safety_params.valid = true;
         out_info->safety_params.max_runtime_sec = 28800;
+        return ESP_OK;
+    }
+
+    if (strcasecmp(component_id, "gh_lighting") == 0 || strcasecmp(component_id, "lighting") == 0 ||
+        strcasecmp(component_id, "GH_LIGHT") == 0 || strcasecmp(component_id, "gh_light") == 0 ||
+        strcasecmp(component_id, "gh-lighting") == 0 || strcasecmp(component_id, "gh-light") == 0 ||
+        strcasecmp(component_id, "light") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "gh_lighting", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Greenhouse Lighting", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "GH_LIGHT", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "gh-lighting", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_OUT_GH_LIGHT; // GPIO 10 (Relay CH3)
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        out_info->safety_params.max_runtime_sec = 86400;
         return ESP_OK;
     }
 

@@ -146,6 +146,8 @@ esp_err_t handler_get_status(httpd_req_t *req)
     cJSON_AddBoolToObject(actuators, "dosingB", actuator_hal_get_state(ACTUATOR_DOSING_B));
     cJSON_AddBoolToObject(actuators, "coolingFan", false);
     cJSON_AddBoolToObject(actuators, "blowerFan", actuator_hal_get_state(ACTUATOR_BLOWER_FAN));
+    cJSON_AddBoolToObject(actuators, "lighting", actuator_hal_get_state(ACTUATOR_GH_LIGHT));
+    cJSON_AddBoolToObject(actuators, "ghLighting", actuator_hal_get_state(ACTUATOR_GH_LIGHT));
     cJSON_AddBoolToObject(actuators, "errorLamp", actuator_hal_get_state(ACTUATOR_ERROR_LAMP));
     cJSON_AddBoolToObject(actuators, "buzzer", actuator_hal_get_state(ACTUATOR_BUZZER));
 

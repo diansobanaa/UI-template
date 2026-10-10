@@ -426,6 +426,47 @@ export class Esp32Client {
   }
 
   /**
+   * Helper to set Greenhouse Lighting ON or OFF.
+   * Lighting can ONLY be turned ON manually (scheduled ON is strictly forbidden).
+   */
+  async setLighting(
+    on: boolean,
+    options?: {
+      targetGhId?: string;
+      targetComplexId?: string;
+      configurationVersion?: number;
+      durationSeconds?: number;
+    }
+  ): Promise<CommandReceipt> {
+    const cmdId = `light-${on ? "on" : "off"}-${Date.now()}`;
+    return this.postCommand(cmdId, on ? "LIGHT_ON" : "LIGHT_OFF", {
+      componentId: "gh_lighting",
+      source: "WEB_UI",
+      ...options,
+    });
+  }
+
+  /**
+   * Helper to control Blower Fan ON or OFF.
+   */
+  async setBlower(
+    on: boolean,
+    options?: {
+      durationSeconds?: number;
+      targetGhId?: string;
+      targetComplexId?: string;
+      configurationVersion?: number;
+    }
+  ): Promise<CommandReceipt> {
+    const cmdId = `blower-${on ? "on" : "off"}-${Date.now()}`;
+    return this.postCommand(cmdId, on ? "FAN_ON" : "FAN_STOP", {
+      componentId: "fan_blower",
+      source: "WEB_UI",
+      ...options,
+    });
+  }
+
+  /**
    * Unified helper to manually retry a sensor under sensor_retry_max10 protocol.
    */
   async retrySensor(sensorId: string): Promise<{ sensorId: string; status: string; retryState: string; retryCount: number; maxRetries: number; message?: string }> {

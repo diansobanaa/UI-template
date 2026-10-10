@@ -21,6 +21,7 @@ typedef enum {
     SCHED_ACTION_FERTIGATION = 0,
     SCHED_ACTION_WATER_PUMP,
     SCHED_ACTION_FAN_TOGGLE,
+    SCHED_ACTION_LIGHTING_OFF,
     SCHED_ACTION_CUSTOM
 } schedule_action_t;
 
@@ -81,6 +82,12 @@ bool scheduler_is_fan_schedule_active(time_t now, const char *target_component, 
  * @brief Reconcile Fan / Blower physical actuator states against current active schedules.
  */
 esp_err_t scheduler_reconcile_fan_schedule(time_t now);
+
+/**
+ * @brief Reconcile dedicated Lighting physical actuator state against scheduled OFF events.
+ * Lighting can only be turned OFF by schedule; scheduled ON is forbidden.
+ */
+esp_err_t scheduler_reconcile_lighting_schedule(time_t now);
 
 /**
  * @brief Schedule one-shot deferred lazy_start recovery after boot is complete.

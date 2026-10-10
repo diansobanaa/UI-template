@@ -9,7 +9,7 @@ import { ServiceError } from "./errors";
 import type {
   AlertItem, CalibrationDevice, CalibrationRecord, Complex, CropCycle, CycleStatus, EquipmentItem, EventItem,
   FertigationSchedule, FanSchedule, Greenhouse, ObservationDraft, Recipe, WellPumpSchedule, Observation, ResearchObservation, FertigationSystemStatus,
-  ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus,
+  LightingSchedule, ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus,
 } from "./types";
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
@@ -1250,7 +1250,7 @@ async function loadAuthoritativeConfiguration(complexId: string): Promise<Config
 
 export function enrichScheduleWithActivationState<T extends { id: string; enabled: boolean; status: ScheduleStatus; activationState?: ScheduleActivationState; blockedReasons?: ScheduleBlockedReason[] }>(
   schedule: T,
-  kind: "fertigation" | "fan" | "wellPump",
+  kind: "fertigation" | "fan" | "wellPump" | "lighting",
   ghId?: string,
   complexId?: string,
 ): T {
@@ -1269,6 +1269,15 @@ export function enrichScheduleWithActivationState<T extends { id: string; enable
 
   const equipment = gh?.equipment || [];
   const compText = equipment.map((e) => `${e.name || ""} ${e.type || ""} ${e.category || ""}`.toUpperCase()).join(" ");
+
+  if (kind === "lighting") {
+    return {
+      ...schedule,
+      activationState: schedule.enabled ? "ACTIVE" : "DISABLED",
+      status: schedule.enabled ? "scheduled" : "disabled",
+      blockedReasons: [],
+    };
+  }
 
   if (kind === "fan") {
     const hasFan = /FAN|BLOWER/i.test(compText);
@@ -1418,9 +1427,10 @@ export const scheduleService = {
     wellPump: WellPumpSchedule[];
     fertigation: FertigationSchedule[];
     fan: FanSchedule[];
+    lighting: LightingSchedule[];
   }> {
     if (!isDirectEsp32Enabled()) {
-      return { wellPump: [], fertigation: [], fan: [] };
+      return { wellPump: [], fertigation: [], fan: [], lighting: [] };
     }
     try {
       const intentsRes = await esp32Client.getScheduleIntents();
@@ -1432,12 +1442,13 @@ export const scheduleService = {
       const activeComplexId = targetComplex?.id || complexId;
       if (!activeComplexId) {
         console.warn("[loadScheduleIntentsFromController] No active complexId — skipping schedule load per PRD §6.1.");
-        return { wellPump: [], fertigation: [], fan: [] };
+        return { wellPump: [], fertigation: [], fan: [], lighting: [] };
       }
 
       const wellPumpList: WellPumpSchedule[] = [];
       const fertList: FertigationSchedule[] = [];
       const fanList: FanSchedule[] = [];
+      const lightingList: LightingSchedule[] = [];
 
       for (const item of items) {
         const kind = item.kind || (item.recipeId ? "fertigation" : (item.task || item.radar || item.type === "well_pump" ? "wellPump" : (item.mode || item.type === "fan" ? "fan" : "unknown")));
@@ -1566,6 +1577,33 @@ export const scheduleService = {
           };
           const enriched = enrichScheduleWithActivationState(s, "fan", gh?.id, gh?.complexId);
           fanList.push(enriched);
+        } else if (kind === "lighting" || item.action === "LIGHTING_OFF" || item.action === "off" || item.type === "lighting") {
+          const gh = snapshot.greenhouses.find((g) =>
+            g.id === item.ghId ||
+            g.code?.toLowerCase() === item.ghId?.toLowerCase() ||
+            g.greenhouseTag?.toLowerCase() === item.ghId?.toLowerCase()
+          );
+          if (!gh) {
+            console.warn(`[loadScheduleIntentsFromController] Lighting schedule ${item.id} references unknown ghId="${item.ghId}" — dropping.`);
+            continue;
+          }
+
+          const s: LightingSchedule = {
+            id: item.id,
+            ghId: gh.id,
+            name: (item.name as string) || "Lighting Off",
+            time: (item.time as string) || "22:00",
+            action: "off",
+            repeat: (item.repeat as any) || "Every Day",
+            enabled: item.enabled !== false,
+            status: (item.status as any) || (item.enabled === false ? "disabled" : "scheduled"),
+            activationState: (item.activationState as any) || (item.enabled === false ? "DISABLED" : "ACTIVE"),
+            blockedReasons: item.blockedReasons || [],
+            lastRun: (item.lastRun as string) || null,
+            nextRun: (item.nextRun as string) || null,
+          };
+          const enriched = enrichScheduleWithActivationState(s, "lighting", gh?.id, gh?.complexId);
+          lightingList.push(enriched);
         }
       }
 
@@ -1581,16 +1619,17 @@ export const scheduleService = {
           ...gh,
           fertigationSchedules: fertList.filter((s) => s.ghId === gh.id),
           fanSchedules: fanList.filter((s) => s.ghId === gh.id),
+          lightingSchedules: lightingList.filter((s) => s.ghId === gh.id),
         });
       }
 
       // Relay event backlog from ESP32 ring buffer to Python backend
       relayEventsToBackend(complexId).catch(() => {});
 
-      return { wellPump: wellPumpList, fertigation: fertList, fan: fanList };
+      return { wellPump: wellPumpList, fertigation: fertList, fan: fanList, lighting: lightingList };
     } catch (err) {
       console.warn("[scheduleService.refreshSchedulesFromEsp32] Failed to fetch schedule intents from ESP32:", err);
-      return { wellPump: [], fertigation: [], fan: [] };
+      return { wellPump: [], fertigation: [], fan: [], lighting: [] };
     }
   },
 
@@ -2063,6 +2102,127 @@ export const scheduleService = {
         await deployCompiledScheduleSet(gh.complexId, { fan: remaining });
       } catch (err) {
         console.warn("[scheduleService] Fan delete redeployment warning:", err);
+      }
+    }
+  },
+
+  lightingForGh(ghId: string): LightingSchedule[] {
+    const gh = greenhouseService.get(ghId);
+    return gh?.lightingSchedules ?? [];
+  },
+
+  async createLighting(input: Omit<LightingSchedule, "id">): Promise<LightingSchedule> {
+    const gh = assertFound(greenhouseService.get(input.ghId), "Greenhouse");
+    if ((input as any).action && (input as any).action !== "LIGHTING_OFF" && (input as any).action !== "off") {
+      throw new ServiceError("VALIDATION_FAILED", "Lighting schedules support OFF actions only. Automatic ON is strictly forbidden.", "action");
+    }
+
+    const id = (input as any).id || `light-${Date.now()}`;
+    const created: LightingSchedule = {
+      ...input,
+      id,
+      action: "off",
+    } as LightingSchedule;
+
+    const intentPayload = {
+      ...created,
+      kind: "lighting",
+      action: "LIGHTING_OFF",
+      complexId: gh.complexId,
+      ghId: gh.id,
+    };
+
+    // 1. Authoritative persistence on ESP32 NVS
+    if (isDirectEsp32Enabled()) {
+      await esp32Client.saveScheduleIntent(intentPayload as any);
+    }
+    if (isPythonBackendEnabled() && !isDirectEsp32Enabled()) {
+      operationalPythonClient.createSchedule(gh.complexId, "lighting", intentPayload as any).catch(() => { });
+    }
+
+    // 2. Update RAM state
+    const currentList = gh.lightingSchedules ?? [];
+    replaceGreenhouse({
+      ...gh,
+      lightingSchedules: [...currentList.filter((s) => s.id !== created.id), created],
+    });
+
+    // 3. Compile and deploy executable subset
+    try {
+      await deployCompiledScheduleSet(gh.complexId, {}, created.id);
+    } catch (err) {
+      console.warn("[scheduleService] Lighting compiled deployment warning:", err);
+    }
+    return created;
+  },
+
+  async updateLighting(id: string, patch: Partial<LightingSchedule>): Promise<LightingSchedule> {
+    const greenhouse = getOperationalSnapshot().greenhouses.find((g) => (g.lightingSchedules ?? []).some((s) => s.id === id));
+    const existing = assertFound(greenhouse?.lightingSchedules?.find((s) => s.id === id), "Schedule");
+    const gh = assertFound(greenhouseService.get(existing.ghId), "Greenhouse");
+    if ((patch as any).action && (patch as any).action !== "LIGHTING_OFF" && (patch as any).action !== "off") {
+      throw new ServiceError("VALIDATION_FAILED", "Lighting schedules support OFF actions only. Automatic ON is strictly forbidden.", "action");
+    }
+    const merged = { ...existing, ...patch, action: "off" } as LightingSchedule;
+
+    const intentPayload = {
+      ...merged,
+      kind: "lighting",
+      action: "LIGHTING_OFF",
+      complexId: gh.complexId,
+      ghId: gh.id,
+    };
+
+    // 1. Authoritative persistence on ESP32 NVS
+    if (isDirectEsp32Enabled()) {
+      await esp32Client.saveScheduleIntent(intentPayload as any);
+    }
+    if (isPythonBackendEnabled() && !isDirectEsp32Enabled()) {
+      operationalPythonClient.updateSchedule(id, "lighting", intentPayload as any).catch(() => { });
+    }
+
+    // 2. Update RAM state
+    const currentList = gh.lightingSchedules ?? [];
+    replaceGreenhouse({
+      ...gh,
+      lightingSchedules: currentList.map((s) => s.id === id ? merged : s),
+    });
+
+    // 3. Compile and deploy executable subset
+    try {
+      await deployCompiledScheduleSet(gh.complexId, {}, id);
+    } catch (err) {
+      console.warn("[scheduleService] Lighting update deployment warning:", err);
+    }
+    return merged;
+  },
+
+  async deleteLighting(id: string): Promise<void> {
+    const greenhouse = getOperationalSnapshot().greenhouses.find((g) => (g.lightingSchedules ?? []).some((s) => s.id === id));
+    const existing = assertFound(greenhouse?.lightingSchedules?.find((s) => s.id === id), "Schedule");
+    const gh = assertFound(greenhouseService.get(existing.ghId), "Greenhouse");
+    const remaining = (gh.lightingSchedules ?? []).filter((s) => s.id !== id);
+
+    // 1. Authoritative deletion from ESP32 NVS
+    if (isDirectEsp32Enabled()) {
+      await esp32Client.deleteScheduleIntent(id);
+    }
+    if (isPythonBackendEnabled() && !isDirectEsp32Enabled()) {
+      operationalPythonClient.deleteSchedule(id).catch(() => { });
+    }
+
+    // 2. Update RAM state
+    replaceGreenhouse({
+      ...gh,
+      lightingSchedules: remaining,
+    });
+
+    // 3. Python backend mode only
+    if (!isDirectEsp32Enabled()) {
+      try {
+        await deployCompiledScheduleSet(gh.complexId, { lighting: remaining } as any);
+      } catch (err) {
+        console.warn("[scheduleService] Lighting delete redeployment warning:", err);
       }
     }
   },

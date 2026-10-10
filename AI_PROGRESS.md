@@ -1,3 +1,107 @@
+## SP-GH-LIGHTING-BLOWER-001
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Implement production-ready Greenhouse (GH) Lighting Control and dedicated Blower Fan GPIO integration across ESP32-S3 firmware, contracts, REST API, and Vite/React Web UI.
+- **Implemented Work**:
+  1. **Hardware Pin Mapping & Allocation**:
+     - `esp32/main/config/pin_config.h`:
+       - `PIN_RELAY_CH3` (GPIO 10) mapped to `PIN_OUT_GH_LIGHT` / `PIN_OUT_LIGHTING` with `LIGHTING_ACTIVE_LEVEL = 0` (Active-LOW relay).
+       - Blower Fan decoupled from Relay IN3 and reassigned to dedicated `PIN_OUT_BLOWER_FAN` on GPIO 7 with `BLOWER_ACTIVE_LEVEL = 1` (Active-HIGH MOSFET driver).
+       - Physical momentary toggle button mapped to `PIN_BTN_LIGHTING` on GPIO 46 (Internal pull-up, Active-LOW, safe strapping at boot).
+       - Cabinet cooling fan preserved as direct PSU +/- with `PIN_OUT_COOLING_FAN = -1` (uncontrolled by ESP32).
+  2. **Single Official Actuator Command Entry Point & Manual-ON Rule**:
+     - `esp32/main/hal/actuator_hal.c`:
+       - Added `ACTUATOR_GH_LIGHT` to actuator registry table and `actuator_hal_bootstrap_safe_off` (drives HIGH to ensure safe OFF at boot).
+       - Enforced that `id == ACTUATOR_GH_LIGHT && on && source != ACTUATOR_SOURCE_MANUAL` is strictly rejected with `ESP_ERR_INVALID_STATE`.
+       - Handled scheduled stop for manual lighting in `actuator_hal_stop_component`.
+       - Logged `LIGHTING_ON` and `LIGHTING_OFF` events with full traceability.
+     - `esp32/main/services/command_mgr.c`:
+       - Strictly rejects scheduled ON commands with `SCHEDULED_LIGHTING_ON_FORBIDDEN`.
+       - Handled idempotent manual ON commands.
+     - `esp32/main/hal/button_hal.c` & `esp32/main/services/panel_button_mgr.c`:
+       - Mapped `BUTTON_LIGHTING` to GPIO 46 with debouncing.
+       - Implemented `toggle_lighting_manual` which issues requests strictly through `actuator_hal_request(ACTUATOR_GH_LIGHT, desired_on, ACTUATOR_SOURCE_MANUAL, "physical_button_toggle")`.
+     - `esp32/main/hal/hardware_registry.c`:
+       - Updated fallback profile for `fan_blower` to GPIO 7 (`ACTIVE_HIGH`).
+       - Added fallback profile for `gh_lighting` to GPIO 10 (`ACTIVE_LOW`, `resource_id = "LIGHTING_RELAY_CH3"`).
+       - Added `GH_LIGHT` / `LIGHTING` to `expected_gpio_for_component` and `expected_role_is_actuator`.
+  3. **Scheduler OFF-Only Enforcement & Reconcile**:
+     - `esp32/main/services/scheduler.c`:
+       - Added `SCHED_ACTION_LIGHTING_OFF`.
+       - `parse_runtime_schedule` strictly rejects `LIGHTING_ON` / `LIGHT_ON` and assigns `gh_lighting` / `LIGHTING_RELAY_CH3` resource to `LIGHTING_OFF`.
+       - `dispatch_runtime_schedule` translates `LIGHTING_OFF` to `CMD_TYPE_COMPONENT_TIMED` with `param_on = false`.
+       - Implemented `scheduler_reconcile_lighting_schedule(time_t now)` called during `lazy_start` and periodic scheduler tick.
+  4. **API, OpenAPI Contract & Handlers**:
+     - `contracts/UI_ESP32_OPENAPI.yaml`: Added `lighting` to `actuators` schema.
+     - `esp32/main/http/api_command_handlers.c`: Handlers for `LIGHT_ON`, `LIGHT_OFF`, `LIGHT_TOGGLE`.
+     - `esp32/main/http/api_device_handlers.c`: Telemetry and `/api/v1/status` JSON report `lighting` and `blowerFan` boolean states.
+  5. **Web UI & Services**:
+     - `src/lib/types.ts`: Added `LightingSchedule`, `lightingSchedules?: LightingSchedule[]`, and `actuators.lighting` / `actuators.blowerFan`.
+     - `src/lib/runtime/schedule-compiler.js`: Strictly rejects scheduled ON with `SCHEDULED_LIGHTING_ON_FORBIDDEN`, compiles `LIGHTING_OFF` with `LIGHTING_RELAY_CH3`.
+     - `src/lib/api/esp32-client.ts`: Added `setLighting` and `setBlower` API methods.
+     - `src/lib/services.ts`: Added `lightingForGh`, `createLighting`, `updateLighting`, `deleteLighting` to `scheduleService` with authoritative NVS persistence (`esp32Client.saveScheduleIntent`).
+     - `src/lib/operational-state.ts`: Reactively propagates `lighting` and `blowerFan` states.
+     - `src/lib/data/gpioPinMap.ts`: Updated canonical pin map for GPIO 7 (Blower), GPIO 10 (Lighting), GPIO 46 (Toggle button).
+     - `src/components/schedule/AddLightingScheduleDrawer.tsx`: Created dedicated OFF-only schedule drawer with warning notice and no ON option.
+     - `src/app/schedule/page.tsx`: Added "Pencahayaan (Lighting)" tab, OFF-only table view, and drawer integration.
+     - `src/app/greenhouse/[ghId]/page.tsx`: Added GH Lighting manual toggle card and Blower Fans card with confirmed telemetry badges.
+     - `src/components/ui/GreenhouseOverviewCard.tsx`: Added glowing `Lightbulb` and `Wind` badges reflecting confirmed telemetry.
+  6. **Canonical Documentation**:
+     - Updated `docs/ESP32_GPIO_PIN_MAP.md`, `docs/HARDWARE_WIRING_MAP.md`, `docs/COMPONENT_PIN_MAP.md`, `docs/HARDWARE_INVENTORY.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`, `docs/POWER_MAP.md`, `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`.
+- **Verification Evidence**:
+  - `python scripts/test_lighting_and_blower_integration.py`: PASS (35 of 35 tests passed).
+  - `python scripts/test_task9c_blower_fan.py`: PASS (34 of 34 tests passed).
+  - `npm test`: PASS (all 28 canonical endpoints verified).
+  - `npx tsc --noEmit`: PASS (0 errors).
+  - `npm run build`: PASS (singlefile production bundle built in 10.64s).
+  - Firmware build (`scripts/build_esp32.ps1`): PASS (agrotech_esp32.bin created, 47% app partition free).
+  - Flashed to ESP32 on `COM3` (`scripts/flash_esp32.ps1`): PASS (1652656 bytes written, hash verified, hard reset via RTS).
+  - **Live Hardware Execution Verification** (ESP32 at `192.168.0.101`):
+    - `POST /api/v1/commands` (Manual `LIGHT_ON`): ACCEPTED (202), status verified `lighting: true`, `blowerFan: false`.
+    - `POST /api/v1/commands` (Scheduled `LIGHT_ON`): REJECTED (409 `COMMAND_REJECTED` by firmware safety policy).
+    - `POST /api/v1/commands` (Manual `LIGHT_OFF`): ACCEPTED (202), status verified `lighting: false`.
+    - `POST /api/v1/commands` (Manual `FAN_ON`): ACCEPTED (202), status verified `blowerFan: true`, `lighting: false`.
+    - `POST /api/v1/commands` (Manual `FAN_OFF`): ACCEPTED (202), status verified `blowerFan: false`, `lighting: false`.
+    - `LIGHT_TOGGLE`: Verified sequential toggle states (False -> True -> False).
+    - `POST /api/v1/schedules/compiled` (`LIGHTING_ON`): REJECTED (422 `COMPILED_SCHEDULE_INVALID`).
+    - `POST /api/v1/schedule-intents` (`LIGHTING_OFF`): Persisted to SPIFFS flash and synchronized into active runtime scheduler.
+- **Changed Files**:
+  - `contracts/UI_ESP32_OPENAPI.yaml`
+  - `esp32/main/config/pin_config.h`
+  - `esp32/main/hal/actuator_hal.h`
+  - `esp32/main/hal/actuator_hal.c`
+  - `esp32/main/hal/button_hal.h`
+  - `esp32/main/hal/button_hal.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/http/api_command_handlers.c`
+  - `esp32/main/http/api_device_handlers.c`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/services/panel_button_mgr.c`
+  - `esp32/main/services/scheduler.h`
+  - `esp32/main/services/scheduler.c`
+  - `src/lib/types.ts`
+  - `src/lib/api/esp32-client.ts`
+  - `src/lib/api/python-client.ts`
+  - `src/lib/runtime/schedule-compiler.js`
+  - `src/lib/services.ts`
+  - `src/lib/operational-state.ts`
+  - `src/lib/data/gpioPinMap.ts`
+  - `src/components/schedule/AddLightingScheduleDrawer.tsx`
+  - `src/app/schedule/page.tsx`
+  - `src/app/greenhouse/[ghId]/page.tsx`
+  - `src/components/ui/GreenhouseOverviewCard.tsx`
+  - `scripts/test_lighting_and_blower_integration.py`
+  - `docs/ESP32_GPIO_PIN_MAP.md`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `docs/COMPONENT_PIN_MAP.md`
+  - `docs/HARDWARE_INVENTORY.md`
+  - `docs/HARDWARE_WIRING_CHECKLIST.md`
+  - `docs/POWER_MAP.md`
+  - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+  - `dist/index.html`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+
 ## SP-FLOW-CALIB-001
 - **Date**: 2026-10-10
 - **Status**: `COMPLETE & HARDWARE-VERIFIED`

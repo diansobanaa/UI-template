@@ -377,6 +377,21 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
              component.assignment.gh_id);
   }
 
+  bool is_lighting_target = (cmd->component_id[0] &&
+                            (strcasecmp(cmd->component_id, "gh_lighting") == 0 ||
+                             strcasecmp(cmd->component_id, "lighting") == 0 ||
+                             strcasecmp(cmd->component_id, "gh_light") == 0 ||
+                             strcasestr(component.role, "LIGHT") != NULL));
+
+  if (is_lighting_target && cmd->param_on) {
+    if (strcasecmp(cmd->source, "SCHEDULER") == 0) {
+      copy_str(code, code_len, "SCHEDULED_LIGHTING_ON_FORBIDDEN");
+      copy_str(message, message_len,
+               "Greenhouse lighting cannot be turned ON by schedule. Only manual ON is permitted.");
+      return ESP_ERR_INVALID_STATE;
+    }
+  }
+
   bool on = false;
   actuator_owner_t owner = ACTUATOR_OWNER_NONE;
 
@@ -390,8 +405,9 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
       return ESP_ERR_INVALID_STATE;
     }
     if (cmd->param_on && on) {
-      if (cmd->type == CMD_TYPE_WELL_PUMP && strcasecmp(cmd->source, "SCHEDULER") != 0) {
-        /* Repeated manual ON during active session is idempotent per spec WP-M04 */
+      if ((cmd->type == CMD_TYPE_WELL_PUMP && strcasecmp(cmd->source, "SCHEDULER") != 0) ||
+          is_lighting_target) {
+        /* Repeated manual ON during active session is idempotent */
         return ESP_OK;
       }
       copy_str(code, code_len, "RESOURCE_BUSY");
@@ -436,10 +452,14 @@ static esp_err_t normalize_and_validate_command(command_item_t *cmd, char *code,
   }
 
   if (component_physical && cmd->param_on && cmd->param_duration_sec <= 0) {
-    copy_str(code, code_len, "DURATION_REQUIRED");
-    copy_str(message, message_len,
-             "Physical ON commands require a positive duration.");
-    return ESP_ERR_INVALID_ARG;
+    if (is_lighting_target) {
+      cmd->param_duration_sec = 86400; /* Manual lighting default safety ceiling: 24h */
+    } else {
+      copy_str(code, code_len, "DURATION_REQUIRED");
+      copy_str(message, message_len,
+               "Physical ON commands require a positive duration.");
+      return ESP_ERR_INVALID_ARG;
+    }
   }
   return ESP_OK;
 }
@@ -517,6 +537,12 @@ static void component_timed_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(250));
       if (!safety_monitor_allows_commands()) {
         err = ESP_ERR_INVALID_STATE;
+        break;
+      }
+      bool cur_on = false;
+      actuator_owner_t cur_owner = ACTUATOR_OWNER_NONE;
+      uint32_t run_sec = 0;
+      if (actuator_hal_get_component_status(command->component_id, &cur_on, &cur_owner, &run_sec) == ESP_OK && !cur_on) {
         break;
       }
     }

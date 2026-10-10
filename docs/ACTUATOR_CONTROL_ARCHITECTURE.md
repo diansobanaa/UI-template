@@ -25,13 +25,24 @@ privileged alarm-manager path and remains inside the same HAL module.
 
 The repository-wide audit found these actuator-capable physical paths:
 
-- Compile-time outputs: well pump GPIO 1, distribution pump GPIO 2, raw
-  submersible GPIO 4, dosing A/B GPIO 5/6, blower GPIO 10, buzzer GPIO 18,
-  and mixing pump GPIO 40.
+- Compile-time outputs: well pump GPIO 1 (Relay IN1), distribution pump GPIO 2 (Relay IN2), raw
+  submersible GPIO 4 (MOSFET #1), dosing A/B GPIO 5/6 (MOSFET #2/3), greenhouse blower fan GPIO 7 (MOSFET #4),
+  greenhouse lighting GPIO 10 (Relay IN3), buzzer GPIO 18 (MOSFET #5), and mixing pump GPIO 40 (Relay IN4).
+- Physical momentary toggle button: GPIO 46 (internal pull-up, Active-LOW) debounced in firmware and routed
+  strictly through `actuator_hal_request(ACTUATOR_GH_LIGHT, desired_on, ACTUATOR_SOURCE_MANUAL, "physical_button_toggle")`.
+- Greenhouse Lighting Single Entry Point & Manual-ON Rule:
+  All lighting control flows exclusively through `actuator_hal_request(ACTUATOR_GH_LIGHT, on, source, reason)`.
+  Non-manual ON commands (`source != ACTUATOR_SOURCE_MANUAL`) are strictly rejected with `ESP_ERR_INVALID_STATE`.
+  Scheduled ON is rejected across Web UI schedule compiler, REST API validation, and `command_mgr` (`SCHEDULED_LIGHTING_ON_FORBIDDEN`).
+  Lighting schedules are strictly OFF-only (`LIGHTING_OFF`).
+- Actuator Isolation:
+  Lighting commands affect exclusively Relay IN3 (GPIO 10).
+  Blower fan commands affect exclusively MOSFET Module #4 (GPIO 7).
+  Cabinet fan is unassigned from MCU control (GPIO -1, direct PSU +/-).
 - Dynamic GPIO registry outputs: initialized, validated, and driven by
   `actuator_hal.c`.
 - Startup safe-off: previously duplicated in `main.c`; now delegated to
-  `actuator_hal_bootstrap_safe_off()`.
+  `actuator_hal_bootstrap_safe_off()`. Drives Relay IN3 HIGH (safe OFF for active-LOW relay) and Blower GPIO 7 LOW (safe OFF for active-HIGH MOSFET).
 - Normal, scheduled, fertigation, transfer, calibration, manual, recovery,
   and emergency operations: routed through `actuator_hal.c`.
 - Direct GPIO writes in DHT22, sensor, TFT, and MicroSD drivers are

@@ -91,6 +91,10 @@ static void parse_common_fields(cJSON *payload, command_item_t *cmd)
         } else if (strcasecmp(cmd->component_id, "fan-blower") == 0 || strcasecmp(cmd->component_id, "blower_fan") == 0 ||
                    strcasecmp(cmd->component_id, "blower-fan") == 0 || strcasecmp(cmd->component_id, "blower") == 0) {
             strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
+        } else if (strcasecmp(cmd->component_id, "gh-lighting") == 0 || strcasecmp(cmd->component_id, "lighting") == 0 ||
+                   strcasecmp(cmd->component_id, "gh_light") == 0 || strcasecmp(cmd->component_id, "gh-light") == 0 ||
+                   strcasecmp(cmd->component_id, "light") == 0 || strcasecmp(cmd->component_id, "GH_LIGHT") == 0) {
+            strncpy(cmd->component_id, "gh_lighting", sizeof(cmd->component_id) - 1);
         }
     }
 }
@@ -192,6 +196,26 @@ static esp_err_t parse_command_payload(cJSON *payload, command_item_t *cmd, char
         if (!cmd->component_id[0]) {
             strncpy(cmd->component_id, "fan_blower", sizeof(cmd->component_id) - 1);
         }
+    } else if (strcmp(type, "LIGHT_START") == 0 || strcmp(type, "LIGHT_ON") == 0 ||
+               strcmp(type, "LIGHTING_ON") == 0 || strcmp(type, "LIGHTING_START") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        cmd->param_on = true;
+        if (!cmd->component_id[0]) {
+            strncpy(cmd->component_id, "gh_lighting", sizeof(cmd->component_id) - 1);
+        }
+    } else if (strcmp(type, "LIGHT_STOP") == 0 || strcmp(type, "LIGHT_OFF") == 0 ||
+               strcmp(type, "LIGHTING_OFF") == 0 || strcmp(type, "LIGHTING_STOP") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        cmd->param_on = false;
+        if (!cmd->component_id[0]) {
+            strncpy(cmd->component_id, "gh_lighting", sizeof(cmd->component_id) - 1);
+        }
+    } else if (strcmp(type, "LIGHT_TOGGLE") == 0 || strcmp(type, "LIGHTING_TOGGLE") == 0) {
+        cmd->type = CMD_TYPE_COMPONENT_TIMED;
+        if (!cmd->component_id[0]) {
+            strncpy(cmd->component_id, "gh_lighting", sizeof(cmd->component_id) - 1);
+        }
+        cmd->param_on = !actuator_hal_get_state(ACTUATOR_GH_LIGHT);
     } else if (strcmp(type, "SENSOR_RETRY") == 0 || strcmp(type, "RETRY_SENSOR") == 0) {
         cmd->type = CMD_TYPE_SENSOR_RETRY;
         const char *sid = json_string(payload, "sensorId");

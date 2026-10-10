@@ -20,6 +20,7 @@ typedef struct {
 static button_state_t s_buttons[BUTTON_MAX_COUNT] = {
     [BUTTON_MODE]     = { .gpio = PIN_BTN_MODE,     .current_state = false, .last_raw_state = true, .stable_count = 0 },
     [BUTTON_MANUAL_A] = { .gpio = PIN_BTN_MANUAL_A, .current_state = false, .last_raw_state = true, .stable_count = 0 },
+    [BUTTON_LIGHTING] = { .gpio = PIN_BTN_LIGHTING, .current_state = false, .last_raw_state = true, .stable_count = 0 },
     [BUTTON_RESERVED] = { .gpio = PIN_BTN_RESERVED, .current_state = false, .last_raw_state = true, .stable_count = 0 },
 };
 
@@ -57,6 +58,9 @@ esp_err_t button_hal_init(button_event_cb_t cb)
 #if PIN_BTN_MANUAL_A >= 0
     mask |= (1ULL << PIN_BTN_MANUAL_A);
 #endif
+#if PIN_BTN_LIGHTING >= 0
+    mask |= (1ULL << PIN_BTN_LIGHTING);
+#endif
 #if PIN_BTN_RESERVED >= 0
     mask |= (1ULL << PIN_BTN_RESERVED);
 #endif
@@ -73,8 +77,8 @@ esp_err_t button_hal_init(button_event_cb_t cb)
         if (err != ESP_OK) return err;
     }
 
-    ESP_LOGI(TAG, "Hardware buttons initialized (Mode: %d, Manual: %d, Reserved: %d)",
-             PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_RESERVED);
+    ESP_LOGI(TAG, "Hardware buttons initialized (Mode: %d, Manual: %d, Lighting: %d, Reserved: %d)",
+             PIN_BTN_MODE, PIN_BTN_MANUAL_A, PIN_BTN_LIGHTING, PIN_BTN_RESERVED);
 
     if (!s_task_started) {
         BaseType_t r = xTaskCreatePinnedToCore(

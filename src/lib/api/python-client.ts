@@ -86,11 +86,11 @@ export class PythonClient {
     return apiDelete(`/greenhouses/${encodeURIComponent(id)}`, this.config);
   }
 
-  async createSchedule(complexId: string, kind: "fertigation" | "fan" | "wellPump", item: Record<string, unknown>): Promise<{ schedule: Record<string, unknown> }> {
+  async createSchedule(complexId: string, kind: "fertigation" | "fan" | "wellPump" | "lighting", item: Record<string, unknown>): Promise<{ schedule: Record<string, unknown> }> {
     return apiPost(`/complexes/${encodeURIComponent(complexId)}/schedules`, { kind, item }, this.config);
   }
 
-  async updateSchedule(scheduleId: string, kind: "fertigation" | "fan" | "wellPump", item: Record<string, unknown>): Promise<{ schedule: Record<string, unknown> }> {
+  async updateSchedule(scheduleId: string, kind: "fertigation" | "fan" | "wellPump" | "lighting", item: Record<string, unknown>): Promise<{ schedule: Record<string, unknown> }> {
     return apiPost(`/schedules/${encodeURIComponent(scheduleId)}`, { kind, item }, this.config);
   }
 

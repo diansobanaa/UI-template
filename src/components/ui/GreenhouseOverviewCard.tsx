@@ -258,8 +258,25 @@ export function GreenhouseOverviewCard({
                   >
                     <Waves className="h-3.5 w-3.5" />
                   </span>
-                  <span className="grid h-7 w-7 place-items-center rounded-full border border-sky-300/10 bg-sky-400/8 text-sky-300">
+                  <span
+                    className={`grid h-7 w-7 place-items-center rounded-full border ${
+                      greenhouse.telemetry?.actuators?.blowerFan
+                        ? "border-emerald-300/20 bg-emerald-400/15 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.3)]"
+                        : "border-sky-300/10 bg-sky-400/8 text-sky-300"
+                    }`}
+                    title={greenhouse.telemetry?.actuators?.blowerFan ? "Ventilation Blower: ON" : "Ventilation Blower: OFF"}
+                  >
                     <Wind className="h-3.5 w-3.5" />
+                  </span>
+                  <span
+                    className={`grid h-7 w-7 place-items-center rounded-full border transition-all duration-300 ${
+                      greenhouse.telemetry?.actuators?.lighting
+                        ? "border-amber-300/40 bg-amber-400/20 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.5)]"
+                        : "border-white/8 bg-white/[0.035] text-slate-500"
+                    }`}
+                    title={greenhouse.telemetry?.actuators?.lighting ? "Greenhouse Lighting: ON" : "Greenhouse Lighting: OFF"}
+                  >
+                    <Lightbulb className="h-3.5 w-3.5" />
                   </span>
                 </div>
               )}

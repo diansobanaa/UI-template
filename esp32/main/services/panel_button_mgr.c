@@ -108,6 +108,19 @@ static void toggle_well_pump_manual(void)
     well_pump_toggle_physical();
 }
 
+static void toggle_lighting_manual(void)
+{
+    /* Official single actuator command entry point for physical lighting button toggle */
+    bool current_on = actuator_hal_get_state(ACTUATOR_GH_LIGHT);
+    bool desired_on = !current_on;
+    esp_err_t err = actuator_hal_request(ACTUATOR_GH_LIGHT, desired_on,
+                                         ACTUATOR_SOURCE_MANUAL,
+                                         "physical_button_toggle");
+    ESP_LOGI(TAG, "Physical lighting button toggle: %s -> %s (result: %s)",
+             current_on ? "ON" : "OFF", desired_on ? "ON" : "OFF",
+             esp_err_to_name(err));
+}
+
 static void process_panel_button_event(const panel_btn_event_t *evt)
 {
     button_id_t btn = evt->btn;
@@ -189,6 +202,11 @@ static void process_panel_button_event(const panel_btn_event_t *evt)
         case BUTTON_MANUAL_A: /* Button 2: GPIO 39 */
             ESP_LOGI(TAG, "Button 2 pressed: Toggling Well Pump manual (15-min limit)...");
             toggle_well_pump_manual();
+            break;
+
+        case BUTTON_LIGHTING: /* Lighting Button: GPIO 46 */
+            ESP_LOGI(TAG, "Button Lighting pressed: Toggling Greenhouse Lighting manual...");
+            toggle_lighting_manual();
             break;
 
         case BUTTON_MODE:
@@ -297,6 +315,8 @@ esp_err_t panel_button_mgr_init(void)
     }
 
     ESP_LOGI(TAG, "  Button 1 (GPIO 0 / BOOT): short press = TFT screen switch, long press 3s = SoftAP toggle");
+    ESP_LOGI(TAG, "  Button 2 (GPIO %d): manual Well Pump toggle (15-min limit)", PIN_BTN_MANUAL_A);
+    ESP_LOGI(TAG, "  Button Lighting (GPIO %d): manual Greenhouse Lighting toggle", PIN_BTN_LIGHTING);
 
     if (PIN_BTN_RESERVED >= 0) {
         ESP_LOGI(TAG, "  Button 4 (GPIO %d): 2x force router connect, 3x toggle Direct Local Mode", PIN_BTN_RESERVED);

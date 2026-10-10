@@ -39,7 +39,7 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
                                │
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ DOMAIN 4: 220V–240V AC MAINS ELECTRICAL DOMAIN                               │
-│ Deep Well Pump AC (Relay Ch 1), Dist Booster AC (Relay Ch 2), Blowers (Relay Ch 3), Mixing (Relay Ch 4)│
+│ Deep Well Pump AC (Relay Ch 1), Dist Booster AC (Relay Ch 2), GH Lighting (Relay Ch 3), Mixing (Relay Ch 4)│
 │ Conductors: Live (L), Neutral (N), Protective Earth (PE)                     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -50,7 +50,7 @@ To prevent high-voltage transients, ground loops, and electrical noise from cras
 
 | Power Rail | Voltage Rating | Source / Provider | Destination / Loads | Ground Reference | Purpose | Verification Status |
 |:---|:---:|:---|:---|:---|:---|:---:|
-| **220V AC Mains** | 220V–240V AC 50Hz | AC Power Inlet Socket via 2-Pole 10A MCB | 12V 5A PSU, Well Pump (4-Ch Relay Ch 1), Dist Pump (4-Ch Relay Ch 2), 2x Blowers (4-Ch Relay Ch 3 via Contactor), Mixing Pond Pumps (4-Ch Relay Ch 4) | Protective Earth (AC-PE) | Primary grid power for heavy pumps and DC PSU | **VERIFIED ARCHITECTURE** |
+| **220V AC Mains** | 220V–240V AC 50Hz | AC Power Inlet Socket via 2-Pole 10A MCB | 12V 5A PSU, Well Pump (4-Ch Relay Ch 1), Dist Pump (4-Ch Relay Ch 2), Dedicated Greenhouse Lighting (4-Ch Relay Ch 3), Mixing Pond Pumps (4-Ch Relay Ch 4) | Protective Earth (AC-PE) | Primary grid power for heavy pumps and DC PSU | **VERIFIED ARCHITECTURE** |
 | **12V DC Rail** | +12.0V DC (±5%) | Switching Power Supply 12V 5A (60W) | LM2596 IN+, Dosing A (12V), Dosing B (12V), Fan (12V), Submersible (12V) | GND_12V (Power Ground) | DC actuator motive power and buck input | **VERIFIED RAIL** |
 | **5V DC Rail** | **5.05V DC** | LM2596 Buck Converter OUT+ | ESP32 5V (Vin), 4-Ch Relay Board (VCC & JD-VCC), Flow Meter VCC, Active Buzzer (~30mA via driver), MicroSD Adapter VCC (EasyWare EP000094, 4.5V~5.5V) | GND_LV / Common DC Ground | Microcontroller supply, acoustic alarm sounder, MicroSD adapter, and intermediate switching logic | **VERIFY WITH MULTIMETER** |
 | **3.3V DC Rail** | +3.30V DC (±2%) | ESP32 Onboard LDO Regulator (3V3 Pins) | DS3231 RTC, DS18B20, DHT22 (Air Temp & RH), ST7735 TFT (VCC & LED), Pull-up Resistors, Buttons | GND_LV (Clean Signal Ground) | Clean noise-free logic rail for sensors and peripherals | **VERIFIED RAIL** |
@@ -192,6 +192,14 @@ Scope: **Well Pump and Fan/Blower only.** Fertigation, dosing, mixing, raw-water
 - **Safety precedence (unchanged):** ON requests go through `actuator_hal` / `well_pump_mgr` only. E-stop latch (persisted across reboot), safety-fault latch, safety-owner lock, and max-runtime protection all still reject or force OFF. An active schedule never overrides them; after a validated operator RESUME, the next scheduler tick re-applies the window.
 - **Sensor seed:** `sensor_hal_init()` seeds `last_sample_timestamp` at init so the safety monitor does not trip `SAFETY_SENSOR_STALE` on restored flow-protected pumps before the first periodic poll. Well Pump is not flow-protected by firmware.
 - **Verification:** `scripts/test_power_loss_recovery.py` (RTS hard reset on COM3).
+
+### 9.1. Greenhouse Lighting Safe Startup & Power-Loss Behavior (Manual-ON Only)
+Scope: **Greenhouse Lighting (Relay CH3 / GPIO 10).**
+- **Default State at Boot:** Driven to safe OFF state immediately in early boot (`actuator_hal_bootstrap_safe_off` sets GPIO 10 HIGH / Active-LOW relay de-energized).
+- **Prohibition of Automatic ON:** No startup sequence, reboot, power-loss recovery, backend reconnection, configuration synchronization, or RTC sync may ever turn lighting ON automatically.
+- **Sole Permitted ON Authority:** Explicit manual request only (Web UI manual toggle or physical momentary button on GPIO 46).
+- **Schedule Recovery Behavior:** Lighting schedules are strictly OFF-only (`LIGHTING_OFF`). During power recovery or daily evaluation, `scheduler_reconcile_lighting_schedule` checks if an active lighting OFF schedule is configured and ensures the light is shut off when commanded. It never infers or restores an ON state.
+- **Actuator Isolation:** Lighting commands affect exclusively Relay IN3 (GPIO 10). Blower fan commands affect exclusively MOSFET Module #4 (GPIO 7).
 
 ---
 

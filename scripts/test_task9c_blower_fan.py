@@ -50,9 +50,11 @@ def main():
     with open(pin_config_path, "r", encoding="utf-8") as f:
         pin_content = f.read().replace("\r\n", "\n")
 
-    check("#define PIN_RELAY_CH3               10" in pin_content and
-          "#define PIN_OUT_BLOWER_FAN          PIN_RELAY_CH3" in pin_content,
-          "PIN_OUT_BLOWER_FAN maps to PIN_RELAY_CH3 (GPIO 10)")
+    check(re.search(r"#define\s+PIN_RELAY_CH3\s+10", pin_content) is not None and
+          re.search(r"#define\s+PIN_OUT_GH_LIGHT\s+PIN_RELAY_CH3", pin_content) is not None,
+          "PIN_OUT_GH_LIGHT maps to PIN_RELAY_CH3 (GPIO 10)")
+    check("#define PIN_OUT_BLOWER_FAN          7" in pin_content,
+          "PIN_OUT_BLOWER_FAN is dedicated to GPIO 7")
     check(re.search(r"#define\s+PIN_OUT_COOLING_FAN\s+-1", pin_content) is not None,
           "PIN_OUT_COOLING_FAN is disabled (-1), cabinet fan has no MCU GPIO")
 

@@ -34,10 +34,10 @@
 | **W-04** | **GPIO 4** | Left-4 | MOSFET Module (Raw Pump 1) | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Raw Submersible Pump 1 Trigger (12V DC) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC submersible pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-05** | **GPIO 5** | Left-5 | MOSFET Module #1 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump A Trigger (Nutrient) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
 | **W-06** | **GPIO 6** | Left-6 | MOSFET Module #2 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Dosing Pump B Trigger (pH/Buffer) | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for 12V DC peristaltic pump via N-channel MOSFET module. Switched 12V DC out. Safe-off default = LOW (0V). | **VERIFIED SAFE** |
-| **W-07** | **GPIO 7** | Left-7 | *UNASSIGNED* | Disconnected | Digital Control | 3.3V Logic | *Unassigned (Direct PSU Fan)* | None | N/A | Cabinet exhaust fan is powered directly from 12V PSU +/- (not MCU-controlled). GPIO 7 is unassigned (PIN_OUT_COOLING_FAN = -1). | **UNASSIGNED / RESERVED** |
+| **W-07** | **GPIO 7** | Left-7 | MOSFET Module #4 | **TRIG-PWM** (GND to ESP32 GND) | Digital Control | 3.3V/5V Logic | Greenhouse Blower Fan Output | Output | Active-HIGH (1=ON, 0=OFF) | Gate trigger for N-channel MOSFET module switching Greenhouse Blower Fans. High = ON, Low = OFF. Safe boot default = LOW (0V). Note: Physical blower fan hardware is not installed yet; GPIO is fully integrated in firmware/API/UI and solder-ready. | **VERIFIED READY (DEFERRED HARDWARE)** |
 | **W-08** | **GPIO 8** | Left-12 | DS3231 RTC Module | **SDA** | I2C Bus | 3.3V Logic | I2C Serial Data line | Bi-directional | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
 | **W-09** | **GPIO 9** | Left-15 | DS3231 RTC Module | **SCL** | I2C Bus | 3.3V Logic | I2C Serial Clock line | Output | Open-Drain | Requires 4.7kΩ pull-up to 3.3V (onboard module/external). | **VERIFIED** |
-| **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3 (Relay Ch 3)** | Digital Control | 5V Logic | Greenhouse Blower Fans Contactor Trigger | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 3 triggers external contactor for 2x 220V AC greenhouse blower fans. | **VERIFIED SAFE** |
+| **W-10** | **GPIO 10** | Left-16 | 4-Ch Relay Board | **IN3 (Relay Ch 3)** | Digital Control | 5V Logic | Dedicated Greenhouse Lighting Output | Output | Active-LOW (0=ON) | Sinks optocoupler cathode. Relay Ch 3 switches 220V AC Greenhouse Lighting. Safe boot default = HIGH (OFF). Manual-ON only; OFF-only schedule. | **VERIFIED SAFE** |
 | **W-11** | **GPIO 11** | Left-17 | TFT Display & MicroSD | **SCK / MICROSD_SCK** | Shared SPI Clock | 3.3V Logic | Master SPI Clock (SPI2_HOST) | Output | Mode 0 (Rising) | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
 | **W-12** | **GPIO 12** | Left-18 | TFT Display & MicroSD | **MOSI / MICROSD_MOSI**| Shared SPI MOSI | 3.3V Logic | Master Out Slave In (Data to Periph)| Output | Serial Data | Bus shared between ST7735 TFT and MicroSD Card Module. | **VERIFIED** |
 | **W-13** | **GPIO 13** | Left-19 | MicroSD Card Module | **MICROSD_MISO** | Shared SPI MISO | 3.3V Logic | Master In Slave Out (Data from MicroSD) | Input | Serial Data | Dedicated return line from MicroSD Card Module (EasyWare EP000094). | **UNVERIFIED** |
@@ -57,6 +57,7 @@
 | **W-27** | **5V (Vin)**| Left-21 | LM2596 Regulator | **OUT+** | Power Conductor | 5.05V DC | ESP32 Board Main DC Power Input | Power In | 5.05V DC Regulated | **MANDATORY:** Pre-calibrate trimpot with DMM before connecting! | **VERIFY DMM** |
 | **W-28** | **3V3 Rail**| Left-1 / 2 | Sensors & Display | **VCC / LED** | Power Conductor | 3.3V DC | 3.3V Sensor & Peripheral Supply Rail | Power Out | 3.30V DC Regulated | Supplies DS3231, DS18B20, ST7735 VCC/LED, pull-up resistors. | **VERIFIED RAIL** |
 | **W-29** | **GND Rail**| Left-22 / R-1 | System Electronics | **GND** | Ground Plane | 0V Reference | Common Low-Voltage Signal Ground | Ground | 0V Reference | Common return for ESP32, sensors, buttons, LM2596 OUT-. | **VERIFIED RAIL** |
+| **W-30** | **GPIO 46** | Left-14 | Lighting Push Button | Pin 1 | Stranded Wire | 3.3V Logic | Greenhouse Lighting Momentary Toggle Switch | Input | Active-LOW (0=Push) | Internal pull-up to 3.3V. Press triggers single lighting toggle. Safe strapping at boot (HIGH = normal ROM log). | **VERIFIED SAFE** |
 
 ---
 
@@ -262,12 +263,12 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 |---|---|---|---|---|---|
 | **Relay 1 (IN1)** | Well Pump | Relay | **GPIO 1** | Active-LOW (0=ON) | 220V AC Deep Well Pump (Series Radar Switch, Max 15m) |
 | **Relay 2 (IN2)** | Distribution Pump | Relay | **GPIO 2** | Active-LOW (0=ON) | 220V AC Fertigation Booster Pump GH-1 (Float Gated) |
-| **Relay 3 (IN3)** | Blower Fans | Relay | **GPIO 10** | Active-LOW (0=ON) | 220V AC Greenhouse Dual Circulation Blowers via Contactor |
+| **Relay 3 (IN3)** | GH Lighting | Relay | **GPIO 10** | Active-LOW (0=ON) | 220V AC Dedicated Greenhouse Lighting (Manual-ON Only) |
 | **Relay 4 (IN4)** | Mixing Pond Pumps | Relay | **GPIO 40** | Active-LOW (0=ON) | 220V AC Mixing & Homogenization Pond Pump |
 | **MOSFET 1** | Raw Submersible Pump 1 | MOSFET | **GPIO 4** | Active-HIGH (1=ON) | 12V DC Raw Water Submersible Pump |
 | **MOSFET 2** | Dosing Pump A | MOSFET | **GPIO 5** | Active-HIGH (1=ON) | 12V DC Peristaltic Nutrient Dosing Pump A |
 | **MOSFET 3** | Dosing Pump B | MOSFET | **GPIO 6** | Active-HIGH (1=ON) | 12V DC Peristaltic Acid/Buffer Dosing Pump B |
-| **MOSFET 4** | *UNASSIGNED (Cabinet Fan Direct PSU)* | None | **GPIO 7 (Disabled)**| None | Cabinet fan powered directly from PSU +/- (not MCU-controlled) |
+| **MOSFET 4** | Greenhouse Blower Fan | MOSFET | **GPIO 7** | Active-HIGH (1=ON) | Dedicated Greenhouse Blower Fan Trigger (Hardware installation deferred) |
 | **MOSFET 5** | Active Alarm Buzzer | MOSFET | **GPIO 18** | Active-HIGH (1=ON) | 5V DC Acoustic Alarm Annunciator (~30mA isolated) |
 
 ---
@@ -276,7 +277,7 @@ ESP32 GPIO 47 (Right-17) ──────[ Internal Pull-up to 3.3V ]
 The 4-Channel 5V Optocoupled Relay Board provides direct galvanic isolation for the four high-voltage and contactor loads:
 * **Relay Channel 1 (GPIO 1):** 220V AC Deep Well Pump (Relay IN1) $\longrightarrow$ Series 220V Radar Tank-Full Switch $\longrightarrow$ 220V AC Well Motor Live (clamped to 15-min max manual ON)
 * **Relay Channel 2 (GPIO 2):** 220V AC Distribution Booster Pump GH-1 (Relay IN2) $\longrightarrow$ 220V AC Booster Motor Live (software interlocked by Lower Float)
-* **Relay Channel 3 (GPIO 10):** 220V AC Greenhouse Dual Blower Fans (Relay IN3) $\longrightarrow$ Coil A1/A2 of Magnetic Contactor $\longrightarrow$ 2x 220V AC Blower Fans
+* **Relay Channel 3 (GPIO 10):** 220V AC Greenhouse Lighting (Relay IN3) $\longrightarrow$ 220V AC Lighting Fixture Live (Safe boot OFF, Manual-ON only, OFF-only schedule)
 * **Relay Channel 4 (GPIO 40):** 220V AC Mixing Pond Pump (Relay IN4) $\longrightarrow$ 220V AC Pond Pump Motor Live
 
 ```text

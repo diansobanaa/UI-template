@@ -2,6 +2,7 @@ import type { InstalledComponent } from "../api/contracts";
 
 export interface BaselineOptions {
   includeFan?: boolean;
+  includeLighting?: boolean;
 }
 
 /**
@@ -11,10 +12,12 @@ export interface BaselineOptions {
  * Pin assignments:
  * - Well Pump: GPIO 1 (Relay Ch 1, ACTIVE_LOW)
  * - Distribution Pump: GPIO 2 (Relay Ch 2, ACTIVE_LOW)
+ * - Dedicated GH Lighting: GPIO 10 (Relay Ch 3, ACTIVE_LOW)
+ * - Mixing Pond Pumps: GPIO 40 (Relay Ch 4, ACTIVE_LOW)
  * - Raw Submersible: GPIO 4 (MOSFET Output 1, ACTIVE_HIGH)
  * - Dosing Pump A: GPIO 5 (MOSFET Ch 2, ACTIVE_HIGH)
  * - Dosing Pump B: GPIO 6 (MOSFET Ch 3, ACTIVE_HIGH)
- * - (Optional) Blower Fan: GPIO 10 (Relay Ch 3, ACTIVE_LOW)
+ * - (Optional) Blower Fan: GPIO 7 (MOSFET Gate, ACTIVE_HIGH)
  */
 export function getCanonicalBaselineComponents(
   complexId: string,
@@ -112,8 +115,28 @@ export function getCanonicalBaselineComponents(
     components.push({
       componentId: "fan_blower",
       name: "Greenhouse Blower Fan",
-      supportedTypeId: "cooling-fan",
+      supportedTypeId: "blower-fan",
       role: "BLOWER_FAN",
+      lifecycleState: "COMMISSIONED",
+      deploymentStatus: "APPLIED",
+      assignment: {
+        complexId,
+      },
+      wiring: {
+        interface: "GPIO",
+        gpio: 7,
+        polarity: "ACTIVE_HIGH",
+      },
+      parameters: {},
+    });
+  }
+
+  if (options.includeLighting ?? true) {
+    components.push({
+      componentId: "gh_lighting",
+      name: "Greenhouse Lighting",
+      supportedTypeId: "gh-lighting",
+      role: "GH_LIGHT",
       lifecycleState: "COMMISSIONED",
       deploymentStatus: "APPLIED",
       assignment: {

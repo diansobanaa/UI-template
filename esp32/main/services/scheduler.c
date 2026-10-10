@@ -390,6 +390,29 @@ static bool parse_runtime_schedule(cJSON *item, runtime_schedule_t *out) {
     }
   }
 
+  bool has_lighting_component = false;
+  for (size_t c = 0; c < out->component_count; ++c) {
+    if (strcasecmp(out->component_ids[c], "gh_lighting") == 0 ||
+        strcasecmp(out->component_ids[c], "lighting") == 0 ||
+        strcasecmp(out->component_ids[c], "gh_light") == 0) {
+      has_lighting_component = true;
+      break;
+    }
+  }
+  if (strcasecmp(action, "LIGHTING_ON") == 0 ||
+      strcasecmp(action, "LIGHT_ON") == 0 ||
+      (has_lighting_component &&
+       (strcasecmp(action, "LIGHTING_OFF") != 0 && strcasecmp(action, "LIGHT_OFF") != 0))) {
+    ESP_LOGE(TAG, "Scheduled lighting ON is strictly forbidden (action=%s)", action);
+    return false;
+  }
+
+  if ((strcasecmp(action, "LIGHTING_OFF") == 0 || strcasecmp(action, "LIGHT_OFF") == 0) &&
+      out->component_count == 0) {
+    copy_string(out->component_ids[0], sizeof(out->component_ids[0]), "gh_lighting");
+    out->component_count = 1;
+  }
+
   cJSON *resources = cJSON_GetObjectItem(item, "resourceLocks");
   if (!resources)
     resources = cJSON_GetObjectItem(item, "resourceClaims");
@@ -436,6 +459,13 @@ static bool parse_runtime_schedule(cJSON *item, runtime_schedule_t *out) {
         out->resource_count++;
       }
     }
+  }
+
+  if ((strcasecmp(action, "LIGHTING_OFF") == 0 || strcasecmp(action, "LIGHT_OFF") == 0) &&
+      out->resource_count == 0 && (!resources || !cJSON_IsArray(resources))) {
+    copy_string(out->resources[0].resource_id, sizeof(out->resources[0].resource_id), "LIGHTING_RELAY_CH3");
+    out->resources[0].shared = false;
+    out->resource_count = 1;
   }
 
   out->valid = true;
@@ -1684,6 +1714,14 @@ static esp_err_t dispatch_runtime_schedule(runtime_schedule_t *sched,
     cmd->param_duration_sec = sched->duration_sec;
   } else if (strcmp(sched->action, "FAN_TOGGLE") == 0) {
     cmd->type = CMD_TYPE_COMPONENT_TIMED;
+  } else if (strcmp(sched->action, "LIGHTING_OFF") == 0 ||
+             strcmp(sched->action, "LIGHT_OFF") == 0) {
+    cmd->type = CMD_TYPE_COMPONENT_TIMED;
+    cmd->param_on = false;
+    if (!cmd->component_id[0]) {
+      copy_string(cmd->component_id, sizeof(cmd->component_id), "gh_lighting");
+    }
+    cmd->param_duration_sec = 0;
   } else {
     free(cmd);
     return ESP_ERR_NOT_SUPPORTED;
@@ -2506,6 +2544,7 @@ static void check_distribution_completions(void) {
 /* Forward declarations for schedule-window reconciliation & lazy_start */
 static bool s_lazy_start_done = false;
 esp_err_t scheduler_reconcile_fan_schedule(time_t now);
+esp_err_t scheduler_reconcile_lighting_schedule(time_t now);
 bool scheduler_is_lazy_start_done(void);
 static bool is_well_pump_schedule(const runtime_schedule_t *rs);
 static bool is_fan_schedule(const runtime_schedule_t *rs, const char *target_component);
@@ -2765,10 +2804,11 @@ esp_err_t scheduler_evaluate_at(time_t now) {
 
   xSemaphoreGive(s_mutex);
 
-  /* Reconcile Well Pump and Fan/Blower scheduled states outside s_mutex */
+  /* Reconcile Well Pump, Fan/Blower, and Lighting scheduled states outside s_mutex */
   if (s_lazy_start_done) {
     (void)scheduler_reconcile_fan_schedule(now);
     (void)well_pump_reconcile_schedule(now);
+    (void)scheduler_reconcile_lighting_schedule(now);
   }
 
   return ESP_OK;
@@ -2818,7 +2858,8 @@ esp_err_t scheduler_get_all(schedule_entry_t *out_entries, size_t max_entries,
         strcmp(src->action, "FERTIGATION") == 0  ? SCHED_ACTION_FERTIGATION
         : strcmp(src->action, "WATER_PUMP") == 0 ? SCHED_ACTION_WATER_PUMP
         : strcmp(src->action, "FAN_TOGGLE") == 0 ? SCHED_ACTION_FAN_TOGGLE
-                                                 : SCHED_ACTION_CUSTOM;
+        : (strcmp(src->action, "LIGHTING_OFF") == 0 || strcmp(src->action, "LIGHT_OFF") == 0) ? SCHED_ACTION_LIGHTING_OFF
+        : SCHED_ACTION_CUSTOM;
     dst->duration_sec = (uint32_t)src->duration_sec;
     dst->hour = src->hour;
     dst->minute = src->minute;
@@ -3345,6 +3386,14 @@ esp_err_t scheduler_reconcile_fan_schedule(time_t now) {
   return ESP_OK;
 }
 
+esp_err_t scheduler_reconcile_lighting_schedule(time_t now) {
+  if (!local_clock_valid(now)) return ESP_ERR_INVALID_STATE;
+  /* Lighting scheduled commands are strictly discrete OFF operations.
+   * State is driven OFF by dispatch_runtime_schedule and actuator_hal_stop_component.
+   * On power-loss recovery, lighting boots in safe OFF (Relay CH3 HIGH). */
+  return ESP_OK;
+}
+
 static void lazy_start_task(void *pvParameters) {
   (void)pvParameters;
   ESP_LOGI(TAG, "lazy_start: deferred power-loss recovery check starting...");
@@ -3365,8 +3414,9 @@ static void lazy_start_task(void *pvParameters) {
     return;
   }
 
-  /* 1. Reconcile Fan / Blower schedules */
+  /* 1. Reconcile Fan / Blower and Lighting schedules */
   (void)scheduler_reconcile_fan_schedule(now);
+  (void)scheduler_reconcile_lighting_schedule(now);
 
   /* 2. Ensure safety sensor readings are polled and fresh before restoring well pump */
   (void)sensor_hal_poll();

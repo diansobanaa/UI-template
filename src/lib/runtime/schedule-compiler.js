@@ -27,7 +27,8 @@ export function normalizeScheduleIntent(input) {
       input?.action ||
       (input?.kind === "fertigation" || input?.type === "fertigation" ? "FERTIGATION" :
        input?.kind === "wellPump" || input?.type === "well_pump" || (typeof input?.task === "string" && input.task.toLowerCase().includes("well")) ? "WATER_PUMP" :
-       input?.kind === "fan" || input?.type === "fan" ? "FAN_TOGGLE" : "")
+       input?.kind === "fan" || input?.type === "fan" ? "FAN_TOGGLE" :
+       input?.kind === "lighting" || input?.type === "lighting" || input?.kind === "light" || input?.type === "light" ? "LIGHTING_OFF" : "")
     ).toUpperCase(),
     enabled: input?.enabled !== false,
     priority: finite(input?.priority) ? Math.trunc(input.priority) : 100,
@@ -298,6 +299,18 @@ function buildDependencyList(configuration, intent, topologyState, capabilitySta
       if (resourceIdForComponent(component, configuration)) resolvedResources.push(resourceIdForComponent(component, configuration));
     }
     requirements.push("FAN");
+  } else if (intent.action === "LIGHTING_OFF" || intent.action === "LIGHT_OFF") {
+    const lights = findComponentByRole(configuration, ghId, ["LIGHTING", "LIGHT"]);
+    if (lights.length > 0) {
+      for (const component of lights) {
+        resolvedComponents.push(component);
+        if (resourceIdForComponent(component, configuration)) resolvedResources.push(resourceIdForComponent(component, configuration));
+      }
+    } else {
+      resolvedComponents.push({ componentId: "gh_lighting", role: "LIGHTING" });
+      resolvedResources.push("LIGHTING_RELAY_CH3");
+    }
+    requirements.push("LIGHTING");
   } else {
     blocked.push(issue("UNSUPPORTED_ACTION", `Action '${intent.action || "<empty>"}' is not supported by the compiler.`));
   }
@@ -442,6 +455,9 @@ export function compileSchedule(configuration, rawIntent, options = {}) {
     if (intent.parameters?.controlMode === "TEMPERATURE") {
       base.errors.push(issue("UNSUPPORTED_CONDITION_TRIGGER", "Temperature-controlled fan schedules require a condition scheduler and cannot be compiled as time schedules."));
     }
+  }
+  if (intent.action === "LIGHTING_ON" || intent.action === "LIGHT_ON") {
+    base.errors.push(issue("SCHEDULED_LIGHTING_ON_FORBIDDEN", "Greenhouse lighting cannot be turned ON by schedule. Only dedicated OFF schedules are permitted."));
   }
 
   if (base.errors.length) return base;

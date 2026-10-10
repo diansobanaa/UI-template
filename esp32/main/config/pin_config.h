@@ -69,23 +69,25 @@ extern "C" {
 /* Canonical Relay Channel Assignment (4-Channel Optocoupled Relay Board):    */
 /*   Relay Channel 1 (IN1): Well Pump (GPIO 1)                                */
 /*   Relay Channel 2 (IN2): Distribution Pump (GPIO 2)                        */
-/*   Relay Channel 3 (IN3): Blower Fans Contactor Trigger (GPIO 10)           */
+/*   Relay Channel 3 (IN3): Dedicated Greenhouse Lighting Output (GPIO 10)    */
 /*   Relay Channel 4 (IN4): Mixing Pond Pumps (GPIO 40)                       */
 /* Canonical MOSFET Driver Modules (High-Power N-Channel MOSFET Drivers):     */
 /*   MOSFET Output 1: Raw Submersible Pump 1 (GPIO 4)                         */
 /*   MOSFET Output 2: Peristaltic Dosing Pump A (GPIO 5)                      */
 /*   MOSFET Output 3: Peristaltic Dosing Pump B (GPIO 6)                      */
-/*   MOSFET Output 4: Cabinet Exhaust Cooling Fan (GPIO 7)                    */
+/*   MOSFET Output 4: Dedicated Greenhouse Blower Fans (GPIO 7)                */
 /*   MOSFET Output 5: Active Alarm Buzzer Sounder (GPIO 18)                   */
 /* ========================================================================== */
 #define PIN_RELAY_CH1               1   /* Relay Channel 1: Well Pump */
 #define PIN_RELAY_CH2               2   /* Relay Channel 2: Distribution Pump */
-#define PIN_RELAY_CH3               10  /* Relay Channel 3: Greenhouse Blower Fans */
+#define PIN_RELAY_CH3               10  /* Relay Channel 3: Dedicated Greenhouse Lighting Output */
 #define PIN_RELAY_CH4               40  /* Relay Channel 4: Mixing Pond Pumps */
 
 #define PIN_OUT_WELL_PUMP           PIN_RELAY_CH1
 #define PIN_OUT_DIST_PUMP           PIN_RELAY_CH2
-#define PIN_OUT_BLOWER_FAN          PIN_RELAY_CH3
+#define PIN_OUT_GH_LIGHT            PIN_RELAY_CH3  /* Dedicated Greenhouse Lighting (Relay CH3, GPIO 10) */
+#define PIN_OUT_LIGHTING            PIN_OUT_GH_LIGHT
+#define PIN_OUT_BLOWER_FAN          7              /* Dedicated Greenhouse Blower Fan Output (GPIO 7) */
 #define PIN_OUT_MIXING_PUMP         PIN_RELAY_CH4
 
 #define PIN_MOSFET_RAW_SUBMERSIBLE_1 4  /* MOSFET Output 1: Raw Submersible Pump 1 (12V DC) */
@@ -98,8 +100,8 @@ extern "C" {
 #define PIN_OUT_BUZZER              18  /* MOSFET Output 5: Active Alarm Buzzer (5V DC, ~30mA) */
 #define PIN_OUT_ERROR_LAMP          -1  /* Error lamp unmapped; alarm annunciator handled by PIN_OUT_BUZZER (GPIO 18) */
 
-#define RELAY_ACTIVE_LEVEL          0   /* 0 = Active-LOW (4-Channel Relay Board: Well Pump, Dist Pump, Blower Fans, Mixing Pump) */
-#define MOSFET_ACTIVE_LEVEL         1   /* 1 = Active-HIGH (N-channel MOSFET modules: Raw Submersible 1, Dosing A/B, Fan, Buzzer) */
+#define RELAY_ACTIVE_LEVEL          0   /* 0 = Active-LOW (4-Channel Relay Board: Well Pump, Dist Pump, GH Lighting, Mixing Pump) */
+#define MOSFET_ACTIVE_LEVEL         1   /* 1 = Active-HIGH (N-channel MOSFET modules: Raw Submersible 1, Dosing A/B, Blower Fan, Buzzer) */
 
 #define ACTUATOR_ACTIVE_LEVEL       RELAY_ACTIVE_LEVEL
 #define ACTUATOR_LEVEL_ON           (ACTUATOR_ACTIVE_LEVEL)
@@ -107,6 +109,8 @@ extern "C" {
 
 #define RAW_SUBMERSIBLE_ACTIVE_LEVEL MOSFET_ACTIVE_LEVEL /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 4) */
 #define DOSING_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 5 & 6) */
+#define BLOWER_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for Blower Fan trigger (GPIO 7) */
+#define LIGHTING_ACTIVE_LEVEL       RELAY_ACTIVE_LEVEL   /* 0 = Active-LOW for Relay CH3 trigger (GPIO 10) */
 #define COOLING_FAN_ACTIVE_LEVEL    MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 7) */
 #define BUZZER_ACTIVE_LEVEL         MOSFET_ACTIVE_LEVEL  /* 1 = Active-HIGH for MOSFET Gate trigger (GPIO 18) */
 
@@ -144,6 +148,7 @@ extern "C" {
 /* ========================================================================== */
 #define PIN_BTN_MODE                0    /* Onboard BOOT Button / External NO Push Button */
 #define PIN_BTN_MANUAL_A            39
+#define PIN_BTN_LIGHTING            46   /* Physical Momentary Lighting Toggle Button (Header Left-14) */
 /* FIX(FIX-EQUIPMENT-DHT22): Button 4 / Network Change Mode DISABLED because
  * GPIO 41 is reclaimed by DHT22 per SSOT docs/HARDWARE_WIRING_MAP.md W-23.
  * Network Change Mode (2x press = force router connect, 3x press = toggle
@@ -159,13 +164,13 @@ extern "C" {
 
 /* ========================================================================== */
 /* RESERVED STRAPPING & SYSTEM PINS (DO NOT REASSIGN)                         */
-/* Reserved: GPIO 3, 19, 20, 26-37, 43-44, 45-46                              */
+/* Reserved: GPIO 3, 19, 20, 26-37, 43-44, 45 (GPIO 46 is now Lighting Button)*/
 /* ========================================================================== */
 #define IS_RESERVED_PIN(pin) ( \
     ((pin) == 3) || ((pin) == 19) || ((pin) == 20) || \
     ((pin) >= 26 && (pin) <= 37) || \
     ((pin) == 43) || ((pin) == 44) || \
-    ((pin) == 45) || ((pin) == 46) \
+    ((pin) == 45) \
 )
 
 /* GPIO22-25 are not bonded on the target ESP32-S3-WROOM-1-N16R8 module. */

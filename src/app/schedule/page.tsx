@@ -7,6 +7,7 @@ import {
   Clock,
   Droplets,
   Fan,
+  Lightbulb,
   ListOrdered,
   MonitorCog,
   Pencil,
@@ -26,13 +27,14 @@ import { TodayScheduleTimeline } from "@/components/timeline";
 import { AddFertigationDrawer } from "@/components/schedule/AddFertigationDrawer";
 import { AddWellPumpDrawer } from "@/components/schedule/AddWellPumpDrawer";
 import { AddFanScheduleDrawer } from "@/components/schedule/AddFanScheduleDrawer";
+import { AddLightingScheduleDrawer } from "@/components/schedule/AddLightingScheduleDrawer";
 import { WellPumpControlCard } from "@/components/WellPumpControlCard";
 import { useToast } from "@/components/ui/toast";
 import { complexService, fertigationService, greenhouseService, scheduleService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
 import { errorMessage } from "@/lib/errors";
 import { SYSTEM_NOW, formatGreenhouseName } from "@/lib/format";
-import type { FanSchedule, FertigationSchedule, ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
+import type { FanSchedule, FertigationSchedule, LightingSchedule, ScheduleActivationState, ScheduleBlockedReason, ScheduleStatus, WellPumpSchedule } from "@/lib/types";
 import { complexRealtimeState } from "@/lib/realtime";
 import { LiveStatus } from "@/components/ui/LiveStatus";
 import { TopologyCapabilityPanel, type GreenhouseTopologyState } from "@/components/ui/TopologyCapabilityPanel";
@@ -92,6 +94,10 @@ export function ScheduleContent({
     if (!gh) { toast("Select a greenhouse before creating a fan schedule.", "error"); return; }
     setEditFan(null); setFanOpen(true);
   };
+  const openLightingCreate = () => {
+    if (!gh && !ghs[0]) { toast("Select a greenhouse before creating a lighting schedule.", "error"); return; }
+    setEditLighting(null); setLightingOpen(true);
+  };
 
   // Minute-aligned clock reference (avoids 1000ms re-render churn in ScheduleContent)
   const [currentMinutes, setCurrentMinutes] = useState(() => {
@@ -106,14 +112,16 @@ export function ScheduleContent({
     return () => clearInterval(interval);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<"fertigation" | "pump" | "fan" | "hardware" | "all">("fertigation");
+  const [activeTab, setActiveTab] = useState<"fertigation" | "pump" | "fan" | "lighting" | "hardware" | "all">("fertigation");
   const [fertOpen, setFertOpen] = useState(false);
   const [pumpOpen, setPumpOpen] = useState(false);
   const [fanOpen, setFanOpen] = useState(false);
+  const [lightingOpen, setLightingOpen] = useState(false);
   const [editFert, setEditFert] = useState<FertigationSchedule | null>(null);
   const [editPump, setEditPump] = useState<WellPumpSchedule | null>(null);
   const [editFan, setEditFan] = useState<FanSchedule | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ kind: "fert" | "pump" | "fan"; id: string; name: string } | null>(null);
+  const [editLighting, setEditLighting] = useState<LightingSchedule | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: "fert" | "pump" | "fan" | "light"; id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -203,6 +211,7 @@ export function ScheduleContent({
   const fertSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fertigationForGh(greenhouse.id));
   const wellPumps = scheduleService.wellPumpForComplex(complex.id);
   const fanSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.fanForGh(greenhouse.id));
+  const lightingSchedules = scheduleGreenhouses.flatMap((greenhouse) => scheduleService.lightingForGh(greenhouse.id));
   const waterTransfers = scheduleService.waterTransferForComplex(complex.id);
 
   // Queue = pending mixing entries for this GH
@@ -244,8 +253,19 @@ export function ScheduleContent({
     setFanOpen(false);
   };
 
+  const handleLightingSubmit = async (input: Omit<LightingSchedule, "id">, initial: LightingSchedule | null) => {
+    if (initial) {
+      await scheduleService.updateLighting(initial.id, input);
+      toast(`Lighting schedule "${input.name}" updated`, "success");
+    } else {
+      await scheduleService.createLighting(input);
+      toast(`Lighting schedule "${input.name}" created`, "success");
+    }
+    setLightingOpen(false);
+  };
+
   const handleToggle = async (
-    kind: "fert" | "pump" | "fan",
+    kind: "fert" | "pump" | "fan" | "light",
     id: string,
     v: boolean,
     label: string
@@ -255,6 +275,7 @@ export function ScheduleContent({
       if (kind === "fert") await scheduleService.updateFertigation(id, { enabled: v, status: v ? "scheduled" : "disabled" });
       if (kind === "pump") await scheduleService.updateWellPump(id, { enabled: v, status: v ? "scheduled" : "disabled" });
       if (kind === "fan") await scheduleService.updateFan(id, { enabled: v, status: v ? "scheduled" : "disabled" });
+      if (kind === "light") await scheduleService.updateLighting(id, { enabled: v, status: v ? "scheduled" : "disabled" });
       toast(v ? `${label} enabled` : `${label} disabled`, v ? "success" : "info");
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -271,6 +292,7 @@ export function ScheduleContent({
       if (target.kind === "fert") await scheduleService.deleteFertigation(target.id);
       if (target.kind === "pump") await scheduleService.deleteWellPump(target.id);
       if (target.kind === "fan") await scheduleService.deleteFan(target.id);
+      if (target.kind === "light") await scheduleService.deleteLighting(target.id);
       toast(`Schedule "${target.name}" deleted`, "info");
       setDeleteTarget(null);
     } catch (e) {
@@ -368,6 +390,7 @@ export function ScheduleContent({
           { id: "fertigation" as const, label: "Fertigasi & Dosing", icon: Droplets, count: fertSchedules.filter((s) => s.enabled).length },
           { id: "pump" as const, label: "Pompa Air Baku (Sumur)", icon: Waves, count: wellPumps.filter((s) => s.enabled).length },
           { id: "fan" as const, label: "Kipas Sirkulasi (Fan)", icon: Fan, count: fanSchedules.filter((s) => s.enabled).length },
+          { id: "lighting" as const, label: "Pencahayaan (Lighting)", icon: Lightbulb, count: lightingSchedules.filter((s) => s.enabled).length },
           { id: "hardware" as const, label: "Hardware & ESP32", icon: MonitorCog },
           { id: "all" as const, label: "Semua Jadwal", icon: ListOrdered },
         ].map((tab) => {
@@ -554,7 +577,60 @@ export function ScheduleContent({
         </div>
       )}
 
-      {/* ---------------- Tab 4: Hardware & ESP32 ---------------- */}
+      {/* ---------------- Tab 4: Pencahayaan (Lighting - Dedicated OFF-only) ---------------- */}
+      {activeTab === "lighting" && (
+        <div className="space-y-5">
+          <TodayScheduleTimeline
+            mode="schedule"
+            complexId={complex.id}
+            greenhouseId={gh?.id}
+            selectedCategory="fan"
+          />
+          <DarkSectionCard
+            title={`Lighting Schedules (OFF-Only) — ${complex.code}`}
+            icon={Lightbulb}
+            iconTone="violet"
+            subtitle="Dedicated Greenhouse Lighting Schedules • Automatic turn-off only (No scheduled ON)"
+            action={
+              <ActionButton tone="slate" onClick={openLightingCreate}>
+                <Plus className="h-3.5 w-3.5" /> Add OFF Schedule
+              </ActionButton>
+            }
+          >
+            <ScheduleTable
+              rows={lightingSchedules.map((s) => ({
+                id: s.id,
+                name: s.name || `Light OFF — ${s.time}`,
+                greenhouse: greenhouseService.get(s.ghId)?.code ?? "–",
+                time: s.time,
+                repeat: s.repeat,
+                detail: "Discrete OFF Action (Manual ON Only)",
+                lastRun: s.lastRun,
+                nextRun: s.nextRun,
+                enabled: s.enabled,
+                status: s.status,
+                activationState: s.activationState,
+                blockedReasons: s.blockedReasons,
+              }))}
+              accent="sky"
+              addLabel="Add Lighting OFF Schedule"
+              onAdd={openLightingCreate}
+              onToggle={(id, v) => handleToggle("light", id, v, "Lighting schedule")}
+              onEdit={(id) => {
+                const s = lightingSchedules.find((item) => item.id === id);
+                if (s) {
+                  setEditLighting(s);
+                  setLightingOpen(true);
+                }
+              }}
+              onDelete={(id, name) => setDeleteTarget({ kind: "light", id, name })}
+              togglingId={togglingId}
+            />
+          </DarkSectionCard>
+        </div>
+      )}
+
+      {/* ---------------- Tab 5: Hardware & ESP32 ---------------- */}
       {activeTab === "hardware" && (
         <div className="space-y-5">
           <TopologyCapabilityPanel states={topologyStates} loading={topologyLoading} unavailableReason={topologyError} />
@@ -851,6 +927,14 @@ export function ScheduleContent({
         ghCode={gh.code}
         initial={editFan}
         onSubmit={handleFanSubmit}
+      />}
+      {(gh || ghs[0]) && <AddLightingScheduleDrawer
+        open={lightingOpen}
+        onClose={() => setLightingOpen(false)}
+        ghId={(gh || ghs[0]).id}
+        ghCode={(gh || ghs[0]).code}
+        initial={editLighting}
+        onSubmit={handleLightingSubmit}
       />}
 
       <ConfirmDialog
