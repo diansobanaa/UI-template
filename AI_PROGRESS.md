@@ -1,3 +1,48 @@
+## SP-GH-LIGHTING-TIMELINE-002
+- **Date**: 2026-10-10
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Complete end-to-end audit, implementation, and verification of Schedule Timeline integration for Greenhouse Lighting (OFF-only, Relay IN3) and regression audit against schedule table and Blower Fan schedules.
+- **Implemented Work**:
+  1. **Timeline Engine & Categories**:
+     - `src/components/timeline/TimelineEngine.ts`: Extended `ScheduleType` union to `"fertigation" | "pump" | "fan" | "lighting"`. Added `lightingAction?: "OFF"` and `actuatorChannel?: string` metadata to `TimelineRawEvent`.
+  2. **Today Schedule Timeline Component**:
+     - `src/components/timeline/TodayScheduleTimeline.tsx`:
+       - Added `Lightbulb` icon from `lucide-react` and `LightingSchedule` type import.
+       - Added `{ id: "lighting", label: "Lighting Schedule (OFF-only)", icon: Lightbulb, tone: "violet" }` to `SCHEDULE_CATEGORIES_CONFIG`.
+       - Added `{ id: "lighting", label: "Lighting Schedule (OFF-Only)" }` to timeline filter options.
+       - Implemented `getGhLightingOccurrences(ghId, ghCode)`: Evaluates active lighting schedules per date, expands discrete point-in-time turn-off blocks (30-min visual block for readability), and tags them with `lightingAction = "OFF"` and `actuatorChannel = "Relay IN3 (GPIO 10)"`.
+       - Mode 1 (Complex overview): Integrates lighting into combined greenhouse rows (`Fert + Fan + Lighting`) and filters.
+       - Mode 2 (GH detail page): Added dedicated Row 4 "Lighting Schedule (OFF-Only)" in violet tone with Lightbulb icon.
+       - Mode 3 (Schedule page tab): Dedicated lighting category view with multi-greenhouse iteration support; fixed fan tab to display all greenhouses with fans.
+       - Timeline card styling: Violet tone (`bg-[#25153f]/95 text-violet-100 border-violet-500/50`), Lightbulb row icon, Lightbulb event icon.
+       - Detail popover: Displays `Action: Turn OFF (Padam)` and `Actuator: Relay IN3 (GPIO 10)`.
+  3. **Schedule Page Integration**:
+     - `src/app/schedule/page.tsx`: Fixed Tab 4 (Lighting) invocation to pass `selectedCategory="lighting"` instead of `"fan"`.
+  4. **Canonical Documentation**:
+     - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`: Documented Schedule Timeline integration, table vs timeline record-by-record synchronization, and strict separation between Blower and Lighting schedules.
+- **Verification Evidence**:
+  - `python scripts/test_schedule_timeline_integration.py`: PASS (all 5 check suites passed):
+    - ScheduleType includes 'lighting' and TimelineRawEvent fields.
+    - SCHEDULE_CATEGORIES_CONFIG and filter options include lighting.
+    - Schedule page Tab 4 passes selectedCategory='lighting' and Tab 3 passes 'fan'.
+    - Schedule compiler isolates LIGHTING_RELAY_CH3 and BLOWER roles.
+    - Actuator HAL strictly forbids non-manual ON and bootstraps safe OFF.
+    - Live ESP32 REST verification: Scheduled LIGHT_ON rejected (409), Manual LIGHT_ON accepted (202), status confirmed `lighting: true`, Scheduled LIGHT_OFF accepted (202), status confirmed `lighting: false`.
+  - `python scripts/test_lighting_and_blower_integration.py`: PASS (35/35 checks passed).
+  - `python scripts/test_task9c_blower_fan.py`: PASS (34/34 checks passed).
+  - `npx tsc --noEmit`: PASS (0 type errors).
+  - `npm test`: PASS (28 canonical endpoints verified).
+- **Changed Files**:
+  - `src/components/timeline/TimelineEngine.ts`
+  - `src/components/timeline/TodayScheduleTimeline.tsx`
+  - `src/app/schedule/page.tsx`
+  - `scripts/test_schedule_timeline_integration.py`
+  - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Action**: Commit stable safe point and deliver final report.
+
 ## SP-GH-LIGHTING-BLOWER-001
 - **Date**: 2026-10-10
 - **Status**: `COMPLETE & HARDWARE-VERIFIED`

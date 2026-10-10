@@ -10,6 +10,7 @@ import {
   Waves,
   Leaf,
   Fan,
+  Lightbulb,
   Building2,
   Calendar,
   Layers,
@@ -32,6 +33,7 @@ import type {
   FertigationSchedule,
   WellPumpSchedule,
   FanSchedule,
+  LightingSchedule,
 } from "@/lib/types";
 import {
   TimelineMode,
@@ -51,7 +53,7 @@ export interface TodayScheduleTimelineProps {
   mode?: TimelineMode;
   complexId?: string;
   greenhouseId?: string;
-  selectedCategory?: string; // "all" | "fertigation" | "pump" | "fan"
+  selectedCategory?: string; // "all" | "fertigation" | "pump" | "fan" | "lighting"
   className?: string;
 }
 
@@ -61,11 +63,12 @@ const SCHEDULE_CATEGORIES_CONFIG: Array<{
   id: ScheduleType;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  tone: "emerald" | "cyan" | "amber";
+  tone: "emerald" | "cyan" | "amber" | "violet";
 }> = [
   { id: "fertigation", label: "Fertigation Schedule", icon: Leaf, tone: "emerald" },
   { id: "pump", label: "Well Pump Schedule", icon: Waves, tone: "cyan" },
   { id: "fan", label: "Fan Schedule", icon: Fan, tone: "amber" },
+  { id: "lighting", label: "Lighting Schedule (OFF-only)", icon: Lightbulb, tone: "violet" },
 ];
 
 function getCategoryToneClasses(tone: "emerald" | "cyan" | "amber" | "violet" | "blue") {
@@ -254,6 +257,7 @@ function TodayScheduleTimelineComponent({
       { id: "fertigation", label: "Fertigation Schedule" },
       { id: "pump", label: "Well Pump Schedule" },
       { id: "fan", label: "Fan Schedule" },
+      { id: "lighting", label: "Lighting Schedule (OFF-Only)" },
     ];
 
     // Helper: compute Fertigation occurrences for a given Greenhouse on selectedDate
@@ -391,24 +395,78 @@ function TodayScheduleTimelineComponent({
       return { events, ambientBadge };
     }
 
+    // Helper: compute Lighting occurrences for a given Greenhouse on selectedDate (Dedicated OFF-only)
+    function getGhLightingOccurrences(ghId: string, ghCode: string): TimelineRawEvent[] {
+      const schedules = scheduleService.lightingForGh(ghId);
+      const events: TimelineRawEvent[] = [];
+
+      schedules.forEach((s) => {
+        if (!s.enabled || !s.time || s.time === "--:--") return;
+        if (!isScheduleActiveOnDate(s, selectedDate, clock.date)) return;
+
+        const occTimes = expandIntervalTimes(s.time, undefined, undefined);
+        occTimes.forEach((occTime, oIdx) => {
+          const startMin = parseClockToMinutes(occTime);
+          const duration = 30; // 30-min block for clear visual footprint on timeline
+          const endMin = startMin + duration;
+
+          let status: PlacedTimelineEvent["status"] = "scheduled";
+          if (isToday) {
+            const isRunning = currentMinutes >= startMin && currentMinutes < endMin;
+            const isPast = endMin < currentMinutes;
+            status = isRunning ? "running" : isPast ? "completed" : "scheduled";
+          } else if (offsetDays < 0) {
+            status = "completed";
+          } else {
+            status = "scheduled";
+          }
+
+          events.push({
+            id: `light-${ghId}-${s.id}-${oIdx}`,
+            sourceScheduleId: s.id,
+            scheduleType: "lighting",
+            sourceScope: "greenhouse",
+            greenhouseId: ghId,
+            greenhouseCode: ghCode,
+            time: occTime,
+            endTime: formatMinutesToClock(endMin),
+            durationMin: duration,
+            title: s.name || "Lamp Turn OFF",
+            subtitle: `OFF @ ${occTime} • Relay IN3`,
+            status,
+            lightingAction: "OFF",
+            actuatorChannel: "Relay IN3 (GPIO 10)",
+            repeatRule: s.repeat || "Every Day",
+            occurrenceIndex: oIdx + 1,
+            totalOccurrences: occTimes.length,
+          });
+        });
+      });
+
+      return events;
+    }
+
     // ---------------- MODE 1: COMPLEX OVERVIEW ----------------
-    // Grouping: GREENHOUSE rows (Fertigation + Fan only) + ONE shared Complex Well Pump row
+    // Grouping: GREENHOUSE rows (Fertigation + Fan + Lighting) + ONE shared Complex Well Pump row
     if (mode === "complex") {
       const complexRows: TimelineRow[] = [];
 
-      // 1. Greenhouse rows (Fertigation + Fan only, do NOT repeat Well Pump here)
+      // 1. Greenhouse rows (Fertigation + Fan + Lighting, do NOT repeat Well Pump here)
       if (activeFilter !== "pump") {
         ghs.forEach((gh, idx) => {
           const ghFert = getGhFertOccurrences(gh.id, gh.code);
           const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(gh.id, gh.code);
+          const ghLight = getGhLightingOccurrences(gh.id, gh.code);
 
           let combinedGhEvents: TimelineRawEvent[] = [];
           if (activeFilter === "all") {
-            combinedGhEvents = [...ghFert, ...ghFan];
+            combinedGhEvents = [...ghFert, ...ghFan, ...ghLight];
           } else if (activeFilter === "fertigation") {
             combinedGhEvents = ghFert;
           } else if (activeFilter === "fan") {
             combinedGhEvents = ghFan;
+          } else if (activeFilter === "lighting") {
+            combinedGhEvents = ghLight;
           }
 
           const { placed, laneCount } = assignLanesToEvents(combinedGhEvents);
@@ -417,7 +475,7 @@ function TodayScheduleTimelineComponent({
             id: gh.id,
             key: gh.id,
             label: formatGreenhouseName(gh, idx),
-            subtitle: `${gh.crop || "Crops"} • Fertigation + Fan`,
+            subtitle: `${gh.crop || "Crops"} • Fert + Fan + Lighting`,
             rowKind: "greenhouse",
             colorTone: "emerald",
             events: placed,
@@ -449,7 +507,7 @@ function TodayScheduleTimelineComponent({
     }
 
     // ---------------- MODE 2: GREENHOUSE DETAIL PAGE ----------------
-    // Primary Grouping: SCHEDULE TYPE (Fertigation, Well Pump, Fan)
+    // Primary Grouping: SCHEDULE TYPE (Fertigation, Well Pump, Fan, Lighting)
     if (mode === "gh") {
       const ghRows: TimelineRow[] = [];
       const ghFert = getGhFertOccurrences(activeGh.id, activeGh.code);
@@ -457,6 +515,7 @@ function TodayScheduleTimelineComponent({
         activeGh.id,
         activeGh.code
       );
+      const ghLight = getGhLightingOccurrences(activeGh.id, activeGh.code);
 
       // Row 1: Fertigation Schedule
       if (activeFilter === "all" || activeFilter === "fertigation") {
@@ -507,6 +566,22 @@ function TodayScheduleTimelineComponent({
         });
       }
 
+      // Row 4: Lighting Schedule (Dedicated OFF-Only)
+      if (activeFilter === "all" || activeFilter === "lighting") {
+        const { placed, laneCount } = assignLanesToEvents(ghLight);
+        ghRows.push({
+          id: `gh-${activeGh.id}-row-lighting`,
+          key: "lighting",
+          label: "Lighting Schedule (OFF-Only)",
+          subtitle: `${activeGh.code} Lamp safety shutdown • Relay IN3`,
+          rowKind: "scheduleType",
+          scheduleType: "lighting",
+          colorTone: "violet",
+          events: placed,
+          laneCount,
+        });
+      }
+
       return { rows: ghRows, filterOptions: filters };
     }
 
@@ -529,23 +604,78 @@ function TodayScheduleTimelineComponent({
       });
     } else if (activeFilter === "fan" || propCategory === "fan") {
       // Fan tab: Shows Fan schedule for active GH or all GHs
-      const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(
-        activeGh.id,
-        activeGh.code
-      );
-      const { placed, laneCount } = assignLanesToEvents(ghFan);
-      scheduleRows.push({
-        id: `schedule-tab-fan-${activeGh.id}`,
-        key: "fan",
-        label: `Fan Schedule — ${activeGh.code}`,
-        subtitle: "Airflow circulation",
-        rowKind: "scheduleType",
-        scheduleType: "fan",
-        colorTone: "amber",
-        events: placed,
-        laneCount,
-        ambientBadge: ghAmbientBadge,
-      });
+      if (propGhId) {
+        const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(
+          activeGh.id,
+          activeGh.code
+        );
+        const { placed, laneCount } = assignLanesToEvents(ghFan);
+        scheduleRows.push({
+          id: `schedule-tab-fan-${activeGh.id}`,
+          key: "fan",
+          label: `Fan Schedule — ${activeGh.code}`,
+          subtitle: "Airflow circulation",
+          rowKind: "scheduleType",
+          scheduleType: "fan",
+          colorTone: "amber",
+          events: placed,
+          laneCount,
+          ambientBadge: ghAmbientBadge,
+        });
+      } else {
+        ghs.forEach((gh) => {
+          const { events: ghFan, ambientBadge: ghAmbientBadge } = getGhFanOccurrences(
+            gh.id,
+            gh.code
+          );
+          const { placed, laneCount } = assignLanesToEvents(ghFan);
+          scheduleRows.push({
+            id: `schedule-tab-fan-${gh.id}`,
+            key: `fan-${gh.id}`,
+            label: `Fan Schedule — ${gh.code}`,
+            subtitle: "Airflow circulation",
+            rowKind: "scheduleType",
+            scheduleType: "fan",
+            colorTone: "amber",
+            events: placed,
+            laneCount,
+            ambientBadge: ghAmbientBadge,
+          });
+        });
+      }
+    } else if (activeFilter === "lighting" || propCategory === "lighting") {
+      // Lighting tab: Shows Lighting schedule for active GH or all GHs (Dedicated OFF-only)
+      if (propGhId) {
+        const ghLight = getGhLightingOccurrences(activeGh.id, activeGh.code);
+        const { placed, laneCount } = assignLanesToEvents(ghLight);
+        scheduleRows.push({
+          id: `schedule-tab-lighting-${activeGh.id}`,
+          key: "lighting",
+          label: `Lighting Schedule (OFF-Only) — ${activeGh.code}`,
+          subtitle: "Dedicated Relay IN3 • Safe OFF",
+          rowKind: "scheduleType",
+          scheduleType: "lighting",
+          colorTone: "violet",
+          events: placed,
+          laneCount,
+        });
+      } else {
+        ghs.forEach((gh) => {
+          const ghLight = getGhLightingOccurrences(gh.id, gh.code);
+          const { placed, laneCount } = assignLanesToEvents(ghLight);
+          scheduleRows.push({
+            id: `schedule-tab-lighting-${gh.id}`,
+            key: `lighting-${gh.id}`,
+            label: `Lighting Schedule (OFF-Only) — ${gh.code}`,
+            subtitle: "Dedicated Relay IN3 • Safe OFF",
+            rowKind: "scheduleType",
+            scheduleType: "lighting",
+            colorTone: "violet",
+            events: placed,
+            laneCount,
+          });
+        });
+      }
     } else {
       // Fertigation tab or All Schedules tab:
       // If scoped to a specific GH, show schedule types; if Complex-wide, show GH rows then ONE shared Well Pump row
@@ -578,22 +708,38 @@ function TodayScheduleTimelineComponent({
           events: placedPump,
           laneCount: pumpLanes,
         });
+
+        const ghLight = getGhLightingOccurrences(activeGh.id, activeGh.code);
+        const { placed: placedLight, laneCount: lightLanes } = assignLanesToEvents(ghLight);
+        scheduleRows.push({
+          id: `schedule-tab-lighting-${activeGh.id}`,
+          key: "lighting",
+          label: `Lighting Schedule (OFF-Only) — ${activeGh.code}`,
+          subtitle: "Dedicated Relay IN3 • Safe OFF",
+          rowKind: "scheduleType",
+          scheduleType: "lighting",
+          colorTone: "violet",
+          events: placedLight,
+          laneCount: lightLanes,
+        });
       } else {
         if (activeFilter !== "pump") {
           ghs.forEach((gh, idx) => {
             const ghFert = getGhFertOccurrences(gh.id, gh.code);
             const { events: ghFan } = getGhFanOccurrences(gh.id, gh.code);
+            const ghLight = getGhLightingOccurrences(gh.id, gh.code);
             let evs: TimelineRawEvent[] = [];
-            if (activeFilter === "all") evs = [...ghFert, ...ghFan];
+            if (activeFilter === "all") evs = [...ghFert, ...ghFan, ...ghLight];
             else if (activeFilter === "fertigation") evs = ghFert;
             else if (activeFilter === "fan") evs = ghFan;
+            else if (activeFilter === "lighting") evs = ghLight;
 
             const { placed, laneCount } = assignLanesToEvents(evs);
             scheduleRows.push({
               id: `schedule-tab-gh-${gh.id}`,
               key: gh.id,
               label: formatGreenhouseName(gh, idx),
-              subtitle: `${gh.crop || "Crops"} • Fertigation + Fan`,
+              subtitle: `${gh.crop || "Crops"} • Fert + Fan + Lighting`,
               rowKind: "greenhouse",
               colorTone: "emerald",
               events: placed,
@@ -905,6 +1051,8 @@ function TodayScheduleTimelineComponent({
                                 ? "emerald"
                                 : event.scheduleType === "pump"
                                 ? "cyan"
+                                : event.scheduleType === "lighting"
+                                ? "violet"
                                 : "amber"
                             );
 
@@ -1057,6 +1205,8 @@ function renderRowIcon(rowKind: "greenhouse" | "scheduleType", scheduleType?: Sc
       return <Waves className="h-4 w-4" />;
     case "fan":
       return <Fan className="h-4 w-4" />;
+    case "lighting":
+      return <Lightbulb className="h-4 w-4" />;
     default:
       return <Calendar className="h-4 w-4" />;
   }
@@ -1070,6 +1220,8 @@ function renderEventIcon(scheduleType: ScheduleType) {
       return <Waves className="h-3 w-3 shrink-0 text-cyan-400" />;
     case "fan":
       return <Fan className="h-3 w-3 shrink-0 text-amber-400" />;
+    case "lighting":
+      return <Lightbulb className="h-3 w-3 shrink-0 text-violet-400" />;
     default:
       return null;
   }
@@ -1171,6 +1323,18 @@ function TimelineDetailPopover({
           <div>
             <span className="text-slate-400">Recurrence:</span>{" "}
             <span className="font-semibold text-slate-100">{event.repeatRule}</span>
+          </div>
+        )}
+        {event.lightingAction && (
+          <div>
+            <span className="text-slate-400">Action:</span>{" "}
+            <span className="font-semibold text-violet-300">Turn OFF (Padam)</span>
+          </div>
+        )}
+        {event.actuatorChannel && (
+          <div>
+            <span className="text-slate-400">Actuator:</span>{" "}
+            <span className="font-semibold text-slate-100">{event.actuatorChannel}</span>
           </div>
         )}
         {event.totalOccurrences && event.totalOccurrences > 1 && (

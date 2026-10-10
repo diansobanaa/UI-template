@@ -19,7 +19,7 @@
 import type { FertigationSchedule, WellPumpSchedule, FanSchedule, RepeatMode } from "@/lib/types";
 
 export type TimelineMode = "complex" | "gh" | "schedule";
-export type ScheduleType = "fertigation" | "pump" | "fan";
+export type ScheduleType = "fertigation" | "pump" | "fan" | "lighting";
 
 export interface TimelineRawEvent {
   id: string;
@@ -47,6 +47,8 @@ export interface TimelineRawEvent {
   repeatRule?: string;
   fanMode?: "time" | "temperature";
   temperatureRule?: string;
+  lightingAction?: "OFF";
+  actuatorChannel?: string;
 }
 
 export interface PlacedTimelineEvent extends TimelineRawEvent {

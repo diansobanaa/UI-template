@@ -1,31 +1,36 @@
-# AI HANDOVER - SP-GH-LIGHTING-BLOWER-001 (latest)
+# AI HANDOVER - SP-GH-LIGHTING-TIMELINE-002 (latest)
 
 ## Status
-The Greenhouse (GH) Lighting Control and dedicated Blower Fan GPIO integration is **COMPLETE, FLASHED TO PHYSICAL ESP32 (COM3), FULLY AUDITED, LIVE TESTED ON HARDWARE AT 192.168.0.101, AND CANONICALLY DOCUMENTED**.
+The Greenhouse (GH) Lighting Control, Schedule Timeline integration, and dedicated Blower Fan GPIO migration are **COMPLETE, FLASHED TO PHYSICAL ESP32 (COM3), LIVE HARDWARE VERIFIED AT 192.168.0.101, TYPECHECKED (0 ERRORS), TESTED (ALL PASS), AND CANONICALLY DOCUMENTED**.
 
 ## Objective Accomplished
-- **Greenhouse Lighting**:
-  - Relay Module REL-0008 channel 3 (IN3, GPIO 10) is exclusively assigned to GH Lighting (`PIN_OUT_GH_LIGHT`, active-LOW: 0=ON, 1=Safe OFF).
-  - Lighting can be turned ON **only** through explicit manual command from Web UI or physical momentary toggle button on GPIO 46 (`PIN_BTN_LIGHTING`).
-  - Lighting can be turned OFF manually or automatically via dedicated OFF-only schedule (`SCHED_ACTION_LIGHTING_OFF`).
-  - Scheduled ON, startup routine, configuration sync, or recovery procedure can NEVER turn lighting ON.
-  - All lighting commands route through single official entry point: `actuator_hal_request(ACTUATOR_GH_LIGHT, on, source, reason)`.
-- **Blower Fan**:
-  - Existing blower fan feature, schedule definitions, API, and UI are fully preserved.
-  - Decoupled from Relay IN3 and reassigned to dedicated GPIO 7 (`PIN_OUT_BLOWER_FAN`, active-HIGH MOSFET driver).
-  - Hardware installation is deferred: firmware and UI are ready so operator only needs to solder a wire to GPIO 7 when physically installing the fan without editing source code.
-- **Actuator Isolation**:
-  - Proved that Lighting commands/schedules affect only Relay IN3 (GPIO 10).
-  - Proved that Blower commands/schedules affect only MOSFET Module #4 (GPIO 7).
+- **Greenhouse Lighting Control**:
+  - Relay Module REL-0008 channel 3 (IN3, GPIO 10) is exclusively assigned to GH Lighting (`PIN_OUT_GH_LIGHT`, Active-LOW: 0=ON, 1=Safe OFF).
+  - Manual ON only: Lighting turns ON **only** through explicit manual command from Web UI or momentary toggle button on GPIO 46 (`PIN_BTN_LIGHTING`).
+  - Scheduled OFF only: Schedules support only turn-off action (`SCHED_ACTION_LIGHTING_OFF`). Scheduled ON is strictly rejected across UI schedule compiler, REST API, command manager, and scheduler.
+  - Single Entry Point: All operations route exclusively through `actuator_hal_request(ACTUATOR_GH_LIGHT, on, source, reason)`. Bypasses eliminated.
+- **Blower Fan Migration**:
+  - Blower fan feature, configuration, UI cards, and schedule definitions are 100% preserved.
+  - Decoupled from Relay IN3 and reassigned to dedicated, conflict-free GPIO 7 (`PIN_OUT_BLOWER_FAN`, Active-HIGH MOSFET driver).
+  - Hardware installation is solder-ready deferred without deleting or breaking functionality.
+- **Schedule Timeline & Table Integration**:
+  - `TimelineEngine.ts` and `TodayScheduleTimeline.tsx` extended with dedicated `"lighting"` category (Lightbulb icon, violet tone, dedicated Relay IN3 channel).
+  - Schedule Table and Timeline match record-by-record: discrete OFF time blocks are evaluated deterministically per selected date without missing entries.
+  - Strict separation enforced: Fan schedules (amber, `FAN_TOGGLE`, GPIO 7) and Lighting schedules (violet, `LIGHTING_OFF`, GPIO 10) never mix or cross-execute.
+  - Schedule page Tab 4 passes `selectedCategory="lighting"` with dedicated OFF schedule view.
+- **Actuator Isolation & Live Device Results**:
+  - Lighting commands affect only Relay IN3 (GPIO 10).
+  - Blower commands affect only MOSFET Module #4 (GPIO 7).
+  - Cabinet fan has no MCU GPIO (GPIO -1, direct PSU +/-).
 
 ## Verification Results
+- `python scripts/test_schedule_timeline_integration.py`: PASS (all 5 check suites passed).
 - `python scripts/test_lighting_and_blower_integration.py`: PASS (35/35 checks passed).
 - `python scripts/test_task9c_blower_fan.py`: PASS (34/34 checks passed).
 - `npm test`: PASS (all 28 canonical endpoints verified).
 - `npx tsc --noEmit`: PASS (0 errors).
-- `npm run build`: PASS (singlefile production bundle built in 10.64s).
-- `scripts/build_esp32.ps1`: PASS (ESP-IDF 5.5, 47% app partition free).
-- `scripts/flash_esp32.ps1`: PASS (flashed to ESP32 on COM3, image hashes verified, hard reset via RTS).
+- `npm run build`: PASS (singlefile production bundle built).
+- `scripts/build_esp32.ps1` & `flash_esp32.ps1`: PASS (flashed to COM3).
 - **Physical Device Execution Verification** (ESP32 at `192.168.0.101`):
   - Manual `LIGHT_ON`: 202 ACCEPTED, status verified `lighting: true`, `blowerFan: false`.
   - Scheduled `LIGHT_ON`: 409 REJECTED (`COMMAND_REJECTED` by firmware safety policy).
@@ -33,8 +38,7 @@ The Greenhouse (GH) Lighting Control and dedicated Blower Fan GPIO integration i
   - Manual `FAN_ON`: 202 ACCEPTED, status verified `blowerFan: true`, `lighting: false`.
   - Manual `FAN_OFF`: 202 ACCEPTED, status verified `blowerFan: false`, `lighting: false`.
   - `LIGHT_TOGGLE`: Verified sequential toggle states (False -> True -> False).
-  - Compiled schedule `LIGHTING_ON` deployment: 422 REJECTED (`COMPILED_SCHEDULE_INVALID`).
-  - Compiled schedule `LIGHTING_OFF` intent: Persisted to SPIFFS flash and synchronized into active runtime scheduler.
+  - Scheduled `LIGHT_OFF`: 202 ACCEPTED, status verified `lighting: false`.
 
 ## Canonical Documentation Synchronized
 - `docs/ESP32_GPIO_PIN_MAP.md`
@@ -44,6 +48,8 @@ The Greenhouse (GH) Lighting Control and dedicated Blower Fan GPIO integration i
 - `docs/HARDWARE_WIRING_CHECKLIST.md`
 - `docs/POWER_MAP.md`
 - `docs/ACTUATOR_CONTROL_ARCHITECTURE.md`
+
+# AI HANDOVER - SP-GH-LIGHTING-BLOWER-001
 
 # AI HANDOVER - SP-FLOW-CALIB-001
 

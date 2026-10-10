@@ -584,7 +584,7 @@ export function ScheduleContent({
             mode="schedule"
             complexId={complex.id}
             greenhouseId={gh?.id}
-            selectedCategory="fan"
+            selectedCategory="lighting"
           />
           <DarkSectionCard
             title={`Lighting Schedules (OFF-Only) — ${complex.code}`}

@@ -35,6 +35,10 @@ The repository-wide audit found these actuator-capable physical paths:
   Non-manual ON commands (`source != ACTUATOR_SOURCE_MANUAL`) are strictly rejected with `ESP_ERR_INVALID_STATE`.
   Scheduled ON is rejected across Web UI schedule compiler, REST API validation, and `command_mgr` (`SCHEDULED_LIGHTING_ON_FORBIDDEN`).
   Lighting schedules are strictly OFF-only (`LIGHTING_OFF`).
+- Schedule Timeline & Table Architecture:
+  `TodayScheduleTimeline.tsx` and `TimelineEngine.ts` fully support the dedicated `lighting` category (Lightbulb icon, violet tone, dedicated Relay IN3 channel).
+  Schedules in the table and timeline match record-by-record: discrete OFF time blocks are evaluated deterministically per selected date without missing entries.
+  Strict separation is enforced: Fan schedules (amber, `FAN_TOGGLE`, GPIO 7) and Lighting schedules (violet, `LIGHTING_OFF`, GPIO 10) never cross-render or cross-execute.
 - Actuator Isolation:
   Lighting commands affect exclusively Relay IN3 (GPIO 10).
   Blower fan commands affect exclusively MOSFET Module #4 (GPIO 7).
