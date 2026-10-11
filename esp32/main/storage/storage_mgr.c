@@ -29,6 +29,7 @@ static const char *COMPONENTS_JSON_FILE = "/spiffs/components.json";
 static const char *CONFIG_LVC_FILE = "/spiffs/lvc_config.json";
 static const char *CONFIG_CAND_FILE = "/spiffs/cand_config.json";
 static const char *CONFIG_PREV_FILE = "/spiffs/prev_config.json";
+static const char *CALIBRATION_CONFIG_FILE = "/spiffs/calib_config.json";
 
 #define MAX_EVENT_LOG_BYTES_SD          (512 * 1024)
 #define MAX_TELEMETRY_LOG_BYTES_SD      (1024 * 1024)
@@ -240,6 +241,7 @@ static const char *spiffs_path_for_key(const char *key)
     if (strcmp(key, "lvc_json") == 0) return CONFIG_LVC_FILE;
     if (strcmp(key, "cand_json") == 0) return CONFIG_CAND_FILE;
     if (strcmp(key, "prev_json") == 0) return CONFIG_PREV_FILE;
+    if (strcmp(key, "calib_json") == 0) return CALIBRATION_CONFIG_FILE;
     return NULL;
 }
 
@@ -735,6 +737,7 @@ esp_err_t storage_mgr_retire_complex(const char *complex_id)
     unlink(EVENT_LOG_FALLBACK_FILE);
     unlink(TELEMETRY_LOG_FALLBACK_FILE);
     unlink(FERTIGATION_RUN_FALLBACK_FILE);
+    unlink(CALIBRATION_CONFIG_FILE);
 
     s_state.complex_id[0] = '\0';
     s_state.config_version = 0;
@@ -1070,6 +1073,15 @@ esp_err_t storage_mgr_load_calibration(char *out_buf, size_t max_len, size_t *ou
 {
     if (!out_buf || max_len == 0) return ESP_ERR_INVALID_ARG;
 
+    /* 1. Try SPIFFS primary storage */
+    size_t s_len = 0;
+    if (load_spiffs_string(CALIBRATION_CONFIG_FILE, out_buf, max_len, &s_len) == ESP_OK && s_len > 0) {
+        if (out_len) *out_len = s_len;
+        ESP_LOGI(TAG, "Calibration read back from SPIFFS (%u bytes)", (unsigned)s_len);
+        return ESP_OK;
+    }
+
+    /* 2. Fallback to NVS */
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK) {
@@ -1086,7 +1098,7 @@ esp_err_t storage_mgr_load_calibration(char *out_buf, size_t max_len, size_t *ou
         return ESP_OK;
     }
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGW(TAG, "Calibration data missing from NVS");
+        ESP_LOGW(TAG, "Calibration data missing from NVS and SPIFFS");
     } else {
         ESP_LOGE(TAG, "Calibration load failed: NVS read (0x%x)", err);
     }
@@ -1097,48 +1109,34 @@ esp_err_t storage_mgr_save_calibration(const char *json_str)
 {
     if (!json_str) return ESP_ERR_INVALID_ARG;
 
+    /* Primary: persist to SPIFFS (9 MB capacity, non-fragmenting file) */
+    esp_err_t spiffs_err = save_spiffs_string(CALIBRATION_CONFIG_FILE, json_str);
+    if (spiffs_err == ESP_OK) {
+        ESP_LOGI(TAG, "Calibration persisted to SPIFFS (%u bytes)", (unsigned)strlen(json_str));
+    } else {
+        ESP_LOGW(TAG, "Calibration SPIFFS save failed (0x%x), attempting NVS fallback", spiffs_err);
+    }
+
+    /* Secondary: mirror to NVS if space allows; reclaim NVS space if full */
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Calibration persistence failed: NVS open (0x%x)", err);
-        return err;
-    }
-
-    err = nvs_set_str(handle, "calib_json", json_str);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Calibration persistence failed: NVS set (0x%x)", err);
-        nvs_close(handle);
-        return err;
-    }
-    err = nvs_commit(handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Calibration persistence failed: NVS commit (0x%x)", err);
-        nvs_close(handle);
-        return err;
-    }
-
-    size_t expected_len = strlen(json_str) + 1;
-    size_t stored_len = 0;
-    err = nvs_get_str(handle, "calib_json", NULL, &stored_len);
-    if (err == ESP_OK && stored_len == expected_len) {
-        char *stored = malloc(stored_len);
-        if (!stored) {
-            err = ESP_ERR_NO_MEM;
-        } else {
-            err = nvs_get_str(handle, "calib_json", stored, &stored_len);
-            if (err == ESP_OK && strcmp(stored, json_str) != 0) {
-                err = ESP_ERR_INVALID_RESPONSE;
-            }
-            free(stored);
+    esp_err_t nvs_err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (nvs_err == ESP_OK) {
+        nvs_err = nvs_set_str(handle, "calib_json", json_str);
+        if (nvs_err == ESP_OK) {
+            (void)nvs_commit(handle);
+        } else if (nvs_err == ESP_ERR_NVS_NOT_ENOUGH_SPACE) {
+            /* If NVS partition has no room for this large JSON, erase old key to reclaim pages */
+            (void)nvs_erase_key_optional(handle, "calib_json");
+            (void)nvs_commit(handle);
+            ESP_LOGW(TAG, "NVS space constrained (0x1105); erased stale calib_json from NVS; SPIFFS holds authority");
         }
-    } else if (err == ESP_OK) {
-        err = ESP_ERR_INVALID_RESPONSE;
+        nvs_close(handle);
     }
-    nvs_close(handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Calibration read-back failed after NVS commit (0x%x)", err);
-        return err;
+
+    /* If SPIFFS succeeded, operation is durable and successful */
+    if (spiffs_err == ESP_OK) {
+        return ESP_OK;
     }
-    ESP_LOGI(TAG, "Calibration persisted and read back from NVS (%u bytes)", (unsigned)expected_len);
-    return ESP_OK;
+    return (nvs_err == ESP_OK) ? ESP_OK : spiffs_err;
 }
+

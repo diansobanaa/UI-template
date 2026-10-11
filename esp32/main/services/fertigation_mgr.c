@@ -32,6 +32,7 @@
 static const char *TAG = "FERT_MGR";
 static fertigation_state_t s_state = FERT_STATE_IDLE;
 static fertigation_batch_config_t s_batch;
+static bool s_resume_from_pool = false;
 static delivery_slot_t s_delivery_slots[FERT_MAX_DELIVERY_SLOTS] = {0};
 static SemaphoreHandle_t s_mutex = NULL;
 
@@ -1116,6 +1117,37 @@ static bool restore_recovery_for_slot(int slot_idx) {
 }
 
 static bool restore_recovery(void) {
+  // 0. Primary Priority: Check 1-second persistent mixing pool first!
+  mixing_pool_t pool;
+  if (mixing_pool_load(&pool) == ESP_OK && !pool.is_test && pool.is_active) {
+    ESP_LOGI(TAG, "Restored 1-second mixing pool for batch %s in GH %s (seq=%lu)",
+             pool.batch_id, pool.gh_id, (unsigned long)pool.sequence);
+    cp(s_batch.run_id, sizeof(s_batch.run_id), pool.batch_id);
+    cp(s_batch.complex_id, sizeof(s_batch.complex_id), pool.complex_id);
+    cp(s_batch.gh_id, sizeof(s_batch.gh_id), pool.gh_id);
+    cp(s_batch.recipe_id, sizeof(s_batch.recipe_id), pool.recipe_id);
+    s_batch.target_water_ml = (int32_t)pool.target_raw_water_ml;
+    s_batch.raw_water_start_threshold_percent = pool.threshold_percent;
+    s_batch.mixing_duration_sec = pool.post_mix_duration_sec;
+    cp(s_batch.raw_water_component_id, sizeof(s_batch.raw_water_component_id), pool.raw_water_component_id);
+    cp(s_batch.raw_flow_sensor_id, sizeof(s_batch.raw_flow_sensor_id), pool.raw_flow_sensor_id);
+    cp(s_batch.mixing_pump_id, sizeof(s_batch.mixing_pump_id), pool.mixing_pump_id);
+    s_batch.channel_count = pool.channel_count;
+    for (uint32_t i = 0; i < pool.channel_count && i < FERT_MAX_DOSING_CHANNELS; i++) {
+      cp(s_batch.channels[i].component_id, sizeof(s_batch.channels[i].component_id), pool.channels[i].component_id);
+      s_batch.channels[i].requested_ml = (int32_t)pool.channels[i].target_volume_ml;
+      s_batch.channels[i].runtime_ms = pool.channels[i].expected_runtime_ms;
+      s_dosing_runtime_observed_ms[i] = pool.channels[i].observed_runtime_ms;
+    }
+    s_state = FERT_STATE_RECOVERY_HOLD;
+    (void)event_mgr_log_command(
+        LOG_LEVEL_WARNING, "FERTIGATION_RECOVERY_REQUIRED",
+        "Power recovery: Dosing/mixing was interrupted mid-process. Holding for operator decision (Resume or Discard).",
+        s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
+        s_batch.configuration_version);
+    return true;
+  }
+
   // 1. Priority: Try unified binary checkpoint
   if (restore_recovery_checkpoint()) {
     return true;
@@ -2027,6 +2059,13 @@ static void task(void *arg) {
                 ? (uint32_t)s_batch.channels[i].requested_ml
                 : 0;
       }
+      mix_cfg.is_test = false;
+      mix_cfg.resume_from_pool = s_resume_from_pool;
+      s_resume_from_pool = false;
+      cp(mix_cfg.batch_id, sizeof(mix_cfg.batch_id), s_batch.run_id);
+      cp(mix_cfg.complex_id, sizeof(mix_cfg.complex_id), s_batch.complex_id);
+      cp(mix_cfg.gh_id, sizeof(mix_cfg.gh_id), s_batch.gh_id);
+      cp(mix_cfg.recipe_id, sizeof(mix_cfg.recipe_id), s_batch.recipe_id);
       mix_cfg.abort_check = mixing_abort_check_hook;
       mix_cfg.tick_cb = mixing_tick_checkpoint_hook;
 
@@ -2379,6 +2418,56 @@ esp_err_t fertigation_mgr_cancel_batch(void) {
   xSemaphoreGive(s_mutex);
   return ESP_OK;
 }
+
+esp_err_t fertigation_mgr_resume(void) {
+  if (!s_mutex)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+    return ESP_FAIL;
+  if (s_state != FERT_STATE_RECOVERY_HOLD) {
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_resume_from_pool = true;
+  transition(FERT_STATE_MIXING);
+  (void)event_mgr_log_command(
+      LOG_LEVEL_INFO, "FERTIGATION_RESUMED",
+      "Fertigation batch mixing resumed by operator confirmation.",
+      s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
+      s_batch.configuration_version);
+  xSemaphoreGive(s_mutex);
+  return ESP_OK;
+}
+
+esp_err_t fertigation_mgr_discard(void) {
+  if (!s_mutex)
+    return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE)
+    return ESP_FAIL;
+  if (s_state != FERT_STATE_RECOVERY_HOLD) {
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_resume_from_pool = false;
+  mixing_pool_delete();
+  clear_recovery();
+  stop_all();
+  s_state = FERT_STATE_INTERRUPTED;
+  persist_run("POWER_LOSS_DISCARDED");
+  (void)event_mgr_log_command(
+      LOG_LEVEL_WARNING, "FERTIGATION_POWER_LOSS_DISCARDED",
+      "Fertigation batch discarded by operator after power loss.",
+      s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
+      s_batch.configuration_version);
+  s_state = FERT_STATE_IDLE;
+  xSemaphoreGive(s_mutex);
+  return ESP_OK;
+}
+
+bool fertigation_mgr_is_recovery_required(void) {
+  return (s_state == FERT_STATE_RECOVERY_HOLD);
+}
+
 fertigation_state_t fertigation_mgr_get_state(void) { return s_state; }
 esp_err_t fertigation_mgr_get_status(fertigation_runtime_snapshot_t *out) {
   if (!out)
@@ -2401,9 +2490,14 @@ esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out) {
   cJSON_AddStringToObject(o, "phase", state_name(s_state));
   cJSON_AddBoolToObject(o, "recoveryRequired",
                         s_state == FERT_STATE_RECOVERY_HOLD);
-  if (s_state == FERT_STATE_RECOVERY_HOLD)
+  if (s_state == FERT_STATE_RECOVERY_HOLD) {
     cJSON_AddStringToObject(o, "recoveryDisposition",
-                            "OPERATOR_CANCEL_REQUIRED");
+                            "OPERATOR_DECISION_REQUIRED");
+    cJSON *pool_json = NULL;
+    if (mixing_pool_get_status_json(&pool_json) == ESP_OK && pool_json) {
+      cJSON_AddItemToObject(o, "recoveryPool", pool_json);
+    }
+  }
   cJSON_AddStringToObject(o, "runId", s_batch.run_id);
   cJSON_AddStringToObject(o, "complexId", s_batch.complex_id);
   cJSON_AddStringToObject(o, "ghId", s_batch.gh_id);

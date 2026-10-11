@@ -14,8 +14,11 @@
 #include "hal/hardware_registry.h"
 #include "rom/ets_sys.h"
 #include "services/calibration_mgr.h"
+#define _GNU_SOURCE
 #include <stdio.h>
+#include <string.h>
 #include <strings.h>
+#include <stdlib.h>
 
 
 static const char *TAG = "SENSOR_HAL";
@@ -1233,6 +1236,14 @@ void sensor_hal_reset_counters(void) {
   s_pulses_fert_fs400a = 0;
   s_last_pulses_zjb1 = 0;
   s_last_pulses_fs400a = 0;
+}
+
+uint32_t sensor_hal_get_raw_flow_pulses(void) {
+  return s_pulses_raw_zjb1;
+}
+
+uint32_t sensor_hal_get_fert_flow_pulses(void) {
+  return s_pulses_fert_fs400a;
 }
 
 /* ---------------- Generic configuration-driven sensor abstraction (M11)

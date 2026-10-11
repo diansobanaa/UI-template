@@ -212,10 +212,46 @@ static esp_err_t stop_handler(httpd_req_t *req){
     return http_send_enveloped_response(req, 200, NULL, o);
 }
 
+static esp_err_t resume_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    esp_err_t err = fertigation_mgr_resume();
+    if (err == ESP_ERR_INVALID_STATE) {
+        http_send_error(req, 409, "NOT_IN_RECOVERY_HOLD", "Fertigation is not in RECOVERY_HOLD state to resume.", NULL);
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        http_send_error(req, 422, "FERTIGATION_RESUME_FAILED", "Unable to resume fertigation batch.", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "status", "RESUMED");
+    cJSON_AddStringToObject(o, "state", "MIXING");
+    return http_send_enveloped_response(req, 200, NULL, o);
+}
+
+static esp_err_t discard_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    esp_err_t err = fertigation_mgr_discard();
+    if (err == ESP_ERR_INVALID_STATE) {
+        http_send_error(req, 409, "NOT_IN_RECOVERY_HOLD", "Fertigation is not in RECOVERY_HOLD state to discard.", NULL);
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        http_send_error(req, 422, "FERTIGATION_DISCARD_FAILED", "Unable to discard fertigation batch.", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "status", "DISCARDED");
+    cJSON_AddStringToObject(o, "state", "IDLE");
+    return http_send_enveloped_response(req, 200, NULL, o);
+}
+
 void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t a={.uri="/api/v1/fertigation/start",.method=HTTP_POST,.handler=start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
     httpd_uri_t b={.uri="/api/v1/fertigation/status",.method=HTTP_GET,.handler=status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&b);
     httpd_uri_t q={.uri="/api/v1/fertigation/queue",.method=HTTP_GET,.handler=queue_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&q);
     httpd_uri_t d={.uri="/api/v1/fertigation/deliver",.method=HTTP_POST,.handler=deliver_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&d);
     httpd_uri_t c={.uri="/api/v1/fertigation/stop",.method=HTTP_POST,.handler=stop_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&c);
+    httpd_uri_t res={.uri="/api/v1/fertigation/resume",.method=HTTP_POST,.handler=resume_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&res);
+    httpd_uri_t disc={.uri="/api/v1/fertigation/discard",.method=HTTP_POST,.handler=discard_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&disc);
 }

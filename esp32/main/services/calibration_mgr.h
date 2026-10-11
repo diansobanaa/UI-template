@@ -33,9 +33,21 @@ typedef struct {
     actuator_id_t pump_id;
     uint32_t duration_sec;
     uint32_t remaining_sec;
+    uint32_t elapsed_sec;
     char component_id[40];
     uint32_t measured_ml;
     char error_code[40];
+    /* Live flow sensor verification telemetry */
+    uint32_t start_pulses;
+    uint32_t current_pulses;
+    uint32_t session_pulses;
+    float pulse_frequency_hz;
+    float flow_rate_lpm;
+    float pulses_per_liter;
+    bool has_valid_calibration;
+    uint32_t estimated_ml;
+    float estimated_l;
+    char calibration_status[24];
 } calibration_status_t;
 
 typedef struct {
@@ -105,6 +117,9 @@ esp_err_t calibration_mgr_populate_records_json(cJSON *out_array);
 /* Canonical Mixing & Dosing hardware test execution via protocol_mixing */
 esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *config);
 esp_err_t calibration_mgr_stop_mixing_test(void);
+esp_err_t calibration_mgr_resume_mixing_test(void);
+esp_err_t calibration_mgr_discard_mixing_test(void);
+bool calibration_mgr_is_mixing_test_recovery_required(void);
 esp_err_t calibration_mgr_get_mixing_test_status(cJSON **out_json);
 bool calibration_mgr_is_mixing_test_running(void);
 

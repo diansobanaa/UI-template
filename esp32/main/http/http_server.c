@@ -8,7 +8,6 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_heap_caps.h"
-#include "esp_log_write.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

@@ -2263,12 +2263,25 @@ components:
       required: [state]
       properties:
         state: { type: string, enum: [IDLE, RUNNING, COMPLETE, ERROR] }
+        componentId: { type: string, nullable: true, description: "Actuator or flow sensor component currently undergoing calibration" }
+        duration_sec: { type: integer, minimum: 0, description: "Target test duration in seconds" }
+        elapsed_sec: { type: integer, minimum: 0, description: "Elapsed time in seconds since test start" }
         remaining_sec: { type: integer, minimum: 0 }
         remainingSec: { type: integer, minimum: 0, deprecated: true }
         measuredValue: { type: number, nullable: true }
         measured_ml: { type: integer, nullable: true, description: "Measured volume in mL accumulated during test" }
-        errorCode: { type: string, nullable: true, description: "Failure reason when calibration state is ERROR" }
         measured_l: { type: number, nullable: true, description: "Measured volume in L accumulated during test" }
+        start_pulses: { type: integer, minimum: 0, description: "Baseline snapshot of lifetime pulse counter at test start" }
+        current_pulses: { type: integer, minimum: 0, description: "Current lifetime pulse counter reading from firmware" }
+        session_pulses: { type: integer, minimum: 0, description: "Net cumulative pulses accumulated during this session" }
+        pulse_frequency_hz: { type: number, description: "Instantaneous pulse frequency in Hz (pulses/sec)" }
+        flow_rate_lpm: { type: number, description: "Live estimated flow rate in L/min" }
+        pulses_per_liter: { type: number, description: "Active pulses/L calibration factor used for estimates" }
+        has_valid_calibration: { type: boolean, description: "Whether a valid pulses-per-liter calibration exists" }
+        estimated_ml: { type: integer, minimum: 0, description: "Estimated volume in mL calculated from session pulses" }
+        estimated_l: { type: number, minimum: 0, description: "Estimated volume in L calculated from session pulses" }
+        calibration_status: { type: string, enum: [UNCAL, CALIBRATION_PENDING, VERIFIED], description: "Current verification status" }
+        errorCode: { type: string, nullable: true, description: "Failure or termination reason (e.g. EMERGENCY_STOP, STOPPED_BY_OPERATOR)" }
 
     CalibrationRates:
       type: object

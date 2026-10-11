@@ -155,6 +155,17 @@ esp_err_t sensor_hal_get_readings(sensor_readings_t *out_readings);
  */
 void sensor_hal_reset_counters(void);
 
+/**
+ * @brief Directly read physical raw water flow sensor (ZJ-B1 GPIO 15) cumulative pulse count.
+ * Operates with single-cycle atomic read directly from hardware ISR accumulator.
+ */
+uint32_t sensor_hal_get_raw_flow_pulses(void);
+
+/**
+ * @brief Directly read physical fertigation delivery flow sensor (FS400A GPIO 16) cumulative pulse count.
+ */
+uint32_t sensor_hal_get_fert_flow_pulses(void);
+
 /** Configuration-driven generic sensor abstraction. */
 esp_err_t sensor_hal_get_descriptor(const char *sensor_id, sensor_descriptor_t *out_descriptor);
 esp_err_t sensor_hal_get_component_sample(const char *sensor_id, sensor_component_sample_t *out_sample);

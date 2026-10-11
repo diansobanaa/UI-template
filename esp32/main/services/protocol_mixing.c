@@ -9,6 +9,9 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include "esp_rom_crc.h"
+#include "hal/microsd_hal.h"
 
 static const char *TAG = "MIXING_CORE";
 
@@ -260,6 +263,126 @@ static inline void sync_live_result(const mixing_protocol_config_t *config, cons
     }
 }
 
+esp_err_t mixing_pool_save(const mixing_pool_t *pool)
+{
+    if (!pool) return ESP_ERR_INVALID_ARG;
+    mixing_pool_t cp = *pool;
+    cp.crc32 = esp_rom_crc32_le(0, (const uint8_t *)&cp, offsetof(mixing_pool_t, crc32));
+
+    const char *paths[] = { MIXING_POOL_FILE, MIXING_POOL_FALLBACK_FILE };
+    esp_err_t ret = ESP_FAIL;
+
+    for (size_t p = 0; p < 2; ++p) {
+        if (p == 0 && !microsd_hal_is_mounted()) continue;
+        FILE *f = fopen(paths[p], "wb");
+        if (f) {
+            size_t written = fwrite(&cp, 1, sizeof(cp), f);
+            fclose(f);
+            if (written == sizeof(cp)) {
+                ret = ESP_OK;
+            }
+        }
+    }
+    return ret;
+}
+
+esp_err_t mixing_pool_load(mixing_pool_t *out_pool)
+{
+    if (!out_pool) return ESP_ERR_INVALID_ARG;
+    const char *paths[] = { MIXING_POOL_FILE, MIXING_POOL_FALLBACK_FILE };
+    mixing_pool_t temp;
+
+    for (size_t p = 0; p < 2; ++p) {
+        if (p == 0 && !microsd_hal_is_mounted()) continue;
+        FILE *f = fopen(paths[p], "rb");
+        if (!f) continue;
+        size_t n = fread(&temp, 1, sizeof(temp), f);
+        fclose(f);
+        if (n == sizeof(temp) &&
+            temp.magic == MIXING_POOL_MAGIC &&
+            temp.version == MIXING_POOL_VERSION &&
+            temp.is_active) {
+            uint32_t expected_crc = esp_rom_crc32_le(0, (const uint8_t *)&temp, offsetof(mixing_pool_t, crc32));
+            if (temp.crc32 == expected_crc) {
+                *out_pool = temp;
+                return ESP_OK;
+            } else {
+                ESP_LOGW(TAG, "Mixing pool CRC mismatch on %s", paths[p]);
+            }
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t mixing_pool_delete(void)
+{
+    if (microsd_hal_is_mounted()) {
+        unlink(MIXING_POOL_FILE);
+    }
+    unlink(MIXING_POOL_FALLBACK_FILE);
+    ESP_LOGI(TAG, "Mixing checkpoint pool unlinked and deleted.");
+    return ESP_OK;
+}
+
+bool mixing_pool_exists(void)
+{
+    mixing_pool_t temp;
+    return (mixing_pool_load(&temp) == ESP_OK);
+}
+
+esp_err_t mixing_pool_get_status_json(cJSON **out_json)
+{
+    if (!out_json) return ESP_ERR_INVALID_ARG;
+    *out_json = NULL;
+
+    mixing_pool_t pool;
+    if (mixing_pool_load(&pool) != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    cJSON_AddBoolToObject(root, "isTest", pool.is_test);
+    cJSON_AddBoolToObject(root, "isActive", pool.is_active);
+    cJSON_AddNumberToObject(root, "sequence", pool.sequence);
+    cJSON_AddNumberToObject(root, "timestampMs", (double)pool.timestamp_ms);
+    cJSON_AddStringToObject(root, "batchId", pool.batch_id);
+    cJSON_AddStringToObject(root, "complexId", pool.complex_id);
+    cJSON_AddStringToObject(root, "ghId", pool.gh_id);
+    cJSON_AddStringToObject(root, "recipeId", pool.recipe_id);
+    cJSON_AddNumberToObject(root, "targetRawWaterMl", pool.target_raw_water_ml);
+    cJSON_AddNumberToObject(root, "actualRawWaterMl", pool.actual_raw_water_ml);
+    uint32_t rem_water = pool.target_raw_water_ml > pool.actual_raw_water_ml
+                         ? (pool.target_raw_water_ml - pool.actual_raw_water_ml) : 0;
+    cJSON_AddNumberToObject(root, "remainingRawWaterMl", rem_water);
+    cJSON_AddNumberToObject(root, "thresholdPercent", pool.threshold_percent);
+    cJSON_AddBoolToObject(root, "thresholdReached", pool.threshold_reached);
+    cJSON_AddBoolToObject(root, "rawWaterCompleted", pool.raw_water_completed);
+    cJSON_AddStringToObject(root, "currentPhase", mixing_phase_to_string((mixing_phase_t)pool.current_phase));
+
+    cJSON *ch_arr = cJSON_AddArrayToObject(root, "channels");
+    for (uint32_t i = 0; i < pool.channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        cJSON *ch = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch, "componentId", pool.channels[i].component_id);
+        cJSON_AddNumberToObject(ch, "targetVolumeMl", pool.channels[i].target_volume_ml);
+        cJSON_AddNumberToObject(ch, "expectedRuntimeMs", pool.channels[i].expected_runtime_ms);
+        cJSON_AddNumberToObject(ch, "observedRuntimeMs", pool.channels[i].observed_runtime_ms);
+        uint32_t rem_ms = pool.channels[i].expected_runtime_ms > pool.channels[i].observed_runtime_ms
+                          ? (pool.channels[i].expected_runtime_ms - pool.channels[i].observed_runtime_ms) : 0;
+        cJSON_AddNumberToObject(ch, "remainingRuntimeMs", rem_ms);
+        cJSON_AddBoolToObject(ch, "completed", pool.channels[i].completed);
+        cJSON_AddItemToArray(ch_arr, ch);
+    }
+
+    cJSON_AddNumberToObject(root, "postMixDurationSec", pool.post_mix_duration_sec);
+    cJSON_AddNumberToObject(root, "postMixElapsedMs", pool.post_mix_elapsed_ms);
+    cJSON_AddBoolToObject(root, "postMixCompleted", pool.post_mix_completed);
+
+    *out_json = root;
+    return ESP_OK;
+}
+
 mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
 {
     mixing_result_t result;
@@ -372,6 +495,8 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
      * ------------------------------------------------------------- */
     const char *raw_pump_id = config->raw_water_component_id[0]
                              ? config->raw_water_component_id : "pump_submersible";
+    const char *raw_sensor_id = config->raw_flow_sensor_id[0]
+                               ? config->raw_flow_sensor_id : "sensor_flow_raw";
     float raw_rate_ml_sec = get_pump_calibration_rate(raw_pump_id, ACTUATOR_RAW_SUBMERSIBLE);
     if (raw_rate_ml_sec <= 0.0f) {
         result.status = MIXING_RESULT_CALIBRATION_MISSING;
@@ -394,10 +519,23 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     uint32_t max_raw_runtime_sec = (uint32_t)ceilf(max_raw_sec_f);
 
     /* -------------------------------------------------------------
-     * 5. PRECHECK - DOSING CHANNELS CALIBRATION AUDIT
+     * 5. PRECHECK - DOSING CHANNELS CALIBRATION AUDIT & RESUME RESTORATION
      * ------------------------------------------------------------- */
     channel_execution_state_t exec_channels[MAX_MIXING_DOSING_CHANNELS];
     memset(exec_channels, 0, sizeof(exec_channels));
+
+    mixing_pool_t pool;
+    memset(&pool, 0, sizeof(pool));
+    bool is_resuming = config->resume_from_pool;
+    if (is_resuming) {
+        if (mixing_pool_load(&pool) == ESP_OK) {
+            ESP_LOGI(TAG, "Safe Resume: Loaded existing mixing pool checkpoint seq=%u for batch=%s",
+                     (unsigned)pool.sequence, pool.batch_id);
+        } else {
+            ESP_LOGW(TAG, "Safe Resume requested but pool checkpoint not found or invalid. Fallback to fresh run.");
+            is_resuming = false;
+        }
+    }
 
     for (uint32_t i = 0; i < config->channel_count; ++i) {
         const char *ch_id = config->channels[i].component_id;
@@ -436,6 +574,23 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         result.channels[i].calibration_rate_ml_sec = d_rate;
         result.channels[i].expected_runtime_ms = run_ms;
         result.channels[i].completed = false;
+
+        // If resuming, restore observed runtime and completed status from pool
+        if (is_resuming) {
+            for (uint32_t p = 0; p < pool.channel_count; ++p) {
+                if (strcmp(pool.channels[p].component_id, exec_channels[i].component_id) == 0) {
+                    exec_channels[i].observed_runtime_ms = pool.channels[p].observed_runtime_ms;
+                    exec_channels[i].completed = pool.channels[p].completed ||
+                                                 (exec_channels[i].observed_runtime_ms >= exec_channels[i].expected_runtime_ms);
+                    result.channels[i].actual_runtime_ms = exec_channels[i].observed_runtime_ms;
+                    result.channels[i].completed = exec_channels[i].completed;
+                    ESP_LOGI(TAG, "Resume channel '%s': observed=%u ms / target=%u ms, completed=%d",
+                             exec_channels[i].component_id, (unsigned)exec_channels[i].observed_runtime_ms,
+                             (unsigned)exec_channels[i].expected_runtime_ms, (int)exec_channels[i].completed);
+                    break;
+                }
+            }
+        }
     }
 
     /* -------------------------------------------------------------
@@ -488,9 +643,14 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     }
 
     /* -------------------------------------------------------------
-     * 7. BASELINE & THRESHOLD SETUP
+     * 7. BASELINE, THRESHOLD & PERSISTENT POOL INITIALIZATION
      * ------------------------------------------------------------- */
-    uint32_t start_flow_ml = initial_readings.total_ml_raw_zjb1;
+    uint32_t prev_delivered_ml = is_resuming ? pool.actual_raw_water_ml : 0;
+    uint32_t current_sensor_ml = initial_readings.total_ml_raw_zjb1;
+    uint32_t start_flow_ml = (current_sensor_ml >= prev_delivered_ml)
+                             ? (current_sensor_ml - prev_delivered_ml)
+                             : 0;
+
     uint32_t threshold_volume_ml = (uint32_t)(((uint64_t)config->raw_water_target_ml * config->threshold_percent) / 100ULL);
 
     uint32_t no_flow_grace_sec = config->no_flow_grace_period_sec > 0
@@ -498,39 +658,136 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
     uint32_t poll_delay_ms = config->poll_interval_ms > 0
                              ? config->poll_interval_ms : DEFAULT_POLL_INTERVAL_MS;
 
-    ESP_LOGI(TAG, "Starting Mixing Protocol: Target=%u mL, Threshold=%u%% (%u mL), RawRate=%.2f mL/s, ExpectedRun=%u s, Timeout=%u s",
-             (unsigned)config->raw_water_target_ml, (unsigned)config->threshold_percent, (unsigned)threshold_volume_ml,
-             raw_rate_ml_sec, (unsigned)expected_raw_sec, (unsigned)max_raw_runtime_sec);
-
-    /* -------------------------------------------------------------
-     * 8. START RAW WATER PUMP
-     * ------------------------------------------------------------- */
-    if (set_scoped_actuator_state(&job_actuators.raw_water, true) != ESP_OK) {
-        result.status = MIXING_RESULT_ACTUATOR_ERROR;
-        result.error_code = mixing_status_to_string(result.status);
-        result.current_phase = MIXING_PHASE_ERROR;
-        result.final_phase = MIXING_PHASE_ERROR;
-        snprintf(result.message, sizeof(result.message), "Failed to turn ON raw water pump '%s'.", raw_pump_id);
-        stop_job_scoped_actuators(&job_actuators);
-        return result;
+    if (!is_resuming) {
+        memset(&pool, 0, sizeof(pool));
+        pool.magic = MIXING_POOL_MAGIC;
+        pool.version = MIXING_POOL_VERSION;
+        pool.is_test = config->is_test;
+        pool.is_active = true;
+        pool.sequence = 1;
+        pool.timestamp_ms = esp_timer_get_time() / 1000LL;
+        strncpy(pool.batch_id, config->batch_id, sizeof(pool.batch_id) - 1);
+        strncpy(pool.complex_id, config->complex_id, sizeof(pool.complex_id) - 1);
+        strncpy(pool.gh_id, config->gh_id, sizeof(pool.gh_id) - 1);
+        strncpy(pool.recipe_id, config->recipe_id, sizeof(pool.recipe_id) - 1);
+        pool.target_raw_water_ml = config->raw_water_target_ml;
+        pool.threshold_percent = config->threshold_percent;
+        pool.post_mix_duration_sec = config->post_mix_duration_sec;
+        strncpy(pool.raw_water_component_id, raw_pump_id, sizeof(pool.raw_water_component_id) - 1);
+        strncpy(pool.raw_flow_sensor_id, raw_sensor_id, sizeof(pool.raw_flow_sensor_id) - 1);
+        strncpy(pool.mixing_pump_id, mixing_pump_id, sizeof(pool.mixing_pump_id) - 1);
+        pool.channel_count = config->channel_count;
+        for (uint32_t i = 0; i < config->channel_count; ++i) {
+            strncpy(pool.channels[i].component_id, exec_channels[i].component_id, sizeof(pool.channels[i].component_id) - 1);
+            pool.channels[i].target_volume_ml = exec_channels[i].target_volume_ml;
+            pool.channels[i].rate_ml_sec = exec_channels[i].rate_ml_sec;
+            pool.channels[i].expected_runtime_ms = exec_channels[i].expected_runtime_ms;
+            pool.channels[i].observed_runtime_ms = 0;
+            pool.channels[i].completed = false;
+        }
+        pool.current_phase = MIXING_PHASE_PRECHECK;
+        mixing_pool_save(&pool);
     }
 
-    result.current_phase = MIXING_PHASE_RAW_WATER_FILL;
+    ESP_LOGI(TAG, "Starting Mixing Protocol: Target=%u mL, Threshold=%u%% (%u mL), RawRate=%.2f mL/s, ExpectedRun=%u s, Timeout=%u s (is_resuming=%d)",
+             (unsigned)config->raw_water_target_ml, (unsigned)config->threshold_percent, (unsigned)threshold_volume_ml,
+             raw_rate_ml_sec, (unsigned)expected_raw_sec, (unsigned)max_raw_runtime_sec, (int)is_resuming);
+
+    /* -------------------------------------------------------------
+     * 8. START RAW WATER PUMP (IF NOT ALREADY COMPLETED)
+     * ------------------------------------------------------------- */
+    bool raw_water_running = false;
+    bool threshold_reached = is_resuming ? pool.threshold_reached : false;
+    bool mixing_running = false;
+    bool all_dosing_done = true;
+    for (uint32_t i = 0; i < config->channel_count; ++i) {
+        if (!exec_channels[i].completed) {
+            all_dosing_done = false;
+            break;
+        }
+    }
+    bool post_mix_started = false;
+    bool post_mix_done = false;
+    int64_t post_mix_start_us = 0;
+
+    if (prev_delivered_ml >= config->raw_water_target_ml || (is_resuming && pool.raw_water_completed)) {
+        raw_water_running = false;
+        result.actual_raw_water_ml = config->raw_water_target_ml;
+        result.raw_water_actual_runtime_ms = expected_raw_sec * 1000U;
+        result.current_phase = MIXING_PHASE_RAW_WATER_COMPLETE;
+        ESP_LOGI(TAG, "Resume: Raw water target was already reached (%u mL). Pump remains OFF.", (unsigned)result.actual_raw_water_ml);
+    } else {
+        if (set_scoped_actuator_state(&job_actuators.raw_water, true) != ESP_OK) {
+            result.status = MIXING_RESULT_ACTUATOR_ERROR;
+            result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
+            snprintf(result.message, sizeof(result.message), "Failed to turn ON raw water pump '%s'.", raw_pump_id);
+            stop_job_scoped_actuators(&job_actuators);
+            return result;
+        }
+        raw_water_running = true;
+        result.current_phase = MIXING_PHASE_RAW_WATER_FILL;
+    }
+
     sync_live_result(config, &result);
 
     int64_t protocol_start_us = esp_timer_get_time();
     int64_t raw_water_start_us = protocol_start_us;
     int64_t mixing_start_us = 0;
     int64_t last_flow_progress_us = raw_water_start_us;
-    uint32_t last_flow_volume_ml = 0;
+    uint32_t last_flow_volume_ml = prev_delivered_ml;
+    int64_t last_pool_sync_us = protocol_start_us;
 
-    bool raw_water_running = true;
-    bool threshold_reached = false;
-    bool mixing_running = false;
-    bool all_dosing_done = (config->channel_count == 0);
-    bool post_mix_started = false;
-    bool post_mix_done = false;
-    int64_t post_mix_start_us = 0;
+    // If resuming and threshold was already reached: start mixing pump and incomplete dosing pumps immediately
+    if (is_resuming && threshold_reached) {
+        mixing_start_us = protocol_start_us;
+        mixing_running = true;
+        if (set_scoped_actuator_state(&job_actuators.mixing_pump, true) != ESP_OK) {
+            result.status = MIXING_RESULT_ACTUATOR_ERROR;
+            result.error_code = mixing_status_to_string(result.status);
+            result.current_phase = MIXING_PHASE_ERROR;
+            result.final_phase = MIXING_PHASE_ERROR;
+            snprintf(result.message, sizeof(result.message), "Failed to restart mixing pump '%s'.", mixing_pump_id);
+            stop_job_scoped_actuators(&job_actuators);
+            return result;
+        }
+
+        uint32_t now_ms = (uint32_t)(protocol_start_us / 1000LL);
+        bool dosing_start_failed = false;
+        for (uint32_t i = 0; i < config->channel_count; ++i) {
+            if (!exec_channels[i].completed) {
+                exec_channels[i].start_time_ms = now_ms - exec_channels[i].observed_runtime_ms;
+                exec_channels[i].is_running = true;
+                if (set_scoped_actuator_state(&job_actuators.dosing[i], true) != ESP_OK) {
+                    result.status = MIXING_RESULT_ACTUATOR_ERROR;
+                    result.error_code = mixing_status_to_string(result.status);
+                    result.current_phase = MIXING_PHASE_ERROR;
+                    result.final_phase = MIXING_PHASE_ERROR;
+                    snprintf(result.message, sizeof(result.message), "Failed to restart dosing pump '%s'.", exec_channels[i].component_id);
+                    dosing_start_failed = true;
+                    break;
+                }
+                ESP_LOGI(TAG, "Resume: Dosing pump '%s' restarted for remainder (%u ms remaining).",
+                         exec_channels[i].component_id,
+                         (unsigned)(exec_channels[i].expected_runtime_ms - exec_channels[i].observed_runtime_ms));
+            }
+        }
+        if (dosing_start_failed) {
+            stop_job_scoped_actuators(&job_actuators);
+            return result;
+        }
+        result.current_phase = raw_water_running ? MIXING_PHASE_MIXING_AND_DOSING : MIXING_PHASE_DOSING_COMPLETION;
+    }
+
+    // If resuming and post-mix was already running
+    if (is_resuming && !raw_water_running && all_dosing_done && pool.post_mix_elapsed_ms > 0) {
+        post_mix_started = true;
+        post_mix_start_us = protocol_start_us - ((int64_t)pool.post_mix_elapsed_ms * 1000LL);
+        result.current_phase = MIXING_PHASE_POST_MIX;
+        result.post_mix_actual_runtime_ms = pool.post_mix_elapsed_ms;
+        ESP_LOGI(TAG, "Resume: Post-mix restarted (%u ms already elapsed).", (unsigned)pool.post_mix_elapsed_ms);
+    }
 
     /* -------------------------------------------------------------
      * 9. ORCHESTRATION LOOP
@@ -787,6 +1044,24 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
         }
         sync_live_result(config, &result);
 
+        // J. 1-Second Persistent Checkpoint Pool Save (Updated every second until completed)
+        if (now_us - last_pool_sync_us >= 1000000LL) {
+            last_pool_sync_us = now_us;
+            pool.sequence++;
+            pool.timestamp_ms = now_us / 1000LL;
+            pool.actual_raw_water_ml = result.actual_raw_water_ml;
+            pool.threshold_reached = threshold_reached;
+            pool.raw_water_completed = !raw_water_running;
+            pool.current_phase = (uint8_t)result.current_phase;
+            for (uint32_t c = 0; c < config->channel_count; ++c) {
+                pool.channels[c].observed_runtime_ms = exec_channels[c].observed_runtime_ms;
+                pool.channels[c].completed = exec_channels[c].completed;
+            }
+            pool.post_mix_elapsed_ms = result.post_mix_actual_runtime_ms;
+            pool.post_mix_completed = post_mix_done;
+            mixing_pool_save(&pool);
+        }
+
         // I. Success Evaluation: Raw water done + All dosing done + Post-mix duration complete
         if (!raw_water_running && all_dosing_done && post_mix_done) {
             result.current_phase = MIXING_PHASE_STOP;
@@ -816,6 +1091,9 @@ mixing_result_t protocol_mixing(const mixing_protocol_config_t *config)
             snprintf(result.message, sizeof(result.message),
                      "Mixing protocol successfully completed: %u mL raw water, %u dosing channel(s) parallel, %u s post-mix.",
                      (unsigned)actual_raw_water_ml, (unsigned)config->channel_count, (unsigned)config->post_mix_duration_sec);
+
+            // Pool is deleted ONLY when protocol mixing completes successfully
+            mixing_pool_delete();
 
             ESP_LOGI(TAG, "%s", result.message);
             break;

@@ -1,10 +1,21 @@
+param(
+    [string]$Port = "",
+    [int]$Baud = 0,
+    [string]$Python = "",
+    [string]$ToolsPath = ""
+)
+
 $ErrorActionPreference = 'Stop'
 
-$repo = 'C:\Users\rumah\Downloads\UI-template-chatgpt-network-onboarding-final'
-$python = 'D:\Espressif-tool\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe'
-$port = 'COM3'
+. (Join-Path $PSScriptRoot "scripts\load_esp32_env.ps1")
+$cfg = Get-Esp32Profile -ExplicitPort $Port -ExplicitBaud $Baud -ExplicitToolsPath $ToolsPath
 
+$repo = $cfg.RepoRoot
 Set-Location $repo
+
+Write-Host "=== TARGET REPO: $repo ===" -ForegroundColor Cyan
+Write-Host "=== TARGET PORT: $($cfg.Port) ($($cfg.Baud) baud) ===" -ForegroundColor Cyan
+Write-Host "=== PYTHON EXE : $($cfg.PythonExe) ===" -ForegroundColor Cyan
 
 Write-Host '=== 1/4 REMOVE OLD BUILD ===' -ForegroundColor Cyan
 $build = Join-Path $repo 'esp32\build'
@@ -19,16 +30,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host '=== 3/4 FULL FLASH ERASE ===' -ForegroundColor Yellow
-if (-not (Test-Path $python)) {
-    throw "ESP-IDF Python environment not found: $python"
-}
-& $python -m esptool --chip esp32s3 -p $port -b 460800 --before default_reset --after hard_reset erase_flash
+& $cfg.PythonExe -m esptool --chip esp32s3 -p $cfg.Port -b $cfg.Baud --before default_reset --after hard_reset erase_flash
 if ($LASTEXITCODE -ne 0) {
     throw "erase_flash failed."
 }
 
 Write-Host '=== 4/4 FLASH FRESH BUILD ===' -ForegroundColor Green
-powershell -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\flash_esp32.ps1')
+powershell -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\flash_esp32.ps1') -Port $cfg.Port -Baud $cfg.Baud
 if ($LASTEXITCODE -ne 0) {
     throw "Flash failed."
 }

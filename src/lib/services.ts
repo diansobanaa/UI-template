@@ -14,7 +14,7 @@ import type {
 import { esp32Client } from "./api/esp32-client";
 import { isDirectEsp32Enabled, isPythonBackendEnabled, ESP32_API_BASE, apiGet, apiPost, getActiveEsp32Endpoint, setActiveEsp32Endpoint } from "./api/backend-client";
 import { PythonClient } from "./api/python-client";
-import type { CalibrationRates, CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, MixingTestRequest, MixingTestStatus } from "./api/contracts";
+import type { CalibrationRates, CalibrationStatus, CompiledSchedule, ConfigurationPayload, CurrentCropCycleResponse, TelemetryHistoryResponse, TelemetrySnapshot, ComplexDeletionPreview, DeletionJob, SystemTopologyPool, TopologyMutationRequest, TopologyMutationResponse, InstalledComponent, WellPumpDetails, MixingTestRequest, MixingTestStatus } from "./api/contracts";
 import { compileScheduleSet } from "./runtime/schedule-compiler.js";
 import { generateFertigationExecutionPlan } from "./runtime/execution-plan-generator.js";
 import { getOperationalSnapshot, replaceComplex, replaceGreenhouse, removeGreenhouse, removeComplex, operationalPythonClient, getOperationalTopologyMetadata, updateComplexRuntime } from "./operational-state";
@@ -2590,11 +2590,14 @@ export const calibrationService = {
       }
     }
   },
-  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number; errorCode?: string }> {
+  async getCalibrationStatus(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<CalibrationStatus> {
     if (isDirectEsp32Enabled()) {
       try {
-        return await esp32Client.getCalibrationStatus();
-      } catch {
+        return await esp32Client.getCalibrationStatus(options);
+      } catch (err) {
+        if (options) {
+          throw err;
+        }
         return { state: "IDLE", remaining_sec: 0 };
       }
     }
@@ -2616,9 +2619,9 @@ export const calibrationService = {
       flowFertPulsesPerL: 288.0,
     };
   },
-  async setFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number): Promise<void> {
+  async setFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number, state: "CALIBRATED" | "VERIFIED" = "CALIBRATED", version?: number): Promise<void> {
     if (isDirectEsp32Enabled()) {
-      await esp32Client.saveFlowPulses(rawPulsesPerL, fertPulsesPerL);
+      await esp32Client.saveFlowPulses(rawPulsesPerL, fertPulsesPerL, state, version);
     }
   },
   async startMixingTest(request: MixingTestRequest): Promise<MixingTestStatus> {
@@ -2678,6 +2681,40 @@ export const calibrationService = {
       totalRuntimeMs: 0,
       errorCode: null,
       message: "Test stopped",
+      channels: [],
+    };
+  },
+  async resumeMixingTest(): Promise<MixingTestStatus> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.resumeMixingTest();
+    }
+    return {
+      status: "RUNNING",
+      phase: "MIXING_AND_DOSING",
+      rawWaterTargetMl: 20000,
+      rawWaterActualMl: 10000,
+      thresholdPercent: 20,
+      postMixDurationSec: 30,
+      totalRuntimeMs: 0,
+      errorCode: null,
+      message: "Test resumed (simulated)",
+      channels: [],
+    };
+  },
+  async discardMixingTest(): Promise<MixingTestStatus> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.discardMixingTest();
+    }
+    return {
+      status: "IDLE",
+      phase: "IDLE",
+      rawWaterTargetMl: 0,
+      rawWaterActualMl: 0,
+      thresholdPercent: 0,
+      postMixDurationSec: 0,
+      totalRuntimeMs: 0,
+      errorCode: null,
+      message: "Test discarded (simulated)",
       channels: [],
     };
   },
@@ -2975,6 +3012,20 @@ export const fertigationService = {
       return esp32Client.getFertigationStatus();
     }
     return null;
+  },
+
+  async resumeFertigation(): Promise<any> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.resumeFertigation();
+    }
+    return { status: "RESUMED" };
+  },
+
+  async discardFertigation(): Promise<any> {
+    if (isDirectEsp32Enabled()) {
+      return await esp32Client.discardFertigation();
+    }
+    return { status: "DISCARDED" };
   },
 
   /** ESP32 sync: pending → synced on success; error path preserves state (spec #26/#34). */

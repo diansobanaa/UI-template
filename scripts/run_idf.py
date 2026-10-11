@@ -1,12 +1,33 @@
 import os
+import re
 import subprocess
 import sys
 
+def parse_local_env(file_path):
+    config = {}
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                m = re.match(r'^\$LOCAL_([A-Z_]+)\s*=\s*[\'"]([^\'"]+)[\'"]', line.strip())
+                if m:
+                    config[m.group(1)] = m.group(2)
+    return config
+
 def main():
-    idf_path = r"D:\Espressif"
-    tools_path = r"D:\Espressif-tool\Espressif"
-    python_env = r"D:\Espressif-tool\Espressif\python_env\idf5.5_py3.12_env"
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_env_file = os.path.join(repo_root, "scripts", "esp32_env.local.ps1")
+    local_cfg = parse_local_env(local_env_file)
+
+    idf_path = local_cfg.get("IDF_PATH") or os.environ.get("IDF_PATH") or r"D:\Espressif"
+    tools_path = local_cfg.get("IDF_TOOLS_PATH") or os.environ.get("IDF_TOOLS_PATH") or r"D:\Espressif-tool\Espressif"
+    python_env = local_cfg.get("PYTHON_ENV") or os.environ.get("IDF_PYTHON_ENV_PATH") or os.path.join(tools_path, r"python_env\idf5.5_py3.12_env")
     python_exe = os.path.join(python_env, "Scripts", "python.exe")
+    if not os.path.exists(python_exe):
+        alt_py = os.path.join(tools_path, r"python_env\idf5.5_py3.11_env\Scripts\python.exe")
+        if os.path.exists(alt_py):
+            python_exe = alt_py
+        else:
+            python_exe = sys.executable
     idf_py = os.path.join(idf_path, "tools", "idf.py")
 
     env = os.environ.copy()
@@ -40,7 +61,8 @@ def main():
     ]
     env["PATH"] = ";".join(tools_bin) + ";" + env.get("PATH", "")
 
-    esp32_dir = os.path.abspath("esp32")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    esp32_dir = os.path.join(repo_root, "esp32")
     args = sys.argv[1:] if len(sys.argv) > 1 else ["build"]
     cmd = [python_exe, idf_py] + args
     print(f"Running in {esp32_dir}: {' '.join(cmd)}")

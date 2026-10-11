@@ -21,6 +21,7 @@ import type {
   Schedule,
   SchedulesResponse,
   CalibrationRates,
+  CalibrationStatus,
   CalibrationApiRecord,
   MixingTestRequest,
   MixingTestStatus,
@@ -544,8 +545,8 @@ export class Esp32Client {
     return this.deleteEnveloped<any>("/api/v1/calibration");
   }
 
-  async getCalibrationStatus(): Promise<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number; errorCode?: string }> {
-    return this.getEnveloped<{ state: string; remaining_sec: number; measured_ml?: number; measured_l?: number; errorCode?: string }>("/api/v1/calibration/status");
+  async getCalibrationStatus(options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<CalibrationStatus> {
+    return this.getEnveloped<CalibrationStatus>("/api/v1/calibration/status", options);
   }
 
   async getCalibrationRates(): Promise<CalibrationRates> {
@@ -567,10 +568,14 @@ export class Esp32Client {
     });
   }
 
-  async saveFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number): Promise<any> {
+  async saveFlowPulses(rawPulsesPerL: number, fertPulsesPerL?: number, state: "CALIBRATED" | "VERIFIED" = "CALIBRATED", version?: number): Promise<any> {
     return this.postEnveloped<any>("/api/v1/calibration/rate", {
+      componentId: "sensor_flow_raw",
+      pulsesPerLiter: rawPulsesPerL,
       flowRawPulsesPerL: rawPulsesPerL,
       flowFertPulsesPerL: fertPulsesPerL ?? 288.0,
+      state,
+      ...(version ? { version } : {}),
     });
   }
 
@@ -584,6 +589,14 @@ export class Esp32Client {
 
   async stopMixingTest(): Promise<MixingTestStatus> {
     return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing/stop", {});
+  }
+
+  async resumeMixingTest(): Promise<MixingTestStatus> {
+    return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing/resume", {});
+  }
+
+  async discardMixingTest(): Promise<MixingTestStatus> {
+    return this.postEnveloped<MixingTestStatus>("/api/v1/calibration/test-mixing/discard", {});
   }
 
   async getTopologyCapabilities(): Promise<TopologyCapabilitiesResponse> {
@@ -660,6 +673,14 @@ export class Esp32Client {
 
   async stopFertigation(): Promise<any> {
     return this.postEnveloped<any>("/api/v1/fertigation/stop", {});
+  }
+
+  async resumeFertigation(): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/fertigation/resume", {});
+  }
+
+  async discardFertigation(): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/fertigation/discard", {});
   }
 
   /**

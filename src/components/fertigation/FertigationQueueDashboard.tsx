@@ -23,6 +23,7 @@ import {
   Wifi,
   WifiOff,
   Zap,
+  Trash2,
 } from "lucide-react";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { complexService, fertigationService, greenhouseService, recipeService, scheduleService } from "@/lib/services";
@@ -1020,6 +1021,191 @@ function FertigationQueueDashboardComponent({
     }
   };
 
+  const handleResumeFertigation = async () => {
+    setActionInProgress("resume-fertigation");
+    try {
+      await fertigationService.resumeFertigation();
+      toast("Proses peracikan dilanjutkan dari titik interupsi secara presisi.", "success");
+      await fetchStatus(true);
+    } catch (err: any) {
+      toast(`Gagal melanjutkan peracikan: ${err?.message || "Kesalahan kontroler"}`, "error");
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const handleDiscardFertigation = async () => {
+    setActionInProgress("discard-fertigation");
+    try {
+      await fertigationService.discardFertigation();
+      toast("Checkpoint interupsi dihapus. Siklus ditandai terganggu akibat power loss.", "info");
+      await fetchStatus(true);
+    } catch (err: any) {
+      toast(`Gagal membuang batch interupsi: ${err?.message || "Kesalahan kontroler"}`, "error");
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const isRecoveryRequired = Boolean(
+    liveStatus?.recoveryRequired ||
+    fwState === "RECOVERY_HOLD" ||
+    liveStatus?.state === "FERT_STATE_RECOVERY_HOLD" ||
+    liveStatus?.state === "RECOVERY_HOLD"
+  );
+  const recoveryPool = liveStatus?.recoveryPool;
+
+  const renderRecoveryBanner = () => {
+    if (!isRecoveryRequired) return null;
+
+    const remainingWaterMl = recoveryPool?.remainingRawWaterMl ?? (
+      (recoveryPool?.targetRawWaterMl ?? 0) > (recoveryPool?.actualRawWaterMl ?? 0)
+        ? (recoveryPool.targetRawWaterMl - recoveryPool.actualRawWaterMl)
+        : 0
+    );
+
+    return (
+      <div className="rounded-2xl border-2 border-amber-500/70 bg-gradient-to-br from-amber-950/50 via-[#0e1a2a] to-amber-900/20 p-5 shadow-xl space-y-4">
+        <div className="flex items-start gap-3.5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
+            <Zap className="h-6 w-6 animate-pulse" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-bold tracking-tight text-amber-200">
+                Interupsi Daya Terdeteksi: Batch Mixing Terhenti (Power Loss Safe Hold)
+              </h3>
+              <span className="rounded-full border border-amber-500/50 bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                Aktuator OFF & Aman
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+              ESP32 mendeteksi siklus fertigasi terputus akibat pemadaman listrik di tengah proses mixing.
+              Checkpoint tersimpan di penyimpanan non-volatile. Seluruh pompa tertahan mati (Safe OFF) menunggu konfirmasi operator.
+              Lanjutkan sisa air & nutrisi secara akurat, atau batalkan batch ini.
+            </p>
+          </div>
+        </div>
+
+        {recoveryPool && (
+          <div className="rounded-xl border border-amber-500/30 bg-black/40 p-4 space-y-3.5 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="rounded-lg bg-slate-900/80 p-2.5 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Batch / Target GH:</span>
+                <span className="font-semibold text-slate-200 font-mono">
+                  {recoveryPool.ghId ? recoveryPool.ghId.toUpperCase() : "CENTRAL"}
+                </span>
+                <span className="text-[10px] text-slate-400 block font-mono truncate">
+                  ID: {recoveryPool.batchId || "—"}
+                </span>
+              </div>
+              <div className="rounded-lg bg-slate-900/80 p-2.5 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Fase Terhenti:</span>
+                <span className="font-semibold text-amber-300 font-mono">
+                  {recoveryPool.currentPhase || "MIXING"}
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  Seq #{recoveryPool.sequence ?? 0}
+                </span>
+              </div>
+              <div className="rounded-lg bg-slate-900/80 p-2.5 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Sisa Air Baku:</span>
+                <span className="font-semibold text-sky-300 font-mono">
+                  {(remainingWaterMl / 1000).toFixed(1)} L ({remainingWaterMl} ml)
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  Target: {((recoveryPool.targetRawWaterMl || 0) / 1000).toFixed(1)} L
+                </span>
+              </div>
+              <div className="rounded-lg bg-slate-900/80 p-2.5 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-medium">Pengadukan Akhir:</span>
+                <span className="font-semibold text-slate-200 font-mono">
+                  {recoveryPool.postMixDurationSec || 0}s
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  (Berjalan: {Math.round((recoveryPool.postMixElapsedMs || 0) / 1000)}s)
+                </span>
+              </div>
+            </div>
+
+            {recoveryPool.channels && recoveryPool.channels.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-semibold text-slate-300 block">
+                  Sisa Dosing Nutrisi per Pompa (Remaining Dosing Math):
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {recoveryPool.channels.map((ch: any) => {
+                    const remSec = ((ch.remainingRuntimeMs || 0) / 1000).toFixed(1);
+                    return (
+                      <div
+                        key={ch.componentId}
+                        className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs"
+                      >
+                        <span className="font-medium text-slate-200">
+                          {ch.componentId.toUpperCase()}
+                        </span>
+                        <div className="text-right">
+                          {ch.completed ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                              <CheckCircle2 className="h-3 w-3" /> Selesai
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-mono text-amber-300">
+                              Sisa: {remSec}s ({ch.remainingRuntimeMs || 0}ms)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+          <button
+            type="button"
+            disabled={actionInProgress !== null}
+            onClick={handleDiscardFertigation}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 active:scale-95 disabled:opacity-50"
+          >
+            {actionInProgress === "discard-fertigation" ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Membatalkan...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3.5 w-3.5" />
+                Tolak & Buang Batch
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            disabled={actionInProgress !== null}
+            onClick={handleResumeFertigation}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/50 bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-950/50 transition hover:bg-emerald-500 active:scale-95 disabled:opacity-50"
+          >
+            {actionInProgress === "resume-fertigation" ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Melanjutkan...
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5 fill-current" />
+                Lanjutkan Sisa Batch (Resume)
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // -------------------------------------------------------------------------
   // View Routing: Scoped Greenhouse vs Complex Overview
   // -------------------------------------------------------------------------
@@ -1035,6 +1221,9 @@ function FertigationQueueDashboardComponent({
 
       return (
         <div className={`space-y-6 ${className}`}>
+          {/* Power Cut Safe Recovery Notice Banner */}
+          {renderRecoveryBanner()}
+
           {/* Detail Operasi Greenhouse & Monitoring Batch */}
           <GreenhouseFertigationDetail
             gh={gh}
@@ -1165,6 +1354,9 @@ function FertigationQueueDashboardComponent({
       </div>
 
       <div className="p-4 md:p-5 space-y-6">
+        {/* Power Cut Safe Recovery Notice Banner */}
+        {renderRecoveryBanner()}
+
         {/* 1. Dosing Queue Section (Central Unit 3-Step Progress & FIFO Dosing Queue List) */}
         <DosingQueueSection
           activeJob={activeJob}

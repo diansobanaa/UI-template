@@ -22,6 +22,19 @@ static calibration_record_state_t parse_record_state(const char *s)
     return CAL_RECORD_NOT_CALIBRATED;
 }
 
+static const char *record_state_to_str(calibration_record_state_t st)
+{
+    switch (st) {
+        case CAL_RECORD_CALIBRATED: return "CALIBRATED";
+        case CAL_RECORD_VERIFIED: return "VERIFIED";
+        case CAL_RECORD_EXPIRED: return "EXPIRED";
+        case CAL_RECORD_SUSPECT: return "SUSPECT";
+        case CAL_RECORD_RECALIBRATED: return "RECALIBRATED";
+        case CAL_RECORD_REMOVED: return "REMOVED";
+        default: return "NOT_CALIBRATED";
+    }
+}
+
 static bool supported_record_type(const char *s)
 {
     if (!s) return false;
@@ -135,9 +148,22 @@ static esp_err_t api_calibration_status_handler(httpd_req_t *req)
     else if (st.state == CALIBRATION_STATE_ERROR) state_str = "ERROR";
     
     cJSON_AddStringToObject(resp, "state", state_str);
+    cJSON_AddStringToObject(resp, "componentId", st.component_id);
+    cJSON_AddNumberToObject(resp, "duration_sec", st.duration_sec);
+    cJSON_AddNumberToObject(resp, "elapsed_sec", st.elapsed_sec);
     cJSON_AddNumberToObject(resp, "remaining_sec", st.remaining_sec);
     cJSON_AddNumberToObject(resp, "measured_ml", st.measured_ml);
     cJSON_AddNumberToObject(resp, "measured_l", (double)st.measured_ml / 1000.0);
+    cJSON_AddNumberToObject(resp, "start_pulses", st.start_pulses);
+    cJSON_AddNumberToObject(resp, "current_pulses", st.current_pulses);
+    cJSON_AddNumberToObject(resp, "session_pulses", st.session_pulses);
+    cJSON_AddNumberToObject(resp, "pulse_frequency_hz", st.pulse_frequency_hz);
+    cJSON_AddNumberToObject(resp, "flow_rate_lpm", st.flow_rate_lpm);
+    cJSON_AddNumberToObject(resp, "pulses_per_liter", st.pulses_per_liter);
+    cJSON_AddBoolToObject(resp, "has_valid_calibration", st.has_valid_calibration);
+    cJSON_AddNumberToObject(resp, "estimated_ml", st.estimated_ml);
+    cJSON_AddNumberToObject(resp, "estimated_l", st.estimated_l);
+    cJSON_AddStringToObject(resp, "calibration_status", st.calibration_status[0] ? st.calibration_status : "UNCAL");
     if (st.error_code[0]) cJSON_AddStringToObject(resp, "errorCode", st.error_code);
     
     return http_send_enveloped_response(req, 200, NULL, resp);
@@ -153,24 +179,33 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
     cJSON *payload = cJSON_GetObjectItem(json, "payload");
     cJSON *target = payload ? payload : json;
 
-    // Check for direct flow meter pulse calibration fields
+    cJSON *comp = cJSON_GetObjectItem(target, "componentId");
     cJSON *j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulsesPerL");
     if (!j_flow_raw) j_flow_raw = cJSON_GetObjectItem(target, "flowRawPulses");
     cJSON *j_flow_fert = cJSON_GetObjectItem(target, "flowFertPulsesPerL");
-    esp_err_t flow_err = ESP_OK;
-    if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) {
-        flow_err = calibration_mgr_set_flow_raw_pulses_per_l((float)j_flow_raw->valuedouble);
-    }
-    if (flow_err == ESP_OK && j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) {
-        flow_err = calibration_mgr_set_flow_fert_pulses_per_l((float)j_flow_fert->valuedouble);
-    }
-    if (flow_err != ESP_OK) {
+
+    // If request was purely to set flow pulses and no componentId specified
+    if ((!comp || !cJSON_IsString(comp) || !comp->valuestring[0]) && (j_flow_raw || j_flow_fert)) {
+        esp_err_t flow_err = ESP_OK;
+        if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) {
+            flow_err = calibration_mgr_set_flow_raw_pulses_per_l((float)j_flow_raw->valuedouble);
+        }
+        if (flow_err == ESP_OK && j_flow_fert && cJSON_IsNumber(j_flow_fert) && j_flow_fert->valuedouble > 0) {
+            flow_err = calibration_mgr_set_flow_fert_pulses_per_l((float)j_flow_fert->valuedouble);
+        }
+        if (flow_err != ESP_OK) {
+            cJSON_Delete(json);
+            http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Flow calibration was not persisted.", NULL);
+            return ESP_FAIL;
+        }
         cJSON_Delete(json);
-        http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Flow calibration was not persisted.", NULL);
-        return ESP_FAIL;
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "status", "APPLIED");
+        cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", calibration_mgr_get_flow_raw_pulses_per_l());
+        cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", calibration_mgr_get_flow_fert_pulses_per_l());
+        return http_send_enveloped_response(req, 200, NULL, resp);
     }
 
-    cJSON *comp = cJSON_GetObjectItem(target, "componentId");
     cJSON *rate = cJSON_GetObjectItem(target, "rateMlPerSec");
     if (!rate) rate = cJSON_GetObjectItem(target, "rateValue");
     bool from_flow_rate_min = false;
@@ -182,16 +217,6 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
         }
     }
     cJSON *ppl = cJSON_GetObjectItem(target, "pulsesPerLiter");
-
-    // If request was purely to set flow pulses and no componentId specified
-    if ((!comp || !cJSON_IsString(comp)) && (j_flow_raw || j_flow_fert)) {
-        cJSON_Delete(json);
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "status", "APPLIED");
-        cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", calibration_mgr_get_flow_raw_pulses_per_l());
-        cJSON_AddNumberToObject(resp, "flowFertPulsesPerL", calibration_mgr_get_flow_fert_pulses_per_l());
-        return http_send_enveloped_response(req, 200, NULL, resp);
-    }
 
     // If target is raw water flow sensor
     if (comp && cJSON_IsString(comp) &&
@@ -205,7 +230,21 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
         else if (rate && cJSON_IsNumber(rate) && rate->valuedouble > 0) pval = rate->valuedouble;
         else if (j_flow_raw && cJSON_IsNumber(j_flow_raw) && j_flow_raw->valuedouble > 0) pval = j_flow_raw->valuedouble;
         if (pval > 0) {
-            esp_err_t ferr = calibration_mgr_set_flow_raw_pulses_per_l((float)pval);
+            cJSON *ver = cJSON_GetObjectItem(target, "version");
+            cJSON *op = cJSON_GetObjectItem(target, "operator");
+            cJSON *cid = cJSON_GetObjectItem(target, "calibrationId");
+            cJSON *st_item = cJSON_GetObjectItem(target, "state");
+            uint32_t version = (ver && cJSON_IsNumber(ver) && ver->valuedouble > 0) ? (uint32_t)ver->valuedouble : 0;
+            const char *operator_id = (op && cJSON_IsString(op) && op->valuestring[0]) ? op->valuestring : "operator";
+            const char *cal_id = (cid && cJSON_IsString(cid) && cid->valuestring[0]) ? cid->valuestring : "flow-cal";
+            calibration_record_state_t rec_state = parse_record_state(st_item ? st_item->valuestring : "CALIBRATED");
+            if (rec_state == CAL_RECORD_NOT_CALIBRATED) rec_state = CAL_RECORD_CALIBRATED;
+
+            esp_err_t ferr = calibration_mgr_set_flow_pulses_calibration(
+                comp->valuestring, (float)pval, 0, 0, false, version, rec_state, operator_id, 0, cal_id);
+            if (ferr != ESP_OK) {
+                ferr = calibration_mgr_set_flow_raw_pulses_per_l((float)pval);
+            }
             cJSON_Delete(json);
             if (ferr != ESP_OK) {
                 http_send_error(req, 422, "CALIBRATION_SAVE_FAILED", "Failed to save flow calibration.", NULL);
@@ -216,6 +255,7 @@ static esp_err_t api_calibration_set_rate_handler(httpd_req_t *req)
             cJSON_AddStringToObject(resp, "componentId", comp->valuestring);
             cJSON_AddNumberToObject(resp, "pulsesPerLiter", pval);
             cJSON_AddNumberToObject(resp, "flowRawPulsesPerL", pval);
+            cJSON_AddStringToObject(resp, "state", record_state_to_str(rec_state));
             return http_send_enveloped_response(req, 200, NULL, resp);
         }
     }
@@ -551,6 +591,35 @@ static esp_err_t api_calibration_test_mixing_stop_handler(httpd_req_t *req)
     return http_send_enveloped_response(req, 200, NULL, resp);
 }
 
+static esp_err_t api_calibration_test_mixing_resume_handler(httpd_req_t *req)
+{
+    esp_err_t err = calibration_mgr_resume_mixing_test();
+    if (err == ESP_ERR_NOT_FOUND) {
+        http_send_error(req, 404, "NO_RECOVERY_POOL", "No interrupted test mixing pool found to resume.", NULL);
+        return ESP_FAIL;
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        http_send_error(req, 409, "MIXING_BUSY", "Mixing or fertigation system is currently busy or estop active.", NULL);
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        http_send_error(req, 422, "MIXING_TEST_RESUME_FAILED", "Failed to resume mixing & dosing test", NULL);
+        return ESP_FAIL;
+    }
+
+    cJSON *resp = NULL;
+    calibration_mgr_get_mixing_test_status(&resp);
+    return http_send_enveloped_response(req, 202, NULL, resp);
+}
+
+static esp_err_t api_calibration_test_mixing_discard_handler(httpd_req_t *req)
+{
+    (void)calibration_mgr_discard_mixing_test();
+    cJSON *resp = NULL;
+    calibration_mgr_get_mixing_test_status(&resp);
+    return http_send_enveloped_response(req, 200, NULL, resp);
+}
+
 void register_api_calibration_handlers(httpd_handle_t server)
 {
     httpd_uri_t a={.uri="/api/v1/calibration",.method=HTTP_POST,.handler=api_calibration_start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
@@ -573,5 +642,11 @@ void register_api_calibration_handlers(httpd_handle_t server)
 
     httpd_uri_t tmix_del = {.uri = "/api/v1/calibration/test-mixing", .method = HTTP_DELETE, .handler = api_calibration_test_mixing_stop_handler, .user_ctx = NULL};
     httpd_register_uri_handler(server, &tmix_del);
+
+    httpd_uri_t tmix_res = {.uri = "/api/v1/calibration/test-mixing/resume", .method = HTTP_POST, .handler = api_calibration_test_mixing_resume_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_res);
+
+    httpd_uri_t tmix_disc = {.uri = "/api/v1/calibration/test-mixing/discard", .method = HTTP_POST, .handler = api_calibration_test_mixing_discard_handler, .user_ctx = NULL};
+    httpd_register_uri_handler(server, &tmix_disc);
 }
 

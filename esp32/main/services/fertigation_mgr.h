@@ -97,6 +97,9 @@ typedef struct {
 esp_err_t fertigation_mgr_init(void);
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload);
 esp_err_t fertigation_mgr_cancel_batch(void);
+esp_err_t fertigation_mgr_resume(void);
+esp_err_t fertigation_mgr_discard(void);
+bool fertigation_mgr_is_recovery_required(void);
 esp_err_t fertigation_mgr_get_status(fertigation_runtime_snapshot_t *out);
 fertigation_state_t fertigation_mgr_get_state(void);
 esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out_json);

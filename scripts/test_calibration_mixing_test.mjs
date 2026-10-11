@@ -185,10 +185,11 @@ check("17. Concurrency protection against busy fertigation or ongoing test", () 
   assert(calibMgrCCode.includes("ESP_ERR_INVALID_STATE"), "Rejects start with invalid state if fertigation is active");
 });
 
-check("18. Canonical event logging (MIXING_TEST_STARTED, SUCCESS, FAILED)", () => {
-  assert(calibMgrCCode.includes("MIXING_TEST_STARTED"), "Logs MIXING_TEST_STARTED event");
-  assert(calibMgrCCode.includes("MIXING_TEST_SUCCESS"), "Logs MIXING_TEST_SUCCESS event");
-  assert(calibMgrCCode.includes("MIXING_TEST_FAILED"), "Logs MIXING_TEST_FAILED event");
+check("18. Test mixing parity with real mixing & log suppression (User Mandate: no event log for test mixing)", () => {
+  assert(calibMgrCCode.includes("s_mixing_test_cfg.is_test = true"), "Sets is_test = true flag for protocol mixing");
+  assert(!calibMgrCCode.includes("event_mgr_log("), "Suppresses event logging during test mixing as per user specification");
+  assert(calibMgrCCode.includes("calibration_mgr_resume_mixing_test"), "Supports safe resume for test mixing");
+  assert(calibMgrCCode.includes("calibration_mgr_discard_mixing_test"), "Supports safe discard for test mixing");
 });
 
 console.log(`\n======================================================`);

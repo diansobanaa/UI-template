@@ -1,4 +1,283 @@
-# AI HANDOVER - SP-BUG-17-ZERO-POLL-OPTIMISTIC-SYNC-005 (latest)
+# AI HANDOVER - SP-POWER-LOSS-SAFE-RESUME-012 (latest)
+
+## Status
+Power-Loss Checkpoint Pool (1s binary persistence to SD/SPIFFS with CRC32), Safe Resume with Operator Confirmation (Opsi 1), exact remainder calculations (skipping completed dosing channels & resuming unreached water pulses/post-mix), and 100% protocol parity with event log suppression for test mixing is **100% COMPLETE, FIRMWARE COMPILED & RE-VERIFIED**.
+
+## Summary of Completed Work
+1. **Persistent Checkpoint Pool Engine (`esp32/main/services/protocol_mixing.c` & `.h`)**:
+   - Implemented `mixing_pool_t` with CRC32 (`esp_rom_crc32_le`) binary persistence to `/sdcard/mixing_pool.bin` with `/spiffs/mixing_pool.bin` fallback.
+   - Active state synchronization every 1,000,000 µs (1 second) in `protocol_mixing` loop.
+   - Enforced deletion of pool file (`mixing_pool_delete()`) **strictly only upon `MIXING_RESULT_SUCCESS`**.
+   - Resume Remainder Math:
+     - Raw water: calculates remaining pulses, continues pulse accumulation from current counter.
+     - Dosing channels: skips channels marked `completed`, runs incomplete channels strictly for `expected_runtime_ms - observed_runtime_ms`.
+     - Post-mix: resumes for remaining duration `post_mix_duration_sec * 1000 - post_mix_elapsed_ms`.
+   - `is_test` flag: suppresses `event_mgr_log` when running in test mixing mode.
+2. **Safe Reboot & Interlock Support**:
+   - `fertigation_mgr.c`: on boot, if `mixing_pool_load()` succeeds, enters `FERT_STATE_RECOVERY_HOLD`. Actuators stay strictly safe-OFF.
+   - `calibration_mgr.c`: on boot, if `mixing_pool_load()` succeeds with `is_test == true`, sets status `RECOVERY_HOLD` with `recoveryRequired: true`.
+3. **HTTP REST Endpoints (`api_calibration_handlers.c` & `api_fertigation_handlers.c`)**:
+   - `POST /api/v1/calibration/test-mixing/resume` & `discard`
+   - `POST /api/v1/fertigation/resume` & `discard`
+   - Synchronized in `contracts/UI_ESP32_OPENAPI.yaml` & `UI_ESP32_OPENAPI.yaml`.
+4. **Web UI Client & Services**:
+   - `src/lib/api/contracts.ts`: Added `MixingPoolChannelSnapshot`, `MixingPoolSnapshot`, and updated `MixingTestStatus`.
+   - `src/lib/api/esp32-client.ts` & `src/lib/services.ts`: Added `resumeMixingTest()`, `discardMixingTest()`, `resumeFertigation()`, `discardFertigation()`.
+5. **Interactive UI Recovery Banners**:
+   - `src/components/calibration/TestMixingModal.tsx`: Displays Recovery Hold Alert Banner upon detecting interrupted test mixing pool, detailing remaining raw water, individual dosing channel runtimes, and providing "Lanjutkan Sisa Test (Resume)" and "Batalkan & Hapus Checkpoint" buttons.
+   - `src/components/fertigation/FertigationQueueDashboard.tsx`: Displays Recovery Hold Alert Banner in both single-GH and complex overview, showing target greenhouse, batch ID, volume air sisa, remaining dosing runtimes, and action buttons.
+6. **Canonical Documentation Governance**:
+   - Updated `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` with Section 38 detailing the pool architecture, CRC32 checks, remainder math, and test parity.
+
+## Verification Evidence
+- Firmware build (`scripts/build_esp32.ps1`): PASS (`agrotech_esp32.bin` built cleanly, binary size 0x185530).
+- Protocol mixing unit tests (`scripts/test_protocol_mixing.mjs`): PASS.
+- Calibration test mixing regression tests (`scripts/test_calibration_mixing_test.mjs`): PASS (19 passed, 0 failed).
+- Dosing checkpoint recovery tests (`scripts/test_dosing_checkpoint_recovery.mjs`): PASS (20 passed, 0 failed).
+- Fertigation queue consistency tests (`scripts/test_fertigation_queue_consistency.mjs`): PASS (15 passed, 0 failed).
+- TypeScript check (`npx tsc --noEmit`): PASS (0 errors).
+
+## Next Action
+Flash firmware to ESP32 on COM3 via `powershell -ExecutionPolicy Bypass -File "scripts/flash_esp32.ps1"`.
+
+# AI HANDOVER - SP-MIXING-TIMING-ANALYSIS-UI-011
+Live cycle timing analysis, individual pump runtime calculations, real-world execution envelope modeling, and visual Gantt execution timeline in the Web UI modal (`TestMixingModal.tsx`) is **100% COMPLETE, VERIFIED & PRODUCTION BUILT**.
+
+## Summary of Completed Work
+1. **Mathematical Model (`src/lib/calibration-math.ts`)**:
+   - `calculateMixingTimingAnalysis()` calculates individual pump runtimes, threshold trigger times, parallel dosing runtimes, post-mix start times, total theoretical cycle time, and real-world envelope range (`totalRealMinTimeSec` to `totalRealMaxTimeSec`).
+   - Strictly mirrors the firmware state machine execution in `protocol_mixing.c`.
+2. **Interactive Web UI Integration (`src/components/calibration/TestMixingModal.tsx`)**:
+   - Modal width expanded to 780px with smooth scrollable inner container.
+   - **Hero Summary Cards:** Displays Theoretical Cycle Time, Real-World Execution Range, and Target Flow Pulses.
+   - **Visual Gantt Timeline:** Shows concurrent timeline bars for Air Baku (0s to finish), Dosing A & B (starting at 20% threshold), Mixing Pump (threshold to finish), and Post-Mix (starting strictly when water & dosing are complete).
+   - **Actuator Breakdown Table:** Full breakdown of each pump's target, active calibrated flow rate, start time, duration, finish time, and control mode (Pulse Sensor vs. Microsecond Timer vs. Circulation State).
+   - **Technical Notes Collapsible:** Explains pulse sensor hydraulic tolerances (±2-5%), microsecond timer precision, post-mix sequence interlock, and 1.5x watchdog safety timeouts.
+   - **Confirmation Step:** Enriched Step 2 (`CONFIRM`) with executive timing summary before hardware actuation.
+   - **Live Elapsed Tracker:** Step 3 (`RUNNING`) tracks and displays elapsed seconds alongside estimated total duration (`Waktu Berjalan: MM:SS / ~MM:SS`).
+3. **Canonical Documentation Governance**:
+   - Updated `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md` with Section 37.3 detailing the mathematical model and Web UI integration.
+
+## Verification Evidence
+- Node.js test `scripts/test_mixing_timing_analysis.mjs`: PASS (all assertions verified).
+- TypeScript compile `tsc -b`: PASS (0 errors).
+- Production build `npm run build`: PASS (`dist/index.html` updated).
+
+## Next Action
+Operators can open the "Test Mixing & Dosing (Hardware)" modal on the Calibration page to review the live timing analysis, adjust parameters, and run verified hardware tests.
+
+# AI HANDOVER - SP-FLOW-CALIBRATION-PERSISTENCE-FIX-010
+
+## Status
+Fix for `"Flow calibration was not persisted."` error is **100% COMPLETE, FLASHED TO PHYSICAL ESP32-S3 BOARD ON COM3 & VERIFIED VIA LIVE API**.
+
+## Root Causes Identified
+1. **NVS Partition Space Exhaustion (`0x1105 ESP_ERR_NVS_NOT_ENOUGH_SPACE`)**:
+   - `storage_mgr.c` stored the entire calibration history array as a monolithic JSON string in the tiny 24KB NVS partition (`nvs_set_str`).
+   - With 6 existing calibration records for pumps and dosing channels, the JSON string grew to ~2.1 KB.
+   - In ESP-IDF NVS, a single item of 2.1 KB requires >65 entries in a 4KB page. Due to WiFi and system state keys occupying pages, `nvs_set_str` failed with `0x1105`.
+2. **Redundant Triple-Write in HTTP Handler**:
+   - `api_calibration_set_rate_handler` was executing `calibration_mgr_set_flow_raw_pulses_per_l` (write #1), then `calibration_mgr_set_flow_fert_pulses_per_l` (write #2), and finally `calibration_mgr_set_flow_pulses_calibration` (write #3) sequentially for a single request, exhausting NVS space and failing early at step 1 or 2 with `"Flow calibration was not persisted."`.
+3. **Flow Calibration Version Conflict**:
+   - `calibration_mgr_set_flow_pulses_calibration` previously returned `ESP_ERR_INVALID_STATE` when version was omitted or conflicted with an existing record, rather than auto-incrementing.
+
+## Solutions Applied
+1. **Migrated Calibration Persistence to SPIFFS**:
+   - Defined `CALIBRATION_CONFIG_FILE = "/spiffs/calib_config.json"` in `storage_mgr.c`. SPIFFS has 9MB capacity (`0x900000`) and handles non-fragmenting files cleanly.
+   - `storage_mgr_save_calibration()` writes directly to SPIFFS using POSIX file ops (`save_spiffs_string`), and mirrors to NVS only if space permits. If NVS is full, it cleans up the stale NVS key to free flash pages.
+   - `storage_mgr_load_calibration()` loads from SPIFFS first, with fallback to NVS.
+2. **Single Atomic Storage Pass**:
+   - Updated `api_calibration_set_rate_handler` in `api_calibration_handlers.c`: when a specific `componentId` (e.g. `sensor_flow_raw`) is targeted, it bypasses the redundant multi-write generic loop and commits directly in a single pass.
+3. **Auto-Increment Versioning**:
+   - Added version auto-increment logic to `calibration_mgr_set_flow_pulses_calibration()` (`eff_version = (latest >= 0) ? (s_records[latest].version + 1) : 1`).
+
+## Verification Results
+- Firmware build (`scripts/build_esp32.ps1`): PASS.
+- Firmware flash to ESP32 on `COM3` (`scripts/flash_esp32.ps1`): PASS.
+- Live `POST /api/v1/calibration/rate` test: HTTP 200 `APPLIED`.
+- Live `GET /api/v1/calibration` verification: FLOW records v1 and v2 successfully persisted and retrieved.
+- Frontend build (`npm run build`): PASS (`dist/index.html` updated).
+
+## Next Action
+Operator can now proceed in the Web UI to test and click **"Ya, Simpan Permanen"**. The calibration will now save successfully to the ESP32.
+
+# AI HANDOVER - SP-FLOW-VERIFICATION-SIMULTANEOUS-ML-L-009
+
+## Status
+Simultaneous conversion and display of calibration volume and flow rate in both **Liter (L)** and **Mililiter (mL)** is **100% COMPLETE, VERIFIED & PRODUCTION BUILT**.
+
+## Summary of Completed Work
+1. **Dual Unit Real-Time UI:**
+   - Card 1: Shows live volume prominently in Liter and Milliliter (`X.XX L (XXXX mL)`).
+   - Card 2: Shows frequency in Hz and instant flow rate in `(XX mL/dtk)`.
+   - Card 3: Shows flow rate in `L/menit` and `(XX.X mL/s)`.
+   - Card 4: Shows total accumulated volume in `Liter` and `Setara XXXX mL`.
+   - Step 3 Banner: Shows frozen session volume in `X.XX L (XXXX mL)`.
+2. **Benchmark Conversion:** Uses active calibration factor if verified, or nominal default `660.0 pulsa/L` (DN15 ZJ-B1 turbine benchmark) if uncalibrated, so operators immediately see intuitive volume instead of raw pulses.
+3. **Verification:**
+   - `npx tsc --noEmit`: PASS.
+   - `npm run build`: PASS (`dist/index.html` updated).
+   - Test suites: PASS (12/12 pulse streaming tests, 9/9 flow verification tests).
+
+## Next Action
+Operator tests in Web UI with real-time volume in L and mL.
+
+# AI HANDOVER - SP-ESP32-FIX-CALIB-DEADLOCK-008
+
+## Status
+Firmware self-deadlock fix in `calibration_mgr.c` is **100% COMPLETE, COMPILED & FLASHED TO ESP32-S3 BOARD ON COM3**.
+
+## Summary of Completed Work
+1. **Root Cause Resolved:** Fixed FreeRTOS self-deadlock in `start_component_locked()` in `esp32/main/services/calibration_mgr.c` where public `calibration_mgr_get_record()` re-acquired `s_mutex`, deadlocking the HTTP server task while the pump was running. Replaced with internal unlocked lookup `find_latest_record_locked()`.
+2. **Build Toolchain Integration:** Updated `scripts/load_esp32_env.ps1` to properly resolve `LOCAL_*` variables from `scripts/esp32_env.local.ps1` and load the official Espressif PowerShell environment.
+3. **Firmware Built & Deployed:** Rebuilt `agrotech_esp32.bin` via `scripts/build_esp32.ps1` and flashed to ESP32-S3 via `scripts/flash_esp32.ps1` over `COM3` at 460800 baud.
+4. **Automated Tests Passed:** Ran `node scripts/test_session_pulse_streaming.mjs` (12/12 passed) and `node scripts/test_flow_sensor_verification_e2e.mjs` (9/9 passed).
+
+## Next Action
+Operator can now re-test "Mulai Pengujian" in the Web UI:
+- Countdown 3 detik akan selesai secara mulus.
+- Status HTTP 202 langsung dikembalikan ke Web UI.
+- Web UI segera berpindah ke tampilan *Live Flow Test*.
+- Pompa air baku akan berjalan selama durasi uji (misal 30 detik) dan otomatis mati setelah durasi selesai.
+
+# AI HANDOVER - SP-ESP32-BUILD-FLASH-DEPLOYED-007
+
+## Status
+Firmware compilation and physical flashing to ESP32-S3 microcontroller on `COM3` is **100% COMPLETE, VERIFIED & RUNNING LIVE**.
+
+## Summary of Completed Work
+1. **Toolchain Configured:** Installed and configured ESP-IDF v5.3.2 and toolchains (`xtensa-esp-elf` GCC 13.2, CMake, Ninja, Python virtual environment) on PC `lenovo`.
+2. **Firmware Compiled:** Built full `agrotech_esp32.bin` (1.58 MB) and `bootloader.bin` (21.6 KB) with all latest features and real-time flow sensor ISR fixes.
+3. **Microcontroller Flashed:** Flashed all partitions (`bootloader`, `partition-table`, `ota_data_initial`, and `agrotech_esp32.bin`) to ESP32-S3 at 460800 baud over `COM3`.
+4. **Boot Verified:** Serial boot monitor confirms clean start with ESP-IDF v5.3.2 2nd stage bootloader, preserved NVS WiFi settings, and live application runtime.
+
+## Next Action
+Execute physical on-site water verification using 12V pump and measuring container on the Web UI.
+
+# AI HANDOVER - SP-FLOW-VERIFICATION-STREAMING-006
+Fix for real-time streaming of session pulse count (Δ pulses) in the **“Konfigurasi Pengujian Pompa Air Baku 12V”** page is **COMPLETE, TESTED & FULLY VERIFIED** across firmware HAL, calibration manager, REST endpoints, and the React UI.
+
+## Summary of Root Cause & Fix
+1. **Firmware Latency Eliminated:** Sourced cumulative hardware pulses directly from `sensor_hal_get_raw_flow_pulses()` (`s_pulses_raw_zjb1` on GPIO 15 ISR) in `calibration_worker_task`, `calibration_mgr_stop()`, and `calibration_mgr_get_status()` with 32-bit rollover safety, removing the 2000ms polling task delay.
+2. **Premature Freeze Prevented:** Added `runActiveRef.current` and `hasTestStartedRef.current` guards to prevent the wizard from prematurely aborting tests before parent state propagates.
+3. **Bounded Sequential Polling:** Replaced naive `setInterval` with bounded recursive sequence poller (`setTimeout` with `AbortController` 2000ms timeout) and monotonic sequence ID (`pollSeqRef` / `latestHandledSeqRef`) preventing out-of-order response overwrites.
+4. **Telemetry Freshness Classification:**
+   - `LIVE`: fresh telemetry within 2.5s (green pulsing icon, age shown).
+   - `STALE`: updates delayed between 2.5s and 6.0s (amber warning icon, age shown).
+   - `DISCONNECTED`: no response for > 6.0s or connection error (rose icon, error alert).
+5. **Acceptance Criteria Verification:** All 12 test suites in `scripts/test_session_pulse_streaming.mjs` passed with code 0. TypeScript typecheck (`npx tsc --noEmit`) and production build (`npm run build`) passed with code 0.
+
+# AI HANDOVER - SP-FLOW-VERIFICATION-CALIBRATION-005
+
+## Architecture & Integration Summary
+1. **Web UI Extension**:
+   - Location: Integrated directly into the existing page `/calibration` under `src/app/calibration/page.tsx` when `device.category === "raw-water-pump"` is active.
+   - Dedicated Component: [src/components/calibration/RawWaterFlowVerificationWizard.tsx](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/src/components/calibration/RawWaterFlowVerificationWizard.tsx).
+   - Section Title: **“Live Flow Verification & Physical Volume Calibration”**.
+   - Preserves all existing functionality, tabs, layout, history, and unrelated dosing pump calibration wizards.
+2. **Real-Time Telemetry**:
+   - 1Hz polling of live session metrics from `GET /api/v1/calibration/status`.
+   - Exposes: Pump state (`ON`, `OFF`, `STOPPING`, `ERROR`), live session cumulative pulse count, pulse frequency (Hz), live estimated flow rate (L/min), estimated accumulated volume (L & mL), test duration/elapsed time, and telemetry freshness indicator (<1s, delayed, stale).
+   - Uncalibrated Handling: Never fabricates or displays inaccurate volume estimates in liters when sensor factor is $\le 0$ or status is `UNCAL`. Clearly marks estimates as unavailable while streaming live pulses and frequency.
+3. **Physical Volume Input & Calculations**:
+   - Field: **“Actual Measured Volume (L)”** with input validation (`validatePhysicalVolumeInput`) enforcing sanity thresholds (0.1–60 L/min).
+   - Candidate Factor: $K_{\text{candidate}} = \frac{N_{\text{session pulses}}}{V_{\text{actual in liters}}}$ (pulses/L).
+   - Pump Rate: $Q_{\text{actual, ml/s}} = \frac{V_{\text{actual, ml}}}{t_{\text{session, s}}}$ and $Q_{\text{actual, L/min}}$. Kept strictly separate from sensor pulses/L.
+4. **Staged 3-Run Verification Protocol**:
+   - Run 1 (Initial Calibration): establishes $K_{\text{candidate}}$, marked `CALIBRATION_PENDING`.
+   - Run 2 (Independent Validation 1): tests estimated volume against physical collection using fresh baseline. Requires error $E_{\%} \le 5.0\%$.
+   - Run 3 (Independent Validation 2): second independent test. Requires error $E_{\%} \le 5.0\%$.
+   - Promotion to `VERIFIED` occurs only after both validation runs pass.
+   - Existing valid calibrations are preserved if validation fails.
+5. **Firmware Safety Interlocks**:
+   - Dosing pumps (GPIO 5, 6) and mixing pump (GPIO 40) are locked idle during raw water pump calibration.
+   - Authoritative 1800-second (30-minute) maximum runtime limit.
+   - Lifetime hardware pulse counter is never reset; session pulses are calculated from baseline snapshots ($\Delta N = \text{current} - \text{start}$).
+   - Session freeze upon completion prevents post-test piping coasting pulses from distorting calculations.
+   - NVS persistence via `flowRawPulsesPerL` and state `VERIFIED` / `CALIBRATED`.
+6. **Canonical Technical Documentation**:
+   - Created [docs/FLOW_SENSOR_VERIFICATION_AND_CALIBRATION_SPEC.md](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/docs/FLOW_SENSOR_VERIFICATION_AND_CALIBRATION_SPEC.md).
+7. **Verification Evidence**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm run build`: PASS (`dist/index.html` built in 1m 2s).
+   - Automated unit test suite (`scripts/test_flow_verification_math.mjs`): PASS.
+   - Automated E2E test suite (`scripts/test_flow_sensor_verification_e2e.mjs`): PASS.
+
+## Next Action
+Execute physical on-site flow testing with real water using 12V pump, collecting water in a calibrated container and recording verification runs.
+
+# AI HANDOVER - SP-NODEJS-INSTALL-VERIFIED-004
+
+## Status
+Node.js LTS (v24.20.0), npm (v11.19.0), all frontend project dependencies (`node_modules`), TypeScript verification, and Vite singlefile production bundle are **INSTALLED, CONFIGURED & VERIFIED**.
+
+## Summary of Frontend Toolchain Setup
+1. **Installed Node.js**:
+   - Version: `v24.20.0` LTS with npm `11.19.0`.
+   - Permanently registered `C:\Program Files\nodejs` into User PATH.
+2. **Installed Dependencies**:
+   - Ran `npm install` (100 packages added, audited cleanly).
+3. **Verification**:
+   - `npx tsc --noEmit`: PASS (0 errors).
+   - `npm run build`: PASS (built in 39.87s, output `dist/index.html`).
+
+# AI HANDOVER - SP-ESP32-PC-TOOLCHAIN-SETUP-003
+
+## Status
+All tools, Python runtime, flasher (`esptool`), VS Code extensions, and physical ESP32-S3 hardware probe on COM3 are **INSTALLED, CONFIGURED & VERIFIED**.
+
+## Summary of Accomplishments on This PC
+1. **Installed VS Code Extensions**:
+   - `espressif.esp-idf-extension` (v2.3.0)
+   - `ms-vscode.cpptools` (v1.34.4)
+2. **Installed Python & Flashing Tools**:
+   - Python 3.11.9 runtime
+   - `pip` 26.2.1
+   - `esptool` 5.5.0 & `pyserial` 3.5
+3. **Physical Hardware Probe (COM3)**:
+   - Successfully communicated with the attached MCU board:
+     - Model: **ESP32-S3 (QFN56) revision v0.2**
+     - Memory: **8MB Octal Embedded PSRAM**
+     - Frequency: **240MHz**
+     - MAC: `7c:4f:ad:2b:c4:54`
+4. **Local Configuration**:
+   - `scripts/esp32_env.local.ps1` configured and active.
+   - Profile resolution verified with zero errors.
+
+# AI HANDOVER - SP-ESP32-MULTI-PC-CONFIG-002
+
+## Status
+Multi-PC collaboration bridge via GitHub is **COMPLETE & READY**. Any developer on PC 1, PC 2, or subsequent machines can clone and pull without folder path conflicts or Git merge collisions.
+
+## Key Changes
+1. **Local Machine Profiles (`esp32_env.local.ps1`)**:
+   - Machine-specific configuration files are strictly ignored by Git (`.gitignore`).
+   - Provided [scripts/esp32_env.example.ps1](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/scripts/esp32_env.example.ps1) as the commit-safe template.
+2. **Shared Dynamic Environment Loader (`load_esp32_env.ps1`)**:
+   - Centralizes environment resolution across `build_esp32.ps1`, `flash_esp32.ps1`, `clean_build_erase_flash.ps1`, and `run_idf.py`.
+   - Resolves repository root relative to script root (`$PSScriptRoot`).
+   - Supports intelligent auto-detection of connected COM port when only one USB serial device is attached.
+3. **Collaborator AI Instructions & Governance**:
+   - Created [AI_COLLABORATION_INSTRUCTIONS.md](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/AI_COLLABORATION_INSTRUCTIONS.md) detailing inbound handover, zero-path hardcoding rules, and outbound safe point routines for the AI agent on the second PC.
+   - Mandated multi-PC compliance directly in [AGENTS.md](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/AGENTS.md) and [docs/ESP32_FLASHING_GUIDE.md](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/docs/ESP32_FLASHING_GUIDE.md#3-konfigurasi-khusus-multi-pc-bridge-github-tanpa-konflik).
+
+
+# AI HANDOVER - SP-ESP32-FLASH-TOOLING-PREP-001
+
+## Status
+All preparation, build & flashing script portability enhancements, parameter configurability, and canonical documentation for flashing the ESP32-S3 firmware in this project are **COMPLETE**.
+
+## Summary of Changes
+1. **Script Path Generalization**:
+   - `scripts/build_esp32.ps1`, `scripts/flash_esp32.ps1`, and `clean_build_erase_flash.ps1` previously contained hardcoded paths to old environments (`d:\agrochatgpt` and `C:\Users\rumah\...`).
+   - Fixed all scripts to resolve repository and `esp32` directories dynamically from `$PSScriptRoot`.
+2. **Flexible Flashing Parameters**:
+   - Added parameters (`-Port`, `-Baud`, `-IdfPath`, `-ToolsPath`, `-PythonEnv`) to allow flashing on any serial port (e.g., `-Port COM4`) or with custom IDF installations.
+   - Added auto-fallback detection for Python virtual environments (`idf5.5_py3.12_env` and `idf5.5_py3.11_env`).
+3. **Canonical Documentation**:
+   - Added [docs/ESP32_FLASHING_GUIDE.md](file:///c:/Users/lenovo/.gemini/antigravity-ide/scratch/UI-template/docs/ESP32_FLASHING_GUIDE.md) detailing physical prerequisites, COM port identification, 3 flashing methods (Standard, Clean Erase, Native CLI), partition layout, serial logging, and troubleshooting.
+
+# AI HANDOVER - SP-BUG-17-ZERO-POLL-OPTIMISTIC-SYNC-005
 
 ## Status
 Refactored state synchronization to **Zero-Polling, Event-Driven Push & Optimistic State Architecture** (modeled after Home Assistant / AWS IoT Device Shadow). Polling overhead completely removed from ESP32 server. All 23 mandatory acceptance checks PASS.

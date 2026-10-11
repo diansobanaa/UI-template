@@ -40,6 +40,7 @@ import { SectionCard } from "@/components/ui/cards";
 import { Badge, Button, Input, Label, StatusBadge } from "@/components/ui/primitives";
 import { ConfirmDialog } from "@/components/ui/overlay";
 import { TestMixingModal } from "@/components/calibration/TestMixingModal";
+import { RawWaterFlowVerificationWizard } from "@/components/calibration/RawWaterFlowVerificationWizard";
 import { useToast } from "@/components/ui/toast";
 import { calibrationService, complexService, greenhouseService } from "@/lib/services";
 import { useDbVersion } from "@/lib/useDb";
@@ -308,7 +309,9 @@ function CalibrationContent() {
               bodyClassName="flex flex-col h-full p-0"
               title={shortName(device)}
               subtitle={
-                device.category === "dosing-pump"
+                device.category === "raw-water-pump"
+                  ? "Konfigurasi Pengujian Pompa Air Baku 12V & Verifikasi Sensor Aliran (ZJ-B1)"
+                  : device.category === "dosing-pump"
                   ? `Mode: Kalibrasi Volumetrik — Kanal ${pumpChannel(device)}`
                   : `Mode: Kalibrasi ${device.category === "ph" ? "pH" : "EC"} dengan Larutan Standar`
               }
@@ -353,7 +356,17 @@ function CalibrationContent() {
               </div>
 
               <div className="flex-1 overflow-y-auto scroll-thin p-6 bg-slate-50/50">
-                {activeTab === "calibrate" && (device.category === "dosing-pump" || device.category === "raw-water-pump") && (
+                {activeTab === "calibrate" && device.category === "raw-water-pump" && (
+                  <RawWaterFlowVerificationWizard
+                    key={device.id}
+                    device={device}
+                    run={run && run.deviceId === device.id ? run : null}
+                    onStart={(seconds) => setRun({ deviceId: device.id, secondsLeft: seconds })}
+                    onStop={() => setRun(null)}
+                    onSaved={refreshAuthoritative}
+                  />
+                )}
+                {activeTab === "calibrate" && device.category === "dosing-pump" && (
                   <DosingPumpCalibrationWizard
                     key={device.id}
                     device={device}

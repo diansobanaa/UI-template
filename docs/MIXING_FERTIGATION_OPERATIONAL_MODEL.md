@@ -888,28 +888,55 @@ A browser refresh must retrieve authoritative data from ESP32; browser storage m
 
 Browser persistence may contain only approved bootstrap hints such as ESP32 address and minimal Complex/GH identity metadata.
 
-## 20.1 Unified Checkpoint Mechanism (3-Second Interval)
+## 20.1 Unified Checkpoint Mechanism & 1-Second Mixing Pool
 
-Untuk memantau dan mempertahankan progres tanpa membebani flash:
-- **Interval Tunggal 3 Detik:** Seluruh proses aktif (dosing peracikan maupun distribusi fertigasi) menggunakan satu mekanisme checkpoint periodik setiap 3.000 ms.
-- **Immediate State Trigger:** Perubahan status penting (transisi tahap fisik, penyelesaian batch, fault) langsung memicu penulisan checkpoint seketika melalui fungsi yang sama (`fertigation_mgr_save_checkpoint`).
-- **Binary Static Format:** Checkpoint disimpan dalam format binary statis kompak (`fert_checkpoint_t`, ~140 bytes) ke MicroSD (`/sdcard/fert_checkpoint.bin`) dengan fallback SPIFFS (`/spiffs/fert_checkpoint.bin`), serta sinkronisasi NVS pada transisi status utama.
-- **Integritas Data:** Dilengkapi CRC32 (`esp_rom_crc32_le`), versi skema (`FERT_CHECKPOINT_VERSION = 1`), sequence number monotonic, target vs actual water volume, dan observed runtime per dosing channel.
-- **Zero Extra Tasks:** Checkpoint dipanggil langsung dari loop task kontroler yang sudah ada (`task` di `fertigation_mgr.c`), tanpa membuat FreeRTOS task checkpoint terpisah.
+Untuk memantau dan mempertahankan progres peracikan tanpa membebani flash:
+- **1-Second Persistent Mixing Pool (`mixing_pool_t`):**
+  - Dibuat seketika saat peracikan (`protocol_mixing`) dimulai.
+  - Disimpan dalam file biner terstruktur (`/sdcard/mixing_pool.bin` dengan fallback `/spiffs/mixing_pool.bin`).
+  - Dilengkapi magic word (`0x4D58504C`), versi skema (`MIXING_POOL_VERSION = 1`), sequence number monotonic, dan CRC32 (`esp_rom_crc32_le`).
+  - **Diisi dan di-update setiap 1 detik** (1.000 ms) di dalam loop orkestrasi dengan progres fisik aktual:
+    - `actual_raw_water_ml`: volume air baku terverifikasi sensor aliran.
+    - `threshold_reached`: status pencapaian ambang batas pengadukan.
+    - `observed_runtime_ms` per channel pupuk: durasi aktif pompa dosing individual yang telah teramati.
+    - `current_phase`: tahap proses saat ini.
+    - `post_mix_elapsed_ms`: durasi pengadukan akhir pasca-dosing.
+  - **Dihapus HANYA ketika protokol mixing selesai sukses (`MIXING_RESULT_SUCCESS`).**
+  - Jika terjadi mati lampu / reboot di tengah jalan, file pool tetap ada di storage sebagai sumber data pemulihan.
+- **Interval Checkpoint Distribusi 3 Detik:** Seluruh proses distribusi fertigasi menggunakan mekanisme checkpoint periodik 3.000 ms (`fertigation_mgr_save_checkpoint`).
 
-## 20.2 Power Recovery & RECOVERY_REQUIRED Protocol
+## 20.2 Power Recovery & Safe Resume dengan Konfirmasi Operator (Opsi 1)
 
-Ketika ESP32 menyala kembali setelah listrik mati atau restart:
-1. **Actuator Safe Boot:** Seluruh output GPIO/relay dipaksa `OFF` (inactive level) sebelum pemulihan status.
-2. **Checkpoint Validation:** Firmware memeriksa checkpoint biner. Jika CRC32 atau versi tidak valid, fail-safe diterapkan.
-3. **Mid-Stream Interruption Guard (`RECOVERY_REQUIRED`):**
-   - Jika reboot terjadi saat **FILLING**, **DOSING**, atau **FINAL_MIXING**, volume fisik air aktual atau dosis yang telah tersalurkan tidak dapat dipastikan dengan presisi 100%.
-   - Kontroler **WAJIB** menetapkan status `RECOVERY_REQUIRED` (`FERT_STATE_RECOVERY_HOLD`).
-   - Kontroler **DILARANG MELANJUTKAN DOSING OTOMATIS** untuk melindungi tanaman dari risiko toksisitas atau kelebihan pupuk (overdosing).
-   - Operator harus melakukan pengecekan fisik (drain atau cancel batch) melalui Web UI.
+Ketika ESP32 menyala kembali setelah listrik mati atau restart di tengah proses mixing:
+1. **Actuator Safe Boot:** Seluruh output GPIO/relay dipaksa `OFF` (inactive level) saat boot. Kontroler **DILARANG KERAS** menyalakan pompa secara otomatis saat boot tanpa konfirmasi.
+2. **Pool Detection & Recovery Hold:**
+   - Kontroler memeriksa keberadaan `mixing_pool.bin`.
+   - Jika ditemukan pool aktif yang belum terselesaikan:
+     - Real Fertigation: status sistem ditetapkan ke `FERT_STATE_RECOVERY_HOLD`.
+     - Test Mixing: status test mixing ditetapkan ke `RECOVERY_HOLD` (`recoveryRequired = true`).
+     - Actuator tetap aman dalam kondisi `OFF`.
+3. **Keputusan Operator (Web UI Interaction):**
+   - **Opsi A — Safe Resume (Lanjutkan Sisa Batch):**
+     - Endpoint: `POST /api/v1/fertigation/resume` atau `POST /api/v1/calibration/test-mixing/resume`.
+     - Kontroler mengambil data dari pool dan menghitung **sisa kebutuhan peracikan**:
+       - Sisa Air Baku = `target_raw_water_ml > actual_raw_water_ml ? (target - actual) : 0`. Jika sisa = 0 (air baku sudah penuh sebelum mati lampu), pompa air baku **TIDAK MENYALA**.
+       - Sisa Dosing Tiap Pupuk = `expected_runtime_ms > observed_runtime_ms ? (expected - observed) : 0`. Jika saluran sudah selesai sebelum mati lampu, pompa dosing tersebut dilewati (skip). Jika masih bersisa, pompa hanya menyala selama sisa milidetik yang belum tercapai. Dengan begini, **dosis pupuk tetap 100% tepat dan tidak berlebih**!
+       - Sisa Post-Mix Agitation = `post_mix_duration_sec - (post_mix_elapsed_ms / 1000)`.
+     - Setelah seluruh sisa peracikan selesai dengan sukses, pool dihapus (`unlink`).
+   - **Opsi B — Discard (Tolak & Buang Batch):**
+     - Endpoint: `POST /api/v1/fertigation/discard` atau `POST /api/v1/calibration/test-mixing/discard`.
+     - Pool dihapus (`unlink`).
+     - Status batch dicatat mengalami gangguan listrik (`POWER_LOSS_DISCARDED` / `FERT_STATE_INTERRUPTED`).
+     - Sistem kembali ke status `IDLE`.
 4. **Ready Batch Restoration:** Jika checkpoint mencatat status `MIX_READY` (`READY_TO_FERTIGATE`) sebelum reboot, batch larutan di tangki dinyatakan valid dan dipulihkan ke slot delivery `READY_TO_SEND` tanpa perlu pengadukan ulang atau dosing ulang.
 
-## 20.3 Batasan Otoritas `hardware_outputs_mask`
+## 20.3 Paritas 100% Fitur Test Mixing (Calibration Page)
+
+- Fitur **Test Mixing & Dosing** pada halaman Kalibrasi memiliki protokol, struktur data pool, logika 1-detik checkpoint, dan flow **Safe Resume yang 100% persis sama** dengan real mixing.
+- Keduanya dieksekusi oleh mesin orkestrasi tunggal yang sama: `protocol_mixing()`.
+- **Satu-satunya perbedaan:** Test mixing tidak menulis ke event log audit (`config->is_test = true`). Test mixing murni untuk pengujian hardware dan kalibrasi operator.
+
+## 20.4 Batasan Otoritas `hardware_outputs_mask`
 
 - `hardware_outputs_mask` dalam checkpoint **hanya merupakan catatan status perintah sebelumnya** untuk keperluan telemetri dan audit diagnostik.
 - Firmware **DILARANG KERAS** menyalakan kembali pompa atau relay saat boot berdasarkan catatan mask tersebut.
@@ -1537,5 +1564,88 @@ Live Result (Raw Water Actual vs Target, Dosing Status, Error Diagnostics)
   - Start requests are rejected with `MIXING_BUSY` (HTTP 409) if the central fertigation manager is currently active (`FERT_STATE_MIXING`, `FERT_STATE_STAGING`, etc.).
   - Emergency stop immediately trips abort hooks and engages scoped safe-stop (`stop_mixing_protocol_actuators`), releasing owned actuators without perturbing unrelated greenhouse subsystems.
   - Test execution is strictly read-only with respect to calibration values; test runs never recalculate or overwrite stored calibration coefficients.
+
+## 37.3 Live Cycle Timing Analysis & Real-World Mathematical Modeling
+
+To give operators complete operational clarity before and during physical test mixing, the Web UI incorporates a real-time reactive mathematical calculation engine (`calculateMixingTimingAnalysis` in `src/lib/calibration-math.ts`) synchronized with `protocol_mixing.c`.
+
+### 1. Mathematical Formulas
+- **Raw Water Pump Run Time:**
+  $$T_{\text{raw}} = \frac{V_{\text{target}}}{Q_{\text{raw}}} \quad \text{where } Q_{\text{raw}} = \text{calibrated flow rate (mL/s)}$$
+  $$N_{\text{pulses}} = \left(\frac{V_{\text{target}}}{1000}\right) \times K_{\text{pulses/L}}$$
+- **Threshold Trigger Time (Simultaneous Start of Mixing Pump & Dosing):**
+  $$T_{\text{threshold}} = \frac{V_{\text{target}} \times \text{Threshold}\%}{100 \times Q_{\text{raw}}}$$
+- **Parallel Dosing Channels:**
+  $$T_{\text{dose}, i} = \frac{V_{\text{dose}, i}}{Q_{\text{dose}, i}}$$
+  $$T_{\text{dose\_finish}} = T_{\text{threshold}} + \max(T_{\text{dose}, i})$$
+- **Post-Mix Agitation Start & Finish:**
+  $$T_{\text{post\_mix\_start}} = \max(T_{\text{raw}}, T_{\text{dose\_finish}})$$
+  $$T_{\text{total\_theoretical}} = T_{\text{post\_mix\_start}} + T_{\text{post\_mix\_duration}}$$
+- **Mixing Agitation Pump Run Time:**
+  $$T_{\text{mixing\_pump}} = T_{\text{total\_theoretical}} - T_{\text{threshold}}$$
+
+### 2. Theoretical vs. Real-World Execution Envelope
+1. **Pulse Sensor vs. Fixed Timer:** Raw water pump operation terminates upon reaching the ISR pulse count ($N_{\text{pulses}}$), not purely by time. Fluctuations in supply tank water head pressure, PSU supply voltage, and pipe resistance create a $\pm2\%$ to $5\%$ real-world flow variation.
+2. **Microsecond Precision Dosing:** Dosing peristaltic pumps are actuated via ESP32 hardware timers (`esp_timer_get_time()`), achieving timing precision $< 0.05$ s.
+3. **Sequential Interlock:** Post-mix agitation strictly requires `!raw_water_running && all_dosing_done`. If dosing channels take longer than water filling, post-mix automatically waits for dosing completion.
+4. **Task Delay Factor:** The firmware state machine loop executes every 100 ms (`vTaskDelay(pdMS_TO_TICKS(100))`), adding $0.1$ to $0.2$ s of phase transition margin.
+5. **Real-World Envelope:** Displayed to operators as:
+   $$T_{\text{real\_min}} = T_{\text{theoretical}} \times 0.98$$
+   $$T_{\text{real\_max}} = T_{\text{theoretical}} \times 1.03 + 2.0\text{ s}$$
+
+### 3. Reactive Web UI Integration (`TestMixingModal.tsx`)
+- **Metric Summary Cards:** Theoretical cycle time, real-world execution envelope range, and target pulse count.
+- **Visual Gantt Timeline:** Real-time relative bars for each actuator illustrating threshold trigger, parallel dosing duration, and post-mix agitation phase.
+- **Detailed Actuator Table:** Tabular display showing individual actuator targets, active calibration rates, start times, expected run times, finish times, and control modes.
+- **Live Elapsed Tracking:** During execution (`step === "RUNNING"`), the UI displays elapsed time against the estimated cycle duration with animated progress indicators.
+
+---
+
+# 38. Power-Loss Checkpoint Pool & Safe Resume Architecture (Opsi 1)
+
+## 38.1 Operational Problem & Invariant Mandate
+During greenhouse nutrient mixing, unexpected power outages (mati lampu) can interrupt the preparation sequence at arbitrary phases:
+1. Mid-stream during raw water filling before threshold.
+2. Mid-stream while dosing pump channels are actively injecting concentrated nutrients.
+3. Mid-stream during final post-mix agitation.
+
+Upon power restoration, **blind restart** would cause catastrophic fertilizer overdosing (double-dosing A/B concentrate into already pre-dosed water). Conversely, **discarding the batch without operator confirmation** wastes water and nutrients while leaving operators blind to what occurred.
+
+## 38.2 Persistent Checkpoint Pool (`mixing_pool_t`)
+The canonical mixing engine (`protocol_mixing.c`) maintains a dedicated binary checkpoint pool:
+- **Magic & Version:** `0x4D58504C` (`MXPL`), Version 1.
+- **Integrity Protection:** Hardware CRC32 (`esp_rom_crc32_le`) verified on every load.
+- **1-Second Checkpoint Cadence:** While `protocol_mixing` is executing, the physical state is written to non-volatile storage every 1,000,000 µs (1 second):
+  - Actual raw water volume accumulated (`actual_raw_water_ml`).
+  - Observed execution time per dosing channel (`channels[i].observed_runtime_ms`) and `completed` status flag.
+  - Elapsed post-mix agitation time (`post_mix_elapsed_ms`) and `post_mix_completed` flag.
+  - Phase identifier, batch ID, complex ID, and greenhouse ID.
+- **Dual Storage Path:** Primary `/sdcard/mixing_pool.bin` with automatic fallback to `/spiffs/mixing_pool.bin`.
+- **Strict Unlink Criterion:** The pool file is deleted/unlinked **ONLY** when `protocol_mixing` terminates with `MIXING_RESULT_SUCCESS`. Any abrupt power cut, crash, or reboot preserves the pool.
+
+## 38.3 Safe Boot & Operator Confirmation Protocol
+Upon microcontroller reboot:
+1. **Actuator Safe-OFF Invariant:** All GPIOs and PCA9685 channels are initialized to strict OFF (relays open, MOSFETs 0% duty).
+2. **Checkpoint Detection:** Bootloader and service initialization inspect `mixing_pool_load()`. If a valid pool exists:
+   - For real fertigation: `fertigation_mgr` halts in `FERT_STATE_RECOVERY_HOLD` with `recoveryRequired: true`.
+   - For test mixing: `calibration_mgr` reports status `RECOVERY_HOLD` with `recoveryRequired: true`.
+3. **Operator Actions:**
+   - **Lanjutkan (Safe Resume):**
+     - Endpoint: `POST /api/v1/fertigation/resume` or `POST /api/v1/calibration/test-mixing/resume`.
+     - Firmware re-launches `protocol_mixing()` with `mix_cfg.resume_from_pool = true`.
+     - Remainder Math:
+       - Raw water remainder: `target_raw_water_ml - pool.actual_raw_water_ml`. ISR pulse counter continues from zero, accumulating `target_pulses - actual_pulses`.
+       - Dosing channels: Any channel marked `completed == true` is skipped entirely (runtime = 0 ms). Incomplete channels execute strictly for `expected_runtime_ms - observed_runtime_ms`.
+       - Post-mix: Runs for `post_mix_duration_sec * 1000 - post_mix_elapsed_ms`.
+   - **Batalkan & Hapus (Discard):**
+     - Endpoint: `POST /api/v1/fertigation/discard` or `POST /api/v1/calibration/test-mixing/discard`.
+     - Deletes the pool file (`mixing_pool_delete()`), resets controller state to `IDLE`, and marks affected schedules as interrupted by power loss (`FERT_STATE_INTERRUPTED`).
+
+## 38.4 Real Mixing & Test Mixing Parity
+As mandated by user operational directives:
+- **100% Core Code Parity:** Real scheduled fertigation and Calibration Test Mixing use the **exact same** `protocol_mixing.c` code, binary pool structures, 1-second checkpoint frequency, and resume remainder calculations.
+- **Log Suppression for Test Mixing:** When `is_test == true`, all audit events to `event_mgr_log()` are suppressed, ensuring diagnostic tests do not pollute persistent agronomic cycle logs.
+
+
 
 

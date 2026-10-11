@@ -931,10 +931,38 @@ export interface CalibrationRequest {
 
 export interface CalibrationStatus {
   state: "IDLE" | "RUNNING" | "COMPLETE" | "ERROR";
-  remainingSec: number;
+  componentId?: string | null;
+  duration_sec?: number;
+  durationSec?: number;
+  elapsed_sec?: number;
+  elapsedSec?: number;
+  remaining_sec?: number;
+  remainingSec?: number;
   measuredValue?: number | null;
+  measured_ml?: number | null;
   measuredMl?: number | null;
+  measured_l?: number | null;
   measuredL?: number | null;
+  start_pulses?: number;
+  startPulses?: number;
+  current_pulses?: number;
+  currentPulses?: number;
+  session_pulses?: number;
+  sessionPulses?: number;
+  pulse_frequency_hz?: number;
+  pulseFrequencyHz?: number;
+  flow_rate_lpm?: number;
+  flowRateLpm?: number;
+  pulses_per_liter?: number;
+  pulsesPerLiter?: number;
+  has_valid_calibration?: boolean;
+  hasValidCalibration?: boolean;
+  estimated_ml?: number;
+  estimatedMl?: number;
+  estimated_l?: number;
+  estimatedL?: number;
+  calibration_status?: "UNCAL" | "CALIBRATION_PENDING" | "VERIFIED" | string;
+  calibrationStatus?: "UNCAL" | "CALIBRATION_PENDING" | "VERIFIED" | string;
   errorCode?: string | null;
 }
 
@@ -947,6 +975,7 @@ export interface CalibrationRates {
   rateWellPumpMlSec?: number;
   flowRawPulsesPerL: number;
   flowFertPulsesPerL: number;
+  status?: string;
   dosingRates?: Record<string, number>;
   records?: CalibrationApiRecord[];
 }
@@ -981,8 +1010,39 @@ export interface MixingTestChannelStatus {
   status: "PENDING" | "RUNNING" | "COMPLETED";
 }
 
+export interface MixingPoolChannelSnapshot {
+  componentId: string;
+  targetVolumeMl: number;
+  expectedRuntimeMs: number;
+  observedRuntimeMs: number;
+  remainingRuntimeMs: number;
+  completed: boolean;
+}
+
+export interface MixingPoolSnapshot {
+  isTest: boolean;
+  isActive: boolean;
+  sequence: number;
+  timestampMs: number;
+  batchId?: string;
+  complexId?: string;
+  ghId?: string;
+  recipeId?: string;
+  targetRawWaterMl: number;
+  actualRawWaterMl: number;
+  remainingRawWaterMl: number;
+  thresholdPercent: number;
+  thresholdReached: boolean;
+  rawWaterCompleted: boolean;
+  currentPhase: string;
+  channels: MixingPoolChannelSnapshot[];
+  postMixDurationSec: number;
+  postMixElapsedMs: number;
+  postMixCompleted: boolean;
+}
+
 export interface MixingTestStatus {
-  status: "IDLE" | "RUNNING" | "SUCCESS" | "ERROR";
+  status: "IDLE" | "RUNNING" | "SUCCESS" | "ERROR" | "RECOVERY_HOLD";
   phase: string;
   rawWaterTargetMl: number;
   rawWaterActualMl: number;
@@ -992,6 +1052,8 @@ export interface MixingTestStatus {
   errorCode: string | null;
   message: string;
   channels: MixingTestChannelStatus[];
+  recoveryRequired?: boolean;
+  recoveryPool?: MixingPoolSnapshot;
 }
 
 export interface HardwarePortConfig {

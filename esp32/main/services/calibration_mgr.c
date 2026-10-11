@@ -25,6 +25,8 @@ static calibration_status_t s_ctx;
 static SemaphoreHandle_t s_mutex = NULL;
 static uint32_t s_start_tick = 0;
 static uint32_t s_start_raw_flow_ml = 0;
+static uint32_t s_last_pulse_count = 0;
+static int64_t s_last_pulse_sample_us = 0;
 static calibration_record_t s_records[MAX_CAL_RECORDS];
 static size_t s_record_count = 0;
 static float s_flow_raw_pulses_per_l = ZJB1_PULSES_PER_LITER_DEFAULT;
@@ -300,6 +302,19 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
     if (s_ctx.state == CALIBRATION_STATE_RUNNING) return ESP_ERR_INVALID_STATE;
     if (actuator_hal_is_emergency_stopped()) return ESP_ERR_INVALID_STATE;
 
+    bool is_raw_pump = (strcasestr(component_id, "submersible") != NULL ||
+                        strcasestr(component_id, "raw") != NULL);
+    if (is_raw_pump) {
+        /* Preserve maximum raw water pump runtime limit of 30 minutes (1800s) */
+        if (duration_sec > 1800) return ESP_ERR_INVALID_ARG;
+        /* Ensure dosing pumps and mixing pump are not running */
+        if (actuator_hal_get_state(ACTUATOR_DOSING_A) ||
+            actuator_hal_get_state(ACTUATOR_DOSING_B) ||
+            actuator_hal_get_state(ACTUATOR_MIXING_PUMP)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
     actuator_id_t fallback_aid = ACTUATOR_MAX_COUNT;
     esp_err_t err = actuator_hal_acquire_component(component_id, ACTUATOR_OWNER_CALIBRATION);
     if (err != ESP_OK) {
@@ -331,13 +346,56 @@ static esp_err_t start_component_locked(const char *component_id, uint32_t durat
     s_ctx.pump_id = fallback_aid;
     s_ctx.duration_sec = duration_sec;
     s_ctx.remaining_sec = duration_sec;
-    s_ctx.measured_ml = 0;
+    s_ctx.elapsed_sec = 0;
+    copy_str(s_ctx.component_id, sizeof(s_ctx.component_id), component_id);
+
     s_start_raw_flow_ml = 0;
+    uint32_t init_hw_pulses = sensor_hal_get_raw_flow_pulses();
+    s_ctx.start_pulses = init_hw_pulses;
+    s_ctx.current_pulses = init_hw_pulses;
+    s_ctx.session_pulses = 0;
     sensor_readings_t rd;
     if (sensor_hal_get_readings(&rd) == ESP_OK) {
         s_start_raw_flow_ml = rd.total_ml_raw_zjb1;
     }
-    copy_str(s_ctx.component_id, sizeof(s_ctx.component_id), component_id);
+    s_last_pulse_count = init_hw_pulses;
+    s_last_pulse_sample_us = esp_timer_get_time();
+    s_ctx.pulse_frequency_hz = 0.0f;
+
+    /* Check calibration status for raw water flow sensor using locked lookup to prevent self-deadlock */
+    calibration_record_t flow_rec;
+    bool has_cal = false;
+    float p_per_l = calibration_mgr_get_flow_raw_pulses_per_l();
+    int flow_rec_idx = find_latest_record_locked("flow_raw_zjb1", "FLOW");
+    if (flow_rec_idx < 0) {
+        flow_rec_idx = find_latest_record_locked("sensor_flow_raw", "FLOW");
+    }
+    if (flow_rec_idx >= 0) {
+        flow_rec = s_records[flow_rec_idx];
+        if (flow_rec.has_pulses_per_liter && flow_rec.pulses_per_liter > 0.0f) {
+            p_per_l = flow_rec.pulses_per_liter;
+        }
+        if (flow_rec.state == CAL_RECORD_VERIFIED) {
+            copy_str(s_ctx.calibration_status, sizeof(s_ctx.calibration_status), "VERIFIED");
+            has_cal = true;
+        } else if (flow_rec.state == CAL_RECORD_CALIBRATED) {
+            copy_str(s_ctx.calibration_status, sizeof(s_ctx.calibration_status), "CALIBRATION_PENDING");
+            has_cal = true;
+        } else {
+            copy_str(s_ctx.calibration_status, sizeof(s_ctx.calibration_status), "UNCAL");
+            has_cal = false;
+        }
+    } else {
+        copy_str(s_ctx.calibration_status, sizeof(s_ctx.calibration_status), "UNCAL");
+        has_cal = false;
+    }
+    s_ctx.pulses_per_liter = p_per_l;
+    s_ctx.has_valid_calibration = has_cal;
+    s_ctx.estimated_l = 0.0f;
+    s_ctx.estimated_ml = 0;
+    s_ctx.flow_rate_lpm = 0.0f;
+    s_ctx.measured_ml = 0;
+
     s_start_tick = xTaskGetTickCount();
     s_calibration_running_component = true;
     return ESP_OK;
@@ -352,11 +410,32 @@ static void calibration_worker_task(void *arg)
         if (!s_mutex || xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) continue;
         if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
             uint32_t elapsed = (xTaskGetTickCount() - s_start_tick) / pdMS_TO_TICKS(1000);
-            sensor_readings_t rd;
-            if (sensor_hal_get_readings(&rd) == ESP_OK) {
-                if (rd.total_ml_raw_zjb1 >= s_start_raw_flow_ml) {
-                    s_ctx.measured_ml = rd.total_ml_raw_zjb1 - s_start_raw_flow_ml;
-                }
+            s_ctx.elapsed_sec = elapsed;
+            uint32_t live_hw_pulses = sensor_hal_get_raw_flow_pulses();
+            s_ctx.current_pulses = live_hw_pulses;
+            if (live_hw_pulses >= s_ctx.start_pulses) {
+                s_ctx.session_pulses = live_hw_pulses - s_ctx.start_pulses;
+            } else {
+                s_ctx.session_pulses = (UINT32_MAX - s_ctx.start_pulses) + 1 + live_hw_pulses;
+            }
+            int64_t now_us = esp_timer_get_time();
+            float dt_sec = (float)(now_us - s_last_pulse_sample_us) / 1000000.0f;
+            if (dt_sec >= 0.8f) {
+                uint32_t dp = live_hw_pulses >= s_last_pulse_count ? (live_hw_pulses - s_last_pulse_count) : 0;
+                s_ctx.pulse_frequency_hz = (float)dp / dt_sec;
+                s_last_pulse_count = live_hw_pulses;
+                s_last_pulse_sample_us = now_us;
+            }
+            if (s_ctx.has_valid_calibration && s_ctx.pulses_per_liter > 0.0f) {
+                s_ctx.estimated_l = (float)s_ctx.session_pulses / s_ctx.pulses_per_liter;
+                s_ctx.estimated_ml = (uint32_t)((s_ctx.session_pulses * 1000.0f) / s_ctx.pulses_per_liter);
+                s_ctx.flow_rate_lpm = (s_ctx.pulse_frequency_hz * 60.0f) / s_ctx.pulses_per_liter;
+                s_ctx.measured_ml = s_ctx.estimated_ml;
+            } else {
+                s_ctx.estimated_l = 0.0f;
+                s_ctx.estimated_ml = 0;
+                s_ctx.flow_rate_lpm = 0.0f;
+                s_ctx.measured_ml = 0;
             }
             if (actuator_hal_is_emergency_stopped()) {
                 log_calibration_stack("before_emergency_off");
@@ -389,6 +468,7 @@ static void calibration_worker_task(void *arg)
                 log_calibration_stack("after_complete_off");
                 s_ctx.state = CALIBRATION_STATE_COMPLETE;
                 s_ctx.remaining_sec = 0;
+                copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "COMPLETED");
             } else {
                 s_ctx.remaining_sec = s_ctx.duration_sec - elapsed;
             }
@@ -451,8 +531,20 @@ esp_err_t calibration_mgr_stop(void)
                                  "calibration_operator_stop_legacy");
             actuator_hal_release(s_ctx.pump_id, ACTUATOR_OWNER_CALIBRATION);
         }
+        uint32_t final_pulses = sensor_hal_get_raw_flow_pulses();
+        s_ctx.current_pulses = final_pulses;
+        if (final_pulses >= s_ctx.start_pulses) {
+            s_ctx.session_pulses = final_pulses - s_ctx.start_pulses;
+        } else {
+            s_ctx.session_pulses = (UINT32_MAX - s_ctx.start_pulses) + 1 + final_pulses;
+        }
+        if (s_ctx.has_valid_calibration && s_ctx.pulses_per_liter > 0.0f) {
+            s_ctx.estimated_l = (float)s_ctx.session_pulses / s_ctx.pulses_per_liter;
+            s_ctx.estimated_ml = (uint32_t)((s_ctx.session_pulses * 1000.0f) / s_ctx.pulses_per_liter);
+            s_ctx.measured_ml = s_ctx.estimated_ml;
+        }
         copy_str(s_ctx.error_code, sizeof(s_ctx.error_code), "STOPPED_BY_OPERATOR");
-        s_ctx.state = CALIBRATION_STATE_ERROR;
+        s_ctx.state = CALIBRATION_STATE_COMPLETE;
         s_ctx.remaining_sec = 0;
     }
     xSemaphoreGive(s_mutex);
@@ -463,6 +555,20 @@ esp_err_t calibration_mgr_get_status(calibration_status_t *out_status)
 {
     if (!out_status || !s_mutex) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+    if (s_ctx.state == CALIBRATION_STATE_RUNNING) {
+        uint32_t live_hw_pulses = sensor_hal_get_raw_flow_pulses();
+        s_ctx.current_pulses = live_hw_pulses;
+        if (live_hw_pulses >= s_ctx.start_pulses) {
+            s_ctx.session_pulses = live_hw_pulses - s_ctx.start_pulses;
+        } else {
+            s_ctx.session_pulses = (UINT32_MAX - s_ctx.start_pulses) + 1 + live_hw_pulses;
+        }
+        if (s_ctx.has_valid_calibration && s_ctx.pulses_per_liter > 0.0f) {
+            s_ctx.estimated_l = (float)s_ctx.session_pulses / s_ctx.pulses_per_liter;
+            s_ctx.estimated_ml = (uint32_t)((s_ctx.session_pulses * 1000.0f) / s_ctx.pulses_per_liter);
+            s_ctx.measured_ml = s_ctx.estimated_ml;
+        }
+    }
     *out_status = s_ctx;
     xSemaphoreGive(s_mutex);
     return ESP_OK;
@@ -758,11 +864,21 @@ esp_err_t calibration_mgr_set_flow_pulses_calibration(const char *component_id, 
                                        calibration_record_state_t state, const char *operator_id,
                                        int64_t valid_until_ms, const char *calibration_id)
 {
-    if (!component_id || !component_id[0] || pulses_per_liter <= 0 || version == 0) return ESP_ERR_INVALID_ARG;
+    if (!component_id || !component_id[0] || pulses_per_liter <= 0) return ESP_ERR_INVALID_ARG;
     if (state < CAL_RECORD_NOT_CALIBRATED || state > CAL_RECORD_REMOVED) return ESP_ERR_INVALID_ARG;
     if (!s_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
-    if (version_conflict_locked(component_id, "FLOW", version) || s_record_count >= MAX_CAL_RECORDS) { xSemaphoreGive(s_mutex); return s_record_count >= MAX_CAL_RECORDS ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_STATE; }
+
+    int latest = find_latest_record_locked(component_id, "FLOW");
+    uint32_t eff_version = version;
+    if (eff_version == 0 || (latest >= 0 && eff_version <= s_records[latest].version)) {
+        eff_version = (latest >= 0) ? (s_records[latest].version + 1) : 1;
+    }
+
+    if (s_record_count >= MAX_CAL_RECORDS) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_NO_MEM;
+    }
     int idx=(int)s_record_count++; calibration_record_t *r=&s_records[idx]; memset(r,0,sizeof(*r));
     copy_str(r->calibration_id,sizeof(r->calibration_id),calibration_id ? calibration_id : "device-calibration");
     copy_str(r->component_id,sizeof(r->component_id),component_id);
@@ -771,7 +887,7 @@ esp_err_t calibration_mgr_set_flow_pulses_calibration(const char *component_id, 
     copy_str(r->complex_id,sizeof(r->complex_id),complex_id);
     copy_str(r->calibration_type,sizeof(r->calibration_type),"FLOW");
     copy_str(r->operator_id,sizeof(r->operator_id),operator_id ? operator_id : "device");
-    r->version=version; r->state=state;
+    r->version=eff_version; r->state=state;
     time_t now_sec = time(NULL);
     if (now_sec >= 1704067200) {
         r->created_at_ms = (int64_t)now_sec * 1000LL;
@@ -802,7 +918,7 @@ esp_err_t calibration_mgr_set_flow_pulses_calibration(const char *component_id, 
     xSemaphoreGive(s_mutex);
     if (err == ESP_OK) {
         (void)event_mgr_log_context(LOG_LEVEL_INFO, "CALIBRATION", "CALIBRATION_CHANGED", "FLOW calibration record updated and persisted.",
-                                    device_complex_id(), NULL, component_id, NULL, version);
+                                    device_complex_id(), NULL, component_id, NULL, eff_version);
     }
     return err;
 }
@@ -869,8 +985,6 @@ static void mixing_test_worker_task(void *pvParameters)
 {
     (void)pvParameters;
     ESP_LOGI(TAG, "Mixing & Dosing hardware test worker task started (canonical protocol_mixing).");
-    (void)event_mgr_log(LOG_LEVEL_INFO, "CALIBRATION", "MIXING_TEST_STARTED",
-                        "Manual mixing and dosing test started.", NULL);
 
     mixing_result_t res = protocol_mixing(&s_mixing_test_cfg);
 
@@ -887,13 +1001,9 @@ static void mixing_test_worker_task(void *pvParameters)
 
     if (res.status == MIXING_RESULT_SUCCESS) {
         ESP_LOGI(TAG, "Mixing & Dosing hardware test COMPLETED successfully.");
-        (void)event_mgr_log(LOG_LEVEL_INFO, "CALIBRATION", "MIXING_TEST_SUCCESS",
-                            "Manual mixing and dosing test completed successfully.", NULL);
     } else {
         ESP_LOGE(TAG, "Mixing & Dosing hardware test FAILED (%s): %s",
                  mixing_status_to_string(res.status), res.message);
-        (void)event_mgr_log(LOG_LEVEL_ERROR, "CALIBRATION", "MIXING_TEST_FAILED",
-                            res.message[0] ? res.message : mixing_status_to_string(res.status), NULL);
     }
 
     vTaskDelete(NULL);
@@ -902,6 +1012,114 @@ static void mixing_test_worker_task(void *pvParameters)
 bool calibration_mgr_is_mixing_test_running(void)
 {
     return s_mixing_test_running;
+}
+
+bool calibration_mgr_is_mixing_test_recovery_required(void)
+{
+    if (s_mixing_test_running) return false;
+    mixing_pool_t pool;
+    if (mixing_pool_load(&pool) == ESP_OK && pool.is_test && pool.is_active) {
+        return true;
+    }
+    return false;
+}
+
+esp_err_t calibration_mgr_resume_mixing_test(void)
+{
+    mixing_pool_t pool;
+    if (mixing_pool_load(&pool) != ESP_OK || !pool.is_test || !pool.is_active) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (!s_mixing_test_mutex) {
+        s_mixing_test_mutex = xSemaphoreCreateMutex();
+        if (!s_mixing_test_mutex) return ESP_ERR_NO_MEM;
+    }
+
+    if (xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+    if (s_mixing_test_running) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Concurrency protection: reject if fertigation manager is currently active */
+    fertigation_state_t f_st = fertigation_mgr_get_state();
+    if (f_st != FERT_STATE_IDLE && f_st != FERT_STATE_COMPLETE &&
+        f_st != FERT_STATE_FAULTED && f_st != FERT_STATE_ABORTED) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGW(TAG, "Cannot resume mixing test: fertigation manager is currently busy (state=%d).", (int)f_st);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Safety interlock: reject if E-Stop latched */
+    if (actuator_hal_is_emergency_stopped()) {
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGW(TAG, "Cannot resume mixing test: Emergency Stop latched.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    memset(&s_mixing_test_cfg, 0, sizeof(s_mixing_test_cfg));
+    s_mixing_test_cfg.raw_water_target_ml = pool.target_raw_water_ml;
+    s_mixing_test_cfg.threshold_percent = pool.threshold_percent;
+    s_mixing_test_cfg.post_mix_duration_sec = pool.post_mix_duration_sec;
+    strncpy(s_mixing_test_cfg.raw_water_component_id, pool.raw_water_component_id, sizeof(s_mixing_test_cfg.raw_water_component_id) - 1);
+    strncpy(s_mixing_test_cfg.raw_flow_sensor_id, pool.raw_flow_sensor_id, sizeof(s_mixing_test_cfg.raw_flow_sensor_id) - 1);
+    strncpy(s_mixing_test_cfg.mixing_pump_id, pool.mixing_pump_id, sizeof(s_mixing_test_cfg.mixing_pump_id) - 1);
+    s_mixing_test_cfg.channel_count = pool.channel_count;
+    for (uint32_t i = 0; i < pool.channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        strncpy(s_mixing_test_cfg.channels[i].component_id, pool.channels[i].component_id, sizeof(s_mixing_test_cfg.channels[i].component_id) - 1);
+        s_mixing_test_cfg.channels[i].target_volume_ml = pool.channels[i].target_volume_ml;
+    }
+    s_mixing_test_cfg.is_test = true;
+    s_mixing_test_cfg.resume_from_pool = true;
+    strncpy(s_mixing_test_cfg.batch_id, pool.batch_id, sizeof(s_mixing_test_cfg.batch_id) - 1);
+    s_mixing_test_cfg.abort_check = mixing_test_abort_check;
+    s_mixing_test_cfg.live_result = &s_mixing_test_live_res;
+
+    memset(&s_mixing_test_live_res, 0, sizeof(s_mixing_test_live_res));
+    s_mixing_test_live_res.current_phase = (mixing_phase_t)pool.current_phase;
+    s_mixing_test_live_res.target_raw_water_ml = pool.target_raw_water_ml;
+    s_mixing_test_live_res.actual_raw_water_ml = pool.actual_raw_water_ml;
+    s_mixing_test_live_res.channel_count = pool.channel_count;
+    for (uint32_t i = 0; i < pool.channel_count && i < MAX_MIXING_DOSING_CHANNELS; ++i) {
+        strncpy(s_mixing_test_live_res.channels[i].component_id, pool.channels[i].component_id, sizeof(s_mixing_test_live_res.channels[i].component_id) - 1);
+        s_mixing_test_live_res.channels[i].target_volume_ml = pool.channels[i].target_volume_ml;
+        s_mixing_test_live_res.channels[i].actual_runtime_ms = pool.channels[i].observed_runtime_ms;
+        s_mixing_test_live_res.channels[i].completed = pool.channels[i].completed;
+    }
+
+    s_mixing_test_abort_requested = false;
+    s_mixing_test_running = true;
+    s_mixing_test_has_result = false;
+
+    BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 6144, NULL, 5, &s_mixing_test_task_handle, 1);
+    if (ret != pdPASS) {
+        s_mixing_test_running = false;
+        s_mixing_test_task_handle = NULL;
+        xSemaphoreGive(s_mixing_test_mutex);
+        ESP_LOGE(TAG, "Failed to spawn mixing test resume task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    xSemaphoreGive(s_mixing_test_mutex);
+    ESP_LOGI(TAG, "Safe Resume: mixing test resumed successfully from pool checkpoint.");
+    return ESP_OK;
+}
+
+esp_err_t calibration_mgr_discard_mixing_test(void)
+{
+    mixing_pool_t pool;
+    if (mixing_pool_load(&pool) == ESP_OK && pool.is_test) {
+        mixing_pool_delete();
+        ESP_LOGI(TAG, "Interrupted test mixing pool discarded by operator.");
+    }
+    if (s_mixing_test_mutex && xSemaphoreTake(s_mixing_test_mutex, portMAX_DELAY) == pdTRUE) {
+        s_mixing_test_running = false;
+        s_mixing_test_has_result = false;
+        xSemaphoreGive(s_mixing_test_mutex);
+    }
+    return ESP_OK;
 }
 
 esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *config)
@@ -938,6 +1156,11 @@ esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *conf
 
     memset(&s_mixing_test_cfg, 0, sizeof(s_mixing_test_cfg));
     s_mixing_test_cfg = *config;
+    s_mixing_test_cfg.is_test = true;
+    s_mixing_test_cfg.resume_from_pool = false;
+    if (!s_mixing_test_cfg.batch_id[0]) {
+        strncpy(s_mixing_test_cfg.batch_id, "test-mixing", sizeof(s_mixing_test_cfg.batch_id) - 1);
+    }
     s_mixing_test_cfg.abort_check = mixing_test_abort_check;
     s_mixing_test_cfg.live_result = &s_mixing_test_live_res;
 
@@ -1008,9 +1231,20 @@ esp_err_t calibration_mgr_get_mixing_test_status(cJSON **out_json)
         xSemaphoreGive(s_mixing_test_mutex);
     }
 
+    bool recovery_required = calibration_mgr_is_mixing_test_recovery_required();
+    cJSON_AddBoolToObject(root, "recoveryRequired", recovery_required);
+    if (recovery_required) {
+        cJSON *pool_json = NULL;
+        if (mixing_pool_get_status_json(&pool_json) == ESP_OK && pool_json) {
+            cJSON_AddItemToObject(root, "recoveryPool", pool_json);
+        }
+    }
+
     const char *state_str = "IDLE";
     if (running) {
         state_str = "RUNNING";
+    } else if (recovery_required) {
+        state_str = "RECOVERY_HOLD";
     } else if (has_result) {
         state_str = (snap.status == MIXING_RESULT_SUCCESS) ? "SUCCESS" : "ERROR";
     }
@@ -1034,7 +1268,7 @@ esp_err_t calibration_mgr_get_mixing_test_status(cJSON **out_json)
     if (snap.message[0]) {
         cJSON_AddStringToObject(root, "message", snap.message);
     } else {
-        cJSON_AddStringToObject(root, "message", running ? "Test running" : (has_result ? (snap.status == MIXING_RESULT_SUCCESS ? "Test completed successfully" : "Test failed") : "No test running"));
+        cJSON_AddStringToObject(root, "message", running ? "Test running" : (recovery_required ? "Test mixing interrupted by power loss. Operator action required." : (has_result ? (snap.status == MIXING_RESULT_SUCCESS ? "Test completed successfully" : "Test failed") : "No test running")));
     }
 
     cJSON *arr = cJSON_AddArrayToObject(root, "channels");

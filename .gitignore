@@ -37,4 +37,12 @@ __pycache__/
 # Agent IDE
 .antigravity/
 
-
+# Machine-specific Local Environment Configuration (multi-PC bridge)
+*_env.local.ps1
+scripts/*_env.local.ps1
+.esp32_local.json
+scripts/.esp32_local.json
+dev.ps1
+eim_config.toml
+config.toml
+partition_table.bin
