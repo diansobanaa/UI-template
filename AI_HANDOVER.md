@@ -37,6 +37,9 @@ Power-Loss Checkpoint Pool (1s binary persistence to SD/SPIFFS with CRC32), Safe
 - Fertigation queue consistency tests (`scripts/test_fertigation_queue_consistency.mjs`): PASS (15 passed, 0 failed).
 - TypeScript check (`npx tsc --noEmit`): PASS (0 errors).
 
+## Git Commit Hash
+`e4421f3`
+
 ## Next Action
 Flash firmware to ESP32 on COM3 via `powershell -ExecutionPolicy Bypass -File "scripts/flash_esp32.ps1"`.
 

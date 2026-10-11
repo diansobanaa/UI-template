@@ -62,6 +62,7 @@
   - `scripts/test_calibration_mixing_test.mjs`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
+- **Git Commit Hash**: `e4421f3`
 - **Known Issues**: None.
 - **Next Safe Point / Action**: Flash updated firmware to ESP32 (`scripts/flash_esp32.ps1`) and verify physical resume on greenhouse hardware.
 
