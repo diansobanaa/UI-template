@@ -269,21 +269,26 @@ esp_err_t mixing_pool_save(const mixing_pool_t *pool)
     mixing_pool_t cp = *pool;
     cp.crc32 = esp_rom_crc32_le(0, (const uint8_t *)&cp, offsetof(mixing_pool_t, crc32));
 
-    const char *paths[] = { MIXING_POOL_FILE, MIXING_POOL_FALLBACK_FILE };
-    esp_err_t ret = ESP_FAIL;
-
-    for (size_t p = 0; p < 2; ++p) {
-        if (p == 0 && !microsd_hal_is_mounted()) continue;
-        FILE *f = fopen(paths[p], "wb");
+    if (microsd_hal_is_mounted()) {
+        FILE *f = fopen(MIXING_POOL_FILE, "wb");
         if (f) {
             size_t written = fwrite(&cp, 1, sizeof(cp), f);
             fclose(f);
             if (written == sizeof(cp)) {
-                ret = ESP_OK;
+                return ESP_OK;
             }
         }
     }
-    return ret;
+
+    FILE *f = fopen(MIXING_POOL_FALLBACK_FILE, "wb");
+    if (f) {
+        size_t written = fwrite(&cp, 1, sizeof(cp), f);
+        fclose(f);
+        if (written == sizeof(cp)) {
+            return ESP_OK;
+        }
+    }
+    return ESP_FAIL;
 }
 
 esp_err_t mixing_pool_load(mixing_pool_t *out_pool)

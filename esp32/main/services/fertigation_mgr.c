@@ -17,6 +17,7 @@
 #include "services/event_mgr.h"
 #include "services/safety_monitor.h"
 #include "storage/storage_mgr.h"
+#include "utils/psram_task.h"
 #include <math.h>
 #include <nvs.h>
 #include <stdio.h>
@@ -2346,8 +2347,11 @@ esp_err_t fertigation_mgr_init(void) {
         "held for explicit operator disposition.",
         s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
         s_batch.configuration_version);
-  /* STACK-TUNING: allocated 6144 B for safe execution of canonical protocol_mixing(), cJSON logging, and HAL calls */
-  xTaskCreatePinnedToCore(task, "fert_mgr", 6144, NULL, 5, NULL, 1);
+  /* STACK-TUNING: allocated 10240 B in PSRAM for safe execution of canonical protocol_mixing(), MicroSD/FATFS I/O, cJSON logging, and HAL calls */
+  TaskHandle_t th = psram_task_create_pinned(task, "fert_mgr", 10240, NULL, 5, NULL, 1);
+  if (!th) {
+    xTaskCreatePinnedToCore(task, "fert_mgr", 8192, NULL, 5, NULL, 1);
+  }
   return ESP_OK;
 }
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {

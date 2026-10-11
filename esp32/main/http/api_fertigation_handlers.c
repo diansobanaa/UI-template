@@ -214,6 +214,11 @@ static esp_err_t stop_handler(httpd_req_t *req){
 
 static esp_err_t resume_handler(httpd_req_t *req){
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    if (req && req->content_len > 0) {
+        cJSON *drain = NULL;
+        (void)http_parse_json_body(req, &drain);
+        if (drain) cJSON_Delete(drain);
+    }
     esp_err_t err = fertigation_mgr_resume();
     if (err == ESP_ERR_INVALID_STATE) {
         http_send_error(req, 409, "NOT_IN_RECOVERY_HOLD", "Fertigation is not in RECOVERY_HOLD state to resume.", NULL);
@@ -231,6 +236,11 @@ static esp_err_t resume_handler(httpd_req_t *req){
 
 static esp_err_t discard_handler(httpd_req_t *req){
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    if (req && req->content_len > 0) {
+        cJSON *drain = NULL;
+        (void)http_parse_json_body(req, &drain);
+        if (drain) cJSON_Delete(drain);
+    }
     esp_err_t err = fertigation_mgr_discard();
     if (err == ESP_ERR_INVALID_STATE) {
         http_send_error(req, 409, "NOT_IN_RECOVERY_HOLD", "Fertigation is not in RECOVERY_HOLD state to discard.", NULL);

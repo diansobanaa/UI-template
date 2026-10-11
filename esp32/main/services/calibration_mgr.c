@@ -11,6 +11,7 @@
 #include "hal/hardware_registry.h"
 #include "hal/sensor_hal.h"
 #include "services/event_mgr.h"
+#include "utils/psram_task.h"
 #include <time.h>
 #include <sys/time.h>
 #include <string.h>
@@ -1093,13 +1094,16 @@ esp_err_t calibration_mgr_resume_mixing_test(void)
     s_mixing_test_running = true;
     s_mixing_test_has_result = false;
 
-    BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 6144, NULL, 5, &s_mixing_test_task_handle, 1);
-    if (ret != pdPASS) {
-        s_mixing_test_running = false;
-        s_mixing_test_task_handle = NULL;
-        xSemaphoreGive(s_mixing_test_mutex);
-        ESP_LOGE(TAG, "Failed to spawn mixing test resume task");
-        return ESP_ERR_NO_MEM;
+    TaskHandle_t th = psram_task_create_pinned(mixing_test_worker_task, "mix_test", 10240, NULL, 5, &s_mixing_test_task_handle, 1);
+    if (!th) {
+        BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 8192, NULL, 5, &s_mixing_test_task_handle, 1);
+        if (ret != pdPASS) {
+            s_mixing_test_running = false;
+            s_mixing_test_task_handle = NULL;
+            xSemaphoreGive(s_mixing_test_mutex);
+            ESP_LOGE(TAG, "Failed to spawn mixing test resume task");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     xSemaphoreGive(s_mixing_test_mutex);
@@ -1177,13 +1181,16 @@ esp_err_t calibration_mgr_start_mixing_test(const mixing_protocol_config_t *conf
     s_mixing_test_running = true;
     s_mixing_test_has_result = false;
 
-    BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 6144, NULL, 5, &s_mixing_test_task_handle, 1);
-    if (ret != pdPASS) {
-        s_mixing_test_running = false;
-        s_mixing_test_task_handle = NULL;
-        xSemaphoreGive(s_mixing_test_mutex);
-        ESP_LOGE(TAG, "Failed to spawn mixing test task");
-        return ESP_ERR_NO_MEM;
+    TaskHandle_t th = psram_task_create_pinned(mixing_test_worker_task, "mix_test", 10240, NULL, 5, &s_mixing_test_task_handle, 1);
+    if (!th) {
+        BaseType_t ret = xTaskCreatePinnedToCore(mixing_test_worker_task, "mix_test", 8192, NULL, 5, &s_mixing_test_task_handle, 1);
+        if (ret != pdPASS) {
+            s_mixing_test_running = false;
+            s_mixing_test_task_handle = NULL;
+            xSemaphoreGive(s_mixing_test_mutex);
+            ESP_LOGE(TAG, "Failed to spawn mixing test task");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     xSemaphoreGive(s_mixing_test_mutex);

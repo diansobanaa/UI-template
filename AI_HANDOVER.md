@@ -1,4 +1,36 @@
-# AI HANDOVER - SP-POWER-LOSS-SAFE-RESUME-012 (latest)
+# AI HANDOVER - SP-PHYSICAL-HARDWARE-SAFE-RESUME-013 (latest)
+
+## Status
+Firmware successfully flashed to ESP32-S3 over COM3 at 460800 baud and physically verified on live board at `http://192.168.0.101`. Safe Resume with Operator Confirmation (Opsi 1), 1-second persistent checkpoint pool on MicroSD, remainder calculations, live pulse acquisition, and safe discard are **100% COMPLETE & PHYSICALLY VERIFIED ON COM3**.
+
+## Physical Board Verification Results
+- **COM Port:** `COM3` (460800 baud)
+- **Device IP:** `http://192.168.0.101`
+- **Device ID:** `esp32-gh-01`
+- **Firmware Size:** 1,594,880 bytes
+- **Test Summary:**
+  1. `GET /api/v1/health` -> HTTP 200 (Device healthy, uptime counter running).
+  2. `POST /api/v1/calibration/rate` -> HTTP 200 APPLIED for raw flow sensor (660 pulses/L), submersible pump, dosing pump A, and dosing pump B.
+  3. `POST /api/v1/calibration/test-mixing` -> HTTP 202 ACCEPTED. Live progress polled with water flow advancing (`13 mL` -> `337 mL`) and checkpoints saved to SD card every second without stack overflow.
+  4. `POST /api/v1/calibration/test-mixing/stop` -> HTTP 200. Actuators stopped safely; device entered `RECOVERY_HOLD` with `recoveryRequired: true`.
+  5. `POST /api/v1/calibration/test-mixing/resume` -> HTTP 202 ACCEPTED. Remainder math calculated (`target 3000 mL`, `actual 42 mL`, `remaining 2958 mL`), execution resumed seamlessly.
+  6. `POST /api/v1/calibration/test-mixing/discard` -> HTTP 200. Checkpoint pool unlinked and deleted; status cleanly returned to `IDLE`.
+  7. `POST /api/v1/fertigation/discard` -> HTTP 409 NOT_IN_RECOVERY_HOLD (Guard verified).
+
+## Critical Firmware Fixes Verified on Board
+1. **URI Handler Slot Starvation Fix (`http_server.c`)**: `config.max_uri_handlers` increased from 100 to 128, eliminating dropped route warnings during boot.
+2. **Socket Buffer Drain (`api_calibration_handlers.c` & `api_fertigation_handlers.c`)**: Explicitly drained incoming request bodies for `stop`, `resume`, and `discard` to avoid Keep-Alive socket stalls.
+3. **Task Stack PSRAM Allocation (`calibration_mgr.c` & `fertigation_mgr.c`)**: `mix_test` and `fert_mgr` worker tasks migrated to PSRAM with 10KB stack via `psram_task_create_pinned()` (fallback to 8KB internal), preventing FreeRTOS stack canary panics during FatFS/MicroSD file operations.
+4. **Filesystem Write Optimization (`protocol_mixing.c`)**: `mixing_pool_save()` writes to MicroSD first and only falls back to SPIFFS if MicroSD is absent, preventing dual flash writes every second.
+
+## Automated Verification Scripts
+- `scripts/e2e_hardware_verification.py`: Complete 10-step automated physical hardware verification suite.
+- `scripts/verify_resume_live.py`: Automated safe resume remainder verification suite.
+
+## Next Action
+Ready for deployment or operator testing in actual greenhouse installation.
+
+# AI HANDOVER - SP-POWER-LOSS-SAFE-RESUME-012
 
 ## Status
 Power-Loss Checkpoint Pool (1s binary persistence to SD/SPIFFS with CRC32), Safe Resume with Operator Confirmation (Opsi 1), exact remainder calculations (skipping completed dosing channels & resuming unreached water pulses/post-mix), and 100% protocol parity with event log suppression for test mixing is **100% COMPLETE, FIRMWARE COMPILED & RE-VERIFIED**.

@@ -585,6 +585,11 @@ static esp_err_t api_calibration_test_mixing_get_handler(httpd_req_t *req)
 
 static esp_err_t api_calibration_test_mixing_stop_handler(httpd_req_t *req)
 {
+    if (req && req->content_len > 0) {
+        cJSON *drain = NULL;
+        (void)http_parse_json_body(req, &drain);
+        if (drain) cJSON_Delete(drain);
+    }
     (void)calibration_mgr_stop_mixing_test();
     cJSON *resp = NULL;
     calibration_mgr_get_mixing_test_status(&resp);
@@ -593,6 +598,11 @@ static esp_err_t api_calibration_test_mixing_stop_handler(httpd_req_t *req)
 
 static esp_err_t api_calibration_test_mixing_resume_handler(httpd_req_t *req)
 {
+    if (req && req->content_len > 0) {
+        cJSON *drain = NULL;
+        (void)http_parse_json_body(req, &drain);
+        if (drain) cJSON_Delete(drain);
+    }
     esp_err_t err = calibration_mgr_resume_mixing_test();
     if (err == ESP_ERR_NOT_FOUND) {
         http_send_error(req, 404, "NO_RECOVERY_POOL", "No interrupted test mixing pool found to resume.", NULL);
@@ -614,6 +624,11 @@ static esp_err_t api_calibration_test_mixing_resume_handler(httpd_req_t *req)
 
 static esp_err_t api_calibration_test_mixing_discard_handler(httpd_req_t *req)
 {
+    if (req && req->content_len > 0) {
+        cJSON *drain = NULL;
+        (void)http_parse_json_body(req, &drain);
+        if (drain) cJSON_Delete(drain);
+    }
     (void)calibration_mgr_discard_mixing_test();
     cJSON *resp = NULL;
     calibration_mgr_get_mixing_test_status(&resp);

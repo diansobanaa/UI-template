@@ -1,3 +1,41 @@
+## SP-PHYSICAL-HARDWARE-SAFE-RESUME-013
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & HARDWARE-FLASHED & PHYSICALLY-VERIFIED-COM3`
+- **Objective**: Flash ESP32-S3 over COM3 and execute complete end-to-end verification of **Opsi 1: Safe Resume dengan Konfirmasi Operator** on physical hardware (`192.168.0.101`), including live execution, 1-second persistent checkpoint pool, interrupt/recovery hold, remainder math resumption, and safe discard.
+- **Completed Work**:
+  1. `esp32/main/http/http_server.c`:
+     - Increased `config.max_uri_handlers` from 100 to 128 to accommodate all ~105 registered routes, resolving `no slots left for registering handler` boot warnings.
+  2. `esp32/main/http/api_calibration_handlers.c` & `api_fertigation_handlers.c`:
+     - Added incoming request body draining in test-mixing and fertigation `stop`, `resume`, and `discard` handlers to prevent lingering payload bytes in socket buffers.
+  3. `esp32/main/services/calibration_mgr.c` & `fertigation_mgr.c`:
+     - Upgraded `mix_test` and `fert_mgr` worker tasks to PSRAM with 10,240 bytes stack via `psram_task_create_pinned()` (fallback to 8,192 B internal), eliminating FreeRTOS stack canary overflows during FatFS/MicroSD file operations.
+  4. `esp32/main/services/protocol_mixing.c`:
+     - Optimized `mixing_pool_save()` to persist directly to MicroSD (`/sdcard/mixing_pool.bin`) when mounted, falling back to SPIFFS (`/spiffs/mixing_pool.bin`) only on card failure/absence, preventing redundant dual flash writes every second.
+  5. Physical Hardware Verification on COM3 (`http://192.168.0.101`):
+     - Flashed binary (1,594,880 bytes) at 460,800 baud cleanly; booted and connected to Wi-Fi.
+     - `POST /api/v1/calibration/rate`: Configured flow sensor (660 pulses/L) and dosing pumps (A: 1.67 mL/s, B: 1.75 mL/s) -> `HTTP 200 APPLIED`.
+     - `POST /api/v1/calibration/test-mixing`: Successfully started mixing protocol -> `HTTP 202 ACCEPTED`.
+     - Live progress polling: Confirmed live phase transition (`RAW_WATER_FILL`) and real-time pulse measurement increments (`13 mL` -> `337 mL`) with 1-second persistent pool sync (`seq=1..5`).
+     - Stop & Interruption: Actuators safely switched OFF; board held in `RECOVERY_HOLD` with `recoveryRequired: true`.
+     - Remainder Math & Safe Resume (`POST /api/v1/calibration/test-mixing/resume`): Accurately computed remainder (`target 3000 mL`, `actual 42 mL`, `remaining 2958 mL`) and resumed execution smoothly (`HTTP 202 ACCEPTED`).
+     - Safe Discard (`POST /api/v1/calibration/test-mixing/discard`): Cleanly deleted persistent pool checkpoint and transitioned state back to `IDLE` with `recoveryRequired: false`.
+     - Fertigation safety guard: `POST /api/v1/fertigation/discard` while IDLE correctly returned `HTTP 409 NOT_IN_RECOVERY_HOLD`.
+- **Verification Evidence**:
+  - Hardware flashing over `COM3` at 460800 baud: PASS (Clean flash, verified hash, hard-reset via RTS pin).
+  - Automated physical E2E test `scripts/e2e_hardware_verification.py`: PASS (all 10 hardware verification steps completed).
+  - Automated safe resume physical test `scripts/verify_resume_live.py`: PASS (remainder calculation and execution resumption verified).
+- **Changed Files**:
+  - `esp32/main/http/http_server.c`
+  - `esp32/main/http/api_calibration_handlers.c`
+  - `esp32/main/http/api_fertigation_handlers.c`
+  - `esp32/main/services/calibration_mgr.c`
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/protocol_mixing.c`
+  - `scripts/e2e_hardware_verification.py`
+  - `scripts/verify_resume_live.py`
+- **Known Issues**: None. Hardware execution matches canonical spec 100%.
+- **Next Safe Point / Action**: Feature complete and physically verified. Ready for operator testing in real greenhouse setup.
+
 ## SP-POWER-LOSS-SAFE-RESUME-012
 - **Date**: 2026-10-12
 - **Status**: `COMPLETE & FIRMWARE-COMPILED & VERIFIED`

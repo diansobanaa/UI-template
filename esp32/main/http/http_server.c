@@ -441,7 +441,7 @@ esp_err_t http_server_start(void) {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = DEFAULT_HTTP_PORT;
   config.max_uri_handlers =
-      100; // Accommodate all ~75 canonical OpenAPI, storage, and setup endpoints
+      128; // Accommodate all ~105 canonical OpenAPI, storage, and setup endpoints
   config.stack_size = TASK_HTTP_SERVER_STACK;
   config.uri_match_fn = http_uri_match_wildcard_custom;
   config.core_id = 0;
