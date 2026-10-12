@@ -1,7 +1,7 @@
 # AI HANDOVER - SP-FERT-STACK-INTERNAL-025 (latest)
 
 ## Status
-Fertigation and mixing workers that can write flash are now configured for internal-RAM stacks with larger headroom. Build verification is pending.
+Fertigation and mixing workers that can write flash are now configured for internal-RAM stacks with larger headroom and have been flashed to the ESP32.
 
 ## Changes
 - `fert_mix`: PSRAM 10240/fallback 8192 -> internal RAM 12288.
@@ -13,7 +13,7 @@ Fertigation and mixing workers that can write flash are now configured for inter
 These workers can execute `protocol_mixing()` and checkpoint/recovery/mixing-pool persistence. Flash writes disable caches, so PSRAM-backed task stacks can panic during the write window.
 
 ## Next Action
-Build and commit the change. Do not flash until explicitly confirmed; then verify serial output has no `esp_task_stack_is_sane_cache_disabled` panic loop.
+Continue normal runtime observation and perform physical actuator tests separately. The 150-second post-flash serial capture showed no detected panic/reboot-loop markers, although some serial encoding/control bytes were garbled.
 
 ---
 

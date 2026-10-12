@@ -1,6 +1,6 @@
 ## SP-FERT-STACK-INTERNAL-025
 - **Date**: 2026-10-12
-- **Status**: `COMPLETE & SOFTWARE-VERIFIED`
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
 - **Objective**: Remove PSRAM-backed stacks from all fertigation/mixing workers that can reach flash persistence and increase their internal stack headroom.
 - **Completed Work**:
   - Moved `fert_mix` and both `mix_test` launch paths from PSRAM to internal RAM.
@@ -11,8 +11,11 @@
 - **Verification Evidence**:
   - ESP32 firmware build: PASS; `agrotech_esp32.bin` generated with 47% app partition free.
   - `git diff --check`: PASS.
-- **Known Issues**: Physical flash/serial verification remains pending.
-- **Next Safe Point / Action**: Commit the verified change, then explicitly confirm before flashing.
+- **Hardware Verification**:
+  - Flashed the rebuilt image to COM3 using `scripts/flash_esp32.ps1`: PASS; image hash verified by esptool.
+  - Captured serial output for 150 seconds using `scripts/monitor_post_fix.py`: PASS; 78 lines captured with no detected `PANIC`, `GURU`, `esp_task_stack_is_sane_cache_disabled`, `Rebooting`, or `RTC_SW_CPU_RST` markers.
+- **Known Issues**: Serial output contained some garbled control/encoding bytes, so this is runtime stability evidence rather than a complete clean-log audit.
+- **Next Safe Point / Action**: Continue normal runtime observation and perform physical actuator tests separately.
 
 ## SP-FERT-PSRAM-024
 - **Date**: 2026-10-12
