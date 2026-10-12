@@ -165,17 +165,39 @@ export function ScheduleContent({
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight = false;
+
     async function loadSchedules() {
+      if (cancelled || inFlight || !complex?.id || (typeof document !== "undefined" && document.visibilityState === "hidden")) {
+        return;
+      }
+      inFlight = true;
       try {
-        if (complex?.id) {
-          await scheduleService.refreshSchedulesFromEsp32(complex.id);
-        }
+        await scheduleService.refreshSchedulesFromEsp32(complex.id);
       } catch (err) {
         console.warn("[ScheduleContent] Authoritative ESP32 schedule fetch failed:", err);
+      } finally {
+        inFlight = false;
+        if (!cancelled) timer = setTimeout(() => void loadSchedules(), 5000);
       }
     }
+
     void loadSchedules();
-    return () => { cancelled = true; };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void loadSchedules(), 0);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [complex?.id]);
 
   useEffect(() => {
