@@ -1,3 +1,28 @@
+# AI HANDOVER - SP-FERT-PSRAM-024 (latest)
+
+## Status
+The ESP32 reboot-loop root cause is confirmed and the minimal firmware fix is built. Hardware verification is still pending.
+
+## Root Cause
+`fert_mgr` used a PSRAM-backed task stack while its recovery and terminal-event paths could append to SPIFFS. The fresh serial capture repeatedly reported:
+`assert failed: spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:159 (esp_task_stack_is_sane_cache_disabled())`.
+The decoded backtrace reached `persist_run()` in `esp32/main/services/fertigation_mgr.c`, consistent with flash persistence from that task.
+
+## Completed Work
+- Changed `fert_mgr` from `psram_task_create_pinned()` to a 10240-byte internal-RAM `xTaskCreatePinnedToCore()` stack.
+- Updated [SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md](./docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md) with the persistence-stack safety rule.
+- Firmware build passed and produced `esp32/build/agrotech_esp32.bin`.
+
+## Verification
+- ESP-IDF build: PASS.
+- App partition headroom: 47% free.
+- Physical flash/serial verification: NOT RUN.
+
+## Next Action
+After commit, explicitly confirm before flashing. Then capture serial output and verify there are no repeated `PANIC/GURU_MEDITATION`, `esp_task_stack_is_sane_cache_disabled`, or `RTC_SW_CPU_RST` sequences.
+
+---
+
 # AI HANDOVER - SP-UI-SCHEDULE-RECONCILIATION-023 (latest)
 
 ## Status

@@ -2486,11 +2486,12 @@ esp_err_t fertigation_mgr_init(void) {
         "held for explicit operator disposition.",
         s_batch.run_id, s_batch.complex_id, s_batch.gh_id, NULL, NULL,
         s_batch.configuration_version);
-  /* STACK-TUNING: allocated 10240 B in PSRAM for safe execution of canonical protocol_mixing(), MicroSD/FATFS I/O, cJSON logging, and HAL calls */
-  TaskHandle_t th = psram_task_create_pinned(task, "fert_mgr", 10240, NULL, 5, NULL, 1);
-  if (!th) {
-    xTaskCreatePinnedToCore(task, "fert_mgr", 8192, NULL, 5, NULL, 1);
-  }
+  /*
+   * This task persists recovery and terminal events to SPIFFS. Keep its stack
+   * in internal RAM because flash writes disable caches and cannot safely run
+   * with a PSRAM-backed task stack.
+   */
+  xTaskCreatePinnedToCore(task, "fert_mgr", 10240, NULL, 5, NULL, 1);
   return ESP_OK;
 }
 esp_err_t fertigation_mgr_start_from_json(const char *json_payload) {

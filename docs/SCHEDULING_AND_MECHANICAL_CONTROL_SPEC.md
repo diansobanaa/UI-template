@@ -3983,3 +3983,8 @@ To protect equipment motors, peristaltic pump heads, solenoid coils, and electri
    - For schedules crossing midnight, start time is placed at `startMinutes` (e.g. 1425 for 23:45). End time wraps across midnight to `formatMinutesToClock(startMinutes + duration)` (e.g. 00:15). Visual duration is capped to remaining day minutes (`Math.min(1440, startMinutes + duration)`) for lane packing, while the popover and card title preserve true run duration (e.g. 30 min).
    - Zero-deduplication invariant: Unique `sourceScheduleId` is preserved end-to-end. Events on the same greenhouse or with the same action never overwrite or merge each other.
 
+60. Fertigation Recovery Persistence Stack Safety (SP-FERT-PSRAM-024)
+
+1. **Root Cause**: `fert_mgr` was created with a PSRAM-backed task stack even though recovery and terminal-event handling can append records to SPIFFS. ESP-IDF disables caches during flash writes, so a PSRAM-backed task stack triggered `esp_task_stack_is_sane_cache_disabled()` and a panic reset loop.
+2. **Resolution**: `fert_mgr` now uses a 10240-byte internal-RAM stack. The task remains pinned to Core 1 and retains the existing fertigation behavior; only its stack placement changed.
+3. **Verification**: The firmware rebuilt successfully with the fix. Physical reboot-loop verification remains pending until the rebuilt image is flashed and monitored.

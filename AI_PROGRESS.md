@@ -1,3 +1,27 @@
+## SP-FERT-PSRAM-024
+- **Date**: 2026-10-12
+- **Status**: `ROOT-CAUSE-FIX BUILT; HARDWARE-VERIFICATION PENDING`
+- **Objective**: Stop the ESP32 panic/reboot loop observed during fertigation recovery-event persistence.
+- **Root Cause Confirmed**:
+  - The panic was `esp_task_stack_is_sane_cache_disabled()` from `spi_flash_disable_interrupts_caches_and_other_cpu`.
+  - The decoded application backtrace reached `persist_run()` in `esp32/main/services/fertigation_mgr.c`.
+  - `fert_mgr` had a PSRAM-backed stack while its recovery/terminal-event path writes SPIFFS; PSRAM-backed task stacks are unsafe while flash caches are disabled.
+- **Completed Work**:
+  - Changed `fert_mgr` to use a 10240-byte internal-RAM FreeRTOS stack.
+  - Preserved task priority, core pinning, and fertigation behavior.
+  - Updated the canonical scheduling/mechanical-control specification.
+- **Verification Evidence**:
+  - ESP32 firmware build (`powershell -ExecutionPolicy Bypass -File .\scripts\build_esp32.ps1`): PASS.
+  - Firmware binary generated with 47% smallest app partition free.
+  - `git diff --check`: PASS.
+- **Changed Files**:
+  - `esp32/main/services/fertigation_mgr.c`
+  - `docs/SCHEDULING_AND_MECHANICAL_CONTROL_SPEC.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: The rebuilt firmware has not been flashed. Physical serial confirmation that the reboot loop is gone is pending explicit hardware action.
+- **Next Safe Point / Action**: Review diff, commit the buildable fix, then ask before flashing/capturing the board.
+
 ## SP-UI-SCHEDULE-RECONCILIATION-023
 - **Date**: 2026-10-12
 - **Status**: `COMPLETE & SOFTWARE-VERIFIED`
