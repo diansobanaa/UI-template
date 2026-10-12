@@ -17,7 +17,6 @@
 #include "services/event_mgr.h"
 #include "services/safety_monitor.h"
 #include "storage/storage_mgr.h"
-#include "utils/psram_task.h"
 #include <math.h>
 #include <nvs.h>
 #include <stdio.h>
@@ -2140,10 +2139,10 @@ static void task(void *arg) {
         s_mixing_worker_done = false;
         s_mixing_worker_running = true;
 
-        TaskHandle_t th = psram_task_create_pinned(mixing_worker_task, "fert_mix", 10240, NULL, 5, &s_mixing_worker_handle, 1);
-        if (!th) {
-          BaseType_t ret = xTaskCreatePinnedToCore(mixing_worker_task, "fert_mix", 8192, NULL, 5, &s_mixing_worker_handle, 1);
-          if (ret != pdPASS) {
+        BaseType_t ret = xTaskCreatePinnedToCore(
+            mixing_worker_task, "fert_mix", 12288, NULL, 5,
+            &s_mixing_worker_handle, 1);
+        if (ret != pdPASS) {
             s_mixing_worker_running = false;
             s_mixing_worker_handle = NULL;
             stop_all();
@@ -2151,7 +2150,6 @@ static void task(void *arg) {
             s_run_end_ms = wallclock_ms();
             persist_run("MIXING_WORKER_SPAWN_FAILED");
             break;
-          }
         }
         break; // Return immediately from switch so delivery monitor loop runs!
       }

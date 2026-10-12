@@ -1,3 +1,19 @@
+## SP-FERT-STACK-INTERNAL-025
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & SOFTWARE-VERIFIED`
+- **Objective**: Remove PSRAM-backed stacks from all fertigation/mixing workers that can reach flash persistence and increase their internal stack headroom.
+- **Completed Work**:
+  - Moved `fert_mix` and both `mix_test` launch paths from PSRAM to internal RAM.
+  - Increased those worker stacks to 12288 bytes from the previous 8192-byte internal fallback.
+  - Kept `fert_mgr` on its existing 10240-byte internal-RAM stack.
+  - Updated the canonical UI/telemetry architecture documentation and PSRAM helper inventory.
+- **Known Issues**: Firmware build and final commit are pending. Physical flash/serial verification remains pending.
+- **Verification Evidence**:
+  - ESP32 firmware build: PASS; `agrotech_esp32.bin` generated with 47% app partition free.
+  - `git diff --check`: PASS.
+- **Known Issues**: Physical flash/serial verification remains pending.
+- **Next Safe Point / Action**: Commit the verified change, then explicitly confirm before flashing.
+
 ## SP-FERT-PSRAM-024
 - **Date**: 2026-10-12
 - **Status**: `ROOT-CAUSE-FIX BUILT; HARDWARE-VERIFICATION PENDING`

@@ -35,7 +35,8 @@ extern "C" {
  * Deliberately NOT converted (they write NVS/SPIFFS in their core loop):
  *   telemetry_task (NVS sequence block), tele_persist_task (SPIFFS event log),
  *   safety_mon (NVS estop latch), scheduler + mk_persist (NVS), calib_mgr (NVS),
- *   cmd_worker (NVS estop via commands), fert_mgr (NVS), btn_poll_task (internal RAM polling).
+ *   cmd_worker (NVS estop via commands), fert_mix, mix_test,
+ *   btn_poll_task (internal RAM polling).
  *
  * If the PSRAM allocation fails, falls back to plain xTaskCreatePinnedToCore
  * (internal RAM) so the system still boots.

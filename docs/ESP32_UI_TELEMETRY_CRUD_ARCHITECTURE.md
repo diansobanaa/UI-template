@@ -1619,6 +1619,19 @@ The external review should be adopted selectively:
 | Async all persistence indiscriminately | **REJECT** |
 | Topology/config durable commit before success | **RETAIN** |
 
+## 31.8 Task-stack placement for flash-safe persistence
+
+PSRAM remains the default for large task stacks that never access internal
+flash. It is not valid for a task that can reach NVS, SPIFFS, or another flash
+write because ESP-IDF disables caches during flash operations and PSRAM is not
+safe in that window.
+
+The fertigation execution and mixing-test workers therefore use **12,288-byte
+internal-RAM stacks**. This keeps checkpoint, recovery, terminal-run, and
+mixing-pool persistence safe while increasing headroom from the previous
+8,192-byte internal fallback. The regular `fert_mgr` task remains on a
+10,240-byte internal-RAM stack for the same reason.
+
 ---
 
 # 32. Additional References
