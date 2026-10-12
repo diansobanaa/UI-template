@@ -1,3 +1,27 @@
+## SP-UI-SCHEDULE-RECONCILIATION-023
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & SOFTWARE-VERIFIED`
+- **Objective**: Keep the open schedule UI synchronized with controller-originated schedule-intent create, edit, and delete changes without a browser reload.
+- **Completed Work**:
+  - Updated `src/app/schedule/page.tsx` to reconcile authoritative ESP32 schedule intents every 5 seconds using a single-flight self-scheduling timer.
+  - Paused reconciliation while the tab is hidden and triggered an immediate refresh when the tab becomes visible.
+  - Reused `scheduleService.refreshSchedulesFromEsp32()` and the existing shared operational-state notification path; no new stream, store, or optimistic fallback was added.
+  - Documented the live schedule-intent reconciliation contract in `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`.
+- **Verification Evidence**:
+  - Pylance/problems for `src/app/schedule/page.tsx`: PASS, no errors.
+  - Frontend production build (`npm run build`): PASS.
+  - Automatic schedule-to-fertigation lifecycle suite (`node scripts/test_schedule_to_fertigation_lifecycle.mjs`): 8/8 PASS.
+  - Fertigation queue consistency suite (`node scripts/test_fertigation_queue_consistency.mjs`): 15/15 PASS.
+  - `git diff --check`: PASS.
+- **Changed Files**:
+  - `src/app/schedule/page.tsx`
+  - `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: Browser acceptance and physical ESP32 runtime were not re-run in this UI-only safe point. Existing firmware safe point remains software-verified; physical actuator verification is still separate.
+- **Next Safe Point / Action**: Review the commit and perform browser acceptance against a live controller when available.
+- **Git Commit**: `985820a66c676f93cff8cb8656415bd3240e03e8`
+
 ## SP-MULTI-PC-ESP-IDF-PORTABILITY-022
 - **Date**: 2026-10-12
 - **Status**: `COMPLETE & SOFTWARE-VERIFIED`

@@ -1,3 +1,36 @@
+# AI HANDOVER - SP-UI-SCHEDULE-RECONCILIATION-023 (latest)
+
+## Status
+Schedule CRUD and controller-originated schedule changes now reconcile in the open UI without a browser reload.
+
+## Completed Work
+- `ScheduleContent` performs an authoritative `/api/v1/schedule-intents` refresh every 5 seconds through the existing `scheduleService.refreshSchedulesFromEsp32()` path.
+- The timer is single-flight and self-scheduling, so slow ESP32 requests cannot overlap.
+- Hidden tabs pause the timer and reconcile immediately after returning to the foreground.
+- The existing operational snapshot notification path updates schedule tables, timelines, and queue summaries together.
+- No redundant SSE/WebSocket channel or optimistic success fallback was introduced.
+
+## Verification
+- `npm run build`: PASS.
+- `node scripts/test_schedule_to_fertigation_lifecycle.mjs`: 8/8 PASS.
+- `node scripts/test_fertigation_queue_consistency.mjs`: 15/15 PASS.
+- Problems for `src/app/schedule/page.tsx`: no errors.
+- `git diff --check`: PASS.
+
+## Changed Files
+- `src/app/schedule/page.tsx`
+- `docs/ESP32_UI_TELEMETRY_CRUD_ARCHITECTURE.md`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+
+## Known Issues / Next Action
+Browser acceptance and physical runtime/actuator verification remain pending. Next action is to run the live browser acceptance flow against the connected ESP32, without flashing or energizing hardware automatically.
+
+## Git Commit
+`985820a66c676f93cff8cb8656415bd3240e03e8`
+
+---
+
 # AI HANDOVER - SP-MULTI-PC-ESP-IDF-PORTABILITY-022 (latest)
 
 ## Status
