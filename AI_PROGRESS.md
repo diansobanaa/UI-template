@@ -1,3 +1,25 @@
+## SP-MULTI-PC-ESP-IDF-PORTABILITY-022
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & SOFTWARE-VERIFIED`
+- **Objective**: Apply the multi-PC ESP-IDF collaboration setup on this PC without committing machine-specific paths.
+- **Completed Work**:
+  - Confirmed the ignored local profile `scripts/esp32_env.local.ps1` matches this PC: `D:\Espressif`, `D:\Espressif-tool\Espressif`, ESP-IDF Python 3.12 environment, and COM3.
+  - Updated `scripts/load_esp32_env.ps1` to discover versioned `esp-rom-elfs` and OpenOCD script directories from `IDF_TOOLS_PATH`, preventing build-time GDB asset errors across PCs.
+  - Updated `scripts/run_idf.py` to require local/environment configuration and discover versioned ESP-IDF tools dynamically instead of embedding one PC's paths and tool versions.
+- **Verification Evidence**:
+  - Loader profile check: PASS; resolved Python executable, `idf.py`, `ESP_ROM_ELF_DIR`, and `OPENOCD_SCRIPTS`.
+  - ESP-IDF build (`powershell -ExecutionPolicy Bypass -File .\scripts\build_esp32.ps1`): PASS; `agrotech_esp32.bin` built, 47% app partition free.
+  - Pylance diagnostics for `scripts/run_idf.py`: no errors.
+  - Hardcoded local ESP-IDF path scan in `scripts/*.py`: no matches.
+  - `git diff --check`: PASS.
+- **Changed Files**:
+  - `scripts/load_esp32_env.ps1`
+  - `scripts/run_idf.py`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: Physical flashing/runtime verification was not performed in this safe point.
+- **Next Safe Point / Action**: Use the local profile with `scripts\flash_esp32.ps1` when the board is connected; do not commit `scripts/esp32_env.local.ps1`.
+
 ## SP-SCHEDULE-TO-MIXING-QUEUE-EXECUTION-021
 - **Date**: 2026-10-12
 - **Status**: `COMPLETE & SOFTWARE-VERIFIED`
@@ -9579,4 +9601,3 @@ Physical verification remains BLOCKED pending real ESP32-S3, router, phone, TFT,
   - `AI_PROGRESS.md`
 - **Known Issues**: None.
 - **Next Safe Point / Action**: Both calibration test mixing and automated schedule fertigation are fully unified and physically verified.
-

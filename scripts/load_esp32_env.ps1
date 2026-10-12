@@ -183,6 +183,25 @@ function Get-Esp32Profile {
     $env:PYTHONPATH = $null
     $env:PYTHONHOME = $null
 
+    # Resolve versioned ESP-IDF support assets without binding the repository
+    # to one machine's installed tool version.
+    $romElfRoot = Safe-JoinPath $toolsPath "tools\esp-rom-elfs"
+    if ($romElfRoot -and (Safe-TestPath $romElfRoot)) {
+        $romElfDir = Get-ChildItem -Path $romElfRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1
+        if ($romElfDir) { $env:ESP_ROM_ELF_DIR = $romElfDir.FullName }
+    }
+
+    $openOcdRoot = Safe-JoinPath $toolsPath "tools\openocd-esp32"
+    if ($openOcdRoot -and (Safe-TestPath $openOcdRoot)) {
+        $openOcdDir = Get-ChildItem -Path $openOcdRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1
+        if ($openOcdDir) {
+            $openOcdScripts = Join-Path $openOcdDir.FullName "openocd-esp32\share\openocd\scripts"
+            if (Safe-TestPath $openOcdScripts) { $env:OPENOCD_SCRIPTS = $openOcdScripts }
+        }
+    }
+
     # If official Espressif profile script exists, activate it
     $profileScript = Get-ChildItem -Path $toolsPath -Filter "Microsoft.*.PowerShell_profile.ps1" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($profileScript -and (Test-Path $profileScript.FullName)) {

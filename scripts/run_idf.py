@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 def parse_local_env(file_path):
     config = {}
@@ -13,17 +14,34 @@ def parse_local_env(file_path):
                     config[m.group(1)] = m.group(2)
     return config
 
+
+def newest_child(root, relative_path):
+    candidates = sorted(
+        (path for path in (Path(root) / relative_path).glob("*") if path.is_dir()),
+        reverse=True,
+    )
+    return str(candidates[0]) if candidates else ""
+
+
 def main():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     local_env_file = os.path.join(repo_root, "scripts", "esp32_env.local.ps1")
     local_cfg = parse_local_env(local_env_file)
 
-    idf_path = local_cfg.get("IDF_PATH") or os.environ.get("IDF_PATH") or r"D:\Espressif"
-    tools_path = local_cfg.get("IDF_TOOLS_PATH") or os.environ.get("IDF_TOOLS_PATH") or r"D:\Espressif-tool\Espressif"
-    python_env = local_cfg.get("PYTHON_ENV") or os.environ.get("IDF_PYTHON_ENV_PATH") or os.path.join(tools_path, r"python_env\idf5.5_py3.12_env")
+    idf_path = local_cfg.get("IDF_PATH") or os.environ.get("IDF_PATH")
+    tools_path = local_cfg.get("IDF_TOOLS_PATH") or os.environ.get("IDF_TOOLS_PATH")
+    if not idf_path or not tools_path:
+        raise RuntimeError(
+            "ESP-IDF paths are not configured. Copy scripts/esp32_env.example.ps1 "
+            "to scripts/esp32_env.local.ps1 or set IDF_PATH and IDF_TOOLS_PATH."
+        )
+    python_env = local_cfg.get("PYTHON_ENV") or os.environ.get("IDF_PYTHON_ENV_PATH")
+    if not python_env:
+        python_env = newest_child(tools_path, r"python_env")
     python_exe = os.path.join(python_env, "Scripts", "python.exe")
     if not os.path.exists(python_exe):
-        alt_py = os.path.join(tools_path, r"python_env\idf5.5_py3.11_env\Scripts\python.exe")
+        alt_env = newest_child(tools_path, r"python_env")
+        alt_py = os.path.join(alt_env, "Scripts", "python.exe")
         if os.path.exists(alt_py):
             python_exe = alt_py
         else:
@@ -36,25 +54,31 @@ def main():
     env["IDF_PYTHON_ENV_PATH"] = python_env
     env["ESP_IDF_VERSION"] = "5.5"
     env["IDF_CCACHE_ENABLE"] = "1"
-    env["OPENOCD_SCRIPTS"] = os.path.join(tools_path, r"tools\openocd-esp32\v0.12.0-esp32-20260424\openocd-esp32\share\openocd\scripts")
-    env["ESP_ROM_ELF_DIR"] = os.path.join(tools_path, r"tools\esp-rom-elfs\20241011\\")
+    rom_elf_dir = newest_child(tools_path, r"tools\esp-rom-elfs")
+    if rom_elf_dir:
+        env["ESP_ROM_ELF_DIR"] = rom_elf_dir
+    openocd_dir = newest_child(tools_path, r"tools\openocd-esp32")
+    if openocd_dir:
+        env["OPENOCD_SCRIPTS"] = os.path.join(
+            openocd_dir, "openocd-esp32", "share", "openocd", "scripts"
+        )
     env["PYTHONNOUSERSITE"] = "True"
     env.pop("PYTHONPATH", None)
     env.pop("PYTHONHOME", None)
 
     tools_bin = [
-        os.path.join(tools_path, r"tools\xtensa-esp-elf-gdb\17.1_20260402\xtensa-esp-elf-gdb\bin"),
-        os.path.join(tools_path, r"tools\riscv32-esp-elf-gdb\17.1_20260402\riscv32-esp-elf-gdb\bin"),
-        os.path.join(tools_path, r"tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin"),
-        os.path.join(tools_path, r"tools\esp-clang\esp-19.1.2_20250312\esp-clang\bin"),
-        os.path.join(tools_path, r"tools\riscv32-esp-elf\esp-14.2.0_20260121\riscv32-esp-elf\bin"),
-        os.path.join(tools_path, r"tools\esp32ulp-elf\2.38_20240113\esp32ulp-elf\bin"),
-        os.path.join(tools_path, r"tools\cmake\3.30.2\bin"),
-        os.path.join(tools_path, r"tools\openocd-esp32\v0.12.0-esp32-20260424\openocd-esp32\bin"),
-        os.path.join(tools_path, r"tools\ninja\1.12.1"),
-        os.path.join(tools_path, r"tools\idf-exe\1.0.3"),
-        os.path.join(tools_path, r"tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64"),
-        os.path.join(tools_path, r"tools\dfu-util\0.11\dfu-util-0.11-win64"),
+        os.path.join(newest_child(tools_path, r"tools\xtensa-esp-elf-gdb"), "xtensa-esp-elf-gdb", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\riscv32-esp-elf-gdb"), "riscv32-esp-elf-gdb", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\xtensa-esp-elf"), "xtensa-esp-elf", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\esp-clang"), "esp-clang", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\riscv32-esp-elf"), "riscv32-esp-elf", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\esp32ulp-elf"), "esp32ulp-elf", "bin"),
+        os.path.join(newest_child(tools_path, r"tools\cmake"), "bin"),
+        os.path.join(openocd_dir, "openocd-esp32", "bin"),
+        newest_child(tools_path, r"tools\ninja"),
+        newest_child(tools_path, r"tools\idf-exe"),
+        newest_child(tools_path, r"tools\ccache"),
+        newest_child(tools_path, r"tools\dfu-util"),
         os.path.join(python_env, "Scripts"),
         os.path.join(idf_path, "tools"),
         os.path.join(tools_path, r"tools\idf-git\2.44.0\cmd"),

@@ -1,3 +1,31 @@
+# AI HANDOVER - SP-MULTI-PC-ESP-IDF-PORTABILITY-022 (latest)
+
+## Status
+Multi-PC ESP-IDF portability is **APPLIED, COMPILED, AND SOFTWARE-VERIFIED** on this PC.
+
+## Completed Work
+- Confirmed the ignored local profile `scripts/esp32_env.local.ps1` uses this PC's valid ESP-IDF installation, tools, Python environment, and COM3.
+- `scripts/load_esp32_env.ps1` now discovers versioned `esp-rom-elfs` and OpenOCD assets from the configured tools root and exports `ESP_ROM_ELF_DIR` / `OPENOCD_SCRIPTS`.
+- `scripts/run_idf.py` no longer embeds this PC's absolute paths or fixed ESP-IDF tool versions; it requires local/environment configuration and discovers versioned tools dynamically.
+
+## Verification
+- Loader resolved the local Python executable, `idf.py`, ROM ELF directory, and OpenOCD scripts.
+- ESP-IDF build passed with `agrotech_esp32.bin` and 47% app partition free.
+- `scripts/run_idf.py` has no Pylance diagnostics.
+- No hardcoded local ESP-IDF paths remain in `scripts/*.py`.
+- `git diff --check` passed.
+
+## Changed Files
+- `scripts/load_esp32_env.ps1`
+- `scripts/run_idf.py`
+- `AI_PROGRESS.md`
+- `AI_HANDOVER.md`
+
+## Known Issues / Next Action
+Physical flashing and runtime verification are pending. Use `scripts\flash_esp32.ps1` with the local ignored profile when the board is connected. Never commit `scripts/esp32_env.local.ps1`.
+
+---
+
 # AI HANDOVER - SP-SCHEDULE-TO-MIXING-QUEUE-EXECUTION-021 (latest)
 
 ## Status
@@ -6558,4 +6586,3 @@ Capture serial logs after boot and inspect:
 A successful GPIO initialization message verifies software configuration was
 accepted, not that the external sensor, pull-up, wiring, or GPIO silicon is
 healthy.
-
