@@ -666,6 +666,8 @@ static void command_worker_task(void *pvParameters) {
     bool async_task = false;
     const char *result_code = "COMPLETED";
     const char *result_message = "Command completed.";
+    char fert_rej_code[32] = {0};
+    char fert_rej_comp[32] = {0};
 
     if (cmd->type == CMD_TYPE_EMERGENCY_STOP) {
       err = safety_monitor_trigger_emergency_stop(
@@ -758,6 +760,15 @@ static void command_worker_task(void *pvParameters) {
         err = fertigation_mgr_start_from_json(cmd->fertigation_payload_json);
       } else {
         err = ESP_ERR_INVALID_ARG;
+      }
+      if (err != ESP_OK) {
+        fertigation_mgr_get_last_rejection(fert_rej_code, sizeof(fert_rej_code),
+                                           fert_rej_comp, sizeof(fert_rej_comp));
+        if (fert_rej_code[0]) {
+          result_code = fert_rej_code;
+        } else {
+          result_code = "FERTIGATION_REJECTED";
+        }
       }
       async_task = (err == ESP_OK);
       result_message = err == ESP_OK ? "Fertigation batch started."
@@ -972,6 +983,50 @@ esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt) {
     }
   }
   *out_receipt = *cached;
+  xSemaphoreGive(s_cache_mutex);
+  return ESP_OK;
+}
+
+esp_err_t command_mgr_get_status(const char *command_id, cmd_status_enum_t *out_status,
+                                 char *out_result_code, size_t result_code_size) {
+  if (!command_id || !s_cache_mutex)
+    return ESP_ERR_INVALID_ARG;
+  xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
+  command_item_t *cached = cache_find_locked(command_id);
+  if (!cached) {
+    xSemaphoreGive(s_cache_mutex);
+    return ESP_ERR_NOT_FOUND;
+  }
+  if (cached->status == CMD_STATUS_RUNNING) {
+    if (cached->type == CMD_TYPE_FERTIGATION_BATCH) {
+      fertigation_state_t state = fertigation_mgr_get_state();
+      if (state == FERT_STATE_COMPLETE) {
+        cached->status = CMD_STATUS_COMPLETED;
+        cached->completed_at = esp_timer_get_time() / 1000LL;
+        copy_str(cached->result_code, sizeof(cached->result_code), "COMPLETED");
+      } else if (state == FERT_STATE_INTERRUPTED || state == FERT_STATE_FAULTED ||
+                 state == FERT_STATE_ABORTED) {
+        cached->status = CMD_STATUS_FAILED;
+        cached->completed_at = esp_timer_get_time() / 1000LL;
+        copy_str(cached->result_code, sizeof(cached->result_code),
+                 state == FERT_STATE_ABORTED ? "CANCELLED" : "FAILED");
+      } else if (state == FERT_STATE_IDLE) {
+        fertigation_last_terminal_t term;
+        if (fertigation_mgr_get_last_terminal(&term) == ESP_OK && term.run_id[0]) {
+          cached->status = (term.state == FERT_STATE_COMPLETE) ? CMD_STATUS_COMPLETED : CMD_STATUS_FAILED;
+          cached->completed_at = term.completed_at_ms > 0 ? term.completed_at_ms / 1000LL : esp_timer_get_time() / 1000LL;
+          copy_str(cached->result_code, sizeof(cached->result_code),
+                   term.fault[0] ? term.fault : (cached->status == CMD_STATUS_COMPLETED ? "COMPLETED" : "FAILED"));
+        }
+      }
+    }
+  }
+  if (out_status) {
+    *out_status = cached->status;
+  }
+  if (out_result_code && result_code_size > 0) {
+    copy_str(out_result_code, result_code_size, cached->result_code);
+  }
   xSemaphoreGive(s_cache_mutex);
   return ESP_OK;
 }

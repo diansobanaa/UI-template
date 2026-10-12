@@ -62,6 +62,9 @@ export default defineConfig(({ mode }) => {
       host: true,
       port: 5173,
       allowedHosts: true,
+      watch: {
+        ignored: ["**/esp32/**", "**/.git/**"],
+      },
       proxy: enablePython
         ? {
             "/api": {

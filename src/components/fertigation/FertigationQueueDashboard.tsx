@@ -86,7 +86,14 @@ function FertigationQueueDashboardComponent({
   const [offline, setOffline] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
-  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(new Set());
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("agrotech_dismissed_job_ids");
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   const handleNavigateCalibration = (componentId?: string) => {
     navigate(`/calibration${componentId ? `?componentId=${encodeURIComponent(componentId)}` : ""}`);
@@ -96,6 +103,9 @@ function FertigationQueueDashboardComponent({
     setDismissedJobIds((prev) => {
       const next = new Set(prev);
       next.add(jobId);
+      try {
+        localStorage.setItem("agrotech_dismissed_job_ids", JSON.stringify([...next]));
+      } catch {}
       return next;
     });
     toast("Catatan kendala disingkirkan dari tampilan.", "info");
@@ -376,8 +386,8 @@ function FertigationQueueDashboardComponent({
             ? "Sedang Disiapkan di Central"
             : (living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`),
           steps: [],
-          errorCode: q.errorCode || (isFailed ? "DOSING_PUMP_NOT_CALIBRATED" : undefined),
-          affectedComponent: q.affectedComponent || "dp-a",
+          errorCode: q.errorCode || (isFailed ? (q.status === "BLOCKED" ? "EQUIPMENT_NOT_READY" : "DISPATCH_REJECTED") : undefined),
+          affectedComponent: q.affectedComponent || undefined,
         };
 
         if (isFailed) {
@@ -413,6 +423,8 @@ function FertigationQueueDashboardComponent({
 
       if (isFailedOcc) {
         if (!dismissedJobIds.has(occId) && !blocked.some((b) => b.scheduleId === schedId)) {
+          const isStale = Boolean(o.scheduledTimestamp && (o.scheduledTimestamp * 1000 < Date.now()));
+          const resolvedErrorCode = o.errorCode || (isStale ? "SCHEDULE_MISSED_STALE" : "DISPATCH_REJECTED");
           blocked.push({
             id: occId,
             scheduleId: schedId,
@@ -429,10 +441,10 @@ function FertigationQueueDashboardComponent({
             scheduledTimeStr: sched?.time || "Terjadwal",
             queuePosition: 0,
             status: "FAILED",
-            statusLabel: "Gagal Dieksekusi",
+            statusLabel: isStale ? "Jadwal Terlewat" : "Gagal Dieksekusi",
             steps: [],
-            errorCode: o.errorCode || "DOSING_PUMP_NOT_CALIBRATED",
-            affectedComponent: o.affectedComponent || "dp-a",
+            errorCode: resolvedErrorCode,
+            affectedComponent: o.affectedComponent || undefined,
           });
         }
       } else if (
@@ -495,15 +507,39 @@ function FertigationQueueDashboardComponent({
       // 1. Persiapan Air Baku (Filling to threshold X%)
       // 2. Dosing & Mixing Simultan (DP-A, DP-B, Mixer ON concurrently, Raw Water to 100%)
       // 3. Pengadukan Akhir (Final homogenization mixing)
-      // Terminal state: READY_TO_FERTIGATE (Distribution is a decoupled Fertigation Schedule event)
-      const isWaterDone = fwState === "DOSING" || fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "COMPLETE";
-      const isWaterRunning = fwState === "FILLING" || fwState === "PRECHECK";
+      const mixPhase = String(liveStatus?.currentPhase || liveStatus?.mixingPhase || "").toUpperCase();
+      const threshReached = Boolean(liveStatus?.thresholdReached);
+      const rawWaterDone = Boolean(liveStatus?.rawWaterCompleted);
 
-      const isDosingDone = fwState === "FINAL_MIXING" || fwState === "MIX_READY" || fwState === "COMPLETE";
-      const isDosingRunning = fwState === "DOSING";
+      const isWaterDone =
+        rawWaterDone ||
+        fwState === "DOSING" ||
+        fwState === "FINAL_MIXING" ||
+        fwState === "MIX_READY" ||
+        fwState === "COMPLETE" ||
+        (fwState === "MIXING" && threshReached);
+      const isWaterRunning =
+        (!threshReached && fwState === "MIXING") ||
+        fwState === "FILLING" ||
+        fwState === "PRECHECK";
 
-      const isMixingDone = fwState === "MIX_READY" || fwState === "COMPLETE";
-      const isMixingRunning = fwState === "FINAL_MIXING";
+      const isDosingDone =
+        fwState === "FINAL_MIXING" ||
+        fwState === "MIX_READY" ||
+        fwState === "COMPLETE" ||
+        mixPhase === "POST_MIX" ||
+        mixPhase === "SUCCESS";
+      const isDosingRunning =
+        fwState === "DOSING" ||
+        (fwState === "MIXING" && threshReached && mixPhase !== "POST_MIX" && mixPhase !== "SUCCESS");
+
+      const isMixingDone =
+        fwState === "MIX_READY" ||
+        fwState === "COMPLETE" ||
+        mixPhase === "SUCCESS";
+      const isMixingRunning =
+        fwState === "FINAL_MIXING" ||
+        (fwState === "MIXING" && (mixPhase === "POST_MIX" || rawWaterDone));
 
       const threshPct = liveStatus.thresholdPercent || 20;
 
@@ -664,7 +700,12 @@ function FertigationQueueDashboardComponent({
 
       const isTargetActive = activeJob?.ghId === gh.id;
       const ghDeliveries: any[] = Array.isArray(liveStatus?.activeDeliveries) ? liveStatus.activeDeliveries : [];
-      const hasDelivery = ghDeliveries.some((d) => (d.ghId || d.gh_id || "").toLowerCase() === gh.id.toLowerCase());
+      const hasDelivery = ghDeliveries.some(
+        (d) => (d.ghId || d.gh_id || "").toLowerCase() === gh.id.toLowerCase() && (d.status === "DISTRIBUTING" || d.state === 1)
+      );
+      const ghDeliveryReady = ghDeliveries.some(
+        (d) => (d.ghId || d.gh_id || "").toLowerCase() === gh.id.toLowerCase() && (d.status === "READY_TO_SEND" || d.state === 0)
+      );
 
       // Check occurrences for this GH
       const occurrences: any[] = Array.isArray(liveStatus?.todaySchedule) ? liveStatus.todaySchedule : [];
@@ -673,6 +714,9 @@ function FertigationQueueDashboardComponent({
       );
       const ghOccCompleted = occurrences.filter(
         (o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "COMPLETED" || o.state === 5)
+      );
+      const ghOccFailed = occurrences.filter(
+        (o) => (o.gh_id || o.ghId || "").toLowerCase() === gh.id.toLowerCase() && (o.state === "FAILED" || o.state === 4)
       );
 
       // Check if queued in FIFO queue
@@ -714,7 +758,7 @@ function FertigationQueueDashboardComponent({
         canPreMixNow = false;
         isActionDisabled = true;
         actionDisabledReason = "Penyiraman sedang berlangsung";
-      } else if (ghOccReady || (isTargetActive && fwState === "MIX_READY")) {
+      } else if (ghOccReady || ghDeliveryReady || (isTargetActive && (fwState === "MIX_READY" || fwState === "READY_TO_SEND"))) {
         status = "Ready for fertigation";
         statusTone = "emerald";
         statusDesc = "Larutan homogen & siap dialirkan ke dripper";
@@ -731,7 +775,7 @@ function FertigationQueueDashboardComponent({
           status = "Dosing nutrients";
           statusTone = "cyan";
           statusDesc = "Injeksi nutrisi A & B berlangsung di central unit";
-        } else if (fwState === "FINAL_MIXING") {
+        } else if (fwState === "FINAL_MIXING" || fwState === "MIXING") {
           status = "Mixing";
           statusTone = "cyan";
           statusDesc = "Pengadukan & homogenisasi larutan di tangki";
@@ -769,6 +813,14 @@ function FertigationQueueDashboardComponent({
         canPreMixNow = false;
         isActionDisabled = true;
         actionDisabledReason = "Semua siklus fertigasi hari ini telah selesai";
+      } else if (ghOccFailed.length > 0) {
+        status = "Standby";
+        statusTone = "rose";
+        statusDesc = "Siklus fertigasi sebelumnya mengalami kegagalan / dihentikan aman";
+        timingLabel = "Status Siklus";
+        timingValue = "Gagal / Terhenti";
+        canPreMixNow = true;
+        isActionDisabled = false;
       } else {
         status = "Standby";
         statusTone = "slate";

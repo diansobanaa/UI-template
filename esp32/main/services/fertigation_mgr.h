@@ -169,6 +169,9 @@ typedef struct {
     char schedule_id[40];
     char delivery_pump_id[40];
     char delivery_flow_sensor_id[40];
+    char mixing_pump_id[40];
+    bool agitation_active;
+    int64_t agitation_start_ms;
     char delivery_mode[20];
     int32_t delivery_target_ml;
     uint32_t delivery_duration_sec;
@@ -177,6 +180,7 @@ typedef struct {
     uint32_t delivery_start_ms;
     uint32_t configuration_version;
     char complex_id[40];
+    char level_sensor_id[40];
     char fault[48];
     int64_t completed_at_ms;
 } delivery_slot_t;
@@ -184,8 +188,12 @@ typedef struct {
 bool fertigation_mgr_is_gh_busy(const char *gh_id);
 esp_err_t fertigation_mgr_get_delivery_slot_status(const char *gh_id, const char *occurrence_id, delivery_slot_state_t *out_state);
 esp_err_t fertigation_mgr_acknowledge_delivery(const char *gh_id, const char *occurrence_id);
+esp_err_t fertigation_mgr_link_delivery_slot(const char *gh_id, const char *occurrence_id, const char *schedule_id);
 size_t fertigation_mgr_get_active_delivery_count(void);
 esp_err_t fertigation_mgr_get_delivery_slots(delivery_slot_t *out_slots, size_t max_count, size_t *out_count);
+esp_err_t fertigation_mgr_start_agitation(const char *gh_id, const char *occurrence_id);
+bool fertigation_mgr_is_agitation_active(const char *gh_id, const char *occurrence_id);
+esp_err_t fertigation_mgr_stop_agitation(const char *gh_id, const char *occurrence_id);
 
 #ifdef __cplusplus
 }

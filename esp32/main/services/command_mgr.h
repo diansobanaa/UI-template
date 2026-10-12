@@ -62,6 +62,7 @@ typedef struct {
 esp_err_t command_mgr_init(void);
 esp_err_t command_mgr_submit(const command_item_t *cmd, command_item_t *out_receipt);
 esp_err_t command_mgr_get(const char *command_id, command_item_t *out_receipt);
+esp_err_t command_mgr_get_status(const char *command_id, cmd_status_enum_t *out_status, char *out_result_code, size_t result_code_size);
 esp_err_t command_mgr_cancel(const char *command_id);
 
 /** Mark all pending/running commands failed after a global safety trip. */

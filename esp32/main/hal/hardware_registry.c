@@ -388,6 +388,8 @@ esp_err_t hardware_registry_load_from_json(const char *json_str)
                 goto cleanup;
             }
             safe_copy_str(dst->resource_id, sizeof(dst->resource_id), j_resid->valuestring, NULL);
+        } else {
+            safe_copy_str(dst->resource_id, sizeof(dst->resource_id), dst->component_id, NULL);
         }
 
         if (j_assignment) {
@@ -667,10 +669,13 @@ esp_err_t hardware_registry_get_by_index(size_t index, hw_component_info_t *out_
 {
     if (index >= s_active_count || !out_info) return ESP_ERR_INVALID_ARG;
     *out_info = s_active_components[index];
+    if (out_info->resource_id[0] == '\0' && out_info->component_id[0] != '\0') {
+        safe_copy_str(out_info->resource_id, sizeof(out_info->resource_id), out_info->component_id, NULL);
+    }
     return ESP_OK;
 }
 
-esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_info_t *out_info)
+static esp_err_t find_by_id_internal(const char *component_id, hw_component_info_t *out_info)
 {
     if (!component_id || !out_info) return ESP_ERR_INVALID_ARG;
     for (size_t i = 0; i < s_active_count; i++) {
@@ -806,7 +811,8 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         out_info->safety_params.max_runtime_sec = 3600;
         return ESP_OK;
     }
-    if (strcasecmp(component_id, "pump_dist") == 0 || strcasecmp(component_id, "DIST_PUMP") == 0 || strcasecmp(component_id, "DISTRIBUTION_PUMP") == 0) {
+    if (strcasecmp(component_id, "pump_dist") == 0 || strcasecmp(component_id, "DIST_PUMP") == 0 ||
+        strcasecmp(component_id, "DISTRIBUTION_PUMP") == 0 || strcasecmp(component_id, "pump_distribution") == 0) {
         memset(out_info, 0, sizeof(*out_info));
         strncpy(out_info->component_id, "pump_dist", sizeof(out_info->component_id) - 1);
         strncpy(out_info->name, "Distribution Pump", sizeof(out_info->name) - 1);
@@ -910,7 +916,50 @@ esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_in
         return ESP_OK;
     }
 
+    if (strcasecmp(component_id, "tank_mixing") == 0 || strcasecmp(component_id, "mixing_tank") == 0 ||
+        strcasecmp(component_id, "MIXING_TANK") == 0 || strcasecmp(component_id, "tank") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "tank_mixing", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Mixing Tank", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "MIXING_TANK", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "mixing-tank", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_VIRTUAL;
+        out_info->wiring.gpio = -1;
+        out_info->wiring.channel = -1;
+        out_info->safety_params.valid = true;
+        return ESP_OK;
+    }
+
+    if (strcasecmp(component_id, "float_lower") == 0 || strcasecmp(component_id, "LOWER_FLOAT") == 0 ||
+        strcasecmp(component_id, "float_switch") == 0 || strcasecmp(component_id, "level_lower") == 0) {
+        memset(out_info, 0, sizeof(*out_info));
+        strncpy(out_info->component_id, "float_lower", sizeof(out_info->component_id) - 1);
+        strncpy(out_info->name, "Lower Float Switch", sizeof(out_info->name) - 1);
+        strncpy(out_info->role, "LOWER_FLOAT", sizeof(out_info->role) - 1);
+        strncpy(out_info->supported_type_id, "lower-float", sizeof(out_info->supported_type_id) - 1);
+        out_info->lifecycle_state = HW_LIFECYCLE_COMMISSIONED;
+        out_info->deployment_status = HW_DEPLOYMENT_APPLIED;
+        out_info->wiring.interface = HW_INTERFACE_GPIO;
+        out_info->wiring.gpio = PIN_IN_FLOAT_LOWER; // GPIO 38
+        strncpy(out_info->wiring.polarity, "ACTIVE_LOW", sizeof(out_info->wiring.polarity) - 1);
+        out_info->safety_params.valid = true;
+        return ESP_OK;
+    }
+
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t hardware_registry_find_by_id(const char *component_id, hw_component_info_t *out_info)
+{
+    esp_err_t err = find_by_id_internal(component_id, out_info);
+    if (err == ESP_OK && out_info) {
+        if (out_info->resource_id[0] == '\0' && out_info->component_id[0] != '\0') {
+            safe_copy_str(out_info->resource_id, sizeof(out_info->resource_id), out_info->component_id, NULL);
+        }
+    }
+    return err;
 }
 
 esp_err_t hardware_registry_resolve_gpio(const char *component_id, int8_t *out_gpio)

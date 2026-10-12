@@ -3,6 +3,8 @@ import { InstalledComponent, SupportedComponentDefinition } from "@/lib/types/eq
 import { Plus, Settings2, AlertTriangle, ArrowRightLeft, X, Sparkles, Loader2, Building2, Warehouse } from "lucide-react";
 import { ComponentEditorModal } from "./ComponentEditorModal";
 import { PythonClient } from "@/lib/api/python-client";
+import { isDirectEsp32Enabled } from "@/lib/api/backend-client";
+import { esp32Client } from "@/lib/api/esp32-client";
 import { getCanonicalBaselineComponents } from "@/lib/data/canonicalHardwareBaseline";
 import { complexService } from "@/lib/services";
 import { Greenhouse } from "@/lib/types";
@@ -47,17 +49,28 @@ export function InstalledComponentsList({
     setTransferError(null);
     try {
       const complexId = transferComponent.assignment.complexId;
-      const client = new PythonClient();
-      const configuration = await client.getConfiguration(complexId);
+      const configuration = isDirectEsp32Enabled()
+        ? await esp32Client.getConfiguration()
+        : await new PythonClient().getConfiguration(complexId);
       const currentGh = transferComponent.assignment.ghId ?? null;
       if (currentGh === transferTargetGh) throw new Error("Target GH is already the current assignment.");
-      const result = await client.transferResource(complexId, transferComponent.resourceId, {
-        targetGhId: transferTargetGh,
-        physicalMoveConfirmed: true,
-        operator: "operator-ui",
-        configuration,
-      });
-      await client.saveConfiguration(complexId, result.configuration);
+      if (isDirectEsp32Enabled()) {
+        const updatedComponents = (configuration.components || []).map((c) =>
+          c.componentId === transferComponent.componentId
+            ? { ...c, assignment: { complexId: c.assignment?.complexId || complexId, ghId: transferTargetGh } }
+            : c
+        );
+        await esp32Client.saveConfiguration({ ...configuration, components: updatedComponents });
+      } else {
+        const client = new PythonClient();
+        const result = await client.transferResource(complexId, transferComponent.resourceId, {
+          targetGhId: transferTargetGh,
+          physicalMoveConfirmed: true,
+          operator: "operator-ui",
+          configuration,
+        });
+        await client.saveConfiguration(complexId, result.configuration);
+      }
       setTransferComponent(undefined);
       setTransferTargetGh("");
       setTransferConfirmed(false);
@@ -81,9 +94,8 @@ export function InstalledComponentsList({
     setDeployingBaseline(true);
     setBaselineError(null);
     try {
-      const client = new PythonClient();
-      const baseline = getCanonicalBaselineComponents(targetComplexId, { includeFan: false });
-      await client.saveConfiguration(targetComplexId, {
+      const baseline = getCanonicalBaselineComponents(targetComplexId, { includeFan: true, includeLighting: true });
+      const payload = {
         complexId: targetComplexId,
         version: 1,
         updatedAt: new Date().toISOString(),
@@ -93,7 +105,13 @@ export function InstalledComponentsList({
         recipes: [],
         topology: [],
         settings: {},
-      });
+      };
+      if (isDirectEsp32Enabled()) {
+        await esp32Client.saveConfiguration(payload as any);
+      } else {
+        const client = new PythonClient();
+        await client.saveConfiguration(targetComplexId, payload as any);
+      }
       onRefresh();
     } catch (e: any) {
       setBaselineError(e.message || "Failed to deploy baseline configuration.");
@@ -313,7 +331,9 @@ function ResourceTransferModal({
         return;
       }
       try {
-        const config = await new PythonClient().getConfiguration(component.assignment.complexId);
+        const config = isDirectEsp32Enabled()
+          ? await esp32Client.getConfiguration()
+          : await new PythonClient().getConfiguration(component.assignment.complexId);
         const next = ((config as any).greenhouses ?? []).map((gh: any) => ({
           id: String(gh.ghId ?? gh.id ?? ""),
           label: String(gh.name ?? gh.code ?? gh.greenhouseTag ?? gh.ghId ?? gh.id ?? "GH")

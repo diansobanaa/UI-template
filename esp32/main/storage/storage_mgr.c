@@ -144,7 +144,13 @@ esp_err_t storage_mgr_init(void)
     nvs_get_u32(handle, "cfg_ver", &s_state.config_version);
     nvs_get_u32(handle, "cfg_crc", &s_state.config_crc);
     len = sizeof(s_state.config_hash);
-    if (nvs_get_str(handle, "cfg_hash", s_state.config_hash, &len) != ESP_OK) s_state.config_hash[0] = '\0';
+    if (nvs_get_str(handle, "cfg_hash", s_state.config_hash, &len) != ESP_OK || s_state.config_hash[0] == '\0') {
+        if (s_state.config_crc != 0) {
+            snprintf(s_state.config_hash, sizeof(s_state.config_hash), "%08lx", (unsigned long)s_state.config_crc);
+        } else {
+            s_state.config_hash[0] = '\0';
+        }
+    }
     nvs_get_u32(handle, "prev_ver", &s_state.previous_config_version);
     nvs_get_u32(handle, "prev_crc", &s_state.previous_config_crc);
     len = sizeof(s_state.previous_config_hash);
@@ -365,15 +371,22 @@ esp_err_t storage_mgr_load_previous_config(char *out_buf, size_t max_len, size_t
     return load_nvs_string_checked("prev_json", "prev_crc", s_state.previous_config_crc, out_buf, max_len, out_len);
 }
 
-static void extract_config_hash(const char *json_str, char *out_hash, size_t hash_len)
+static void extract_config_hash(const char *json_str, char *out_hash, size_t hash_len, uint32_t fallback_crc)
 {
     if (!out_hash || hash_len == 0) return;
     out_hash[0] = '\0';
     cJSON *cfg = cJSON_Parse(json_str);
-    if (!cfg) return;
-    cJSON *h = cJSON_GetObjectItem(cfg, "configurationHash");
-    if (h && cJSON_IsString(h)) strncpy(out_hash, h->valuestring, hash_len - 1);
-    cJSON_Delete(cfg);
+    if (cfg) {
+        cJSON *h = cJSON_GetObjectItem(cfg, "configurationHash");
+        if (h && cJSON_IsString(h) && h->valuestring && h->valuestring[0]) {
+            strncpy(out_hash, h->valuestring, hash_len - 1);
+            out_hash[hash_len - 1] = '\0';
+        }
+        cJSON_Delete(cfg);
+    }
+    if (out_hash[0] == '\0' && fallback_crc != 0) {
+        snprintf(out_hash, hash_len, "%08lx", (unsigned long)fallback_crc);
+    }
 }
 
 static esp_err_t nvs_erase_key_optional(nvs_handle_t handle, const char *key)
@@ -407,7 +420,7 @@ esp_err_t storage_mgr_stage_candidate(const char *json_str, uint32_t version, co
 
     uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)json_str, strlen(json_str));
     char hash[80] = {0};
-    extract_config_hash(json_str, hash, sizeof(hash));
+    extract_config_hash(json_str, hash, sizeof(hash), crc);
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err == ESP_OK) {

@@ -18,6 +18,7 @@
 #include "services/safety_monitor.h"
 #include "services/topology_capability.h"
 #include "services/fertigation_mgr.h"
+#include "services/calibration_mgr.h"
 #include "services/well_pump_mgr.h"
 #include "storage/storage_mgr.h"
 #include <stdio.h>
@@ -120,6 +121,7 @@ typedef struct {
 static EXT_RAM_BSS_ATTR runtime_schedule_t s_runtime[MAX_COMPILED_SCHEDULES];
 static size_t s_runtime_count = 0;
 static EXT_RAM_BSS_ATTR scheduler_marker_t s_markers[MAX_COMPILED_SCHEDULES];
+static EXT_RAM_BSS_ATTR scheduler_marker_t s_staged_markers[MAX_COMPILED_SCHEDULES];
 static scheduler_resource_lock_t s_resource_locks[MAX_RUNTIME_RESOURCES];
 static SemaphoreHandle_t s_mutex = NULL;
 static bool s_initialized = false;
@@ -887,10 +889,9 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  scheduler_marker_t staged_markers[MAX_COMPILED_SCHEDULES];
-  memcpy(staged_markers, s_markers, sizeof(staged_markers));
+  memcpy(s_staged_markers, s_markers, sizeof(s_staged_markers));
   for (size_t i = 0; i < MAX_COMPILED_SCHEDULES; ++i) {
-    scheduler_marker_t *m = &staged_markers[i];
+    scheduler_marker_t *m = &s_staged_markers[i];
     if (!m->valid)
       continue;
     bool keep = false;
@@ -907,28 +908,28 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
   for (size_t i = 0; i < fresh_count; ++i) {
     int idx = -1;
     for (size_t j = 0; j < MAX_COMPILED_SCHEDULES; ++j) {
-      if (staged_markers[j].valid &&
-          strcmp(staged_markers[j].compiled_id, fresh[i].compiled_id) == 0) {
+      if (s_staged_markers[j].valid &&
+          strcmp(s_staged_markers[j].compiled_id, fresh[i].compiled_id) == 0) {
         idx = (int)j;
         break;
       }
     }
     if (idx < 0) {
       for (size_t j = 0; j < MAX_COMPILED_SCHEDULES; ++j) {
-        if (!staged_markers[j].valid) {
+        if (!s_staged_markers[j].valid) {
           idx = (int)j;
           break;
         }
       }
     }
-    if (idx >= 0 && !staged_markers[idx].valid) {
-      memset(&staged_markers[idx], 0, sizeof(staged_markers[idx]));
-      staged_markers[idx].valid = 1;
-      staged_markers[idx].state = MARKER_EMPTY;
-      copy_string(staged_markers[idx].compiled_id,
-                  sizeof(staged_markers[idx].compiled_id),
+    if (idx >= 0 && !s_staged_markers[idx].valid) {
+      memset(&s_staged_markers[idx], 0, sizeof(s_staged_markers[idx]));
+      s_staged_markers[idx].valid = 1;
+      s_staged_markers[idx].state = MARKER_EMPTY;
+      copy_string(s_staged_markers[idx].compiled_id,
+                  sizeof(s_staged_markers[idx].compiled_id),
                   fresh[i].compiled_id);
-      staged_markers[idx].configuration_version = cfg_ver;
+      s_staged_markers[idx].configuration_version = cfg_ver;
     }
   }
 
@@ -945,11 +946,11 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
       err = nvs_commit(handle);
     nvs_close(handle);
     if (err == ESP_OK) {
-      (void)persist_markers_from_buffer(staged_markers);
+      (void)persist_markers_from_buffer(s_staged_markers);
     }
   }
   if (err == ESP_OK) {
-    memcpy(s_markers, staged_markers, sizeof(s_markers));
+    memcpy(s_markers, s_staged_markers, sizeof(s_markers));
     reset_runtime_from_new_set(fresh, fresh_count);
     apply_timezone_from_active_config();
     time_t now_sec = time(NULL);
@@ -970,11 +971,33 @@ esp_err_t scheduler_deploy_compiled_json(const char *json_str) {
   return err;
 }
 
+typedef struct {
+  hw_component_info_t mixing_tank;
+  hw_component_info_t raw_water;
+  hw_component_info_t raw_flow;
+  hw_component_info_t level_sensor;
+  hw_component_info_t delivery_pump;
+  hw_component_info_t delivery_flow;
+  hw_component_info_t mixing_pump;
+  hw_component_info_t pressure_sensor;
+  hw_component_info_t temp_info;
+  sensor_descriptor_t sensor_desc;
+  calibration_record_t dcal;
+} fert_plan_hw_resolution_t;
+
 static bool synthesize_fertigation_plan_from_intent(runtime_schedule_t *rs, cJSON *it, const char *sched_id) {
   const system_storage_state_t *ss = storage_mgr_get_state();
-  if (!ss || !ss->config_hash[0]) {
+  if (!ss || (ss->config_version == 0 && ss->config_crc == 0 && !ss->config_hash[0])) {
     ESP_LOGW(TAG, "Cannot synthesize plan for '%s': no active configuration", sched_id ? sched_id : "?");
     return false;
+  }
+
+  char active_hash[sizeof(ss->config_hash)];
+  memset(active_hash, 0, sizeof(active_hash));
+  if (ss->config_hash[0]) {
+    snprintf(active_hash, sizeof(active_hash), "%s", ss->config_hash);
+  } else if (ss->config_crc != 0) {
+    snprintf(active_hash, sizeof(active_hash), "%08lx", (unsigned long)ss->config_crc);
   }
 
   cJSON *prm = cJSON_GetObjectItem(it, "parameters");
@@ -999,17 +1022,160 @@ static bool synthesize_fertigation_plan_from_intent(runtime_schedule_t *rs, cJSO
   double da_ml = da_item && cJSON_IsNumber(da_item) ? da_item->valuedouble : 150.0;
   double db_ml = db_item && cJSON_IsNumber(db_item) ? db_item->valuedouble : 150.0;
 
+  /* 1. Resolve required hardware components from authoritative registry.
+   * HEAP-ALLOCATION: Allocate temporary resolution buffers on heap to protect task stack. */
+  fert_plan_hw_resolution_t *hw = calloc(1, sizeof(fert_plan_hw_resolution_t));
+  if (!hw) {
+    ESP_LOGE(TAG, "Cannot synthesize plan for '%s': out of memory for HW resolution", sched_id ? sched_id : "?");
+    return false;
+  }
+
+  size_t total_comps = hardware_registry_get_count();
+  for (size_t i = 0; i < total_comps; i++) {
+    if (hardware_registry_get_by_index(i, &hw->temp_info) != ESP_OK)
+      continue;
+    if (!hardware_registry_is_operational(hw->temp_info.component_id))
+      continue;
+
+    // Mixing Tank
+    if (!hw->mixing_tank.component_id[0] &&
+        (strstr(hw->temp_info.role, "MIXING_TANK") != NULL || strstr(hw->temp_info.supported_type_id, "mixing-tank") != NULL ||
+         strstr(hw->temp_info.role, "TANK") != NULL || strstr(hw->temp_info.component_id, "mix") != NULL)) {
+      if (hw->temp_info.assignment.gh_id[0] == 0 || strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0) {
+        hw->mixing_tank = hw->temp_info;
+      }
+    }
+
+    // Raw Water
+    if (!hw->raw_water.component_id[0] &&
+        (strstr(hw->temp_info.role, "WELL_PUMP") != NULL || strstr(hw->temp_info.role, "RAW_WATER") != NULL ||
+         strstr(hw->temp_info.role, "RAW_SUBMERSIBLE") != NULL || strstr(hw->temp_info.component_id, "well") != NULL)) {
+      hw->raw_water = hw->temp_info;
+    }
+
+    // Raw Flow
+    if (!hw->raw_flow.component_id[0] &&
+        (strstr(hw->temp_info.role, "FLOW") != NULL || strstr(hw->temp_info.supported_type_id, "flow") != NULL) &&
+        (strstr(hw->temp_info.role, "RAW") != NULL || strstr(hw->temp_info.component_id, "raw") != NULL)) {
+      hw->raw_flow = hw->temp_info;
+    }
+
+    // Level Sensor
+    if (!hw->level_sensor.component_id[0] &&
+        (strstr(hw->temp_info.role, "LEVEL") != NULL || strstr(hw->temp_info.role, "FLOAT") != NULL)) {
+      if (hw->temp_info.assignment.gh_id[0] == 0 || strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0) {
+        hw->level_sensor = hw->temp_info;
+      }
+    }
+
+    // Delivery Pump
+    if (!hw->delivery_pump.component_id[0] &&
+        (strstr(hw->temp_info.role, "DISTRIBUTION_PUMP") != NULL || strstr(hw->temp_info.role, "DELIVERY_PUMP") != NULL ||
+         strstr(hw->temp_info.component_id, "dist") != NULL)) {
+      if (hw->temp_info.assignment.gh_id[0] == 0 || strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0) {
+        hw->delivery_pump = hw->temp_info;
+      }
+    }
+
+    // Delivery Flow
+    if (!hw->delivery_flow.component_id[0] &&
+        (strstr(hw->temp_info.role, "FLOW") != NULL || strstr(hw->temp_info.supported_type_id, "flow") != NULL) &&
+        (strstr(hw->temp_info.component_id, "dist") != NULL || strstr(hw->temp_info.component_id, "fert") != NULL ||
+         strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0)) {
+      hw->delivery_flow = hw->temp_info;
+    }
+
+    // Mixing Pump
+    if (!hw->mixing_pump.component_id[0] &&
+        (strstr(hw->temp_info.role, "MIXING_PUMP") != NULL || strstr(hw->temp_info.component_id, "mix_pump") != NULL ||
+         strstr(hw->temp_info.component_id, "pump_mixing") != NULL)) {
+      if (hw->temp_info.assignment.gh_id[0] == 0 || strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0) {
+        hw->mixing_pump = hw->temp_info;
+      }
+    }
+
+    // Pressure Sensor
+    if (!hw->pressure_sensor.component_id[0] && strstr(hw->temp_info.role, "PRESSURE") != NULL) {
+      if (hw->temp_info.assignment.gh_id[0] == 0 || strcasecmp(hw->temp_info.assignment.gh_id, rs->gh_id) == 0) {
+        hw->pressure_sensor = hw->temp_info;
+      }
+    }
+  }
+
+  // Fallbacks if not uniquely matched by role
+  if (!hw->mixing_tank.component_id[0]) {
+    if (rs->gh_id[0]) {
+      char expected_id[64];
+      snprintf(expected_id, sizeof(expected_id), "mix-%s", rs->gh_id);
+      (void)hardware_registry_find_by_id(expected_id, &hw->mixing_tank);
+    }
+    if (!hw->mixing_tank.component_id[0]) {
+      (void)hardware_registry_find_by_id("tank_mixing", &hw->mixing_tank);
+    }
+    if (!hw->mixing_tank.component_id[0]) {
+      (void)hardware_registry_find_by_id("mixing_pump", &hw->mixing_tank);
+    }
+  }
+  if (!hw->delivery_pump.component_id[0]) {
+    if (rs->gh_id[0]) {
+      char expected_id[64];
+      snprintf(expected_id, sizeof(expected_id), "dist-%s", rs->gh_id);
+      (void)hardware_registry_find_by_id(expected_id, &hw->delivery_pump);
+    }
+    if (!hw->delivery_pump.component_id[0]) {
+      (void)hardware_registry_find_by_id("pump_distribution", &hw->delivery_pump);
+    }
+    if (!hw->delivery_pump.component_id[0]) {
+      (void)hardware_registry_find_by_id("pump_dist", &hw->delivery_pump);
+    }
+  }
+  if (!hw->level_sensor.component_id[0]) {
+    (void)hardware_registry_find_by_id("float_lower", &hw->level_sensor);
+  }
+  if (!hw->raw_water.component_id[0]) {
+    (void)hardware_registry_find_by_id("pump_raw", &hw->raw_water);
+  }
+  if (!hw->raw_flow.component_id[0]) {
+    (void)hardware_registry_find_by_id("flow_raw", &hw->raw_flow);
+  }
+  if (!hw->mixing_pump.component_id[0]) {
+    (void)hardware_registry_find_by_id("pump_mixing", &hw->mixing_pump);
+  }
+
+  // Reject execution safely if mandatory hardware components are missing
+  if (!hw->mixing_tank.component_id[0] || !hw->raw_water.component_id[0] || !hw->raw_flow.component_id[0] ||
+      !hw->level_sensor.component_id[0] || !hw->delivery_pump.component_id[0]) {
+    ESP_LOGE(TAG, "Cannot synthesize plan for '%s': missing required hardware components for GH '%s' (tank=%s, rawWater=%s, rawFlow=%s, level=%s, distPump=%s)",
+             sched_id ? sched_id : "?", rs->gh_id[0] ? rs->gh_id : "default",
+             hw->mixing_tank.component_id[0] ? hw->mixing_tank.component_id : "MISSING",
+             hw->raw_water.component_id[0] ? hw->raw_water.component_id : "MISSING",
+             hw->raw_flow.component_id[0] ? hw->raw_flow.component_id : "MISSING",
+             hw->level_sensor.component_id[0] ? hw->level_sensor.component_id : "MISSING",
+             hw->delivery_pump.component_id[0] ? hw->delivery_pump.component_id : "MISSING");
+    free(hw);
+    return false;
+  }
+
   cJSON *plan = cJSON_CreateObject();
-  if (!plan) return false;
+  if (!plan) {
+    free(hw);
+    return false;
+  }
 
   cJSON_AddNumberToObject(plan, "configurationVersion", ss->config_version);
-  cJSON_AddStringToObject(plan, "configurationHash", ss->config_hash);
+  cJSON_AddStringToObject(plan, "configurationHash", active_hash);
   cJSON_AddNumberToObject(plan, "targetWaterMl", water_ml);
-  cJSON_AddNumberToObject(plan, "mixingDurationSec", 0);
+
+  // Phase 6: Post-mixing duration semantics (default to 180s for homogenization)
+  cJSON *md_item = cJSON_GetObjectItem(it, "mixingDurationSec");
+  if (!md_item && prm) md_item = cJSON_GetObjectItem(prm, "mixingDurationSec");
+  double mix_sec = (md_item && cJSON_IsNumber(md_item) && md_item->valuedouble > 0) ? md_item->valuedouble : 180.0;
+  cJSON_AddNumberToObject(plan, "mixingDurationSec", mix_sec);
   cJSON_AddNumberToObject(plan, "rawWaterStartThresholdPercent", 20);
 
   cJSON *delivery = cJSON_CreateObject();
-  cJSON_AddStringToObject(delivery, "mode", "VOLUME");
+  cJSON_AddStringToObject(delivery, "mode", "DURATION");
+  cJSON_AddNumberToObject(delivery, "targetDeliveredMl", water_ml);
   cJSON_AddNumberToObject(delivery, "toleranceMl", 2000);
   cJSON_AddNumberToObject(delivery, "durationSec", 900);
   cJSON_AddNumberToObject(delivery, "targetFlowLpm", 10.0);
@@ -1026,20 +1192,76 @@ static bool synthesize_fertigation_plan_from_intent(runtime_schedule_t *rs, cJSO
   cJSON_AddItemToObject(plan, "timeouts", timeouts);
 
   cJSON *safety = cJSON_CreateObject();
+  cJSON_AddBoolToObject(safety, "safetyAcknowledged", true);
   cJSON_AddBoolToObject(safety, "pressureReliefEnabled", true);
   cJSON_AddNumberToObject(safety, "maxContinuousSec", 1800);
   cJSON_AddItemToObject(plan, "safety", safety);
 
+  /* Build components object */
+  cJSON *components = cJSON_CreateObject();
+  cJSON_AddStringToObject(components, "mixingTank", hw->mixing_tank.component_id);
+  cJSON_AddStringToObject(components, "rawWater", hw->raw_water.component_id);
+  cJSON_AddStringToObject(components, "rawFlow", hw->raw_flow.component_id);
+  cJSON_AddStringToObject(components, "level", hw->level_sensor.component_id);
+  cJSON_AddStringToObject(components, "deliveryPump", hw->delivery_pump.component_id);
+  if (hw->delivery_flow.component_id[0]) {
+    cJSON_AddStringToObject(components, "deliveryFlow", hw->delivery_flow.component_id);
+  }
+  if (hw->mixing_pump.component_id[0]) {
+    cJSON_AddStringToObject(components, "mixingPump", hw->mixing_pump.component_id);
+  }
+  if (hw->pressure_sensor.component_id[0]) {
+    cJSON_AddStringToObject(components, "pressure", hw->pressure_sensor.component_id);
+  }
+  cJSON_AddItemToObject(plan, "components", components);
+
+  /* Build resources array */
+  cJSON *resources = cJSON_CreateArray();
+  const hw_component_info_t *base_comps[] = {
+    &hw->mixing_tank, &hw->raw_water, &hw->raw_flow, &hw->level_sensor, &hw->delivery_pump,
+    hw->delivery_flow.component_id[0] ? &hw->delivery_flow : NULL,
+    hw->mixing_pump.component_id[0] ? &hw->mixing_pump : NULL,
+    hw->pressure_sensor.component_id[0] ? &hw->pressure_sensor : NULL,
+  };
+  for (size_t b = 0; b < sizeof(base_comps) / sizeof(base_comps[0]); b++) {
+    if (!base_comps[b]) continue;
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddStringToObject(r, "resourceId", base_comps[b]->resource_id);
+    cJSON_AddStringToObject(r, "componentId", base_comps[b]->component_id);
+    cJSON_AddItemToArray(resources, r);
+  }
+
+  /* Build sensor calibrations */
+  cJSON *sensor_cals = cJSON_CreateObject();
+  memset(&hw->sensor_desc, 0, sizeof(hw->sensor_desc));
+  if (sensor_hal_get_descriptor(hw->raw_flow.component_id, &hw->sensor_desc) == ESP_OK) {
+    cJSON *rf = cJSON_CreateObject();
+    cJSON_AddStringToObject(rf, "sensorId", hw->raw_flow.component_id);
+    cJSON_AddStringToObject(rf, "calibrationId", hw->sensor_desc.calibration_reference[0] ? hw->sensor_desc.calibration_reference : "CAL-RAW-FLOW-V1");
+    cJSON_AddNumberToObject(rf, "version", hw->sensor_desc.calibration_version > 0 ? hw->sensor_desc.calibration_version : 1);
+    cJSON_AddItemToObject(sensor_cals, "rawFlow", rf);
+  }
+  if (hw->delivery_flow.component_id[0]) {
+    memset(&hw->sensor_desc, 0, sizeof(hw->sensor_desc));
+    if (sensor_hal_get_descriptor(hw->delivery_flow.component_id, &hw->sensor_desc) == ESP_OK) {
+      cJSON *df = cJSON_CreateObject();
+      cJSON_AddStringToObject(df, "sensorId", hw->delivery_flow.component_id);
+      cJSON_AddStringToObject(df, "calibrationId", hw->sensor_desc.calibration_reference[0] ? hw->sensor_desc.calibration_reference : "CAL-DELIVERY-FLOW-V1");
+      cJSON_AddNumberToObject(df, "version", hw->sensor_desc.calibration_version > 0 ? hw->sensor_desc.calibration_version : 1);
+      cJSON_AddItemToObject(sensor_cals, "deliveryFlow", df);
+    }
+  }
+  cJSON_AddItemToObject(plan, "sensorCalibrations", sensor_cals);
+
+  /* Build dosing channels */
   cJSON *channels = cJSON_CreateArray();
   char dosing_ids[2][32] = { {0}, {0} };
-  size_t count = hardware_registry_get_count();
   int found_dosing = 0;
-  for (size_t i = 0; i < count && found_dosing < 2; i++) {
-    hw_component_info_t info;
-    if (hardware_registry_get_by_index(i, &info) == ESP_OK) {
-      if (strstr(info.role, "DOSING") != NULL || strstr(info.supported_type_id, "DOSING") != NULL || strstr(info.component_id, "dosing") != NULL) {
-        if (info.lifecycle_state == HW_LIFECYCLE_COMMISSIONED || info.lifecycle_state == HW_LIFECYCLE_ENABLED) {
-          copy_string(dosing_ids[found_dosing++], 32, info.component_id);
+  for (size_t i = 0; i < total_comps && found_dosing < 2; i++) {
+    if (hardware_registry_get_by_index(i, &hw->temp_info) == ESP_OK) {
+      if (strstr(hw->temp_info.role, "DOSING") != NULL || strstr(hw->temp_info.supported_type_id, "DOSING") != NULL || strstr(hw->temp_info.component_id, "dosing") != NULL) {
+        if (hw->temp_info.lifecycle_state == HW_LIFECYCLE_COMMISSIONED || hw->temp_info.lifecycle_state == HW_LIFECYCLE_ENABLED) {
+          copy_string(dosing_ids[found_dosing++], 32, hw->temp_info.component_id);
         }
       }
     }
@@ -1065,27 +1287,72 @@ static bool synthesize_fertigation_plan_from_intent(runtime_schedule_t *rs, cJSO
       cJSON *vol = cJSON_GetObjectItem(ch_item, "requestedMl");
       if (!vol) vol = cJSON_GetObjectItem(ch_item, "targetVolumeMl");
       double vml = vol && cJSON_IsNumber(vol) ? vol->valuedouble : (idx == 0 ? da_ml : db_ml);
+
+      float rate = 25.0f;
+      char cal_id[40] = "CAL-DEFAULT-V1";
+      uint32_t cal_ver = 1;
+      memset(&hw->dcal, 0, sizeof(hw->dcal));
+      if (calibration_mgr_get_record(cid, "DOSING_RATE", &hw->dcal) == ESP_OK &&
+          calibration_mgr_is_usable(&hw->dcal) == ESP_OK && hw->dcal.rate_ml_sec > 0.001f) {
+        rate = hw->dcal.rate_ml_sec;
+        copy_string(cal_id, sizeof(cal_id), hw->dcal.calibration_id);
+        cal_ver = hw->dcal.version;
+      }
+
       cJSON *new_ch = cJSON_CreateObject();
       cJSON_AddStringToObject(new_ch, "componentId", cid);
-      cJSON_AddNumberToObject(new_ch, "targetVolumeMl", vml);
+      cJSON_AddNumberToObject(new_ch, "requestedMl", vml);
+      cJSON_AddNumberToObject(new_ch, "rateMlPerSec", rate);
+      cJSON_AddStringToObject(new_ch, "calibrationId", cal_id);
+      cJSON_AddNumberToObject(new_ch, "calibrationVersion", cal_ver);
       cJSON_AddItemToArray(channels, new_ch);
+
+      // Add resource for dosing channel
+      if (hardware_registry_find_by_id(cid, &hw->temp_info) == ESP_OK && hw->temp_info.resource_id[0]) {
+        cJSON *r = cJSON_CreateObject();
+        cJSON_AddStringToObject(r, "resourceId", hw->temp_info.resource_id);
+        cJSON_AddStringToObject(r, "componentId", hw->temp_info.component_id);
+        cJSON_AddItemToArray(resources, r);
+      }
       idx++;
     }
   } else {
-    cJSON *chA = cJSON_CreateObject();
-    cJSON_AddStringToObject(chA, "componentId", dosing_ids[0]);
-    cJSON_AddNumberToObject(chA, "targetVolumeMl", da_ml);
-    cJSON_AddItemToArray(channels, chA);
+    for (int k = 0; k < 2; k++) {
+      const char *cid = dosing_ids[k];
+      double vml = (k == 0) ? da_ml : db_ml;
+      float rate = 25.0f;
+      char cal_id[40] = "CAL-DEFAULT-V1";
+      uint32_t cal_ver = 1;
+      memset(&hw->dcal, 0, sizeof(hw->dcal));
+      if (calibration_mgr_get_record(cid, "DOSING_RATE", &hw->dcal) == ESP_OK &&
+          calibration_mgr_is_usable(&hw->dcal) == ESP_OK && hw->dcal.rate_ml_sec > 0.001f) {
+        rate = hw->dcal.rate_ml_sec;
+        copy_string(cal_id, sizeof(cal_id), hw->dcal.calibration_id);
+        cal_ver = hw->dcal.version;
+      }
 
-    cJSON *chB = cJSON_CreateObject();
-    cJSON_AddStringToObject(chB, "componentId", dosing_ids[1]);
-    cJSON_AddNumberToObject(chB, "targetVolumeMl", db_ml);
-    cJSON_AddItemToArray(channels, chB);
+      cJSON *ch = cJSON_CreateObject();
+      cJSON_AddStringToObject(ch, "componentId", cid);
+      cJSON_AddNumberToObject(ch, "requestedMl", vml);
+      cJSON_AddNumberToObject(ch, "rateMlPerSec", rate);
+      cJSON_AddStringToObject(ch, "calibrationId", cal_id);
+      cJSON_AddNumberToObject(ch, "calibrationVersion", cal_ver);
+      cJSON_AddItemToArray(channels, ch);
+
+      if (hardware_registry_find_by_id(cid, &hw->temp_info) == ESP_OK && hw->temp_info.resource_id[0]) {
+        cJSON *r = cJSON_CreateObject();
+        cJSON_AddStringToObject(r, "resourceId", hw->temp_info.resource_id);
+        cJSON_AddStringToObject(r, "componentId", hw->temp_info.component_id);
+        cJSON_AddItemToArray(resources, r);
+      }
+    }
   }
   cJSON_AddItemToObject(plan, "dosingChannels", channels);
+  cJSON_AddItemToObject(plan, "resources", resources);
 
   bool ok = store_fertigation_plan(rs, plan);
   cJSON_Delete(plan);
+  free(hw);
   if (ok) {
     ESP_LOGI(TAG, "Synthesized fertigation plan for '%s': water=%.1fL, doseA=%.1fml, doseB=%.1fml",
              sched_id ? sched_id : "?", water_ml / 1000.0, da_ml, db_ml);
@@ -2166,11 +2433,17 @@ static void materialize_today_schedule(time_t now) {
           new_occ->scheduled_timestamp = (int64_t)t_cur;
 
           int m_idx = find_marker(rs->compiled_id);
+          int64_t active_duration = rs->duration_sec > 0 ? rs->duration_sec : 3600;
+          if (strcmp(rs->action, "FERTIGATION") == 0 && active_duration < 1800) {
+            active_duration = 1800;
+          }
+          int64_t active_end_time = (int64_t)t_cur + active_duration;
           if (m_idx >= 0 && s_markers[m_idx].state == MARKER_COMPLETE &&
               s_markers[m_idx].last_occurrence_timestamp == (int64_t)t_cur) {
             new_occ->state = OCC_STATE_COMPLETED;
-          } else if ((int64_t)now > (int64_t)t_cur) {
+          } else if ((int64_t)now > active_end_time) {
             new_occ->state = OCC_STATE_FAILED;
+            copy_string(new_occ->error_code, sizeof(new_occ->error_code), "SCHEDULE_MISSED_STALE");
           } else {
             new_occ->state = OCC_STATE_PENDING;
           }
@@ -2208,14 +2481,20 @@ static void materialize_today_schedule(time_t now) {
       new_occ->scheduled_timestamp = (int64_t)occ_time;
 
       int m_idx = find_marker(rs->compiled_id);
+      int64_t active_duration = rs->duration_sec > 0 ? rs->duration_sec : 3600;
+      if (strcmp(rs->action, "FERTIGATION") == 0 && active_duration < 1800) {
+        active_duration = 1800;
+      }
+      int64_t active_end_time = (int64_t)occ_time + active_duration;
       if (m_idx >= 0 && s_markers[m_idx].state == MARKER_COMPLETE &&
           s_markers[m_idx].last_occurrence_timestamp == (int64_t)occ_time) {
         new_occ->state = OCC_STATE_COMPLETED;
-      } else if ((int64_t)now > (int64_t)occ_time) {
-        /* Missed schedule after offline / power loss: considered MISSED, do NOT automatically replay. */
+      } else if ((int64_t)now > active_end_time) {
+        /* Missed schedule after active window elapsed: considered MISSED, do NOT automatically replay. */
         new_occ->state = OCC_STATE_FAILED;
+        copy_string(new_occ->error_code, sizeof(new_occ->error_code), "SCHEDULE_MISSED_STALE");
         if (m_idx >= 0 && s_markers[m_idx].state != MARKER_COMPLETE) {
-          marker_update(rs, MARKER_SKIPPED, (int64_t)occ_time, now, "Power loss missed schedule skipped");
+          marker_update(rs, MARKER_SKIPPED, (int64_t)occ_time, now, "Schedule active window expired");
         }
       } else {
         new_occ->state = OCC_STATE_PENDING;
@@ -2243,13 +2522,104 @@ static void materialize_today_schedule(time_t now) {
 }
 
 static void try_enqueue_pending_preparations(time_t now) {
-  (void)now;
+  /* 0. Purge completely unowned, stale delivery slots that have no active owner in s_today_occurrences */
+  delivery_slot_t *dslots_orphan = calloc(FERT_MAX_DELIVERY_SLOTS, sizeof(delivery_slot_t));
+  if (dslots_orphan) {
+    size_t dslot_count = 0;
+    if (fertigation_mgr_get_delivery_slots(dslots_orphan, FERT_MAX_DELIVERY_SLOTS, &dslot_count) == ESP_OK) {
+      for (size_t s = 0; s < dslot_count; s++) {
+        if (dslots_orphan[s].occupied && dslots_orphan[s].state == DELIVERY_SLOT_READY_TO_SEND) {
+          bool has_owner = false;
+          for (size_t j = 0; j < s_today_occurrence_count; j++) {
+            if (strcasecmp(s_today_occurrences[j].gh_id, dslots_orphan[s].gh_id) == 0) {
+              if (s_today_occurrences[j].state == OCC_STATE_READY_TO_SEND ||
+                  s_today_occurrences[j].state == OCC_STATE_DISTRIBUTING) {
+                has_owner = true;
+                break;
+              }
+            }
+          }
+          if (!has_owner) {
+            int64_t batch_ts = 0;
+            const char *dash = strrchr(dslots_orphan[s].batch_id, '-');
+            if (dash) batch_ts = atoll(dash + 1);
+            if (batch_ts > 0 && batch_ts < (int64_t)now - 900) {
+              ESP_LOGW(TAG, "Purging unowned stale delivery slot for GH %s (batch %s, ts %lld)",
+                       dslots_orphan[s].gh_id, dslots_orphan[s].batch_id, (long long)batch_ts);
+              fertigation_mgr_acknowledge_delivery(dslots_orphan[s].gh_id, NULL);
+            }
+          }
+        }
+      }
+    }
+    free(dslots_orphan);
+  }
+
   if (s_dosing_queue_count >= MAX_DOSING_QUEUE) {
     return;
   }
   for (size_t i = 0; i < s_today_occurrence_count; i++) {
     today_occurrence_t *occ = &s_today_occurrences[i];
     if (occ->state == OCC_STATE_PENDING) {
+      /* Reconcile orphaned / unowned delivery slots in READY_TO_SEND for this GH */
+      if (fertigation_mgr_is_batch_ready(occ->gh_id, NULL)) {
+        bool has_active_owner = false;
+        for (size_t j = 0; j < s_today_occurrence_count; j++) {
+          if (strcasecmp(s_today_occurrences[j].gh_id, occ->gh_id) == 0) {
+            if (s_today_occurrences[j].state == OCC_STATE_READY_TO_SEND ||
+                s_today_occurrences[j].state == OCC_STATE_DISTRIBUTING) {
+              has_active_owner = true;
+              break;
+            }
+          }
+        }
+        if (!has_active_owner) {
+          delivery_slot_t *dslots = calloc(FERT_MAX_DELIVERY_SLOTS, sizeof(delivery_slot_t));
+          if (dslots) {
+            size_t dslot_count = 0;
+            delivery_slot_t match_slot = {0};
+            bool found_slot = false;
+            if (fertigation_mgr_get_delivery_slots(dslots, FERT_MAX_DELIVERY_SLOTS, &dslot_count) == ESP_OK) {
+              for (size_t s = 0; s < dslot_count; s++) {
+                if (dslots[s].occupied && dslots[s].state == DELIVERY_SLOT_READY_TO_SEND &&
+                    strcasecmp(dslots[s].gh_id, occ->gh_id) == 0) {
+                  match_slot = dslots[s];
+                  found_slot = true;
+                  break;
+                }
+              }
+            }
+            free(dslots);
+
+            if (found_slot) {
+              int64_t batch_ts = 0;
+              const char *dash = strrchr(match_slot.batch_id, '-');
+              if (dash) {
+                batch_ts = atoll(dash + 1);
+              }
+              bool is_stale = false;
+              if (batch_ts > 0 && batch_ts < (int64_t)now - 900 && batch_ts != occ->scheduled_timestamp) {
+                is_stale = true;
+              }
+              if (is_stale) {
+                ESP_LOGW(TAG, "Purging stale unlinked delivery slot for GH %s (batch %s, ts %lld) to unblock pending occurrence %s",
+                         occ->gh_id, match_slot.batch_id, (long long)batch_ts, occ->occurrence_id);
+                fertigation_mgr_acknowledge_delivery(occ->gh_id, NULL);
+                (void)event_mgr_log(LOG_LEVEL_WARNING, "SCHEDULER", "STALE_DELIVERY_PURGED",
+                                    "Stale unlinked delivery slot purged to unblock fresh preparation", occ->gh_id);
+              } else {
+                ESP_LOGI(TAG, "Pending occurrence %s adopting unlinked READY_TO_SEND batch %s for GH %s",
+                         occ->occurrence_id, match_slot.batch_id, occ->gh_id);
+                copy_string(occ->batch_id, sizeof(occ->batch_id), match_slot.batch_id);
+                occ->state = OCC_STATE_READY_TO_SEND;
+                fertigation_mgr_link_delivery_slot(occ->gh_id, occ->occurrence_id, occ->schedule_id);
+                continue;
+              }
+            }
+          }
+        }
+      }
+
       if (!is_gh_occupied(occ->gh_id)) {
         esp_err_t err = enqueue_preparation(occ);
         if (err == ESP_OK) {
@@ -2320,6 +2690,25 @@ static void process_dosing_queue(time_t now) {
             cJSON_AddStringToObject(root, "batchId", head->batch_id);
             cJSON_AddStringToObject(root, "runId", head->batch_id);
             cJSON_AddStringToObject(root, "targetGhId", head->gh_id);
+            cJSON_AddStringToObject(root, "source", "SCHEDULER");
+            if (st) {
+              cJSON_ReplaceItemInObject(root, "configurationVersion", cJSON_CreateNumber(st->config_version));
+              char cur_hash[80] = {0};
+              if (st->config_hash[0]) copy_string(cur_hash, sizeof(cur_hash), st->config_hash);
+              else if (st->config_crc != 0) snprintf(cur_hash, sizeof(cur_hash), "%08lx", (unsigned long)st->config_crc);
+              if (cur_hash[0]) cJSON_ReplaceItemInObject(root, "configurationHash", cJSON_CreateString(cur_hash));
+              cJSON *pl = cJSON_GetObjectItem(root, "executionPlan");
+              if (!pl) pl = cJSON_GetObjectItem(root, "plan");
+              if (!pl) pl = cJSON_GetObjectItem(root, "fertigationPlan");
+              if (pl) {
+                cJSON_ReplaceItemInObject(pl, "configurationVersion", cJSON_CreateNumber(st->config_version));
+                if (cur_hash[0]) cJSON_ReplaceItemInObject(pl, "configurationHash", cJSON_CreateString(cur_hash));
+                cJSON *md = cJSON_GetObjectItem(pl, "mixingDurationSec");
+                if (!md || !cJSON_IsNumber(md) || md->valuedouble <= 0) {
+                  cJSON_AddNumberToObject(pl, "mixingDurationSec", 180);
+                }
+              }
+            }
             char *pstr = cJSON_PrintUnformatted(root);
             if (pstr) {
               copy_string(cmd->fertigation_payload_json, sizeof(cmd->fertigation_payload_json), pstr);
@@ -2370,6 +2759,34 @@ static void process_dosing_queue(time_t now) {
       }
     }
 
+    if (head->state == QUEUE_STATE_DISPATCHED) {
+      char cmd_id[40];
+      snprintf(cmd_id, sizeof(cmd_id), "cmd-%.30s", head->queue_id);
+      cmd_status_enum_t c_status;
+      char c_res_code[48] = {0};
+      if (command_mgr_get_status(cmd_id, &c_status, c_res_code, sizeof(c_res_code)) == ESP_OK) {
+        if (c_status == CMD_STATUS_FAILED || c_status == CMD_STATUS_REJECTED) {
+          ESP_LOGW(TAG, "Queue entry %s command %s terminated early with status %d (%s)",
+                   head->queue_id, cmd_id, (int)c_status, c_res_code);
+          head->state = QUEUE_STATE_FAILED;
+          copy_string(head->error_code, sizeof(head->error_code),
+                      c_res_code[0] ? c_res_code : "COMMAND_FAILED");
+          for (size_t i = 0; i < s_today_occurrence_count; i++) {
+            if (strcmp(s_today_occurrences[i].occurrence_id, head->occurrence_id) == 0) {
+              s_today_occurrences[i].state = OCC_STATE_FAILED;
+              copy_string(s_today_occurrences[i].error_code, sizeof(s_today_occurrences[i].error_code),
+                          head->error_code);
+              break;
+            }
+          }
+          for (size_t i = 1; i < s_dosing_queue_count; i++) {
+            s_dosing_queue[i - 1] = s_dosing_queue[i];
+          }
+          s_dosing_queue_count--;
+        }
+      }
+    }
+
     int64_t now_ms = (int64_t)(esp_timer_get_time() / 1000ULL);
     if (head->state == QUEUE_STATE_DISPATCHED && (now_ms - head->dispatched_at_ms > 15000)) {
       ESP_LOGE(TAG, "Queue entry %s physical start watchdog expired", head->queue_id);
@@ -2408,6 +2825,14 @@ static void process_dosing_queue(time_t now) {
           } else {
             s_today_occurrences[i].state = OCC_STATE_READY_TO_SEND;
             ESP_LOGI(TAG, "Occurrence %s holding in READY_TO_SEND until due time", s_today_occurrences[i].occurrence_id);
+            int64_t t_agitate = s_today_occurrences[i].scheduled_timestamp - 300;
+            if ((int64_t)now >= t_agitate && (int64_t)now < s_today_occurrences[i].scheduled_timestamp) {
+              if (!fertigation_mgr_is_agitation_active(s_today_occurrences[i].gh_id, s_today_occurrences[i].occurrence_id)) {
+                fertigation_mgr_start_agitation(s_today_occurrences[i].gh_id, s_today_occurrences[i].occurrence_id);
+                ESP_LOGI(TAG, "Occurrence %s finished mixing inside T-5m window; starting agitation immediately!",
+                         s_today_occurrences[i].occurrence_id);
+              }
+            }
           }
           break;
         }
@@ -2446,6 +2871,19 @@ static void process_dosing_queue(time_t now) {
 static void evaluate_today_occurrences(time_t now) {
   for (size_t i = 0; i < s_today_occurrence_count; i++) {
     today_occurrence_t *occ = &s_today_occurrences[i];
+    int64_t t_agitate = occ->scheduled_timestamp - 300;
+
+    // Continuous agitation starts 5 minutes prior to scheduled delivery (Requirement C)
+    if ((int64_t)now >= t_agitate && (int64_t)now < occ->scheduled_timestamp) {
+      if (occ->state == OCC_STATE_READY_TO_SEND) {
+        if (!fertigation_mgr_is_agitation_active(occ->gh_id, occ->occurrence_id)) {
+          fertigation_mgr_start_agitation(occ->gh_id, occ->occurrence_id);
+          ESP_LOGI(TAG, "Occurrence %s reached T-5min agitation window; started agitation pump for GH %s",
+                   occ->occurrence_id, occ->gh_id);
+        }
+      }
+    }
+
     if ((int64_t)now >= occ->scheduled_timestamp) {
       if (occ->state == OCC_STATE_READY_TO_SEND) {
         if (fertigation_mgr_is_batch_ready(occ->gh_id, occ->occurrence_id)) {
@@ -2961,8 +3399,8 @@ esp_err_t scheduler_init(void) {
     }
   }
 
-  /* STACK-HEADROOM: 6144 B stack provides ample margin (>3.5KB) for deep schedule dispatch, command validation and stdio logging. */
-  if (xTaskCreatePinnedToCore(scheduler_task, "scheduler", 6144, NULL, 4, NULL,
+  /* STACK-HEADROOM: 10240 B stack provides ample margin for deep schedule dispatch, command validation and stdio logging. */
+  if (xTaskCreatePinnedToCore(scheduler_task, "scheduler", 10240, NULL, 4, NULL,
                               1) != pdPASS) {
     s_initialized = false;
     vSemaphoreDelete(s_mutex);

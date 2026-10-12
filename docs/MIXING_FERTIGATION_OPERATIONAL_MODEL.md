@@ -1532,6 +1532,29 @@ Greenhouse fertigation distribution is fully decoupled from the central preparat
 - The central preparation state returns to `FERT_STATE_IDLE`, freeing central shared resources (raw water pump, dosing pumps, mixing pump) for the next queued recipe.
 - Per-greenhouse distribution pumps are commanded independently by the scheduler monitor loop without blocking central preparation.
 
+## 36.4 Dedicated Mixing Worker & Continuous Delivery Safety Monitoring
+To prevent mixing operations from starving active distribution safety checks (AUDIT-INT-004):
+- `protocol_mixing(&mix_cfg)` is executed in a dedicated asynchronous FreeRTOS worker task (`fert_mix` pinned to Core 1).
+- The central `fertigation_mgr_task()` event loop never blocks during mixing preparation, evaluating active delivery slots every 200 ms.
+- Continuous delivery safety monitoring enforces:
+  - Normal delivery completion strictly upon lower-level float switch dry detection (`FLOAT_LEVEL_DRY`), ensuring the mixing tank solution is completely drained to the plants.
+  - Continuous delivered volume telemetry and pulse accumulation via the flow meter (`sensor_flow_fert` / FS400A). Attaining the target delivered volume does not prematurely shut down the pump while the lower-level float switch indicates liquid remains.
+  - Hard safety cutoff: strict 3600-second (1-hour) maximum delivery runtime cap.
+  - Immediate fail-safe pump shutdown and actuator ownership release upon emergency stop, safety monitor fault, flow fault, or missing level sensor.
+- Task-creation failures or mixing worker aborts transition the central state machine safely to `FERT_STATE_FAULTED` with immediate fail-safe deactivation of all job-owned actuators.
+
+## 36.5 Level Sensor Hardware Resolution & Serialization Interlock
+Physical greenhouses in a shared complex drawing from a common mixing tank share the binary lower level float switch (`float_lower` / GPIO 38) (AUDIT-INT-005):
+- Firmware dynamically resolves the delivery slot's level sensor via the authoritative greenhouse and hardware registry (`level_sensor_id`).
+- When two delivery slots share the same physical level sensor, the distribution engine enforces a fail-safe serialization interlock: active delivery must complete or terminate before another slot sharing that sensor can energize its pump.
+- Distinct tanks with independent level sensors operate concurrently without inter-tank cross-talk.
+
+## 36.6 Checkpoint Recovery Reconciliation for READY_TO_SEND Batches
+When the controller reboots while batches are in `DELIVERY_SLOT_READY_TO_SEND` (AUDIT-INT-006):
+- `restore_recovery_checkpoint()` restores and validates all critical delivery fields: `delivery_pump_id`, `delivery_flow_sensor_id`, `level_sensor_id`, `delivery_target_ml`, and `delivery_mode`.
+- If fields are unpopulated in legacy checkpoints, firmware reconstructs them from the execution plan JSON or authoritative hardware registry for that greenhouse.
+- If mandatory delivery components cannot be validated, the slot is held in `RECOVERY_HOLD` to prevent unauthorized or blind pump activation.
+
 # 37. Calibration Mixing & Dosing Hardware Test Architecture
 
 ## 37.1 Operational Objective
@@ -1646,6 +1669,61 @@ As mandated by user operational directives:
 - **100% Core Code Parity:** Real scheduled fertigation and Calibration Test Mixing use the **exact same** `protocol_mixing.c` code, binary pool structures, 1-second checkpoint frequency, and resume remainder calculations.
 - **Log Suppression for Test Mixing:** When `is_test == true`, all audit events to `event_mgr_log()` are suppressed, ensuring diagnostic tests do not pollute persistent agronomic cycle logs.
 
+---
+
+# 39. Authoritative Automatic Schedule-to-Mixing-to-Fertigation Lifecycle
+
+## 39.1 Execution Pipeline Overview
+The complete automatic fertigation lifecycle in AgroTech strictly operates under the continuous pipeline:
+
+```text
+NEW SCHEDULE RECEIVED
+         ↓
+IMMEDIATE MIXING QUEUE CREATION/RESOLUTION (No lead-time delay)
+         ↓
+IMMEDIATE MIXING PROTOCOL EXECUTION (protocol_mixing.c)
+         ↓
+READY_TO_FERTIGATE (DELIVERY_SLOT_READY_TO_SEND, solution rests in tank, mixing pump OFF)
+         ↓
+T - 5 MINUTES: CONTINUOUS AGITATION STARTS (Mixing pump energized via FERTIGATION owner)
+         ↓
+T (SCHEDULED TIME): FERTIGATION DISTRIBUTION STARTS (Distribution pump ON, continuous agitation maintained)
+         ↓
+LOWER FLOAT DRY / TERMINAL FAULT: ALL ACTUATORS STOP SAFELY (Both pumps stopped and released)
+```
+
+## 39.2 Invariants & Rules
+1. **Immediate Queue Creation & Execution (No Lead-Time Delay):**
+   - Acceptance of a new schedule intent or compiled schedule immediately materializes today's occurrences and registers the preparation in the Global Dosing Queue (`try_enqueue_pending_preparations`).
+   - The queue head is immediately dispatched to `protocol_mixing()` if the controller is `IDLE`.
+   - The system strictly rejects lead-time rules that delay mixing queue creation or initial mixing until shortly before scheduled delivery time.
+2. **Phase 1 (Preparation) vs Phase 2 (Distribution) Separation:**
+   - **Phase 1 (Mixing):** Filling, parallel dosing, and post-mixing homogenization execute under scoped ownership. Upon completion, the mixing pump is turned OFF and released. The slot enters `DELIVERY_SLOT_READY_TO_SEND` (`READY_TO_FERTIGATE`).
+   - **Holding State:** The prepared batch rests safely in the mixing tank with all pumps OFF until the agitation window opens.
+3. **Continuous Pre-Delivery Agitation (T - 5 min):**
+   - Exactly 300 seconds ($T - 5\text{ min}$) before scheduled delivery, `evaluate_today_occurrences()` triggers `fertigation_mgr_start_agitation()`.
+   - The mixing pump is acquired under `ACTUATOR_OWNER_FERTIGATION` and energized continuously to homogenize nutrients before distribution.
+   - If mixing completes inside the 5-minute pre-delivery window or after scheduled delivery time (late batch), agitation starts immediately upon transition to `DELIVERY_SLOT_READY_TO_SEND`.
+4. **Distribution with Simultaneous Agitation:**
+   - At scheduled delivery timestamp ($T$), `evaluate_today_occurrences()` invokes `fertigation_mgr_trigger_distribution()`.
+   - The distribution pump relay (GPIO 2, Relay CH2) is energized.
+   - Continuous agitation is actively maintained without interruption throughout the entire distribution phase.
+5. **Terminal Shutdown & Hardware Verification (MVP-1):**
+   - Normal completion is strictly governed by the lower-level float switch (GPIO 38, `FLOAT_LEVEL_DRY`).
+   - Reaching target volume does NOT prematurely terminate distribution before the lower float switch triggers dry.
+   - Hard safety timeout is bounded at 1 hour (3600s).
+   - Upon float dry, duration expiration, timeout, or emergency stop, `slot_stop_all_actuators()` turns OFF and releases BOTH the distribution pump and the agitation mixing pump.
+
+## 39.3 Integration & Dispatch Fixes (SP-SCHEDULE-TO-MIXING-QUEUE-EXECUTION-021)
+1. **Plan Resource ID Matching (`resource_ids_match()`):**
+   - Resolves mismatch where synthesized/UI execution plans use prefixed resource IDs (`res-temp_ds18b20`, `res-pump_well`, `res-float_lower`) while `hardware_registry` registers bare IDs (`temp_ds18b20`, `pump_well`, `float_lower`).
+   - `validate_plan_resources()` in `fertigation_mgr.c` now uses prefix-tolerant matching, preventing false `FERTIGATION_REJECTED` (`INVALID_PLAN_RESOURCES`) errors during immediate dispatch.
+2. **Live Configuration & Mixing Duration Propagation:**
+   - `process_dosing_queue()` in `scheduler.c` checks `executionPlan`, `plan`, and `fertigationPlan`, injecting the live active configuration version and hash, as well as canonical fallback mixing duration (180s) before command dispatch.
+3. **Immediate Command Rejection Resolution:**
+   - When a dispatched command transitions to `CMD_STATUS_REJECTED` or `CMD_STATUS_FAILED`, `process_dosing_queue()` immediately propagates the failure and error code to the queue entry and today's occurrence, popping the failed queue head rather than stalling until the 15-second physical start watchdog timer.
+4. **Scheduler Task Headroom:**
+   - Stack size increased to 10240 B (`scheduler_task`) to guarantee ample headroom for cJSON serialization/deserialization and deep dispatch routines.
 
 
 

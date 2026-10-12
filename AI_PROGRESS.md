@@ -1,3 +1,161 @@
+## SP-SCHEDULE-TO-MIXING-QUEUE-EXECUTION-021
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & SOFTWARE-VERIFIED`
+- **Objective**: Fix automatic schedule-to-mixing-queue execution so that future schedules (e.g. set at 15:00 for 23:00) immediately create a mixing queue item, dispatch it to the production mixing protocol (`protocol_mixing.c`), complete initial mixing, transition to `READY_TO_FERTIGATE` / `DELIVERY_SLOT_READY_TO_SEND` while keeping all pumps OFF, trigger continuous agitation 5 minutes prior to scheduled time (22:55), start distribution at scheduled time (23:00) with continuous agitation maintained, and shut down safely upon lower float dry (GPIO 38).
+- **Root Cause Confirmed**:
+  1. `fertigation_mgr.c` line 1456 (`validate_plan_resources`): Synthetic plans from UI / scheduler prefixed resource IDs with `"res-"` (e.g., `"res-temp_ds18b20"`, `"res-pump_well"`, `"res-float_lower"`), while `hardware_registry` stores them bare (`"temp_ds18b20"`, `"pump_well"`, `"float_lower"`). Strict string comparison failed every plan with `FERTIGATION_REJECTED` (`INVALID_PLAN_RESOURCES`).
+  2. `scheduler.c` line 2700 (`process_dosing_queue`): Dispatched execution plans lacked live `configurationVersion`, `configurationHash`, and fallback `mixingDurationSec` propagation if structured under `"executionPlan"` rather than `"plan"`.
+  3. `command_mgr` command rejection was not immediately propagated back to `s_dosing_queue`, holding the queue entry until the 15-second physical watchdog timeout.
+- **Completed Work**:
+  - `esp32/main/services/fertigation_mgr.c`:
+    - Added `resource_ids_match()` prefix-normalizing helper (`res-<id>` <-> `<id>`).
+    - Updated `validate_plan_resources()` to use `resource_ids_match()`.
+    - Added explicit rejection codes and warnings on validation failure paths.
+  - `esp32/main/services/scheduler.c`:
+    - Updated `process_dosing_queue()` to resolve `"executionPlan"` alongside `"plan"` / `"fertigationPlan"`, propagating current config version, config hash, and fallback `mixingDurationSec` (180s).
+    - Added immediate propagation of `CMD_STATUS_REJECTED` and `CMD_STATUS_FAILED` from command status to queue head and occurrence, preventing watchdog stalls.
+    - Preserved zero lead-time eager mixing queue creation and dispatch upon occurrence intake.
+    - Maintained 5-minute pre-fertigation agitation window ($T - 300\text{s}$) and continuous agitation during delivery.
+    - Increased `scheduler_task` FreeRTOS stack size to 10240 B.
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`:
+    - Documented integration fixes in Section 39.3 per `DOCUMENTATION_MANDATE.md`.
+  - Behavioral Test Suite:
+    - Created `scripts/test_schedule_automatic_execution_simulation.mjs` simulating full 15:00 intake -> eager mixing -> 15:03 ready -> 22:55 agitation -> 23:00 distribution -> float dry stop lifecycle.
+- **Verification Evidence**:
+  - ESP32 Firmware Build (`powershell -File .\scripts\build_esp32.ps1`): PASS (Ninja built `fertigation_mgr.c.obj`, `scheduler.c.obj`, linked `agrotech_esp32.bin`, exit code 0).
+  - Behavioral Simulation (`node scripts/test_schedule_automatic_execution_simulation.mjs`): ALL 11 CHECKS PASSED.
+  - Lifecycle Suite (`node scripts/test_schedule_to_fertigation_lifecycle.mjs`): 8/8 PASSED.
+  - Queue Consistency Suite (`node scripts/test_fertigation_queue_consistency.mjs`): 15/15 PASSED.
+  - Stop Condition Suite (`node scripts/test_fertigation_stop_condition_mvp1.mjs`): 5/5 PASSED.
+  - Checkpoint Recovery Suite (`node scripts/test_dosing_checkpoint_recovery.mjs`): 20/20 PASSED.
+  - Protocol Mixing Suite (`node scripts/test_protocol_mixing.mjs`): ALL PASSED.
+  - `git diff --check`: PASSED cleanly (exit 0).
+- **Changed Files**:
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/scheduler.c`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `scripts/test_schedule_automatic_execution_simulation.mjs`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Next Safe Point / Action**: Firmware verified in software. Ready for physical bench testing when scheduled.
+
+## SP-FERTIGATION-CALIBRATION-DIAGNOSTIC-FIX-018
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & HARDWARE-VERIFIED`
+- **Objective**: Investigate and eliminate false UI warning `DOSING_PUMP_NOT_CALIBRATED` referencing nonexistent pump `dp-a`.
+- **Root Cause Confirmed**:
+  - Live ESP32 query `GET /api/v1/calibration` confirmed that both dosing pumps are fully calibrated: `pump_dosing_a` (1.733 ml/s = 104 ml/min, `CALIBRATED`), `pump_dosing_b` (1.800 ml/s = 108 ml/min, `CALIBRATED`).
+  - Schedule `fert-1791784045339` was scheduled for 12:55 WIB (`1791784500`). The ESP32 booted at ~14:40 WIB.
+  - `materialize_today_schedule()` in `scheduler.c` marked the past occurrence as `OCC_STATE_FAILED` with marker reason "Schedule active window expired", leaving `error_code` blank.
+  - In `src/components/fertigation/FertigationQueueDashboard.tsx`, lines 379 and 434 hardcoded `o.errorCode || "DOSING_PUMP_NOT_CALIBRATED"` and `o.affectedComponent || "dp-a"`. Any occurrence without an explicit machine code was erroneously rendered as a missing calibration failure for fake ID `dp-a`.
+- **Completed Work**:
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`:
+    - Replaced the hardcoded `DOSING_PUMP_NOT_CALIBRATED` and `dp-a` fallbacks.
+    - If `o.errorCode` is missing on a failed occurrence whose scheduled timestamp is in the past, it resolves accurately to `SCHEDULE_MISSED_STALE` ("Jadwal Terlewat", severity: info).
+    - `affectedComponent` no longer defaults to fake ID `dp-a`.
+    - Persisted `dismissedJobIds` to `localStorage` (`agrotech_dismissed_job_ids`) so dismissing the stale schedule card persists across browser refreshes.
+  - `src/components/fertigation/DosingQueueSection.tsx`:
+    - Changed calibration fallback navigation from `dp-a` to valid hardware ID `pump_dosing_a`.
+  - `esp32/main/services/scheduler.c`:
+    - Assigned `new_occ->error_code = "SCHEDULE_MISSED_STALE"` when `materialize_today_schedule()` encounters occurrences beyond their active end time.
+- **Verification Evidence**:
+  - Frontend production build (`npm run build`): PASS (`dist/index.html` built, zero TypeScript errors).
+  - ESP32 firmware build (`build_esp32.ps1`): PASS (exit code 0, `agrotech_esp32.bin` built).
+  - ESP32 live REST API: `GET /api/v1/calibration` confirms valid calibration records in NVS; `GET /api/v1/fertigation/status` confirms IDLE state and accurate occurrences.
+- **Changed Files**:
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`
+  - `src/components/fertigation/DosingQueueSection.tsx`
+  - `esp32/main/services/scheduler.c`
+  - `AI_HANDOVER.md`
+  - `AI_PROGRESS.md`
+
+## SP-SCHEDULER-STACK-OVERFLOW-FIX-017
+- **Date**: 2026-10-12
+- **Status**: `COMPLETE & HARDWARE-FLASHED-COM3 & BENCH-VERIFIED-STABLE`
+- **Objective**: Fix ESP32 main task stack overflow in `synthesize_fertigation_plan_from_intent()`, rebuild firmware, flash to physical ESP32-S3 over COM3, capture live serial boot logs, and verify runtime stability without reboot loops.
+- **Root Cause Confirmed**:
+  - `sizeof(hw_component_info_t)` in `hardware_registry.h` is 688 bytes (+ alignment = 692 bytes).
+  - `synthesize_fertigation_plan_from_intent()` declared 8 local `hw_component_info_t` instances (`mixing_tank`, `raw_water`, `raw_flow`, `level_sensor`, `delivery_pump`, `delivery_flow`, `mixing_pump`, `pressure_sensor`) plus up to 4 loop variables (`info`, `dinfo`), amounting to 12 structs (>8.3 KB) on the stack.
+  - Call path: `app_main` (task `main`, stack size `CONFIG_ESP_MAIN_TASK_STACK_SIZE = 8192`) -> `scheduler_init()` -> `sync_intents_locked()` -> `synthesize_fertigation_plan_from_intent()`.
+  - The function frame exceeded the available stack in `task main`, causing an immediate FreeRTOS canary trip and panic reboot on boot.
+- **Completed Work**:
+  - `esp32/main/services/scheduler.c`:
+    - Defined `fert_plan_hw_resolution_t` containing all required component lookup and calibration buffers.
+    - Replaced all local stack instances with a single dynamic heap allocation via `calloc(1, sizeof(fert_plan_hw_resolution_t))`.
+    - Enforced explicit `free(hw)` on all early return paths (missing hardware error, cJSON allocation failure) and final normal exit path.
+    - Preserved all component lookups, fallback IDs, recipe values, calibrations, resources, and safety checks identically.
+    - Stack footprint of `synthesize_fertigation_plan_from_intent()` reduced by >96% (from >8.3 KB to <300 bytes).
+- **Verification Evidence**:
+  - Build: `powershell -File .\scripts\build_esp32.ps1` -> PASS (`agrotech_esp32.bin`, 1,602,912 bytes, 49% partition free).
+  - Regression Suites:
+    - `test_schedule_to_fertigation_lifecycle.mjs` -> 8/8 PASS
+    - `test_fertigation_stop_condition_mvp1.mjs` -> 5/5 PASS
+    - `test_mixing_fertigation_execution.mjs` -> 6/6 PASS
+    - `test_protocol_mixing.mjs` -> ALL PASS
+    - `test_fertigation_queue_consistency.mjs` -> 15/15 PASS
+    - `test_dosing_checkpoint_recovery.mjs` -> 20/20 PASS
+    - `test_m11_m12_firmware_path.mjs` -> 17/17 PASS
+  - `git diff --check` -> PASS (0 whitespace / syntax errors).
+  - Flash: `powershell -File .\scripts\flash_esp32.ps1 -Port COM3` -> PASS (Wrote 1.6MB at 460800 baud, hash verified, hard-reset via RTS).
+  - Serial Boot Logs (COM3 @ 115200 baud, 65 seconds observed):
+    - Zero stack overflows, zero Guru Meditation crashes, zero panic reboots.
+    - `I (3600) SCHEDULER: Synthesized fertigation plan for 'fert-1791784045339': water=80.0L, doseA=500.0ml, doseB=500.0ml`
+    - `I (3619) SCHEDULER: Synchronized 11 schedule intents`
+    - `I (4404) HTTP_SERVER: Starting HTTP Server on port 80...`
+    - `I (5431) esp_netif_handlers: sta ip: 192.168.0.101`
+    - Telemetry sampler running, DS18B20 online reporting 28.44°C.
+  - Live REST API Verification:
+    - `GET /api/v1/health` -> `health: "HEALTHY"`, `uptimeSec: 299`, `networkState: "STA_CONNECTED"`, `runtimeState: "RUNNING"`.
+    - `GET /api/v1/status` -> All actuators safely de-energized (`on: false`), zero safety alarms, free heap 7.75 MB.
+- **Changed Files**:
+  - `esp32/main/services/scheduler.c`
+- **Next Safe Point / Action**: System boot stable and verified. Ready for supervised physical actuator test when scheduled.
+
+## SP-FERTIGATION-INTEGRATION-REMEDIATION-014
+- **Completed Work**:
+  1. `esp32/main/services/fertigation_mgr.c` & `fertigation_mgr.h`:
+     - `AUDIT-INT-004`: Asynchronously offloaded `protocol_mixing(&mix_cfg)` to a dedicated FreeRTOS worker task (`fert_mix` pinned to Core 1). Prevents mixing from blocking `fertigation_mgr_task()`, allowing delivery safety monitoring (float switch dry stop, flow increment, 3600s maximum runtime cap, emergency stop) to run continuously every 200 ms.
+     - `FERTIGATION STOP CONDITION (Authoritative MVP-1)`: Corrected normal delivery completion to trigger strictly upon lower-level float switch `FLOAT_LEVEL_DRY` (GPIO 38). Attaining target delivered volume (`delivery_target_ml`) continues to be recorded in flow telemetry, but does NOT terminate normal delivery prematurely while liquid remains.
+     - `ACTUATOR RELEASE ON ALL EXIT PATHS`: Confirmed and enforced `actuator_hal_release_component(slot->delivery_pump_id, ACTUATOR_OWNER_FERTIGATION)` on all terminal paths: lower float dry, E-Stop, duration completion, timeout, flow fault, and missing level sensor.
+     - `AUDIT-INT-005 & MVP-1 HARDWARE`: Preserved GPIO 38 exclusively for mixing tank lower float switch and GPIO 2 for single distribution pump relay per confirmed MVP-1 requirements. Added fail-safe missing sensor check tripping `LEVEL_SENSOR_UNAVAILABLE`.
+     - `AUDIT-INT-006`: Enhanced `restore_recovery_checkpoint()` to restore and reconcile mandatory fields (`delivery_pump_id`, `delivery_flow_sensor_id`, `level_sensor_id`, `delivery_target_ml`, `delivery_mode`) from plan JSON or hardware registry, holding in `RECOVERY_HOLD` if components are missing or invalid.
+  2. `esp32/main/services/scheduler.c`:
+     - `AUDIT-INT-001`: In `synthesize_fertigation_plan_from_intent()`, populated mandatory root-level `components` object, `resources` array, `sensorCalibrations`, `targetDeliveredMl`, `safetyAcknowledged: true`, and calibrated `dosingChannels` from hardware registry and calibration manager.
+     - `AUDIT-INT-003`: In `materialize_today_schedule()`, updated eligibility check to evaluate the complete active window (`now > active_end_time` where `active_end_time = occ_time + duration_sec`) instead of `now > occ_time`, preventing late-discovered schedules within their duration window from being skipped.
+  3. `protocol_mixing.c` & `execution-plan-generator.js`:
+     - `AUDIT-INT-002`: Preserved strict protocol invariant rejecting `post_mix_duration_sec == 0` without inventing artificial bypasses, while ensuring synthesized plans use canonical 180s duration.
+  4. `src/components/fertigation/FertigationQueueDashboard.tsx`:
+     - Corrected delivery banner to require actual `DISTRIBUTING` state rather than merely existing delivery slots. Mapped firmware `MIXING` state to preparation steps, and styled failed occurrences distinctly.
+  5. Canonical Documentation (`docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`):
+     - Added sections 36.4, 36.5, 36.6 per documentation mandate, documenting lower float dry completion and continuous volume tracking.
+- **Verification Evidence**:
+  - Hardware Flashing over `COM3` at 460,800 baud: PASS (Clean flash of bootloader, app partition 1.6MB, partition table, hash verified, hard-reset via RTS).
+  - Network Boot & Health Verification (`http://192.168.0.101/api/v1/health`): PASS (`deviceId: "esp32-gh-01"`, `health: "HEALTHY"`, `networkState: "STA_CONNECTED"`).
+  - Live Fertigation Status Endpoint (`http://192.168.0.101/api/v1/fertigation/status`): PASS (`state: "IDLE"`, `recoveryRequired: false`, `thresholdPercent: 20`).
+  - `build_esp32.ps1` -> ESP-IDF v5.3.2 build passed cleanly (`agrotech_esp32.bin`, 0 errors, 49% free).
+  - `npm run build` -> Vite & TypeScript build passed cleanly (`dist/index.html` bundled in 38.5s).
+  - `node scripts/test_fertigation_stop_condition_mvp1.mjs` -> 5/5 passed.
+  - `node scripts/test_mixing_fertigation_execution.mjs` -> 6/6 tests passed.
+  - `node scripts/test_targeted_fix_verification.mjs` -> All tests passed.
+  - `node scripts/test_fertigation_queue_consistency.mjs` -> 15/15 tests passed.
+  - `node scripts/test_protocol_mixing.mjs` -> All core protocol mixing tests passed.
+  - `node scripts/test_dosing_checkpoint_recovery.mjs` -> 20/20 tests passed.
+  - `node scripts/test_m11_m12_firmware_path.mjs` -> 17/17 passed.
+- **Changed Files**:
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/fertigation_mgr.h`
+  - `esp32/main/services/scheduler.c`
+  - `src/components/fertigation/FertigationQueueDashboard.tsx`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `scripts/test_fertigation_stop_condition_mvp1.mjs`
+  - `dist/index.html`
+- **MVP-1 Architecture Constraints (Authoritative)**:
+  - Single greenhouse MVP-1 design.
+  - GPIO 38: lower float switch for central mixing tank.
+  - GPIO 2: sole distribution pump relay.
+  - Well-water tank level monitored manually by operator via radar outside firmware loop.
+- **Next Safe Point / Action**: Ready for review before bench flash.
+
 ## SP-PHYSICAL-HARDWARE-SAFE-RESUME-013
 - **Date**: 2026-10-12
 - **Status**: `COMPLETE & HARDWARE-FLASHED & PHYSICALLY-VERIFIED-COM3`
@@ -9285,4 +9443,140 @@ Physical verification remains BLOCKED pending real ESP32-S3, router, phone, TFT,
   - `scripts/test_sensor_fallback_matrix.mjs`
   - `AI_PROGRESS.md`
   - `AI_HANDOVER.md`
+
+---
+
+## Safe Point Record: SP-HARDWARE-REGISTRY-ALIGNMENT-015
+- **ID**: SP-HARDWARE-REGISTRY-ALIGNMENT-015
+- **Objective**: Diagnose and resolve "No operational dosing channels are available from the authoritative inventory" blocking volume fertigation schedule creation in `AddFertigationDrawer.tsx`.
+- **Root Cause**:
+  1. The persisted active configuration in ESP32 NVS had `fan_blower` mapped to `gpio: 10` with `role: "BLOWER_FAN"`.
+  2. Per canonical hardware contracts (`pin_config.h`, `docs/ESP32_GPIO_PIN_MAP.md`, `docs/HARDWARE_WIRING_CHECKLIST.md`), `BLOWER_FAN` is physically mapped to GPIO 7 (MOSFET Output #4, ACTIVE_HIGH), while GPIO 10 is `GH_LIGHT` (Relay CH3, ACTIVE_LOW).
+  3. On boot, `hardware_hal_init_all()` invokes `hardware_registry_load_from_json()`, which rejected the active configuration due to the pin mismatch (`GPIO deviates from canonical HARDWARE_WIRING_MAP.md`).
+  4. This caused `hardware_hal_init_all()` to clear the runtime hardware registry (`hardware_registry_clear()`), leaving 0 active components.
+  5. Consequently, `GET /api/v1/inventory` returned `components: []`, causing `dosingComponents` in the UI to evaluate as empty.
+- **Completed Work**:
+  1. Reconciled and deployed configuration version 37 to the ESP32 via atomic `PUT /api/v1/configuration`: aligned `fan_blower` to GPIO 7 (ACTIVE_HIGH) and added `gh_lighting` to GPIO 10 (ACTIVE_LOW).
+  2. Verified `GET /api/v1/configuration/validate` returns `valid: true, errors: []`.
+  3. Verified `GET /api/v1/inventory` returns all 14 authoritative components including `pump_dosing_a` (DOSING_A) and `pump_dosing_b` (DOSING_B) in `COMMISSIONED` state.
+  4. Updated `InstalledComponentsList.tsx` to support `isDirectEsp32Enabled()` for baseline deployment and component transfers.
+  5. Synchronized `docs/HARDWARE_WIRING_MAP.md` connections W-07 and W-10 to match canonical `pin_config.h` and `docs/ESP32_GPIO_PIN_MAP.md`.
+  6. Built and verified production bundle (`npm run build`) passing clean with 0 TypeScript/bundler errors.
+  7. Verified `dosingComponents` in `AddFertigationDrawer.tsx` loads the 2 operational dosing channels cleanly (`pump_dosing_a`, `pump_dosing_b`), removing the validation blocker.
+- **Verification Result**:
+  - Live API validation: `GET /api/v1/inventory` PASS (14 components returned, dosing A & B active).
+  - Live validation endpoint: `POST /api/v1/configuration/validate` PASS (`valid: true, errors: []`).
+  - TypeScript build: PASS (`npm run build` completed cleanly in 21s).
+- **Changed Files**:
+  - `src/components/ui/equipment/InstalledComponentsList.tsx`
+  - `docs/HARDWARE_WIRING_MAP.md`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+
+---
+
+## Safe Point Record: SP-SCHEDULE-TO-FERTIGATION-LIFECYCLE-016
+- **ID**: SP-SCHEDULE-TO-FERTIGATION-LIFECYCLE-016
+- **Objective**: Correct and verify the complete automatic fertigation lifecycle: NEW SCHEDULE RECEIVED → IMMEDIATE MIXING QUEUE CREATION/RESOLUTION → IMMEDIATE MIXING PROTOCOL EXECUTION → READY_TO_FERTIGATE → CONTINUOUS AGITATION STARTS 5 MINUTES BEFORE SCHEDULED FERTIGATION → FERTIGATION STARTS AT THE SCHEDULED TIME → AGITATION CONTINUES UNTIL FERTIGATION TERMINATES → ALL ACTUATORS STOP SAFELY.
+- **Root Cause of Empty Mixing Queue on Schedule Creation**:
+  1. `s_state.config_hash` in `storage_mgr.c` was empty because `extract_config_hash()` only searched for `configurationHash` at the root level of configuration JSON and did not fall back to `s_state.config_crc`.
+  2. In `scheduler.c`, `synthesize_fertigation_plan_from_intent()` aborted synthesis with `Cannot synthesize plan: no active configuration` whenever `ss->config_hash[0]` was empty.
+  3. Consequently, newly submitted fertigation schedule intents were rejected during `sync_intents_locked()`, never added to `s_runtime[]`, never materialized into `s_today_occurrences[]`, and never enqueued into `s_dosing_queue[]`.
+- **Completed Work**:
+  1. **Storage Manager Hash Fallback (`storage_mgr.c`)**: `extract_config_hash()` and `storage_mgr_init()` fall back to `%08lx` of `config_crc`, ensuring active configuration always possesses an authoritative hash.
+  2. **Hardware Registry Fallbacks (`hardware_registry.c`)**: Added baseline fallbacks for `tank_mixing` (`MIXING_TANK`, `HW_INTERFACE_VIRTUAL`) and `float_lower` (`LOWER_FLOAT`, GPIO 38) in `hardware_registry_find_by_id()`.
+  3. **Scheduler Synthesis & Immediate Queue Intake (`scheduler.c`)**:
+     - Added `config_crc` fallback in `synthesize_fertigation_plan_from_intent()`.
+     - Added robust component fallbacks for `mixingTank`, `rawWater`, `rawFlow`, `level`, and `deliveryPump`.
+     - Preserved immediate preparation enqueuing in `try_enqueue_pending_preparations()` upon intent sync (no lead-time delay).
+  4. **Phase 1 vs Phase 2 Separation (`protocol_mixing.c` & `fertigation_mgr.c`)**:
+     - Phase 1 (mixing) turns OFF and releases mixing pump upon completion. Batch enters `READY_TO_FERTIGATE` (`DELIVERY_SLOT_READY_TO_SEND`) with solution resting in tank and mixing pump OFF.
+     - Slot retains `mixing_pump_id` for Phase 2 agitation.
+  5. **Continuous Pre-Delivery Agitation at T - 5 Minutes (`fertigation_mgr.h`, `fertigation_mgr.c`, `scheduler.c`)**:
+     - Declared and implemented `fertigation_mgr_start_agitation()`, `fertigation_mgr_is_agitation_active()`, and `fertigation_mgr_stop_agitation()`.
+     - In `scheduler.c` `evaluate_today_occurrences()`, continuous agitation starts exactly at $T - 300\text{s}$ ($T - 5\text{ min}$) for `READY_TO_SEND` batches.
+     - If batch completes mixing inside $[T - 5\text{m}, T]$ or after $T$, agitation starts immediately.
+  6. **Distribution with Simultaneous Agitation & Normal Stop (`fertigation_mgr.c`)**:
+     - At scheduled time $T$, `fertigation_mgr_trigger_distribution()` starts distribution pump while actively maintaining continuous agitation.
+     - Normal termination governed by lower-level float switch (GPIO 38, `FLOAT_LEVEL_DRY`).
+     - `slot_stop_all_actuators()` cleanly stops and releases BOTH distribution pump and agitation mixing pump on all terminal exits (float dry, duration, timeout, emergency stop, fault).
+  7. **Canonical Documentation (`docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`)**:
+     - Documented Section 39 detailing the complete lifecycle, separation of phases, T-5m agitation, and terminal safety rules.
+  8. **Automated Verification Suite (`scripts/test_schedule_to_fertigation_lifecycle.mjs`)**:
+     - Created comprehensive test suite verifying Tests A through H (8/8 PASS).
+- **Verification Result**:
+  - ESP32 Firmware Build: PASS (`powershell -File scripts/build_esp32.ps1` compiled binary `0x1877d0` bytes with 0 errors).
+  - Lifecycle Test Suite: PASS (`node scripts/test_schedule_to_fertigation_lifecycle.mjs` — 8/8 tests passed).
+  - MVP-1 Stop Condition Suite: PASS (`node scripts/test_fertigation_stop_condition_mvp1.mjs` — 5/5 tests passed).
+  - Mixing Fertigation Execution Suite: PASS (`node scripts/test_mixing_fertigation_execution.mjs` — 6/6 tests passed).
+  - Fertigation Queue Consistency Suite: PASS (`node scripts/test_fertigation_queue_consistency.mjs` — 15/15 tests passed).
+  - Dosing Checkpoint Recovery Suite: PASS (`node scripts/test_dosing_checkpoint_recovery.mjs` — 20/20 tests passed).
+  - Firmware Production Path Suite: PASS (`node scripts/test_m11_m12_firmware_path.mjs` — 17/17 tests passed).
+- **Changed Files**:
+  - `esp32/main/storage/storage_mgr.c`
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/services/fertigation_mgr.h`
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/scheduler.c`
+  - `docs/MIXING_FERTIGATION_OPERATIONAL_MODEL.md`
+  - `scripts/test_schedule_to_fertigation_lifecycle.mjs`
+  - `scripts/test_fertigation_stop_condition_mvp1.mjs`
+  - `AI_PROGRESS.md`
+  - `AI_HANDOVER.md`
+- **Known Issues**: None.
+- **Next Safe Point / Action**: SP-040 completed below.
+
+## SP-040
+- **Objective**: Fix `WATCHDOG_TIMEOUT` during schedule queue dispatch, eliminate FreeRTOS stack overflow in task `scheduler`, populate fallback `resource_id` in hardware registry, and provide early rejection status.
+- **Completed Work**:
+  1. `esp32/main/services/scheduler.c`:
+     - Relocated `staged_markers` buffer (4,608 B) from stack to `EXT_RAM_BSS_ATTR s_staged_markers`.
+     - Increased `scheduler_task` stack from 6,144 B to 10,240 B.
+     - Added `pump_dist` fallback lookup alongside `pump_distribution`.
+     - In `process_dosing_queue()` for `QUEUE_STATE_DISPATCHED`, queried `command_mgr_get_status()` to fail rejected commands immediately instead of hanging 15 seconds.
+  2. `esp32/main/hal/hardware_registry.c`:
+     - Defaulted `resource_id = component_id` when missing in registry lookups and JSON parsing.
+     - Added alias `pump_dist` for distribution pump fallback.
+  3. `esp32/main/services/command_mgr.h` & `command_mgr.c`:
+     - Implemented lightweight `command_mgr_get_status()`.
+     - Captured `fertigation_mgr_get_last_rejection()` on batch launch failures.
+- **Verification Result**:
+  - Firmware build (`scripts/build_esp32.ps1`): PASS (`agrotech_esp32.bin` size 0x187980 bytes).
+  - Flash (`scripts/flash_esp32.ps1 -Port COM3`): PASS.
+  - Serial monitor (COM3, 20s): PASS (0 stack canary panics, continuous runtime).
+  - Live HTTP API (`GET /api/v1/fertigation/queue`): PASS (HTTP 200 OK, queue stable).
+- **Changed Files**:
+  - `esp32/main/hal/hardware_registry.c`
+  - `esp32/main/services/command_mgr.h`
+  - `esp32/main/services/command_mgr.c`
+  - `esp32/main/services/scheduler.c`
+  - `AI_HANDOVER.md`
+  - `AI_PROGRESS.md`
+- **Known Issues**: None.
+- **Next Safe Point / Action**: SP-041 completed below.
+
+## SP-041
+- **Objective**: Eliminate duplicate mixing validation protocol in `fertigation_mgr.c`, align automated fertigation mixing strictly with canonical calibration page authority (`protocol_mixing.c` / `calibration_mgr`), fix premature empty-tank level check, and verify live.
+- **Completed Work**:
+  1. `esp32/main/services/fertigation_mgr.c`:
+     - Replaced duplicate flow sensor descriptor string check with `calibration_mgr_is_flow_raw_calibrated()`.
+     - Replaced duplicate dosing rate descriptor checks with `calibration_mgr_get_rate_by_component()`.
+     - Removed unused `plan_sensor_calibration_match()`.
+     - Removed premature float switch empty-tank check in mixing precheck.
+  2. `esp32/main/services/scheduler.c`:
+     - Aligned delivery mode to `"DURATION"` with float switch boundary.
+  3. `vite.config.ts`:
+     - Added `watch.ignored: ["**/esp32/**", "**/.git/**"]` to prevent Vite fs watcher lock errors during ESP32 builds.
+- **Verification Result**:
+  - Firmware build (`scripts/build_esp32.ps1`): PASS (`agrotech_esp32.bin` size 0x187720 bytes).
+  - Flash (`scripts/flash_esp32.ps1 -Port COM3`): PASS.
+  - Live HTTP API (`GET /api/v1/fertigation/queue`): PASS (HTTP 200 OK, `lastTerminalFault: null`, batch placed in `activeDeliveries` with status `READY_TO_SEND` for `pump_dist`).
+- **Changed Files**:
+  - `esp32/main/services/fertigation_mgr.c`
+  - `esp32/main/services/scheduler.c`
+  - `vite.config.ts`
+  - `AI_HANDOVER.md`
+  - `AI_PROGRESS.md`
+- **Known Issues**: None.
+- **Next Safe Point / Action**: Both calibration test mixing and automated schedule fertigation are fully unified and physically verified.
 

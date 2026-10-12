@@ -369,10 +369,10 @@ Switched Return (-) from OUT- ────────────────�
 | **W-04** | MOSFET #1 Gate | ESP32 GPIO 4 | No conflict. Clean digital pin. | Gate trigger for 12V Raw Submersible Pump 1. Active-HIGH (1=ON, 0=OFF). | `PIN_OUT_RAW_SUBMERSIBLE = 4` | **VERIFIED SAFE** |
 | **W-05** | MOSFET #2 Gate | ESP32 GPIO 5 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump A. Active-HIGH. | `PIN_OUT_DOSING_A = 5` | **VERIFIED SAFE** |
 | **W-06** | MOSFET #3 Gate | ESP32 GPIO 6 | No conflict. Clean digital pin. | Gate trigger for 12V peristaltic dosing pump B. Active-HIGH. | `PIN_OUT_DOSING_B = 6` | **VERIFIED SAFE** |
-| **W-07** | *UNASSIGNED* | ESP32 GPIO 7 | No conflict. Unassigned pin. | Cabinet fan powered directly from PSU +/-; MCU control disabled. | `PIN_OUT_COOLING_FAN = -1` | **UNASSIGNED / RESERVED** |
+| **W-07** | MOSFET #4 Gate | ESP32 GPIO 7 | No conflict. Dedicated clean GPIO. | Gate trigger for N-channel MOSFET module driving Greenhouse Blower Fans. Active-HIGH. | `PIN_OUT_BLOWER_FAN = 7` | **VERIFIED SAFE (DEFERRED HARDWARE)** |
 | **W-08** | DS3231 SDA | ESP32 GPIO 8 | No conflict. Native I2C data line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SDA = 8` | **VERIFIED** |
 | **W-09** | DS3231 SCL | ESP32 GPIO 9 | No conflict. Native I2C clock line.| 4.7kΩ pull-up to 3.3V. Hardware I2C port 0. | `PIN_I2C_SCL = 9` | **VERIFIED** |
-| **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers contactor for 2x Greenhouse Blower Fans. Active-LOW. | `PIN_OUT_BLOWER_FAN = 10` | **VERIFIED SAFE** |
+| **W-10** | 4-Ch Relay IN3 | ESP32 GPIO 10 | No conflict. Dedicated clean GPIO. | Optocoupled 5V coil. Triggers Dedicated Greenhouse Lighting via 4-Ch Relay Ch 3. Active-LOW. | `PIN_OUT_GH_LIGHT = 10` | **VERIFIED SAFE** |
 | **W-11** | Shared SPI SCK | ESP32 GPIO 11 | No conflict. Shared bus clock. | Drives TFT and MicroSD Card Module clock lines in parallel. | `PIN_SPI_SCK = 11` | **VERIFIED** |
 | **W-12** | Shared SPI MOSI| ESP32 GPIO 12 | No conflict. Shared bus MOSI. | Drives TFT data and MicroSD Card Module MOSI in parallel. | `PIN_SPI_MOSI = 12` | **VERIFIED** |
 | **W-13** | MicroSD MISO | ESP32 GPIO 13 | No conflict. Shared bus MISO. | Dedicated return data from MicroSD Card Module (EasyWare EP000094). | `PIN_SPI_MISO = 13` | **UNVERIFIED** |
@@ -404,10 +404,10 @@ A strict audit was conducted comparing `esp32/main/config/pin_config.h` against 
 | **4** | `PIN_OUT_RAW_SUBMERSIBLE` (`PIN_MOSFET_RAW_SUBMERSIBLE_1`) | 4 | Raw Submersible Pump 1 (MOSFET #1)| **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
 | **5** | `PIN_OUT_DOSING_A` | 5 | Dosing Pump A (MOSFET #2) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
 | **6** | `PIN_OUT_DOSING_B` | 6 | Dosing Pump B (MOSFET #3) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
-| **7** | `PIN_OUT_COOLING_FAN` | 7 | Cooling Fan (MOSFET #4) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
+| **7** | `PIN_OUT_BLOWER_FAN` | 7 | Greenhouse Blower Fans (MOSFET #4) | **MATCH** | 100% Consistent. Active-HIGH (1=ON, 0=OFF). Safe boot default = LOW (0V). |
 | **8** | `PIN_I2C_SDA` | 8 | RTC DS3231 SDA (I2C Data) | **MATCH** | 100% Consistent. Hardware I2C port 0 SDA (+ 4.7kΩ pull-up). |
 | **9** | `PIN_I2C_SCL` | 9 | RTC DS3231 SCL (I2C Clock) | **MATCH** | 100% Consistent. Hardware I2C port 0 SCL (+ 4.7kΩ pull-up). |
-| **10** | `PIN_OUT_BLOWER_FAN` (`PIN_RELAY_CH3`) | 10 | Greenhouse Dual Blower Fans (4-Ch Relay IN3 -> Contactor) | **MATCH** | 100% Consistent. Active-LOW (0=ON). Triggers external contactor. |
+| **10** | `PIN_OUT_GH_LIGHT` (`PIN_RELAY_CH3`) | 10 | Greenhouse Lighting (4-Ch Relay IN3) | **MATCH** | 100% Consistent. Active-LOW (0=ON). Manual-ON only; OFF-only schedule. |
 | **11** | `PIN_SPI_SCK` / `PIN_MICROSD_SCK` | 11 | Shared SPI Clock (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
 | **12** | `PIN_SPI_MOSI` / `PIN_MICROSD_MOSI`| 12 | Shared SPI MOSI (TFT & MicroSD) | **MATCH** | 100% Consistent. Shared bus. |
 | **13** | `PIN_SPI_MISO` / `PIN_MICROSD_MISO`| 13 | Shared SPI MISO (MicroSD Card Module) | **MATCH** | 100% Consistent. Dedicated to MicroSD Card return. |

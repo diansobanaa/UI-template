@@ -242,7 +242,7 @@ export function DosingQueueSection({
                     {isCalib && onNavigateCalibration && (
                       <button
                         type="button"
-                        onClick={() => onNavigateCalibration(job.affectedComponent || "dp-a")}
+                        onClick={() => onNavigateCalibration(job.affectedComponent || "pump_dosing_a")}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/30 active:scale-95 shadow-sm"
                       >
                         <Wrench className="h-3.5 w-3.5 text-amber-300" />
