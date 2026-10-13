@@ -45,6 +45,8 @@ import { ScheduleContent } from "@/app/schedule/page";
 import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
 import { GreenhouseTabs, type GreenhouseTabId } from "@/components/greenhouse/GreenhouseTabs";
 import { FertigationPipeline, type PipelineStage } from "@/components/greenhouse/FertigationPipeline";
+import { FertigationAlerts, type FertigationAlert } from "@/components/greenhouse/FertigationAlerts";
+import { FertigationFab } from "@/components/greenhouse/FertigationFab";
 import { useToast } from "@/components/ui/toast";
 import { SensorRetryBadge } from "@/components/ui/SensorRetryBadge";
 import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService, sensorService } from "@/lib/services";
@@ -1236,6 +1238,7 @@ function GreenhouseContent() {
   const [editLighting, setEditLighting] = useState<LightingSchedule | null>(null);
   const [blowerPending, setBlowerPending] = useState(false);
   const [activeTab, setActiveTab] = useState<GreenhouseTabId>("fertigasi");
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
 
   // Industry-standard IoT State Sync (Home Assistant / AWS Shadow pattern):
   // 1. Zero HTTP polling: WebSocket pushes any state transition from physical button / schedule.
@@ -1394,6 +1397,24 @@ function GreenhouseContent() {
     : nextSchedule
       ? "scheduled"
       : "idle";
+
+  const fertigationAlerts: FertigationAlert[] = [];
+  if (!gh.online) {
+    fertigationAlerts.push({
+      id: "offline",
+      tone: "red",
+      title: "Greenhouse offline",
+      message: "Tidak terhubung ke controller. Status fertigasi mungkin tidak akurat.",
+    });
+  }
+  if (gh.telemetry.tankPct != null && gh.telemetry.tankPct < 20 && gh.currentRun) {
+    fertigationAlerts.push({
+      id: "low-tank",
+      tone: "amber",
+      title: "Level tangki rendah",
+      message: `Tangki ${gh.telemetry.tankPct}% — isi ulang sebelum batch selesai.`,
+    });
+  }
   const fruitSeries = fruitDevFor(gh);
   const observations = fertigationService.observationsForGh(gh.id);
 
@@ -1699,11 +1720,40 @@ function GreenhouseContent() {
 
       {activeTab === "tanaman" && (
       <div className="w-full mt-0">
+        {!timelineExpanded ? (
+          <button
+            type="button"
+            onClick={() => setTimelineExpanded(true)}
+            className="w-full cursor-pointer rounded-2xl border border-white/10 bg-[#0b2027] p-5 text-left transition hover:border-white/20"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-white">Timeline Siklus Tanam</div>
+                <div className="mt-1 text-sm text-slate-400">HST {gh.telemetry.hstDays} hari • Ketuk untuk lihat detail lengkap</div>
+              </div>
+              <span className="text-sm font-semibold text-emerald-300">Lihat →</span>
+            </div>
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setTimelineExpanded(false)}
+              className="mb-3 cursor-pointer rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+            >
+              ← Sembunyikan timeline
+            </button>
         <CropCycleTimeline gh={gh} display="timeline" onRefresh={() => cropCycleService.syncCycleFromEsp32(gh.id)} />
+          </>
+        )}
       </div>
       )}
 
       {/* ---------------- Dosing Queue & Batch Execution Monitoring (Section 10.3 & 20) ---------------- */}
+      {activeTab === "fertigasi" && (
+      <FertigationAlerts alerts={fertigationAlerts} />
+      )}
+
       {activeTab === "fertigasi" && (
       <div className="mb-4">
         <FertigationPipeline
@@ -2933,6 +2983,12 @@ function GreenhouseContent() {
           ))}
         </div>
       </SectionCard>
+      )}
+
+      {activeTab === "fertigasi" && (
+        <FertigationFab
+          onManualTrigger={() => router(`/schedule?complex=${complex.id}&gh=${gh.id}`)}
+        />
       )}
 
       {/* ---------------- Add Observation modal ---------------- */}
