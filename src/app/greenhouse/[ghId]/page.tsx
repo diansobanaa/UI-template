@@ -44,6 +44,7 @@ import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { ScheduleContent } from "@/app/schedule/page";
 import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
 import { GreenhouseTabs, type GreenhouseTabId } from "@/components/greenhouse/GreenhouseTabs";
+import { FertigationPipeline, type PipelineStage } from "@/components/greenhouse/FertigationPipeline";
 import { useToast } from "@/components/ui/toast";
 import { SensorRetryBadge } from "@/components/ui/SensorRetryBadge";
 import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService, sensorService } from "@/lib/services";
@@ -1388,6 +1389,11 @@ function GreenhouseContent() {
   }
 
   const nextSchedule = gh.fertigationSchedules.find((s) => s.status === "scheduled");
+  const fertigationStage: PipelineStage = gh.currentRun
+    ? (gh.currentRun.progressPct >= 100 ? "ready" : "mixing")
+    : nextSchedule
+      ? "scheduled"
+      : "idle";
   const fruitSeries = fruitDevFor(gh);
   const observations = fertigationService.observationsForGh(gh.id);
 
@@ -1698,6 +1704,16 @@ function GreenhouseContent() {
       )}
 
       {/* ---------------- Dosing Queue & Batch Execution Monitoring (Section 10.3 & 20) ---------------- */}
+      {activeTab === "fertigasi" && (
+      <div className="mb-4">
+        <FertigationPipeline
+          stage={fertigationStage}
+          recipeName={gh.currentRun?.recipeName ?? nextSchedule?.name}
+          progressPct={gh.currentRun?.progressPct}
+        />
+      </div>
+      )}
+
       {activeTab === "fertigasi" && (
       <div className="w-full mt-5">
         <FertigationQueueDashboard
