@@ -337,6 +337,337 @@ static esp_err_t occurrence_decision_handler(httpd_req_t *req){
     return http_send_enveloped_response(req, 200, NULL, o);
 }
 
+/* ===== Otomatisasi fertigasi: auto-trigger distribusi terjadwal =====
+ *
+ * Task ini mem-poll occurrence hari ini setiap 30 detik. Ketika ada occurrence
+ * berstatus READY_TO_SEND (jadwal sudah tiba dan mixing selesai), distribusi
+ * dipicu otomatis via fertigation_mgr_trigger_distribution() — setara tombol
+ * "Siram" manual di Web UI, tanpa intervensi operator.
+ *
+ * Safety gate (E-STOP + safety monitor) diperiksa sebelum setiap trigger;
+ * GH yang sedang sibuk (batch/delivery aktif) dilewati.
+ *
+ * Task dimulai sekali dari register_api_fertigation_handlers() (dipanggil saat
+ * HTTP server init, setelah semua service siap).
+ *
+ * Spec: jobs/specs/firmware-delivery-spec.md (repo bridge).
+ * Permintaan user 2026-10-13: "if (jadwal tiba) { execute mixing protocol() }".
+ */
+#include "services/scheduler.h"
+#include "services/fertigation_mgr.h"
+#include "hal/actuator_hal.h"
+#include "services/event_mgr.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include <time.h>
+#include <string.h>
+#include <stdio.h>
+
+#define FERT_AUTO_POLL_MS 30000
+#define FERT_AUTO_MAX_OCC 16
+#define FERT_UI_MAX_OCC 16
+
+static today_occurrence_t s_auto_occs[FERT_AUTO_MAX_OCC];
+static bool s_auto_started = false;
+
+/* Daftar occurrence yang di-clear manual — dilewati auto-trigger agar tidak
+ * di-trigger ulang setelah operator membuang hasil racikan. */
+#define FERT_CLEARED_MAX 16
+static char s_cleared_occs[FERT_CLEARED_MAX][64];
+static size_t s_cleared_n = 0;
+
+static bool fert_auto_is_cleared(const char *occurrence_id) {
+  if (!occurrence_id || !occurrence_id[0]) {
+    return false;
+  }
+  for (size_t i = 0; i < s_cleared_n; i++) {
+    if (strcmp(s_cleared_occs[i], occurrence_id) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void fert_auto_mark_cleared(const char *occurrence_id) {
+  if (!occurrence_id || !occurrence_id[0] || fert_auto_is_cleared(occurrence_id)) {
+    return;
+  }
+  if (s_cleared_n >= FERT_CLEARED_MAX) {
+    s_cleared_n = 0;
+  }
+  snprintf(s_cleared_occs[s_cleared_n], sizeof(s_cleared_occs[0]), "%s", occurrence_id);
+  s_cleared_n++;
+}
+
+static void fertigation_auto_task(void *arg) {
+  (void)arg;
+  ESP_LOGI("fertigation_auto", "task started (poll %d ms)", (int)FERT_AUTO_POLL_MS);
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(FERT_AUTO_POLL_MS));
+    /* Safety gate: jangan pernah auto-trigger saat E-STOP / safety fault. */
+    if (actuator_hal_is_emergency_stopped() || !safety_monitor_allows_commands()) {
+      continue;
+    }
+    size_t n = 0;
+    if (scheduler_get_today_occurrences(s_auto_occs, FERT_AUTO_MAX_OCC, &n) != ESP_OK) {
+      ESP_LOGW("fertigation_auto", "scheduler_get_today_occurrences failed");
+      continue;
+    }
+    for (size_t i = 0; i < n; i++) {
+      today_occurrence_t *o = &s_auto_occs[i];
+      if (o->state != OCC_STATE_READY_TO_SEND) {
+        continue;
+      }
+      if (o->gh_id[0] == '\0' || o->occurrence_id[0] == '\0') {
+        continue;
+      }
+      /* Dilewati bila operator sudah clear manual. */
+      if (fert_auto_is_cleared(o->occurrence_id)) {
+        continue;
+      }
+      if (fertigation_mgr_is_gh_busy(o->gh_id)) {
+        continue;
+      }
+      ESP_LOGI("fertigation_auto", "auto-trigger gh=%s occ=%s", o->gh_id, o->occurrence_id);
+      esp_err_t err = fertigation_mgr_trigger_distribution(o->gh_id, o->occurrence_id);
+      if (err == ESP_OK) {
+        (void)event_mgr_log_command(LOG_LEVEL_INFO, "FERTIGATION_AUTO_TRIGGER",
+                                    "Otomatis: distribusi dimulai (jadwal tiba).",
+                                    NULL, NULL, o->gh_id, NULL, NULL, 0);
+      } else {
+        ESP_LOGW("fertigation_auto", "trigger failed gh=%s occ=%s err=%d",
+                 o->gh_id, o->occurrence_id, (int)err);
+      }
+    }
+  }
+}
+
+static void fertigation_auto_start(void) {
+  if (s_auto_started) {
+    return;
+  }
+  s_auto_started = true;
+  if (xTaskCreate(fertigation_auto_task, "fert_auto", 4096, NULL, 5, NULL) != pdPASS) {
+    ESP_LOGW("fertigation_auto", "xTaskCreate gagal");
+    s_auto_started = false;
+  }
+}
+
+/* ===== Endpoint UI Fertigasi: daily list, tanks, clear-ready =====
+ *
+ * Memberi makan panel "Daily Fertigation List" dan tangki di tab Fertigasi
+ * Web UI, serta menyediakan POST /clear-ready dengan field `ok` yang
+ * diharapkan UI (endpoint ini belum ada di firmware).
+ */
+
+static const char *fert_ui_occ_status(const today_occurrence_t *o) {
+  switch (o->state) {
+    case OCC_STATE_READY_TO_SEND:
+      return "ready";
+    case OCC_STATE_DISTRIBUTING:
+      return "delivering";
+    case OCC_STATE_COMPLETED:
+      return "selesai";
+    case OCC_STATE_FAILED:
+      return "gagal";
+    case OCC_STATE_PENDING:
+    case OCC_STATE_AWAITING_DECISION:
+    default:
+      /* GH sedang meracik (batch aktif) vs menunggu giliran. */
+      if (o->gh_id[0] != '\0' && fertigation_mgr_is_gh_busy(o->gh_id)) {
+        return "mixing";
+      }
+      return "menunggu-mixing";
+  }
+}
+
+static void fert_ui_format_time(int64_t ts, char *out, size_t out_len) {
+  if (!out || out_len == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (ts <= 0) {
+    return;
+  }
+  time_t t = (time_t)ts;
+  struct tm tmv;
+  if (localtime_r(&t, &tmv) == NULL) {
+    return;
+  }
+  snprintf(out, out_len, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+}
+
+static esp_err_t fertigation_daily_handler(httpd_req_t *req) {
+  if (http_check_auth(req) != ESP_OK) return ESP_OK;
+  today_occurrence_t *occs = (today_occurrence_t *)calloc(FERT_UI_MAX_OCC, sizeof(today_occurrence_t));
+  if (!occs) {
+    http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    return ESP_FAIL;
+  }
+  size_t n = 0;
+  if (scheduler_get_today_occurrences(occs, FERT_UI_MAX_OCC, &n) != ESP_OK) {
+    free(occs);
+    http_send_error(req, 500, "DAILY_FETCH_FAILED", "Gagal membaca jadwal hari ini.", NULL);
+    return ESP_FAIL;
+  }
+  cJSON *arr = cJSON_CreateArray();
+  if (!arr) {
+    free(occs);
+    http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    return ESP_FAIL;
+  }
+  for (size_t i = 0; i < n; i++) {
+    today_occurrence_t *o = &occs[i];
+    char time_s[8];
+    fert_ui_format_time(o->scheduled_timestamp, time_s, sizeof(time_s));
+    cJSON *it = cJSON_CreateObject();
+    if (!it) {
+      continue;
+    }
+    cJSON_AddStringToObject(it, "id", o->occurrence_id);
+    cJSON_AddStringToObject(it, "time", time_s);
+    cJSON_AddStringToObject(it, "ghId", o->gh_id);
+    cJSON_AddStringToObject(it, "ghCode", o->gh_id);
+    cJSON_AddStringToObject(it, "recipeName", "");
+    cJSON_AddNumberToObject(it, "targetWaterL", 0);
+    cJSON_AddStringToObject(it, "status", fert_ui_occ_status(o));
+    cJSON_AddBoolToObject(it, "tankReady", o->state == OCC_STATE_READY_TO_SEND);
+    cJSON_AddItemToArray(arr, it);
+  }
+  free(occs);
+  return http_send_enveloped_response(req, 200, NULL, arr);
+}
+
+static esp_err_t fertigation_tanks_handler(httpd_req_t *req) {
+  if (http_check_auth(req) != ESP_OK) return ESP_OK;
+  today_occurrence_t *occs = (today_occurrence_t *)calloc(FERT_UI_MAX_OCC, sizeof(today_occurrence_t));
+  if (!occs) {
+    http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    return ESP_FAIL;
+  }
+  size_t n = 0;
+  if (scheduler_get_today_occurrences(occs, FERT_UI_MAX_OCC, &n) != ESP_OK) {
+    free(occs);
+    http_send_error(req, 500, "TANKS_FETCH_FAILED", "Gagal membaca status tong.", NULL);
+    return ESP_FAIL;
+  }
+  /* Kumpulkan gh_id unik (maks 8 GH). */
+  char seen_gh[8][64];
+  size_t seen_n = 0;
+  for (size_t i = 0; i < n && seen_n < 8; i++) {
+    const char *gh = occs[i].gh_id;
+    if (gh[0] == '\0') {
+      continue;
+    }
+    bool dup = false;
+    for (size_t k = 0; k < seen_n; k++) {
+      if (strcmp(seen_gh[k], gh) == 0) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) {
+      continue;
+    }
+    snprintf(seen_gh[seen_n], sizeof(seen_gh[0]), "%s", gh);
+    seen_n++;
+  }
+  cJSON *arr = cJSON_CreateArray();
+  if (!arr) {
+    free(occs);
+    http_send_error(req, 500, "NO_MEM", "Out of memory", NULL);
+    return ESP_FAIL;
+  }
+  for (size_t k = 0; k < seen_n; k++) {
+    const char *gh = seen_gh[k];
+    const char *state = "kosong";
+    int pct = 0;
+    for (size_t i = 0; i < n; i++) {
+      if (strcmp(occs[i].gh_id, gh) != 0) {
+        continue;
+      }
+      if (occs[i].state == OCC_STATE_READY_TO_SEND) {
+        state = "ready";
+        pct = 100;
+        break;
+      }
+    }
+    if (pct == 0 && fertigation_mgr_is_gh_busy(gh)) {
+      state = "mixing";
+      pct = 50;
+    }
+    cJSON *t = cJSON_CreateObject();
+    if (!t) {
+      continue;
+    }
+    cJSON_AddStringToObject(t, "ghId", gh);
+    cJSON_AddStringToObject(t, "ghCode", gh);
+    cJSON_AddStringToObject(t, "state", state);
+    cJSON_AddNumberToObject(t, "levelPct", pct);
+    cJSON_AddItemToArray(arr, t);
+  }
+  free(occs);
+  return http_send_enveloped_response(req, 200, NULL, arr);
+}
+
+static esp_err_t clear_ready_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *body=NULL; if(http_parse_json_body(req,&body)!=ESP_OK||!body){http_send_error(req,422,"VALIDATION_FAILED","Invalid JSON",NULL);return ESP_FAIL;}
+    cJSON *payload=cJSON_GetObjectItem(body,"payload"); cJSON *target=payload?payload:body;
+    cJSON *occ=cJSON_GetObjectItem(target,"occurrenceId"); cJSON *bat=cJSON_GetObjectItem(target,"batchId");
+    const char *occ_id=(occ&&cJSON_IsString(occ)&&occ->valuestring[0])?occ->valuestring:NULL;
+    const char *batch_id=(bat&&cJSON_IsString(bat)&&bat->valuestring[0])?bat->valuestring:NULL;
+    cJSON_Delete(body);
+    if(!occ_id&&!batch_id){http_send_error(req,422,"VALIDATION_FAILED","occurrenceId or batchId is required.",NULL);return ESP_FAIL;}
+    /* Cari occurrence untuk dapatkan gh_id. */
+    today_occurrence_t *occs=(today_occurrence_t*)calloc(FERT_UI_MAX_OCC,sizeof(today_occurrence_t));
+    if(!occs){http_send_error(req,500,"NO_MEM","Out of memory",NULL);return ESP_FAIL;}
+    size_t n=0;
+    if(scheduler_get_today_occurrences(occs,FERT_UI_MAX_OCC,&n)!=ESP_OK){
+      free(occs);
+      http_send_error(req,500,"CLEAR_LOOKUP_FAILED","Gagal membaca jadwal.",NULL);
+      return ESP_FAIL;
+    }
+    const char *gh_id=NULL; const char *target_occ=NULL;
+    for(size_t i=0;i<n;i++){
+      bool match=false;
+      if(occ_id&&strcmp(occs[i].occurrence_id,occ_id)==0) match=true;
+      if(batch_id&&occs[i].batch_id[0]&&strcmp(occs[i].batch_id,batch_id)==0) match=true;
+      if(match){gh_id=occs[i].gh_id;target_occ=occs[i].occurrence_id;break;}
+    }
+    free(occs);
+    /* Jangan clear saat GH sedang sibuk (batch/delivery aktif). */
+    if(fertigation_mgr_is_gh_busy(gh_id)){
+      http_send_error(req,409,"READY_CLEAR_REFUSED","Batch fisik sedang berjalan.",NULL);
+      return ESP_FAIL;
+    }
+    cJSON *o=cJSON_CreateObject();
+    if(!o){http_send_error(req,500,"NO_MEM","Out of memory",NULL);return ESP_FAIL;}
+    if(!gh_id||!target_occ){
+      cJSON_AddBoolToObject(o,"ok",false);
+      cJSON_AddBoolToObject(o,"cleared",false);
+      cJSON_AddStringToObject(o,"reason","not_found");
+      cJSON_AddStringToObject(o,"message","Jadwal tidak ditemukan hari ini.");
+      return http_send_enveloped_response(req,200,NULL,o);
+    }
+    /* Acknowledge delivery untuk menghapus slot READY (sudah terverifikasi ada). */
+    esp_err_t err=fertigation_mgr_acknowledge_delivery(gh_id,target_occ);
+    if(err!=ESP_OK&&err!=ESP_ERR_NOT_FOUND){
+      cJSON_Delete(o);
+      http_send_error(req,500,"READY_CLEAR_FAILED","Gagal clear READY.",NULL);
+      return ESP_FAIL;
+    }
+    bool cleared=(err==ESP_OK||err==ESP_ERR_NOT_FOUND);
+    if(cleared){fert_auto_mark_cleared(target_occ);}
+    cJSON_AddBoolToObject(o,"ok",cleared);
+    cJSON_AddBoolToObject(o,"cleared",cleared);
+    cJSON_AddStringToObject(o,"reason",cleared?"ok":"not_ready");
+    cJSON_AddStringToObject(o,"clearedOccurrenceId",target_occ);
+    if(batch_id) cJSON_AddStringToObject(o,"clearedBatchId",batch_id);
+    return http_send_enveloped_response(req,200,NULL,o);
+}
+
 void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t a={.uri="/api/v1/fertigation/start",.method=HTTP_POST,.handler=start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
     httpd_uri_t b={.uri="/api/v1/fertigation/status",.method=HTTP_GET,.handler=status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&b);
@@ -347,4 +678,9 @@ void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t disc={.uri="/api/v1/fertigation/discard",.method=HTTP_POST,.handler=discard_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&disc);
     httpd_uri_t dack={.uri="/api/v1/fertigation/delivery/ack",.method=HTTP_POST,.handler=delivery_ack_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&dack);
     httpd_uri_t odec={.uri="/api/v1/schedule-occurrences/decision",.method=HTTP_POST,.handler=occurrence_decision_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&odec);
+    httpd_uri_t daily={.uri="/api/v1/fertigation/daily",.method=HTTP_GET,.handler=fertigation_daily_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&daily);
+    httpd_uri_t tanks={.uri="/api/v1/fertigation/tanks",.method=HTTP_GET,.handler=fertigation_tanks_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&tanks);
+    httpd_uri_t cr={.uri="/api/v1/fertigation/clear-ready",.method=HTTP_POST,.handler=clear_ready_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&cr);
+    /* Otomatisasi fertigasi: mulai task auto-trigger (sekali saja). */
+    fertigation_auto_start();
 }

@@ -3019,14 +3019,14 @@ static void process_dosing_queue(time_t now) {
 static void evaluate_today_occurrences(time_t now) {
   for (size_t i = 0; i < s_today_occurrence_count; i++) {
     today_occurrence_t *occ = &s_today_occurrences[i];
-    int64_t t_agitate = occ->scheduled_timestamp - 300;
+    int64_t t_agitate = occ->scheduled_timestamp - 180;
 
-    // Continuous agitation starts 5 minutes prior to scheduled delivery (Requirement C)
+    // Continuous agitation starts 3 minutes prior to scheduled delivery (per user spec 2026-10-13)
     if ((int64_t)now >= t_agitate && (int64_t)now < occ->scheduled_timestamp) {
       if (occ->state == OCC_STATE_READY_TO_SEND) {
         if (!fertigation_mgr_is_agitation_active(occ->gh_id, occ->occurrence_id)) {
           fertigation_mgr_start_agitation(occ->gh_id, occ->occurrence_id);
-          ESP_LOGI(TAG, "Occurrence %s reached T-5min agitation window; started agitation pump for GH %s",
+          ESP_LOGI(TAG, "Occurrence %s reached T-3min agitation window; started agitation pump for GH %s",
                    occ->occurrence_id, occ->gh_id);
         }
       }
