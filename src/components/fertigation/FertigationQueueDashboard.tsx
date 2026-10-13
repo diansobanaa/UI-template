@@ -48,6 +48,7 @@ import {
 } from "./GreenhouseMixingTanks";
 import { GreenhouseFertigationDetail } from "./GreenhouseFertigationDetail";
 import { FertigationScheduleManager } from "./FertigationScheduleManager";
+import { FertigationTransferTable } from "./FertigationTransferTable";
 
 interface FertigationQueueDashboardProps {
   queue?: FertigationSchedule[];
@@ -1365,16 +1366,12 @@ function FertigationQueueDashboardComponent({
 
           {/* Tabel Jadwal Fertigasi & Tombol Tambah Jadwal untuk Greenhouse ini */}
           <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e1a2a] p-5 shadow-sm">
-            <FertigationScheduleManager
+            <FertigationTransferTable
               schedules={ghSchedules}
               greenhouses={[gh]}
               onOpenCreate={handleCreate}
               onToggleSchedule={handleToggleSchedule}
               isActionLoading={actionInProgress !== null}
-              activeJob={ghActiveJob}
-              queuedJobs={ghQueuedJobs}
-              liveStatus={liveStatus}
-              liveQueue={liveQueue}
             />
           </div>
         </div>
@@ -1535,16 +1532,12 @@ function FertigationQueueDashboardComponent({
         />
 
         {/* 4. Fertigation Schedule Manager */}
-        <FertigationScheduleManager
+        <FertigationTransferTable
           schedules={allSchedules}
           greenhouses={ghs}
           onOpenCreate={handleCreate}
           onToggleSchedule={handleToggleSchedule}
           isActionLoading={actionInProgress !== null}
-          activeJob={activeJob}
-          queuedJobs={queuedJobs}
-          liveStatus={liveStatus}
-          liveQueue={liveQueue}
         />
       </div>
     </section>

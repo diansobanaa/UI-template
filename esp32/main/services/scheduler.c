@@ -2728,6 +2728,60 @@ static void try_enqueue_pending_preparations(time_t now) {
   }
 }
 
+/* Owner spec: if (jadwal tiba) { execute mixing protocol() }
+ * When a FERTIGATION occurrence's scheduled time has arrived and it is still
+ * PENDING (not yet mixed), force the mixing preparation through the Global
+ * Dosing Queue. This bypasses stale blockers (FAULTED batch, old READY slot)
+ * but NEVER interrupts an actively mixing/distributing batch.
+ */
+static void force_due_fertigation_trigger(time_t now) {
+  for (size_t i = 0; i < s_today_occurrence_count; i++) {
+    today_occurrence_t *occ = &s_today_occurrences[i];
+    if (occ->state != OCC_STATE_PENDING)
+      continue;
+    if ((int64_t)now < occ->scheduled_timestamp)
+      continue;
+    fertigation_state_t f_st = fertigation_mgr_get_state();
+    bool active_physical = (f_st != FERT_STATE_IDLE && f_st != FERT_STATE_COMPLETE &&
+                            f_st != FERT_STATE_FAULTED && f_st != FERT_STATE_ABORTED);
+    if (active_physical) {
+      char q_id[48] = {0}, o_id[48] = {0}, b_id[48] = {0}, tgh[48] = {0};
+      fertigation_mgr_get_correlation(q_id, sizeof(q_id), o_id, sizeof(o_id),
+                                      b_id, sizeof(b_id), tgh, sizeof(tgh));
+      if (tgh[0] && strcasecmp(tgh, occ->gh_id) == 0)
+        continue;
+    }
+    if (is_gh_in_queue(occ->gh_id))
+      continue;
+    bool has_active = false;
+    for (size_t j = 0; j < s_today_occurrence_count; j++) {
+      if (j == i) continue;
+      if (strcasecmp(s_today_occurrences[j].gh_id, occ->gh_id) == 0) {
+        occurrence_state_t st = s_today_occurrences[j].state;
+        if (st == OCC_STATE_PREPARING || st == OCC_STATE_WAITING_BATCH ||
+            st == OCC_STATE_DISTRIBUTING) {
+          has_active = true;
+          break;
+        }
+      }
+    }
+    if (has_active)
+      continue;
+    if (fertigation_mgr_is_batch_ready(occ->gh_id, NULL)) {
+      ESP_LOGW(TAG, "Due trigger: clearing stale READY batch for GH %s (occ %s)",
+               occ->gh_id, occ->occurrence_id);
+      fertigation_mgr_acknowledge_delivery(occ->gh_id, NULL);
+    }
+    esp_err_t err = enqueue_preparation(occ);
+    if (err == ESP_OK) {
+      ESP_LOGI(TAG, "Due trigger: jadwal tiba -> mixing enqueued for GH %s (occ %s)",
+               occ->gh_id, occ->occurrence_id);
+    } else {
+      ESP_LOGW(TAG, "Due trigger: enqueue failed for GH %s (err %d)", occ->gh_id, (int)err);
+    }
+  }
+}
+
 static void rebuild_dosing_queue_on_boot(time_t now) {
   try_enqueue_pending_preparations(now);
 }
@@ -3174,6 +3228,7 @@ esp_err_t scheduler_evaluate_at(time_t now) {
   process_dosing_queue(now);
   evaluate_today_occurrences(now);
   check_distribution_completions();
+  force_due_fertigation_trigger(now);
 
   runtime_schedule_t *due[MAX_COMPILED_SCHEDULES];
   int64_t occurrences[MAX_COMPILED_SCHEDULES];
