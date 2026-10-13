@@ -44,8 +44,8 @@ export interface DosingQueueJob {
   dosingBml: number;
   mixingDurationSec: number;
   scheduledTimeStr: string;
-  queuePosition: number; // 0 = Active, 1 = Next in line, etc.
-  status: "ACTIVE" | "PENDING_FIFO" | "WAITING_SCHEDULE" | "COMPLETED" | "FAILED" | "BLOCKED";
+  queuePosition: number; // 0 = Head of queue (ACTIVE = firmware-confirmed only), 1 = Next in line, etc.
+  status: "ACTIVE" | "DISPATCHED" | "PENDING_FIFO" | "WAITING_SCHEDULE" | "COMPLETED" | "FAILED" | "BLOCKED" | "AWAITING_DECISION";
   statusLabel: string;
   steps: OperationalStep[];
   errorCode?: string;
@@ -479,6 +479,11 @@ export function DosingQueueSection({
                       <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] text-rose-300 font-medium flex items-center gap-1.5">
                         <AlertTriangle className="h-3 w-3 text-rose-400" />
                         Gagal Dieksekusi
+                      </span>
+                    ) : q.status === "DISPATCHED" ? (
+                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-300 font-medium flex items-center gap-1.5">
+                        <Clock className="h-3 w-3 text-amber-400" />
+                        Terkirim · Menunggu Hardware
                       </span>
                     ) : q.status === "ACTIVE" ? (
                       <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-300 font-medium flex items-center gap-1.5">

@@ -687,6 +687,17 @@ export class Esp32Client {
    * LAYER-B: Trigger distribution for a batch that has reached MIX_READY.
    * Maps to firmware: fertigation_mgr_trigger_distribution(gh_id, occurrence_id)
    */
+  /**
+   * P2.3-final: keputusan operator Lanjutkan/Lewati untuk missed occurrence.
+   * Maps to firmware: scheduler_decide_occurrence()
+   */
+  async decideOccurrence(occurrenceId: string, decision: "continue" | "skip"): Promise<any> {
+    return this.postEnveloped<any>("/api/v1/schedule-occurrences/decision", {
+      occurrenceId,
+      decision,
+    });
+  }
+
   async triggerDistribution(ghId: string, occurrenceId?: string): Promise<any> {
     const payload = {
       ghId,

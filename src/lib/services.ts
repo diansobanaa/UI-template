@@ -3234,6 +3234,44 @@ import { defaultConfig } from './api/backend-client';
 // Installed hardware authority: ActiveConfiguration.components[] -> ESP32 /api/v1/inventory.
 const _esp32 = new Esp32Client(defaultConfig);
 
+/**
+ * Returns human-readable conflict messages when one physical GPIO pin is
+ * assigned to more than one GH. One pin without hardware multiplexing cannot
+ * serve two greenhouses at once. Components flagged with wiring.multiplexed
+ * are exempt. This is a UI-side guard with clear messages; the firmware
+ * config validation endpoint remains authoritative.
+ */
+export function findGpioAssignmentConflicts(components: any[]): string[] {
+  const byPin = new Map<number, { ghId: string; name: string; componentId: string }[]>();
+  for (const c of components ?? []) {
+    const wiring: any = c?.wiring;
+    const ghId: string | null = c?.assignment?.ghId ?? null;
+    const pin: unknown = wiring?.gpio;
+    if (!ghId) continue;
+    if (typeof pin !== "number") continue;
+    if (String(wiring?.interface ?? "").toUpperCase() !== "GPIO") continue;
+    if (wiring?.multiplexed === true) continue;
+    if (!byPin.has(pin)) byPin.set(pin, []);
+    byPin.get(pin)!.push({
+      ghId,
+      name: c?.name ?? c?.componentId ?? "component",
+      componentId: c?.componentId ?? "",
+    });
+  }
+  const conflicts: string[] = [];
+  for (const [pin, entries] of byPin) {
+    const ghIds = [...new Set(entries.map((e) => e.ghId))];
+    if (ghIds.length > 1) {
+      const names = entries.map((e) => `${e.name} (${e.componentId || "?"})`).join(", ");
+      conflicts.push(
+        `GPIO ${pin} is assigned to multiple greenhouses (${ghIds.join(", ")}) by: ${names}. ` +
+          `One physical pin without hardware multiplexing cannot serve two GHs at once.`
+      );
+    }
+  }
+  return conflicts;
+}
+
 export const hardwareService = {
   async getSupportedCatalog(): Promise<SupportedComponentDefinition[]> {
     await delay();
@@ -3435,6 +3473,10 @@ export const hardwareService = {
   ): Promise<InstalledComponent[]> {
     const current = await _esp32.getConfiguration();
     const nextComponents = mutate([...(current.components ?? [])]);
+    const gpioConflicts = findGpioAssignmentConflicts(nextComponents);
+    if (gpioConflicts.length > 0) {
+      throw new ServiceError('VALIDATION_FAILED', gpioConflicts.join(' '));
+    }
     const nextConfig = {
       ...current,
       components: nextComponents,

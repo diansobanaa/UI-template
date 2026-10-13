@@ -13,6 +13,7 @@
 #include "hal/hardware_registry.h"
 #include "hal/sensor_hal.h"
 #include "nvs.h"
+#include "nvs_flash.h"
 #include "services/command_mgr.h"
 #include "services/event_mgr.h"
 #include "services/safety_monitor.h"
@@ -52,7 +53,8 @@ typedef enum {
   MARKER_RUNNING,
   MARKER_COMPLETE,
   MARKER_SKIPPED,
-  MARKER_RECOVERY_HOLD
+  MARKER_RECOVERY_HOLD,
+  MARKER_MISSED /* P2.3-final: missed, menunggu keputusan operator */
 } marker_state_t;
 
 typedef struct {
@@ -586,10 +588,31 @@ static esp_err_t persist_markers_from_buffer(const scheduler_marker_t *buf) {
   if (err != ESP_OK)
     return err;
   err = nvs_set_blob(handle, NVS_KEY_MARKERS, buf, sizeof(scheduler_marker_t) * MAX_COMPILED_SCHEDULES);
+  if (err == ESP_ERR_NVS_NOT_ENOUGH_SPACE) {
+    /* PATCH-10: NVS is log-structured — overwriting a key needs a free page
+     * even when the stale blob could be reclaimed. Erase it first, then retry
+     * the write once. */
+    ESP_LOGW(TAG, "NVS full; erasing stale marker blob and retrying once");
+    (void)nvs_erase_key(handle, NVS_KEY_MARKERS);
+    (void)nvs_commit(handle);
+    err = nvs_set_blob(handle, NVS_KEY_MARKERS, buf, sizeof(scheduler_marker_t) * MAX_COMPILED_SCHEDULES);
+  }
   if (err == ESP_OK)
     err = nvs_commit(handle);
   nvs_close(handle);
   return err;
+}
+
+// PATCH-10: one-shot, read-only NVS partition diagnostic. Logged when the
+// marker NVS fallback fails with NOT_ENOUGH_SPACE so the field log shows
+// exactly how full the partition is.
+static void log_nvs_partition_stats(const char *reason) {
+  nvs_stats_t st;
+  if (nvs_get_stats("nvs", &st) == ESP_OK) {
+    ESP_LOGW(TAG, "NVS partition stats (%s): used=%u free=%u total=%u namespaces=%u",
+             reason, (unsigned)st.used_entries, (unsigned)st.free_entries,
+             (unsigned)st.total_entries, (unsigned)st.namespace_count);
+  }
 }
 
 // RC-1: Task terpisah yang menangani NVS write untuk s_markers. Marker data
@@ -608,10 +631,19 @@ static void marker_persist_task(void *pvParameters) {
   esp_task_wdt_add(NULL);
   // Buffer lokal snapshot
   static EXT_RAM_BSS_ATTR scheduler_marker_t s_marker_snapshot[MAX_COMPILED_SCHEDULES];
+  // PATCH-10: exponential-backoff state for persist retries (D4).
+  static uint32_t s_persist_fail_count = 0;
   while (1) {
     esp_task_wdt_reset();
     // P0-FIX: Bounded wait 5s instead of portMAX_DELAY — feeds WDT even when idle.
-    (void)xTaskNotifyWait(0x00, 0xFFFFFFFF, NULL, pdMS_TO_TICKS(5000));
+    // PATCH-10: skip the wait when a persist retry is already pending so the
+    // backoff path below retries without an extra 5s stall.
+    portENTER_CRITICAL(&s_marker_spinlock);
+    bool retry_pending = s_marker_persist_pending;
+    portEXIT_CRITICAL(&s_marker_spinlock);
+    if (!retry_pending) {
+      (void)xTaskNotifyWait(0x00, 0xFFFFFFFF, NULL, pdMS_TO_TICKS(5000));
+    }
 
     // Loop untuk memproses multiple pending writes yang mungkin terjadi selama
     // satu siklus persist. Jika flag masih setelah snapshot, ulangi.
@@ -635,14 +667,40 @@ static void marker_persist_task(void *pvParameters) {
       // Stage 2: Tulis NVS di LUAR s_mutex. Bisa memakan 100-500ms.
       esp_err_t persist_err = persist_markers_from_buffer(s_marker_snapshot);
       if (persist_err != ESP_OK) {
-        ESP_LOGE(TAG, "Marker persistence failed (%s); retaining pending state",
-                 esp_err_to_name(persist_err));
+        // PATCH-10 (D4): exponential backoff 5s/10s/20s/40s instead of the old
+        // self-notify that retried every ~2s forever and spammed the log.
+        if (s_persist_fail_count < 1000u)
+          s_persist_fail_count++;
+        uint32_t shift = s_persist_fail_count - 1u;
+        if (shift > 3u)
+          shift = 3u;
+        uint32_t backoff_ms = 5000u << shift;
+        if (persist_err == ESP_ERR_NVS_NOT_ENOUGH_SPACE && s_persist_fail_count == 1u)
+          log_nvs_partition_stats("marker persist");
+        if (s_persist_fail_count == 1u) {
+          ESP_LOGE(TAG, "Marker persistence failed (%s); retaining pending state; retry in %us",
+                   esp_err_to_name(persist_err), (unsigned)(backoff_ms / 1000u));
+        } else {
+          ESP_LOGW(TAG, "Marker persistence still failing (%s); attempt %u, next retry in %us",
+                   esp_err_to_name(persist_err), (unsigned)s_persist_fail_count,
+                   (unsigned)(backoff_ms / 1000u));
+        }
         portENTER_CRITICAL(&s_marker_spinlock);
         s_marker_persist_pending = true;
         portEXIT_CRITICAL(&s_marker_spinlock);
-        xTaskNotifyGive(s_marker_persist_task_handle);
+        // PATCH-10: backoff wait in WDT-safe <=5s chunks; a fresh marker update
+        // notifies the task and cuts the wait short for an early retry.
+        uint32_t remaining_ms = backoff_ms;
+        while (remaining_ms > 0u) {
+          esp_task_wdt_reset();
+          uint32_t chunk_ms = remaining_ms > 5000u ? 5000u : remaining_ms;
+          if (xTaskNotifyWait(0x00, 0xFFFFFFFF, NULL, pdMS_TO_TICKS(chunk_ms)) == pdTRUE)
+            break; // fresh marker update arrived — retry now
+          remaining_ms -= chunk_ms;
+        }
         break;
       }
+      s_persist_fail_count = 0;
 
       // Stage 3: Cek apakah ada update baru yang masuk selama Stage 2. Jika
       // ya, ulangi seluruh siklus; jika tidak, selesai dan tunggu notifikasi
@@ -2489,12 +2547,48 @@ static void materialize_today_schedule(time_t now) {
       if (m_idx >= 0 && s_markers[m_idx].state == MARKER_COMPLETE &&
           s_markers[m_idx].last_occurrence_timestamp == (int64_t)occ_time) {
         new_occ->state = OCC_STATE_COMPLETED;
-      } else if ((int64_t)now > active_end_time) {
-        /* Missed schedule after active window elapsed: considered MISSED, do NOT automatically replay. */
+      } else if (m_idx >= 0 && s_markers[m_idx].state == MARKER_MISSED &&
+                 s_markers[m_idx].last_occurrence_timestamp == (int64_t)occ_time) {
+        /* P2.3-final: keputusan belum dibuat (survive reboot) -> tetap menunggu. */
+        new_occ->state = OCC_STATE_AWAITING_DECISION;
+        copy_string(new_occ->error_code, sizeof(new_occ->error_code),
+                    "MISSED_AWAITING_DECISION");
+      } else if (m_idx >= 0 && s_markers[m_idx].state == MARKER_SKIPPED &&
+                 s_markers[m_idx].last_occurrence_timestamp == (int64_t)occ_time) {
+        /* P2.3-final: operator memilih Lewati -> permanen, tidak materialisasi ulang. */
         new_occ->state = OCC_STATE_FAILED;
-        copy_string(new_occ->error_code, sizeof(new_occ->error_code), "SCHEDULE_MISSED_STALE");
-        if (m_idx >= 0 && s_markers[m_idx].state != MARKER_COMPLETE) {
-          marker_update(rs, MARKER_SKIPPED, (int64_t)occ_time, now, "Schedule active window expired");
+        copy_string(new_occ->error_code, sizeof(new_occ->error_code),
+                    "SKIPPED_BY_OPERATOR");
+      } else if ((int64_t)now > active_end_time) {
+        /* P2.3-final (owner decision): TIDAK ADA eksekusi otomatis untuk
+         * jadwal yang terlewat. FERTIGATION yang diketahui belum start
+         * masuk AWAITING_DECISION; operator memilih Lanjutkan/Lewati via UI. */
+        bool decided = false;
+        if (strcmp(rs->action, "FERTIGATION") == 0) {
+          bool known_unstarted = true;
+          if (m_idx >= 0 &&
+              s_markers[m_idx].last_occurrence_timestamp == (int64_t)occ_time &&
+              (s_markers[m_idx].state == MARKER_COMPLETE ||
+               s_markers[m_idx].state == MARKER_PENDING ||
+               s_markers[m_idx].state == MARKER_RUNNING)) {
+            known_unstarted = false; /* pernah selesai/dispatch -> uncertain */
+          }
+          if (known_unstarted) {
+            new_occ->state = OCC_STATE_AWAITING_DECISION;
+            copy_string(new_occ->error_code, sizeof(new_occ->error_code),
+                        "MISSED_AWAITING_DECISION");
+            marker_update(rs, MARKER_MISSED, (int64_t)occ_time, now,
+                          "Missed: awaiting operator decision (Continue/Skip)");
+            decided = true;
+          }
+        }
+        if (!decided) {
+          /* Missed schedule after active window elapsed: considered MISSED, do NOT automatically replay. */
+          new_occ->state = OCC_STATE_FAILED;
+          copy_string(new_occ->error_code, sizeof(new_occ->error_code), "SCHEDULE_MISSED_STALE");
+          if (m_idx >= 0 && s_markers[m_idx].state != MARKER_COMPLETE) {
+            marker_update(rs, MARKER_SKIPPED, (int64_t)occ_time, now, "Schedule active window expired");
+          }
         }
       } else {
         new_occ->state = OCC_STATE_PENDING;
@@ -3443,6 +3537,89 @@ esp_err_t scheduler_get_today_occurrences(today_occurrence_t *out_occurrences, s
     out_occurrences[i] = s_today_occurrences[i];
   }
   *out_count = count;
+  xSemaphoreGive(s_mutex);
+  return ESP_OK;
+}
+
+/* P2.3-final: keputusan operator atas occurrence yang missed.
+ * - Continue: validasi keselamatan/resource, lalu occurrence -> PENDING agar
+ *   alur normal mengeksekusinya sebagai late run. Idempoten.
+ * - Skip: occurrence -> FAILED/SKIPPED_BY_OPERATOR, marker SKIPPED permanen.
+ * Tidak ada aktuator yang digerakkan di sini; tidak ada auto-execute. */
+esp_err_t scheduler_decide_occurrence(const char *occurrence_id, bool do_continue,
+                                      char *err_code, size_t err_len) {
+  if (err_code && err_len > 0) err_code[0] = '\0';
+  if (!occurrence_id || !occurrence_id[0]) return ESP_ERR_INVALID_ARG;
+  if (!s_mutex) return ESP_ERR_INVALID_STATE;
+  if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) return ESP_FAIL;
+
+  today_occurrence_t *occ = NULL;
+  for (size_t i = 0; i < s_today_occurrence_count; i++) {
+    if (strcmp(s_today_occurrences[i].occurrence_id, occurrence_id) == 0) {
+      occ = &s_today_occurrences[i];
+      break;
+    }
+  }
+  if (!occ) {
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_NOT_FOUND;
+  }
+
+  runtime_schedule_t *rs = find_schedule_by_id(occ->schedule_id);
+
+  /* Idempotensi: keputusan sudah pernah dibuat -> kembalikan hasil tersimpan. */
+  if (occ->state == OCC_STATE_FAILED &&
+      strcmp(occ->error_code, "SKIPPED_BY_OPERATOR") == 0) {
+    xSemaphoreGive(s_mutex);
+    return ESP_OK; /* skip sudah permanen */
+  }
+  if (occ->state != OCC_STATE_AWAITING_DECISION) {
+    /* Sudah berjalan/selesai di luar jalur ini -> tidak bisa diputuskan lagi. */
+    if (err_code && err_len > 0)
+      copy_string(err_code, err_len, "DECISION_NOT_APPLICABLE");
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (!do_continue) {
+    /* Skip: permanen, tidak ada operasi aktuator. */
+    occ->state = OCC_STATE_FAILED;
+    copy_string(occ->error_code, sizeof(occ->error_code), "SKIPPED_BY_OPERATOR");
+    if (rs) marker_update(rs, MARKER_SKIPPED, occ->scheduled_timestamp, 0,
+                          "Skipped by operator decision");
+    (void)event_mgr_log(LOG_LEVEL_INFO, "SCHEDULER", "OCCURRENCE_SKIPPED_BY_OPERATOR",
+                        "Operator skipped missed occurrence; it will not run.", occ->gh_id);
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+  }
+
+  /* Continue: validasi sebelum enqueue sebagai late run. */
+  if (actuator_hal_is_emergency_stopped() || !safety_monitor_allows_commands()) {
+    if (err_code && err_len > 0) copy_string(err_code, err_len, "SAFETY_BLOCKED");
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (is_gh_occupied(occ->gh_id)) {
+    if (err_code && err_len > 0) copy_string(err_code, err_len, "GH_OCCUPIED");
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_INVALID_STATE;
+  }
+  /* Batch uncertain / tercampur sebagian: jangan dosing ulang buta. */
+  if (rs) {
+    int m_idx = find_marker(rs->compiled_id);
+    if (m_idx >= 0 && s_markers[m_idx].state == MARKER_RECOVERY_HOLD) {
+      if (err_code && err_len > 0) copy_string(err_code, err_len, "RECOVERY_HOLD");
+      xSemaphoreGive(s_mutex);
+      return ESP_ERR_INVALID_STATE;
+    }
+  }
+
+  occ->state = OCC_STATE_PENDING;
+  occ->error_code[0] = '\0';
+  if (rs) marker_update(rs, MARKER_PENDING, occ->scheduled_timestamp, 0,
+                        "Operator chose Continue: late run enqueued");
+  (void)event_mgr_log(LOG_LEVEL_INFO, "SCHEDULER", "OCCURRENCE_CONTINUED_BY_OPERATOR",
+                      "Operator continued missed occurrence as late run.", occ->gh_id);
   xSemaphoreGive(s_mutex);
   return ESP_OK;
 }

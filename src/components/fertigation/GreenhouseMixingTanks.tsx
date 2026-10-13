@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Link } from "react-router-dom";
+import { ClearReadyButton } from "./ClearReadyButton";
 import {
   Activity,
   AlertTriangle,
@@ -58,12 +59,18 @@ export interface GreenhouseTankInfo {
   canPreMixNow: boolean;
   isActionDisabled?: boolean;
   actionDisabledReason?: string;
+  // Manual-clear target: diisi pembentuk tanks (dashboard) dari occurrence /
+  // delivery slot yang berstatus READY. Opsional agar kompatibel mundur.
+  readyOccurrenceId?: string;
+  readyBatchId?: string;
 }
 
 interface GreenhouseMixingTanksProps {
   tanks: GreenhouseTankInfo[];
   onPreMix?: (ghId: string) => void;
   onDeliver?: (ghId: string) => void;
+  /** Dipanggil setelah clear manual sukses — parent memakai ini untuk fetch ulang / reconcile. Opsional. */
+  onClearReady?: (ghId: string) => void | Promise<void>;
   isActionLoading?: boolean;
   className?: string;
 }
@@ -72,6 +79,7 @@ export function GreenhouseMixingTanks({
   tanks,
   onPreMix,
   onDeliver,
+  onClearReady,
   isActionLoading = false,
   className = "",
 }: GreenhouseMixingTanksProps) {
@@ -273,6 +281,17 @@ export function GreenhouseMixingTanks({
                         <Droplets className="h-3.5 w-3.5" />
                         Siram ke Tanaman Sekarang
                       </button>
+                    )}
+
+                    {/* Manual clear: hanya untuk kartu berstatus READY, hanya saat user menekan. */}
+                    {isReady && (
+                      <ClearReadyButton
+                        occurrenceId={tank.readyOccurrenceId}
+                        batchId={tank.readyBatchId}
+                        ghLabel={tank.ghCode}
+                        disabled={isActionLoading}
+                        onCleared={() => onClearReady?.(tank.ghId)}
+                      />
                     )}
 
                     {isWaitingSchedule && (

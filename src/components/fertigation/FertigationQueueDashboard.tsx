@@ -342,9 +342,10 @@ function FertigationQueueDashboardComponent({
   // -------------------------------------------------------------------------
   // Construct Upcoming FIFO Jobs & Blocked Diagnostic Jobs (Section 6 Spec)
   // -------------------------------------------------------------------------
-  const { livingQueuedJobs, blockedJobs } = useMemo(() => {
+  const { livingQueuedJobs, blockedJobs, awaitingDecisionJobs } = useMemo(() => {
     const living: DosingQueueJob[] = [];
     const blocked: DosingQueueJob[] = [];
+    const awaiting: DosingQueueJob[] = [];
     const seenGhOrSched = new Set<string>();
 
     // 1. Primary source: Filter queued batches from authoritative liveQueue (queuedBatches from ESP32)
@@ -379,11 +380,11 @@ function FertigationQueueDashboardComponent({
           mixingDurationSec: 180,
           scheduledTimeStr: sched?.time || "Dalam Antrean",
           queuePosition: living.length + 1,
-          status: isFailed ? (q.status === "BLOCKED" ? "BLOCKED" : "FAILED") : isDispatched ? "ACTIVE" : "PENDING_FIFO",
+          status: isFailed ? (q.status === "BLOCKED" ? "BLOCKED" : "FAILED") : isDispatched ? "DISPATCHED" : "PENDING_FIFO",
           statusLabel: isFailed
             ? (q.status === "BLOCKED" ? "Terblokir" : "Gagal Dieksekusi")
             : isDispatched
-            ? "Sedang Disiapkan di Central"
+            ? "Terkirim · Menunggu Konfirmasi Hardware"
             : (living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`),
           steps: [],
           errorCode: q.errorCode || (isFailed ? (q.status === "BLOCKED" ? "EQUIPMENT_NOT_READY" : "DISPATCH_REJECTED") : undefined),
@@ -397,7 +398,9 @@ function FertigationQueueDashboardComponent({
         } else if (q.status === "PENDING" || q.status === "DISPATCHED" || q.state === 0 || q.state === 1) {
           seenGhOrSched.add(`${targetGhId}_${schedId}`);
           item.queuePosition = living.length + 1;
-          item.statusLabel = living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`;
+          item.statusLabel = isDispatched
+            ? "Terkirim · Menunggu Konfirmasi Hardware"
+            : (living.length === 0 ? "Antrean #1 · Siap Diracik" : `Antrean #${living.length + 1}`);
           living.push(item);
         }
       });
@@ -419,9 +422,34 @@ function FertigationQueueDashboardComponent({
       const sched = allSchedules.find((s) => s.id === schedId);
       const dosingInfo = resolveDosingTargets(sched, gh, 80, o);
 
-      const isFailedOcc = o.state === "FAILED" || o.status === "FAILED" || Boolean(o.errorCode);
+      const isAwaitingDecision = o.state === "AWAITING_DECISION" || o.status === "AWAITING_DECISION";
+      const isFailedOcc = !isAwaitingDecision && (o.state === "FAILED" || o.status === "FAILED" || Boolean(o.errorCode));
 
-      if (isFailedOcc) {
+      if (isAwaitingDecision) {
+        if (!dismissedJobIds.has(occId)) {
+          awaiting.push({
+            id: occId,
+            scheduleId: schedId,
+            ghId: targetGhId,
+            ghCode,
+            ghName,
+            jobTitle: sched?.name || "Jadwal Fertigasi Terlewat",
+            recipeName: dosingInfo.recipeName,
+            targetWaterL: dosingInfo.targetWaterL,
+            targetWaterMl: dosingInfo.targetWaterL * 1000,
+            dosingAml: dosingInfo.dosingAml,
+            dosingBml: dosingInfo.dosingBml,
+            mixingDurationSec: 180,
+            scheduledTimeStr: sched?.time || "Terjadwal",
+            queuePosition: 0,
+            status: "AWAITING_DECISION",
+            statusLabel: "Menunggu Keputusan Operator",
+            steps: [],
+            errorCode: o.errorCode || "MISSED_AWAITING_DECISION",
+            affectedComponent: o.affectedComponent || undefined,
+          });
+        }
+      } else if (isFailedOcc) {
         if (!dismissedJobIds.has(occId) && !blocked.some((b) => b.scheduleId === schedId)) {
           const isStale = Boolean(o.scheduledTimestamp && (o.scheduledTimestamp * 1000 < Date.now()));
           const resolvedErrorCode = o.errorCode || (isStale ? "SCHEDULE_MISSED_STALE" : "DISPATCH_REJECTED");
@@ -474,7 +502,7 @@ function FertigationQueueDashboardComponent({
       }
     });
 
-    return { livingQueuedJobs: living, blockedJobs: blocked };
+    return { livingQueuedJobs: living, blockedJobs: blocked, awaitingDecisionJobs: awaiting };
   }, [liveQueue, liveStatus, allSchedules, ghs, dismissedJobIds]);
 
   // -------------------------------------------------------------------------
@@ -1048,6 +1076,25 @@ function FertigationQueueDashboardComponent({
     }
   };
 
+  /* P2.3-final: keputusan operator Lanjutkan/Lewati untuk jadwal terlewat. */
+  const handleOccurrenceDecision = async (occurrenceId: string, decision: "continue" | "skip") => {
+    setActionInProgress(`decision-${occurrenceId}`);
+    try {
+      await esp32Client.decideOccurrence(occurrenceId, decision);
+      toast(
+        decision === "continue"
+          ? "Jadwal terlewat dilanjutkan sebagai late run."
+          : "Jadwal terlewat dilewati secara permanen.",
+        decision === "continue" ? "success" : "warning"
+      );
+      await fetchStatus(true);
+    } catch (err: any) {
+      toast(`Gagal memproses keputusan: ${err?.message || "Kesalahan kontroler"}`, "error");
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
   const handleTriggerDaily = async () => {
     setActionInProgress("trigger-daily");
     try {
@@ -1425,6 +1472,59 @@ function FertigationQueueDashboardComponent({
           syncCountdownSec={syncCountdown}
           isMultiGh={ghs.length > 1}
         />
+
+        {/* 2b. Jadwal Terlewat — Butuh Keputusan Operator (P2.3-final) */}
+        {awaitingDecisionJobs.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-400" />
+              <h3 className="text-sm font-semibold text-amber-200">
+                Jadwal Terlewat — Butuh Keputusan ({awaitingDecisionJobs.length})
+              </h3>
+            </div>
+            <p className="mb-3 text-xs text-slate-400">
+              Jadwal berikut terlewat (perangkat mati/restart saat jam terjadwal).
+              Tidak ada pencampuran atau distribusi yang berjalan otomatis —
+              pilih <span className="text-emerald-300 font-medium">Lanjutkan</span> untuk
+              menjalankan sebagai late run, atau{" "}
+              <span className="text-slate-300 font-medium">Lewati</span> untuk
+              melewatinya secara permanen.
+            </p>
+            <div className="space-y-2">
+              {awaitingDecisionJobs.map((j) => (
+                <div
+                  key={j.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2.5"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-slate-100">
+                      {j.ghCode} · {j.jobTitle}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {j.scheduledTimeStr} · {j.targetWaterL} L · {j.recipeName}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleOccurrenceDecision(j.id, "continue")}
+                      disabled={actionInProgress !== null}
+                      className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-50"
+                    >
+                      Lanjutkan
+                    </button>
+                    <button
+                      onClick={() => handleOccurrenceDecision(j.id, "skip")}
+                      disabled={actionInProgress !== null}
+                      className="rounded-lg border border-slate-600 bg-slate-700/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Lewati
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 3. Independent Greenhouse Mixing Tanks (Section 7) */}
         <GreenhouseMixingTanks

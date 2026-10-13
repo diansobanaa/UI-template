@@ -99,6 +99,13 @@ esp_err_t scheduler_schedule_lazy_start(void);
  */
 bool scheduler_is_lazy_start_done(void);
 
+/* P2.3-final: keputusan operator untuk occurrence yang missed.
+ * do_continue=true -> validasi lalu PENDING; false -> SKIPPED permanen.
+ * Idempoten: bila sudah diputuskan, kembalikan hasil tersimpan.
+ * Return ESP_OK bila berhasil; err_code diisi kode stabil bila gagal. */
+esp_err_t scheduler_decide_occurrence(const char *occurrence_id, bool do_continue,
+                                      char *err_code, size_t err_len);
+
 /**
  * @brief Find the next scheduled start time for Well Pump.
  * Returns true if an upcoming schedule was found, populating out_next_time (e.g. "14:00").
@@ -112,7 +119,8 @@ typedef enum {
     OCC_STATE_READY_TO_SEND,
     OCC_STATE_DISTRIBUTING,
     OCC_STATE_COMPLETED,
-    OCC_STATE_FAILED
+    OCC_STATE_FAILED,
+    OCC_STATE_AWAITING_DECISION /* P2.3-final: missed, menunggu pilihan operator */
 } occurrence_state_t;
 
 typedef enum {

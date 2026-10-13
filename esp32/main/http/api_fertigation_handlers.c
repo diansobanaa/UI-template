@@ -86,6 +86,7 @@ static void attach_queue_and_today_schedule(cJSON *out) {
             else if (occs[i].state == OCC_STATE_DISTRIBUTING) st_str = "DISTRIBUTING";
             else if (occs[i].state == OCC_STATE_COMPLETED) st_str = "COMPLETED";
             else if (occs[i].state == OCC_STATE_FAILED) st_str = "FAILED";
+            else if (occs[i].state == OCC_STATE_AWAITING_DECISION) st_str = "AWAITING_DECISION";
             cJSON_AddStringToObject(item, "status", st_str);
             cJSON_AddStringToObject(item, "queueId", occs[i].queue_id);
             cJSON_AddStringToObject(item, "batchId", occs[i].batch_id);
@@ -256,6 +257,86 @@ static esp_err_t discard_handler(httpd_req_t *req){
     return http_send_enveloped_response(req, 200, NULL, o);
 }
 
+/* P2.2: operator acknowledge untuk delivery yang terinterupsi reboot
+ * (atau slot delivery yang selesai). Membebaskan blokir GH. */
+static esp_err_t delivery_ack_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *body = NULL;
+    const char *gh_id = NULL;
+    const char *occ_id = NULL;
+    if (http_parse_json_body(req, &body) == ESP_OK && body) {
+        cJSON *payload = cJSON_GetObjectItem(body, "payload");
+        cJSON *target = payload ? payload : body;
+        cJSON *gh = cJSON_GetObjectItem(target, "ghId");
+        if (!gh) gh = cJSON_GetObjectItem(target, "targetGhId");
+        cJSON *occ = cJSON_GetObjectItem(target, "occurrenceId");
+        gh_id = (gh && cJSON_IsString(gh)) ? gh->valuestring : NULL;
+        occ_id = (occ && cJSON_IsString(occ)) ? occ->valuestring : NULL;
+    }
+    esp_err_t err = fertigation_mgr_acknowledge_delivery(gh_id, occ_id);
+    if (body) cJSON_Delete(body);
+    if (err != ESP_OK) {
+        http_send_error(req, 404, "DELIVERY_ACK_FAILED",
+                        "No delivery slot or interrupted delivery found to acknowledge.", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "status", "ACKNOWLEDGED");
+    return http_send_enveloped_response(req, 200, NULL, o);
+}
+
+/* P2.3-final: keputusan operator Lanjutkan/Lewati untuk missed occurrence. */
+static esp_err_t occurrence_decision_handler(httpd_req_t *req){
+    if (http_check_auth(req) != ESP_OK) return ESP_OK;
+    cJSON *body = NULL;
+    if (http_parse_json_body(req, &body) != ESP_OK || !body) {
+        http_send_error(req, 422, "VALIDATION_FAILED", "Invalid JSON", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *payload = cJSON_GetObjectItem(body, "payload");
+    cJSON *target = (payload && cJSON_IsObject(payload)) ? payload : body;
+    cJSON *oid = cJSON_GetObjectItem(target, "occurrenceId");
+    if (!oid) oid = cJSON_GetObjectItem(target, "occurrence_id");
+    cJSON *dec = cJSON_GetObjectItem(target, "decision");
+    const char *occ_id = (oid && cJSON_IsString(oid)) ? oid->valuestring : NULL;
+    const char *decision = (dec && cJSON_IsString(dec)) ? dec->valuestring : NULL;
+    bool do_continue = false;
+    bool dec_valid = false;
+    if (decision) {
+        if (strcasecmp(decision, "continue") == 0 || strcasecmp(decision, "lanjutkan") == 0) {
+            do_continue = true; dec_valid = true;
+        } else if (strcasecmp(decision, "skip") == 0 || strcasecmp(decision, "lewati") == 0) {
+            do_continue = false; dec_valid = true;
+        }
+    }
+    if (!occ_id || !occ_id[0] || !dec_valid) {
+        cJSON_Delete(body);
+        http_send_error(req, 422, "VALIDATION_FAILED",
+                        "occurrenceId and decision ('continue'|'skip') are required", NULL);
+        return ESP_FAIL;
+    }
+    char err_code[48] = {0};
+    /* P2.6: salin occ_id sebelum cJSON_Delete(body) — occ_id menunjuk ke
+     * dalam body, use-after-free bila dipakai setelah delete. */
+    char occ_id_buf[128] = {0};
+    strncpy(occ_id_buf, occ_id, sizeof(occ_id_buf) - 1);
+    esp_err_t err = scheduler_decide_occurrence(occ_id_buf, do_continue, err_code, sizeof(err_code));
+    cJSON_Delete(body);
+    if (err == ESP_ERR_NOT_FOUND) {
+        http_send_error(req, 404, "OCCURRENCE_NOT_FOUND", "Occurrence not found", NULL);
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        http_send_error(req, 409, err_code[0] ? err_code : "DECISION_FAILED",
+                        "Operator decision could not be applied", NULL);
+        return ESP_FAIL;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "status", do_continue ? "CONTINUED" : "SKIPPED");
+    cJSON_AddStringToObject(o, "occurrenceId", occ_id_buf);
+    return http_send_enveloped_response(req, 200, NULL, o);
+}
+
 void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t a={.uri="/api/v1/fertigation/start",.method=HTTP_POST,.handler=start_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&a);
     httpd_uri_t b={.uri="/api/v1/fertigation/status",.method=HTTP_GET,.handler=status_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&b);
@@ -264,4 +345,6 @@ void register_api_fertigation_handlers(httpd_handle_t server){
     httpd_uri_t c={.uri="/api/v1/fertigation/stop",.method=HTTP_POST,.handler=stop_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&c);
     httpd_uri_t res={.uri="/api/v1/fertigation/resume",.method=HTTP_POST,.handler=resume_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&res);
     httpd_uri_t disc={.uri="/api/v1/fertigation/discard",.method=HTTP_POST,.handler=discard_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&disc);
+    httpd_uri_t dack={.uri="/api/v1/fertigation/delivery/ack",.method=HTTP_POST,.handler=delivery_ack_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&dack);
+    httpd_uri_t odec={.uri="/api/v1/schedule-occurrences/decision",.method=HTTP_POST,.handler=occurrence_decision_handler,.user_ctx=NULL};httpd_register_uri_handler(server,&odec);
 }

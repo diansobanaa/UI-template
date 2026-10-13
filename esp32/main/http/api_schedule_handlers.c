@@ -6,6 +6,7 @@
 #include "cJSON.h"
 #include "nvs.h"
 #include <string.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -227,6 +228,131 @@ static esp_err_t api_schedule_intents_get_handler(httpd_req_t *req)
     return http_send_enveloped_response(req, 200, NULL, data);
 }
 
+/* P2.4: validasi semantik schedule-intent di sisi firmware.
+ * Sebelumnya hanya JSON parse + 'id' yang dicek; field lain disimpan
+ * verbatim dan interpreter me-wrap/me-default diam-diam (hour%24, dsb).
+ * Mengembalikan NULL bila valid, atau kode error UPPER_SNAKE bila tidak. */
+static const cJSON *intent_field(const cJSON *intent, const char *a, const char *b) {
+    const cJSON *f = cJSON_GetObjectItem(intent, a);
+    if (!f && b) f = cJSON_GetObjectItem(intent, b);
+    if (!f) {
+        const cJSON *trig = cJSON_GetObjectItem(intent, "trigger");
+        if (trig && cJSON_IsObject(trig)) {
+            f = cJSON_GetObjectItem(trig, a);
+            if (!f && b) f = cJSON_GetObjectItem(trig, b);
+        }
+    }
+    return f;
+}
+
+static bool intent_is_well_pump(const cJSON *intent) {
+    const cJSON *a = cJSON_GetObjectItem(intent, "action");
+    if (a && cJSON_IsString(a) && a->valuestring) {
+        if (strcasecmp(a->valuestring, "WATER_PUMP") == 0) return true;
+        /* case-insensitive substring "WELL" */
+        const char *p = a->valuestring;
+        char low[64];
+        size_t n = strlen(p);
+        if (n >= sizeof(low)) n = sizeof(low) - 1;
+        for (size_t i = 0; i < n; i++) low[i] = (char)tolower((unsigned char)p[i]);
+        low[n] = '\0';
+        if (strstr(low, "well") != NULL) return true;
+    }
+    const cJSON *c = intent_field(intent, "componentId", "component_id");
+    if (!c) c = cJSON_GetObjectItem(intent, "component");
+    if (c && cJSON_IsString(c) && c->valuestring) {
+        if (strcasecmp(c->valuestring, "pump_well") == 0 ||
+            strcasecmp(c->valuestring, "well_pump") == 0 ||
+            strcasecmp(c->valuestring, "wp-main") == 0) return true;
+    }
+    return false;
+}
+
+static const char *validate_schedule_intent(const cJSON *intent) {
+    if (!intent || !cJSON_IsObject(intent)) return "INTENT_NOT_AN_OBJECT";
+
+    /* action wajib */
+    const cJSON *action = cJSON_GetObjectItem(intent, "action");
+    if (!action || !cJSON_IsString(action) || !action->valuestring[0])
+        return "INTENT_ACTION_REQUIRED";
+
+    /* trigger type */
+    const cJSON *trig = cJSON_GetObjectItem(intent, "trigger");
+    char trig_type[16] = "daily";
+    if (trig) {
+        const char *ts = NULL;
+        if (cJSON_IsString(trig)) ts = trig->valuestring;
+        else if (cJSON_IsObject(trig)) {
+            const cJSON *tt = cJSON_GetObjectItem(trig, "type");
+            if (tt && cJSON_IsString(tt)) ts = tt->valuestring;
+        } else {
+            return "INTENT_TRIGGER_INVALID";
+        }
+        if (ts && ts[0]) {
+            if (strcasecmp(ts, "daily") == 0) strcpy(trig_type, "daily");
+            else if (strcasecmp(ts, "interval") == 0) strcpy(trig_type, "interval");
+            else if (strcasecmp(ts, "once") == 0) strcpy(trig_type, "once");
+            else return "INTENT_TRIGGER_INVALID";
+        }
+    }
+
+    /* time-of-day: hour/minute atau string "HH:MM" */
+    const cJSON *hour_f = intent_field(intent, "hour", NULL);
+    const cJSON *min_f = intent_field(intent, "minute", NULL);
+    if (hour_f && cJSON_IsNumber(hour_f) && (hour_f->valueint < 0 || hour_f->valueint > 23))
+        return "INTENT_TIME_INVALID";
+    if (min_f && cJSON_IsNumber(min_f) && (min_f->valueint < 0 || min_f->valueint > 59))
+        return "INTENT_TIME_INVALID";
+    const cJSON *time_f = intent_field(intent, "time", NULL);
+    if (time_f && cJSON_IsString(time_f) && time_f->valuestring[0]) {
+        unsigned int h = 99, m = 99;
+        if (sscanf(time_f->valuestring, "%u:%u", &h, &m) != 2 || h > 23 || m > 59)
+            return "INTENT_TIME_INVALID";
+    }
+
+    /* days of week mask 1..127 */
+    const cJSON *dow_f = intent_field(intent, "daysOfWeek", "days_of_week");
+    if (dow_f && cJSON_IsNumber(dow_f) && (dow_f->valueint < 1 || dow_f->valueint > 127))
+        return "INTENT_DAYS_INVALID";
+
+    if (strcmp(trig_type, "interval") == 0) {
+        const cJSON *iv = intent_field(intent, "intervalMin", "interval_min");
+        if (!iv || !cJSON_IsNumber(iv) || iv->valueint <= 0)
+            return "INTENT_INTERVAL_INVALID";
+    }
+    if (strcmp(trig_type, "once") == 0) {
+        const cJSON *ts = intent_field(intent, "timestamp", "startTimestamp");
+        if (!ts || !cJSON_IsNumber(ts) || ts->valueint <= 0)
+            return "INTENT_TIMESTAMP_INVALID";
+    }
+
+    /* time window: start < end */
+    const cJSON *st = cJSON_GetObjectItem(intent, "startTimestamp");
+    const cJSON *et = cJSON_GetObjectItem(intent, "endTimestamp");
+    if (st && cJSON_IsNumber(st) && et && cJSON_IsNumber(et) &&
+        st->valueint > 0 && et->valueint > 0 && st->valueint >= et->valueint)
+        return "INTENT_TIME_WINDOW_INVALID";
+
+    /* duration bound: umum <= 12 jam; well-pump <= 30 menit (P2.5) */
+    const cJSON *dur = intent_field(intent, "durationSec", "duration_sec");
+    if (!dur) dur = cJSON_GetObjectItem(intent, "duration");
+    if (dur && cJSON_IsNumber(dur)) {
+        bool is_wp = intent_is_well_pump(intent);
+        int32_t max_dur = is_wp ? 1800 : 43200;
+        if (dur->valueint <= 0 || dur->valueint > max_dur)
+            return "INTENT_DURATION_INVALID";
+    }
+
+    /* missedPolicy: tolak nilai asing (dulu diam-diam jadi SKIP) */
+    const cJSON *mp = intent_field(intent, "missedPolicy", "missedRunPolicy");
+    if (mp && cJSON_IsString(mp) && mp->valuestring[0] &&
+        strcasecmp(mp->valuestring, "execute") != 0 &&
+        strcasecmp(mp->valuestring, "skip") != 0)
+        return "INTENT_MISSED_POLICY_INVALID";
+
+    return NULL;
+}
+
 static esp_err_t api_schedule_intents_post_handler(httpd_req_t *req)
 {
     if (http_check_auth(req) != ESP_OK) return ESP_OK;
@@ -269,6 +395,14 @@ static esp_err_t api_schedule_intents_post_handler(httpd_req_t *req)
 
     if (!id_item) {
         cJSON_AddStringToObject(intent_json, "id", saved_id);
+    }
+
+    /* P2.4: validasi semantik sebelum disimpan */
+    const char *verr = validate_schedule_intent(intent_json);
+    if (verr) {
+        cJSON_Delete(json);
+        ESP_LOGW(TAG, "Rejected schedule intent '%s': %s", saved_id, verr);
+        return http_send_error(req, 422, verr, "Schedule intent failed semantic validation", request_id);
     }
 
     cJSON *store = load_schedule_intents_from_nvs();

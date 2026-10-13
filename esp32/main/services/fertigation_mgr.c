@@ -19,6 +19,7 @@
 #include "storage/storage_mgr.h"
 #include <math.h>
 #include <nvs.h>
+#include "nvs_flash.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +35,16 @@ static fertigation_state_t s_state = FERT_STATE_IDLE;
 static fertigation_batch_config_t s_batch;
 static bool s_resume_from_pool = false;
 static delivery_slot_t s_delivery_slots[FERT_MAX_DELIVERY_SLOTS] = {0};
+
+/* P2.2: delivery-slot durability.
+ * s_delivery_slots[] adalah RAM murni — reboot saat READY_TO_SEND /
+ * DISTRIBUTING membuat identitas batch hilang. Record kecil ini ditulis ke
+ * namespace NVS terpisah ("agrotech_dlv", TIDAK ikut dihapus oleh
+ * reclaim_recovery_nvs() patch 13) setiap slot masuk state aktif, dan
+ * dihapus saat slot terminal/di-acknowledge. Saat boot, record yang
+ * tersisa berarti delivery terinterupsi: pompa tetap OFF, GH diblokir
+ * sampai operator acknowledge. */
+
 static SemaphoreHandle_t s_mutex = NULL;
 
 /* Phase 1: Dedicated Mixing Worker Task to prevent Delivery Monitor starvation */
@@ -204,6 +215,88 @@ static uint32_t now_ms(void) {
 static int64_t wallclock_ms(void) {
   time_t t = time(NULL);
   return t > 0 ? (int64_t)t * 1000LL : 0;
+}
+
+#define FERT_DELIVERY_NS "agrotech_dlv"
+#define FERT_DELIVERY_KEY "delivery_slot"
+static char s_delivery_interrupted_gh[40] = {0};
+
+static void persist_delivery_slot(const delivery_slot_t *slot) {
+  if (!slot || !slot->occupied) return;
+  nvs_handle_t h;
+  if (nvs_open(FERT_DELIVERY_NS, NVS_READWRITE, &h) != ESP_OK) return;
+  cJSON *o = cJSON_CreateObject();
+  if (o) {
+    cJSON_AddStringToObject(o, "batch_id", slot->batch_id);
+    cJSON_AddStringToObject(o, "run_id", slot->run_id);
+    cJSON_AddStringToObject(o, "gh_id", slot->gh_id);
+    cJSON_AddStringToObject(o, "occurrence_id", slot->occurrence_id);
+    cJSON_AddStringToObject(o, "state",
+        slot->state == DELIVERY_SLOT_DISTRIBUTING ? "DISTRIBUTING" : "READY_TO_SEND");
+    cJSON_AddNumberToObject(o, "delivery_start_ml", (double)slot->delivery_start_ml);
+    cJSON_AddNumberToObject(o, "timestamp_ms", (double)wallclock_ms());
+    char *js = cJSON_PrintUnformatted(o);
+    if (js) {
+      nvs_set_str(h, FERT_DELIVERY_KEY, js);
+      nvs_commit(h);
+      cJSON_free(js);
+    }
+    cJSON_Delete(o);
+  }
+  nvs_close(h);
+}
+
+static void clear_delivery_slot_record(void) {
+  nvs_handle_t h;
+  if (nvs_open(FERT_DELIVERY_NS, NVS_READWRITE, &h) != ESP_OK) return;
+  nvs_erase_key(h, FERT_DELIVERY_KEY);
+  nvs_commit(h);
+  nvs_close(h);
+}
+
+/* Sinkronkan record NVS dengan state slot: tulis saat aktif, hapus saat terminal. */
+static void delivery_slot_note_state(const delivery_slot_t *slot) {
+  if (!slot || !slot->occupied) return;
+  if (slot->state == DELIVERY_SLOT_READY_TO_SEND ||
+      slot->state == DELIVERY_SLOT_DISTRIBUTING)
+    persist_delivery_slot(slot);
+  else
+    clear_delivery_slot_record();
+}
+
+static void restore_delivery_slot(void) {
+  nvs_handle_t h;
+  if (nvs_open(FERT_DELIVERY_NS, NVS_READONLY, &h) != ESP_OK) return;
+  size_t len = 0;
+  if (nvs_get_str(h, FERT_DELIVERY_KEY, NULL, &len) != ESP_OK || len < 2 || len > 2048) {
+    nvs_close(h);
+    return;
+  }
+  char *buf = calloc(1, len);
+  bool ok = buf && nvs_get_str(h, FERT_DELIVERY_KEY, buf, &len) == ESP_OK;
+  nvs_close(h);
+  if (!ok) {
+    free(buf);
+    return;
+  }
+  cJSON *o = cJSON_Parse(buf);
+  free(buf);
+  if (!o) return;
+  const char *gh = cJSON_GetStringValue(cJSON_GetObjectItem(o, "gh_id"));
+  const char *st = cJSON_GetStringValue(cJSON_GetObjectItem(o, "state"));
+  const char *bid = cJSON_GetStringValue(cJSON_GetObjectItem(o, "batch_id"));
+  if (gh && gh[0] && st &&
+      (strcmp(st, "READY_TO_SEND") == 0 || strcmp(st, "DISTRIBUTING") == 0)) {
+    /* Jangan auto-resume: pompa tetap OFF (dijamin actuator_hal_init),
+     * GH diblokir sampai operator acknowledge. */
+    cp(s_delivery_interrupted_gh, sizeof(s_delivery_interrupted_gh), gh);
+    (void)event_mgr_log_command(LOG_LEVEL_WARNING, "DELIVERY_INTERRUPTED_BY_REBOOT",
+        "Delivery was interrupted by reboot; pump remains OFF. Operator must acknowledge before new batches for this greenhouse.",
+        bid ? bid : "", "", gh, NULL, NULL, 0);
+    ESP_LOGW(TAG, "Delivery interrupted by reboot for GH %s (was %s); blocking new batches until acknowledged.",
+             gh, st);
+  }
+  cJSON_Delete(o);
 }
 
 static esp_err_t stop_component(const char *id) {
@@ -1133,12 +1226,36 @@ static void persist_recovery(void) {
     // ITEM-3: Write to per-slot key
     char key[24];
     snprintf(key, sizeof(key), FERT_RECOVERY_KEY_FMT, slot_idx);
-    nvs_set_str(h, key, str);
+    esp_err_t werr = nvs_set_str(h, key, str);
     // Also write legacy single key for backward compat (covers callers
     // that still read FERT_RECOVERY_KEY directly — none in current code,
     // but retained for safety per "don't break compatibility" rule).
-    nvs_set_str(h, FERT_RECOVERY_KEY, str);
-    nvs_commit(h);
+    if (werr == ESP_OK)
+      werr = nvs_set_str(h, FERT_RECOVERY_KEY, str);
+    if (werr == ESP_ERR_NVS_NOT_ENOUGH_SPACE) {
+      // PATCH-10: self-heal NVS bloat. The watchdog-livelock era left the 24KB
+      // partition full of obsolete recovery entries (persist_run fired ~3x/s).
+      // Every key in this namespace is a recovery checkpoint and the current
+      // state is rewritten immediately below, so erase-then-rewrite is safe.
+      // WiFi, calibration and scheduler namespaces are untouched.
+      ESP_LOGW(TAG, "NVS full; reclaiming '%s' namespace and retrying once",
+               FERT_RECOVERY_NS);
+      (void)nvs_erase_key(h, FERT_RECOVERY_KEY);
+      for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+        char k[24];
+        snprintf(k, sizeof(k), FERT_RECOVERY_KEY_FMT, i);
+        (void)nvs_erase_key(h, k);
+      }
+      (void)nvs_commit(h);
+      werr = nvs_set_str(h, key, str);
+      if (werr == ESP_OK)
+        werr = nvs_set_str(h, FERT_RECOVERY_KEY, str);
+    }
+    if (werr == ESP_OK)
+      werr = nvs_commit(h);
+    if (werr != ESP_OK)
+      ESP_LOGW(TAG, "persist_run: NVS write failed (%s); continuing with RAM state",
+               esp_err_to_name(werr));
     nvs_close(h);
   }
   free(str);
@@ -1330,67 +1447,86 @@ static void transition(fertigation_state_t next) {
 }
 
 
+/* P2.1: precheck() mencatat kode penolakan spesifik per pemeriksaan yang
+ * gagal ke s_last_rejection_code/_component (dipakai ulang dari mekanisme
+ * parse_payload), sehingga GET /api/v1/fertigation/status dapat
+ * mengekspos alasan yang berguna, bukan sekadar "PRECHECK_FAILED". */
+#define PRECHECK_FAIL(code, comp)                                          \
+  do {                                                                     \
+    cp(s_last_rejection_code, sizeof(s_last_rejection_code), code);        \
+    cp(s_last_rejection_component, sizeof(s_last_rejection_component),     \
+       (comp) ? (comp) : "");                                              \
+    return false;                                                          \
+  } while (0)
+
 static bool precheck(void) {
   const system_storage_state_t *ss = storage_mgr_get_state();
   if (!ss || !ss->config_version)
-    return false;
+    PRECHECK_FAIL("PRECHECK_NO_STORAGE_STATE", NULL);
   if (s_batch.configuration_version &&
       ss->config_version != s_batch.configuration_version)
-    return false;
-  if (!op_component(s_batch.mixing_tank_id) ||
-      !op_component(s_batch.raw_water_component_id) ||
-      !op_component(s_batch.raw_flow_sensor_id) ||
-      !op_component(s_batch.level_sensor_id) ||
-      !op_component(s_batch.delivery_pump_id))
-    return false;
+    PRECHECK_FAIL("PRECHECK_CONFIG_VERSION_MISMATCH", NULL);
+  if (!op_component(s_batch.mixing_tank_id))
+    PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.mixing_tank_id);
+  if (!op_component(s_batch.raw_water_component_id))
+    PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.raw_water_component_id);
+  if (!op_component(s_batch.raw_flow_sensor_id))
+    PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.raw_flow_sensor_id);
+  if (!op_component(s_batch.level_sensor_id))
+    PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.level_sensor_id);
+  if (!op_component(s_batch.delivery_pump_id))
+    PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.delivery_pump_id);
   if (s_batch.mixing_duration_sec > 0 && !op_component(s_batch.mixing_pump_id))
-    return false;
+    PRECHECK_FAIL("MIXING_PUMP_MISSING", s_batch.mixing_pump_id);
   if (strcasecmp(s_batch.delivery_mode, "DURATION") != 0 &&
       !op_component(s_batch.delivery_flow_sensor_id))
-    return false;
+    PRECHECK_FAIL("DELIVERY_FLOW_MISSING", s_batch.delivery_flow_sensor_id);
   if (strcasecmp(s_batch.delivery_mode, "PRESSURE_FLOW") == 0 &&
       (!op_component(s_batch.pressure_sensor_id) ||
        s_batch.target_pressure_kpa <= 0.0f))
-    return false;
+    PRECHECK_FAIL("PRESSURE_SENSOR_MISSING", s_batch.pressure_sensor_id);
   if (strcasecmp(s_batch.delivery_mode, "FLOW") == 0 &&
       s_batch.target_flow_lpm <= 0.0f)
-    return false;
+    PRECHECK_FAIL("INVALID_RECIPE_PARAMETERS", "target_flow_lpm");
   if (strcasecmp(s_batch.delivery_mode, "DURATION") == 0 &&
       (!s_batch.allow_duration_fallback || s_batch.delivery_duration_sec == 0))
-    return false;
+    PRECHECK_FAIL("INVALID_RECIPE_PARAMETERS", "delivery_duration_sec");
   if (!safety_monitor_allows_commands() || actuator_hal_is_emergency_stopped())
-    return false;
+    PRECHECK_FAIL("EQUIPMENT_NOT_READY", "safety_estop");
   /* Canonical Flow Sensor check aligned with protocol_mixing (Calibration page authority) */
   if (!calibration_mgr_is_flow_raw_calibrated() ||
       calibration_mgr_get_flow_raw_pulses_per_l() <= 0.0f)
-    return false;
+    PRECHECK_FAIL("FLOW_SENSOR_NOT_CALIBRATED", s_batch.raw_flow_sensor_id);
   if (strcasecmp(s_batch.delivery_mode, "DURATION") != 0 && s_batch.delivery_flow_sensor_id[0]) {
     if (!calibration_mgr_is_flow_fert_calibrated()) {
       if (s_batch.allow_duration_fallback) {
         cp(s_batch.delivery_mode, sizeof(s_batch.delivery_mode), "DURATION");
       } else {
-        return false;
+        PRECHECK_FAIL("FLOW_SENSOR_NOT_CALIBRATED", s_batch.delivery_flow_sensor_id);
       }
     }
   }
   if (s_batch.max_runtime_sec == 0)
-    return false;
+    PRECHECK_FAIL("PRECHECK_MAX_RUNTIME_INVALID", NULL);
   if (s_batch.channel_count == 0 ||
       s_batch.channel_count > FERT_MAX_DOSING_CHANNELS)
-    return false;
+    PRECHECK_FAIL("PRECHECK_CHANNEL_INVALID", "channel_count");
   for (uint32_t i = 0; i < s_batch.channel_count; i++) {
-    if (!op_component(s_batch.channels[i].component_id) ||
-        s_batch.channels[i].requested_ml <= 0 ||
+    if (!op_component(s_batch.channels[i].component_id))
+      PRECHECK_FAIL("REQUIRED_COMPONENT_MISSING", s_batch.channels[i].component_id);
+    if (s_batch.channels[i].requested_ml <= 0 ||
         s_batch.channels[i].rate_ml_sec <= 0)
-      return false;
+      PRECHECK_FAIL("INVALID_RECIPE_PARAMETERS", s_batch.channels[i].component_id);
     if (s_batch.channels[i].runtime_ms == 0 ||
         s_batch.channels[i].runtime_ms > s_batch.max_runtime_sec * 1000U)
-      return false;
+      PRECHECK_FAIL("PRECHECK_CHANNEL_INVALID", s_batch.channels[i].component_id);
   }
   // Level sensor (float switch) is validated during delivery phase,
   // not in mixing precheck, because the mixing tank is empty before raw water filling.
   return true;
 }
+#undef PRECHECK_FAIL
+
 
 static bool parse_u32(cJSON *object, const char *key, uint32_t *out,
                       bool required) {
@@ -2027,8 +2163,16 @@ static void task(void *arg) {
       vTaskDelay(pdMS_TO_TICKS(250));
       continue;
     }
+    /* Watchdog max-runtime hanya untuk batch yang sedang berjalan.
+     * State terminal (FAULTED/ABORTED/INTERRUPTED) dan RECOVERY_HOLD
+     * dikecualikan: tanpa ini, sekali FAULTED maka tiap iterasi loop
+     * memicu MAX_RUNTIME_EXCEEDED lagi (~3x/detik, livelock) karena
+     * s_run_start_ms tidak pernah di-reset dan switch tidak punya
+     * case FERT_STATE_FAULTED. */
     if (s_state != FERT_STATE_IDLE && s_state != FERT_STATE_PRECHECK &&
-        s_state != FERT_STATE_COMPLETE && s_batch.max_runtime_sec > 0 &&
+        s_state != FERT_STATE_COMPLETE && s_state != FERT_STATE_FAULTED &&
+        s_state != FERT_STATE_ABORTED && s_state != FERT_STATE_INTERRUPTED &&
+        s_state != FERT_STATE_RECOVERY_HOLD && s_batch.max_runtime_sec > 0 &&
         s_run_start_ms > 0) {
       int64_t elapsed_run_wall = wallclock_ms();
       if (elapsed_run_wall > 0 &&
@@ -2036,6 +2180,8 @@ static void task(void *arg) {
               ((int64_t)s_batch.max_runtime_sec * 1000LL)) {
         stop_all();
         s_state = FERT_STATE_FAULTED;
+        clear_recovery();
+        mixing_pool_delete();
         s_run_end_ms = elapsed_run_wall;
         persist_run("MAX_RUNTIME_EXCEEDED");
         vTaskDelay(pdMS_TO_TICKS(250));
@@ -2046,8 +2192,10 @@ static void task(void *arg) {
     case FERT_STATE_PRECHECK:
       if (!precheck()) {
         s_state = FERT_STATE_FAULTED;
+        clear_recovery();
+        mixing_pool_delete();
         s_run_end_ms = wallclock_ms();
-        persist_run("PRECHECK_FAILED");
+        persist_run(s_last_rejection_code[0] ? s_last_rejection_code : "PRECHECK_FAILED");
       } else {
         if (sensor_hal_get_component_accumulated_ml(
                 s_batch.raw_flow_sensor_id, &s_raw_start_ml) != ESP_OK ||
@@ -2056,6 +2204,8 @@ static void task(void *arg) {
                  s_batch.delivery_flow_sensor_id, &s_delivery_start_ml) !=
                  ESP_OK)) {
           s_state = FERT_STATE_FAULTED;
+        clear_recovery();
+        mixing_pool_delete();
           s_run_end_ms = wallclock_ms();
           persist_run("FLOW_COUNTER_UNAVAILABLE");
         } else {
@@ -2086,6 +2236,8 @@ static void task(void *arg) {
                                                "fertigation_route_open") != ESP_OK) {
               stop_all();
               s_state = FERT_STATE_FAULTED;
+        clear_recovery();
+        mixing_pool_delete();
               s_run_end_ms = wallclock_ms();
               persist_run("ROUTING_VALVE_ACTUATOR_REJECTED");
               break;
@@ -2147,6 +2299,8 @@ static void task(void *arg) {
             s_mixing_worker_handle = NULL;
             stop_all();
             s_state = FERT_STATE_FAULTED;
+        clear_recovery();
+        mixing_pool_delete();
             s_run_end_ms = wallclock_ms();
             persist_run("MIXING_WORKER_SPAWN_FAILED");
             break;
@@ -2239,6 +2393,7 @@ static void task(void *arg) {
             slot->delivery_timeout_sec = s_batch.delivery_timeout_sec;
             slot->configuration_version = s_batch.configuration_version;
             cp(slot->complex_id, sizeof(slot->complex_id), s_batch.complex_id);
+            delivery_slot_note_state(slot);
           }
 
           s_run_end_ms = wallclock_ms();
@@ -2279,6 +2434,7 @@ static void task(void *arg) {
         if (safety_monitor_has_fault() || actuator_hal_is_emergency_stopped()) {
           slot_stop_all_actuators(slot);
           slot->state = DELIVERY_SLOT_FAULTED;
+          delivery_slot_note_state(slot);
           cp(slot->fault, sizeof(slot->fault), "EMERGENCY_STOP");
           slot->completed_at_ms = wallclock_ms();
           (void)event_mgr_log_command(
@@ -2317,6 +2473,7 @@ static void task(void *arg) {
         if (!float_sensor_valid) {
           slot_stop_all_actuators(slot);
           slot->state = DELIVERY_SLOT_FAULTED;
+          delivery_slot_note_state(slot);
           cp(slot->fault, sizeof(slot->fault), "LEVEL_SENSOR_UNAVAILABLE");
           slot->completed_at_ms = wallclock_ms();
           (void)event_mgr_log_command(
@@ -2353,6 +2510,7 @@ static void task(void *arg) {
               slot->delivery_flow_sensor_id[0] ? slot->delivery_flow_sensor_id : NULL,
               slot->configuration_version);
           slot->state = DELIVERY_SLOT_COMPLETE;
+          delivery_slot_note_state(slot);
           slot->completed_at_ms = wallclock_ms();
           s_today_run_count++;
           continue;
@@ -2374,6 +2532,7 @@ static void task(void *arg) {
                                         slot->gh_id, slot->delivery_pump_id,
                                         NULL, slot->configuration_version);
             slot->state = DELIVERY_SLOT_COMPLETE;
+          delivery_slot_note_state(slot);
             slot->completed_at_ms = wallclock_ms();
             s_today_run_count++;
             continue;
@@ -2387,6 +2546,7 @@ static void task(void *arg) {
           if (!flow_ok) {
             slot_stop_all_actuators(slot);
             slot->state = DELIVERY_SLOT_FAULTED;
+          delivery_slot_note_state(slot);
             cp(slot->fault, sizeof(slot->fault),
                "DELIVERY_FLOW_SENSOR_NOT_VALID");
             slot->completed_at_ms = wallclock_ms();
@@ -2402,6 +2562,7 @@ static void task(void *arg) {
                                         slot->configuration_version);
             slot_stop_all_actuators(slot);
             slot->state = DELIVERY_SLOT_FAULTED;
+          delivery_slot_note_state(slot);
             cp(slot->fault, sizeof(slot->fault), "FLOW_FAULT");
             slot->completed_at_ms = wallclock_ms();
             continue;
@@ -2429,6 +2590,7 @@ static void task(void *arg) {
               slot->run_id, slot->complex_id, slot->gh_id,
               slot->delivery_pump_id, NULL, slot->configuration_version);
           slot->state = DELIVERY_SLOT_FAULTED;
+          delivery_slot_note_state(slot);
           cp(slot->fault, sizeof(slot->fault), "DELIVERY_TIMEOUT");
           slot->completed_at_ms = wallclock_ms();
           continue;
@@ -2468,6 +2630,38 @@ static void scan_today_runs_from_storage(void) {
   s_today_fert_day = ti_now.tm_yday;
 }
 
+// PATCH-13: unconditional one-shot boot reclaim of the recovery NVS namespace.
+// (Replaces PATCH-12's probe: a 1-byte probe cannot detect "no room for a real
+// 4.6KB write", and nvs_get_stats cannot detect "no free pages".) Called once
+// at init AFTER restore_recovery() loaded checkpoints into RAM. Every key here
+// is a recovery checkpoint; persist_run rewrites fresh state on the next state
+// change, and a missing checkpoint at boot is already handled gracefully
+// (SCHEDULE_SKIPPED). The erase is idempotent — on a healthy NVS it is a cheap
+// no-op commit. WiFi, calibration and scheduler namespaces are untouched.
+// Always logs, so the field log proves it ran.
+static void reclaim_recovery_nvs(void) {
+  nvs_handle_t h;
+  if (nvs_open(FERT_RECOVERY_NS, NVS_READWRITE, &h) != ESP_OK)
+    return;
+  (void)nvs_erase_key(h, FERT_RECOVERY_KEY);
+  for (int i = 0; i < FERT_MAX_PREPARATION_SLOTS; i++) {
+    char k[24];
+    snprintf(k, sizeof(k), FERT_RECOVERY_KEY_FMT, i);
+    (void)nvs_erase_key(h, k);
+  }
+  esp_err_t err = nvs_commit(h);
+  nvs_close(h);
+  nvs_stats_t st;
+  if (nvs_get_stats("nvs", &st) == ESP_OK) {
+    ESP_LOGI(TAG, "NVS recovery reclaim: commit=%s free=%u/%u entries",
+             esp_err_to_name(err), (unsigned)st.free_entries,
+             (unsigned)st.total_entries);
+  } else if (err != ESP_OK) {
+    ESP_LOGW(TAG, "NVS recovery reclaim commit failed (%s)",
+             esp_err_to_name(err));
+  }
+}
+
 esp_err_t fertigation_mgr_init(void) {
   if (s_mutex)
     return ESP_OK;
@@ -2476,6 +2670,8 @@ esp_err_t fertigation_mgr_init(void) {
     return ESP_ERR_NO_MEM;
   s_state = FERT_STATE_IDLE;
   (void)restore_recovery();
+  restore_delivery_slot();
+  reclaim_recovery_nvs();
   scan_today_runs_from_storage();
   if (s_state == FERT_STATE_RECOVERY_HOLD)
     (void)event_mgr_log_command(
@@ -2572,6 +2768,11 @@ esp_err_t fertigation_mgr_resume(void) {
     return ESP_ERR_INVALID_STATE;
   }
   s_resume_from_pool = true;
+  /* Resume memulai ulang anggaran max-runtime dari titik ini.
+   * s_run_start_ms dapat berisi timestamp basi yang dipulihkan dari NVS
+   * oleh restore_recovery_for_slot(); tanpa reset, watchdog langsung
+   * memicu MAX_RUNTIME_EXCEEDED palsu pada batch yang baru di-resume. */
+  s_run_start_ms = wallclock_ms();
   transition(FERT_STATE_MIXING);
   (void)event_mgr_log_command(
       LOG_LEVEL_INFO, "FERTIGATION_RESUMED",
@@ -2701,6 +2902,16 @@ esp_err_t fertigation_mgr_get_active_snapshot(cJSON **out) {
     cJSON_AddStringToObject(o, "lastTerminalFault", s_last_terminal.fault);
   else
     cJSON_AddNullToObject(o, "lastTerminalFault");
+  /* P2.1: alasan penolakan terakhir (parse maupun precheck) agar
+   * GET /api/v1/fertigation/status selalu membawa reason yang berguna. */
+  if (s_last_rejection_code[0])
+    cJSON_AddStringToObject(o, "rejectionCode", s_last_rejection_code);
+  else
+    cJSON_AddNullToObject(o, "rejectionCode");
+  if (s_last_rejection_component[0])
+    cJSON_AddStringToObject(o, "rejectionComponent", s_last_rejection_component);
+  else
+    cJSON_AddNullToObject(o, "rejectionComponent");
   cJSON_AddNumberToObject(o, "lastCompletedAtMs",
                           (double)s_last_terminal.completed_at_ms);
 
@@ -3080,6 +3291,7 @@ esp_err_t fertigation_mgr_trigger_distribution(const char *gh_id,
   }
 
   slot->state = DELIVERY_SLOT_DISTRIBUTING;
+  delivery_slot_note_state(slot);
   (void)event_mgr_log_command(
       LOG_LEVEL_INFO, "FERTIGATION_START",
       "Delivery to greenhouse distribution network started.", slot->run_id,
@@ -3112,6 +3324,11 @@ bool fertigation_mgr_is_gh_busy(const char *gh_id) {
       xSemaphoreGive(s_mutex);
       return true;
     }
+  }
+  /* P2.2: GH yang delivery-nya terinterupsi reboot diblokir sampai di-ack operator. */
+  if (s_delivery_interrupted_gh[0] && strcasecmp(s_delivery_interrupted_gh, gh_id) == 0) {
+    xSemaphoreGive(s_mutex);
+    return true;
   }
   xSemaphoreGive(s_mutex);
   return false;
@@ -3158,9 +3375,22 @@ esp_err_t fertigation_mgr_acknowledge_delivery(const char *gh_id,
         continue;
       slot_stop_all_actuators(&s_delivery_slots[i]);
       memset(&s_delivery_slots[i], 0, sizeof(s_delivery_slots[i]));
+      clear_delivery_slot_record();
       xSemaphoreGive(s_mutex);
       return ESP_OK;
     }
+  }
+  /* P2.2: tidak ada slot live, tapi GH ini terblokir akibat reboot —
+   * acknowledge operator membebaskan blokirnya. */
+  if (gh_id && gh_id[0] && s_delivery_interrupted_gh[0] &&
+      strcasecmp(s_delivery_interrupted_gh, gh_id) == 0) {
+    s_delivery_interrupted_gh[0] = '\0';
+    clear_delivery_slot_record();
+    (void)event_mgr_log_command(LOG_LEVEL_INFO, "DELIVERY_INTERRUPTED_ACKNOWLEDGED",
+        "Operator acknowledged reboot-interrupted delivery; greenhouse unblocked.",
+        "", "", gh_id, NULL, NULL, 0);
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
   }
   xSemaphoreGive(s_mutex);
   return ESP_ERR_NOT_FOUND;

@@ -690,25 +690,21 @@ export function SupportedEquipmentChecklist({
                     Alokasi:
                   </span>
 
-                  {eq.scope === "SHARED" ? (
-                    <span className="text-[11px] font-medium text-blue-300 bg-blue-950/40 border border-blue-800/30 px-2.5 py-1 rounded-lg">
-                      🏢 Shared Facility (Semua GH)
-                    </span>
-                  ) : (
-                    <select
-                      value={currentGhId || ""}
-                      onChange={(e) => changeAssignment(item.gpio, e.target.value || null)}
-                      disabled={isSaving}
-                      className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 outline-none focus:border-blue-500 cursor-pointer"
-                    >
-                      <option value="">🏢 Shared (Fasilitas Bersama)</option>
-                      {greenhouses.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          🌿 {g.code || g.greenhouseTag || g.id}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {/* Assignment Selector: selalu bisa diubah (Complex maupun GH) */}
+                  <select
+                    value={currentGhId || ""}
+                    onChange={(e) => changeAssignment(item.gpio, e.target.value || null)}
+                    disabled={isSaving}
+                    title="Ubah alokasi: pilih Complex (fasilitas bersama) atau GH tertentu"
+                    className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="">🏢 Shared (Fasilitas Bersama)</option>
+                    {greenhouses.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        🌿 {g.code || g.greenhouseTag || g.id}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

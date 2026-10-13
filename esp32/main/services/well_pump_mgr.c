@@ -25,6 +25,9 @@ static int64_t s_manual_start_us = 0;
 static uint32_t s_max_runtime_sec = WELL_PUMP_MAX_MANUAL_RUNTIME_SEC;
 static char s_stop_reason[48] = {0};
 static char s_active_schedule_id[40] = {0};
+/* P2.5: schedule-driven run tracking + 30-min cap latch */
+static int64_t s_schedule_start_us = 0;
+static bool s_schedule_cap_latched = false;
 static bool s_initialized = false;
 
 extern void telemetry_mgr_trigger_transition(const char *reason);
@@ -74,6 +77,8 @@ static void well_pump_monitor_task(void *pvParameters)
                     strncpy(s_stop_reason, e_stopped ? "SAFETY_ESTOP" : "SAFETY_LOCK", sizeof(s_stop_reason) - 1);
                 }
                 s_active_schedule_id[0] = '\0';
+                s_schedule_start_us = 0;
+                s_schedule_cap_latched = false;
                 ESP_LOGW(TAG, "Well Pump forced OFF by emergency stop / safety interlock.");
                 telemetry_mgr_trigger_transition("WELL_PUMP_SAFETY_STOP");
             }
@@ -81,7 +86,7 @@ static void well_pump_monitor_task(void *pvParameters)
             continue;
         }
 
-        /* 15-Minute Monotonic Runtime Limit Enforcement (Priority 2) */
+        /* 30-Minute Monotonic Runtime Limit Enforcement (Priority 2, P2.5) */
         if (s_manual_session_active) {
             if (!s_manual_started_during_schedule) {
                 time_t wall_now;
@@ -109,10 +114,31 @@ static void well_pump_monitor_task(void *pvParameters)
                 strncpy(s_stop_reason, "MANUAL_RUNTIME_LIMIT_REACHED", sizeof(s_stop_reason) - 1);
                 s_active_schedule_id[0] = '\0';
 
-                ESP_LOGW(TAG, "MANUAL_RUNTIME_LIMIT_REACHED: Well Pump automatically stopped after %u seconds (60-min limit).",
+                ESP_LOGW(TAG, "MANUAL_RUNTIME_LIMIT_REACHED: Well Pump automatically stopped after %u seconds (30-min limit).",
                          (unsigned)s_max_runtime_sec);
                 (void)event_mgr_log(LOG_LEVEL_WARNING, "ACTUATOR", "MANUAL_RUNTIME_LIMIT_REACHED",
-                                    "Well pump stopped: maximum manual runtime of 60 minutes reached.", "pump_well");
+                                    "Well pump stopped: maximum manual runtime of 30 minutes reached.", "pump_well");
+                telemetry_mgr_trigger_transition("WELL_PUMP_TIMEOUT");
+            }
+        }
+
+        /* P2.5: 30-minute cap untuk schedule-driven run (Priority 2b).
+         * Latch mencegah reconcile menyalakan ulang pompa sampai window jadwal berakhir. */
+        if (s_schedule_start_us != 0 && !s_manual_session_active &&
+            actuator_hal_get_state(ACTUATOR_WELL_PUMP)) {
+            int64_t now_us = esp_timer_get_time();
+            uint32_t elapsed_sec = (uint32_t)((now_us - s_schedule_start_us) / 1000000LL);
+            if (elapsed_sec >= WELL_PUMP_MAX_SCHEDULE_RUNTIME_SEC) {
+                well_pump_apply_relay(false, ACTUATOR_OWNER_SCHEDULER);
+                s_schedule_start_us = 0;
+                s_schedule_cap_latched = true;
+                s_active_schedule_id[0] = '\0';
+                s_schedule_inherited_manual_run = false;
+                strncpy(s_stop_reason, "SCHEDULE_RUNTIME_LIMIT_REACHED", sizeof(s_stop_reason) - 1);
+                ESP_LOGW(TAG, "SCHEDULE_RUNTIME_LIMIT_REACHED: Well Pump force-stopped after %u s (30-min schedule cap).",
+                         (unsigned)elapsed_sec);
+                (void)event_mgr_log(LOG_LEVEL_WARNING, "ACTUATOR", "SCHEDULE_RUNTIME_LIMIT_REACHED",
+                                    "Well pump stopped: maximum schedule runtime of 30 minutes reached.", "pump_well");
                 telemetry_mgr_trigger_transition("WELL_PUMP_TIMEOUT");
             }
         }
@@ -244,7 +270,7 @@ void well_pump_toggle_physical(void)
             s_max_runtime_sec = WELL_PUMP_MAX_MANUAL_RUNTIME_SEC;
             s_stop_reason[0] = '\0';
             strncpy(s_active_schedule_id, schedule_active ? schedule_id : "", sizeof(s_active_schedule_id) - 1);
-            ESP_LOGI(TAG, "Physical Toggle -> ON: Started 15-minute manual session.");
+            ESP_LOGI(TAG, "Physical Toggle -> ON: Started 30-minute manual session.");
             telemetry_mgr_trigger_transition("WELL_PUMP_PHYSICAL_ON");
         }
     } else {
@@ -305,14 +331,22 @@ esp_err_t well_pump_reconcile_schedule(time_t now)
             s_manual_started_during_schedule = false;
             s_schedule_inherited_manual_run = true;
         }
-        if (!currently_on) {
+        if (s_schedule_cap_latched) {
+            /* P2.5: cap 30 menit sudah tercapai utk window ini — jangan nyalakan ulang. */
+            if (currently_on) {
+                well_pump_apply_relay(false, ACTUATOR_OWNER_SCHEDULER);
+            }
+        } else if (!currently_on) {
             well_pump_apply_relay(true, ACTUATOR_OWNER_SCHEDULER);
+            s_schedule_start_us = esp_timer_get_time();
             ESP_LOGI(TAG, "Schedule activated: '%s' ON (%u s remaining).", sched_id, (unsigned)rem_sec);
             telemetry_mgr_trigger_transition("WELL_PUMP_AUTO_ON");
         }
         strncpy(s_active_schedule_id, sched_id, sizeof(s_active_schedule_id) - 1);
     } else {
         s_manual_schedule_suppression = false;
+        s_schedule_start_us = 0;
+        s_schedule_cap_latched = false;
         if (currently_on && !s_manual_session_active && s_active_schedule_id[0] != '\0') {
             well_pump_apply_relay(false, s_schedule_inherited_manual_run ? ACTUATOR_OWNER_MANUAL : ACTUATOR_OWNER_SCHEDULER);
             s_active_schedule_id[0] = '\0';

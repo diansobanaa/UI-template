@@ -12,10 +12,12 @@ import ResearchPage from "@/app/research/page";
 import ComplexOnboardingPage from "@/app/onboarding-complex";
 import EquipmentPage from "@/app/equipment/page";
 import StoragePage from "@/app/storage/page";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export default function App() {
   return (
     <RootLayout>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
@@ -32,6 +34,7 @@ export default function App() {
         <Route path="/storage" element={<StoragePage />} />
         <Route path="*" element={<ComplexOverviewPage />} />
       </Routes>
+      </ErrorBoundary>
     </RootLayout>
   );
 }

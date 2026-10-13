@@ -6,7 +6,7 @@ import { PythonClient } from "@/lib/api/python-client";
 import { isDirectEsp32Enabled } from "@/lib/api/backend-client";
 import { esp32Client } from "@/lib/api/esp32-client";
 import { getCanonicalBaselineComponents } from "@/lib/data/canonicalHardwareBaseline";
-import { complexService } from "@/lib/services";
+import { complexService, findGpioAssignmentConflicts } from "@/lib/services";
 import { Greenhouse } from "@/lib/types";
 
 export function InstalledComponentsList({ 
@@ -60,6 +60,10 @@ export function InstalledComponentsList({
             ? { ...c, assignment: { complexId: c.assignment?.complexId || complexId, ghId: transferTargetGh } }
             : c
         );
+        const gpioConflicts = findGpioAssignmentConflicts(updatedComponents);
+        if (gpioConflicts.length > 0) {
+          throw new Error(gpioConflicts.join(" "));
+        }
         await esp32Client.saveConfiguration({ ...configuration, components: updatedComponents });
       } else {
         const client = new PythonClient();
