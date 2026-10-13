@@ -43,6 +43,7 @@ import { GreenhouseArt } from "@/components/ui/GreenhouseArt";
 import { ConfirmDialog, Modal } from "@/components/ui/overlay";
 import { ScheduleContent } from "@/app/schedule/page";
 import { FertigationQueueDashboard } from "@/components/fertigation/FertigationQueueDashboard";
+import { GreenhouseTabs, type GreenhouseTabId } from "@/components/greenhouse/GreenhouseTabs";
 import { useToast } from "@/components/ui/toast";
 import { SensorRetryBadge } from "@/components/ui/SensorRetryBadge";
 import { complexService, cropCycleService, fertigationService, greenhouseService, telemetryService, sensorService } from "@/lib/services";
@@ -1233,6 +1234,7 @@ function GreenhouseContent() {
   const [lightingDrawerOpen, setLightingDrawerOpen] = useState(false);
   const [editLighting, setEditLighting] = useState<LightingSchedule | null>(null);
   const [blowerPending, setBlowerPending] = useState(false);
+  const [activeTab, setActiveTab] = useState<GreenhouseTabId>("fertigasi");
 
   // Industry-standard IoT State Sync (Home Assistant / AWS Shadow pattern):
   // 1. Zero HTTP polling: WebSocket pushes any state transition from physical button / schedule.
@@ -1687,11 +1689,16 @@ function GreenhouseContent() {
       </div>
 
       {/* ---------------- Crop lifecycle timeline — standalone ---------------- */}
+      <GreenhouseTabs active={activeTab} onChange={setActiveTab} />
+
+      {activeTab === "tanaman" && (
       <div className="w-full mt-0">
         <CropCycleTimeline gh={gh} display="timeline" onRefresh={() => cropCycleService.syncCycleFromEsp32(gh.id)} />
       </div>
+      )}
 
       {/* ---------------- Dosing Queue & Batch Execution Monitoring (Section 10.3 & 20) ---------------- */}
+      {activeTab === "fertigasi" && (
       <div className="w-full mt-5">
         <FertigationQueueDashboard
           complexId={gh.complexId}
@@ -1699,8 +1706,10 @@ function GreenhouseContent() {
           onOpenCreate={() => router(`/schedule?complex=${gh.complexId}&gh=${gh.id}`)}
         />
       </div>
+      )}
 
       {/* ---------------- Charts + plant data ---------------- */}
+      {activeTab === "lingkungan" && (
       <div>
         <SectionCard
           title="Environmental Conditions"
@@ -2165,9 +2174,11 @@ function GreenhouseContent() {
           </div>
         </SectionCard>
       </div>
+      )}
       </div>
 
       {/* Plant & Fruit Data */}
+      {activeTab === "tanaman" && (
       <div className="mt-5">
         <SectionCard className="gh-surface !border-0 !shadow-none bg-[#0b2027]"
           title="Plant & Fruit Data"
@@ -2226,9 +2237,11 @@ function GreenhouseContent() {
           )}
         </SectionCard>
       </div>
+      )}
 
 
       {/* ---------------- Sensor row ---------------- */}
+      {activeTab === "lingkungan" && (
       <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <div className="group rounded-none border-0 border-l-2 border-red-400 bg-[#0b2027]/85 p-4 shadow-none transition hover:bg-red-400/[0.06]">
           <div className="flex items-center justify-between">
@@ -2320,8 +2333,10 @@ function GreenhouseContent() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ---------------- Camera Monitoring ---------------- */}
+      {activeTab === "lingkungan" && (
       <SectionCard
         title="Camera Monitoring"
         icon={Camera}
@@ -2403,9 +2418,11 @@ function GreenhouseContent() {
           ))}
         </div>
       </SectionCard>
+      )}
 
 
       {/* ---------------- Fertigation row ---------------- */}
+      {activeTab === "fertigasi" && (
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
         {/* Current fertigation / tank */}
         {gh.currentRun ? (
@@ -2495,8 +2512,10 @@ function GreenhouseContent() {
           )}
         </SectionCard>
       </div>
+      )}
 
       {/* ---------------- Today's schedule + history ---------------- */}
+      {activeTab === "fertigasi" && (
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard className="gh-surface !border-0 !shadow-none bg-[#0b2027]"
           title="Today's Fertigation Schedule"
@@ -2569,11 +2588,15 @@ function GreenhouseContent() {
           )}
         </SectionCard>
       </div>
+      )}
 
       {/* ---------------- Complete greenhouse schedule ---------------- */}
+      {activeTab === "fertigasi" && (
       <ScheduleContent embedded selectedComplexId={complex.id} selectedGreenhouseId={gh.id} />
+      )}
 
       {/* ---------------- Plant overview + fruit development ---------------- */}
+      {activeTab === "tanaman" && (
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SectionCard className="gh-surface !border-0 !shadow-none bg-[#0b2027]" title="Plant Overview" icon={Sprout} iconTone="green">
           <div className="flex items-center gap-6">
@@ -2622,8 +2645,10 @@ function GreenhouseContent() {
           </div>
         </SectionCard>
       </div>
+      )}
 
       {/* ---------------- Actuators & Environmental Controls ---------------- */}
+      {activeTab === "peralatan" && (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Lighting Control Card */}
         <SectionCard
@@ -2855,8 +2880,10 @@ function GreenhouseContent() {
           </div>
         </SectionCard>
       </div>
+      )}
 
       {/* ---------------- Equipment ---------------- */}
+      {activeTab === "peralatan" && (
       <SectionCard className="gh-surface !border-0 !shadow-none bg-[#0b2027]" title="GH Hardware &amp; Capability" icon={Wrench} iconTone="slate" realtime={ghRealtimeState} subtitle="Dedicated hardware reported by the Complex controller">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-9">
           {equipmentCards.map((eq) => (
@@ -2890,6 +2917,7 @@ function GreenhouseContent() {
           ))}
         </div>
       </SectionCard>
+      )}
 
       {/* ---------------- Add Observation modal ---------------- */}
       {typeof document !== "undefined" &&
